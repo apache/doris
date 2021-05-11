@@ -79,7 +79,7 @@ under the License.
         create table test_uv(
         dt date,
         uv_set hll hll_union)
-        distributed by hash(id) buckets 32;
+        distributed by hash(dt) buckets 32;
 
         insert into test_uv select dt, set1 from test;
         
@@ -88,7 +88,7 @@ under the License.
         create table test_uv(
         dt date,
         id_set hll hll_union)
-        distributed by hash(id) buckets 32;
+        distributed by hash(dt) buckets 32;
         
         insert into test_uv select dt, hll_hash(id) from test;
             
