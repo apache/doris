@@ -35,6 +35,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -46,10 +50,12 @@ import com.google.common.collect.Table.Cell;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /*
@@ -65,6 +71,14 @@ public class TabletChecker extends MasterDaemon {
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
+
+    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>(){{
+        put("total", new AtomicLong(0L));
+        put("unhealthy", new AtomicLong(0L));
+        put("added", new AtomicLong(0L));
+        put("in_sched", new AtomicLong(0L));
+        put("not_ready", new AtomicLong(0L));
+    }};
 
     // db id -> (tbl id -> PrioPart)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
@@ -119,6 +133,22 @@ public class TabletChecker extends MasterDaemon {
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
         this.stat = stat;
+
+        initMetrics();
+    }
+
+    private void initMetrics() {
+        for (String status : tabletCountByStatus.keySet()) {
+            GaugeMetric<Long> gauge = new GaugeMetric<Long>("tablet_status_count",
+                    Metric.MetricUnit.NOUNIT, "tablet count on different status") {
+                @Override
+                public Long getValue() {
+                    return tabletCountByStatus.get(status).get();
+                }
+            };
+            gauge.addLabel(new MetricLabel("type", status));
+            MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
+        }
     }
 
     private void addPrios(RepairTabletInfo repairTabletInfo, long timeoutMs) {
@@ -272,6 +302,7 @@ public class TabletChecker extends MasterDaemon {
                         if (isInPrios(db.getId(), tbl.getId(), partition.getId())) {
                             continue;
                         }
+
                         LoopControlStatus st = handlePartitionTablet(db, tbl, partition, false,
                                 aliveBeIdsInCluster, start, counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
@@ -291,6 +322,12 @@ public class TabletChecker extends MasterDaemon {
         stat.counterTabletChecked.addAndGet(counter.totalTabletNum);
         stat.counterUnhealthyTabletNum.addAndGet(counter.unhealthyTabletNum);
         stat.counterTabletAddToBeScheduled.addAndGet(counter.addToSchedulerTabletNum);
+
+        tabletCountByStatus.get("unhealthy").set(counter.unhealthyTabletNum);
+        tabletCountByStatus.get("total").set(counter.totalTabletNum);
+        tabletCountByStatus.get("added").set(counter.addToSchedulerTabletNum);
+        tabletCountByStatus.get("in_sched").set(counter.tabletInScheduler);
+        tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
 
         LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
