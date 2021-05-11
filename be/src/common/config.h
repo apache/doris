@@ -247,7 +247,7 @@ CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 // lower write amplification, trading off read amplification and space amplification.
 CONF_mString(cumulative_compaction_policy, "size_based");
 CONF_Validator(cumulative_compaction_policy, [](const std::string config) -> bool {
-  return config == "size_based" || config == "num_based";
+    return config == "size_based" || config == "num_based";
 });
 
 // In size_based policy, output rowset of cumulative compaction total disk size exceed this config size,
@@ -289,14 +289,12 @@ CONF_Int32(max_meta_checkpoint_threads, "-1");
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
-CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10")
+CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
-CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool {
-  return config >= 2;
-});
+CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -597,9 +595,11 @@ CONF_mInt32(zone_map_row_num_threshold, "20");
 //    Trace = 6
 CONF_Int32(aws_log_level, "3");
 
+// the buffer size when read data from remote storage like s3
+CONF_mInt32(remote_storage_read_buffer_mb, "256");
+
 } // namespace config
 
 } // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H
-
