@@ -31,10 +31,7 @@ import static org.apache.doris.spark.util.ErrorMessages.ILLEGAL_ARGUMENT_MESSAGE
 import static org.apache.doris.spark.util.ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE;
 import static org.apache.doris.spark.util.ErrorMessages.SHOULD_NOT_HAPPEN_MESSAGE;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintWriter;
-import java.io.Serializable;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -127,27 +124,30 @@ public class RestService implements Serializable {
         for (int attempt = 0; attempt < retries; attempt++) {
             logger.debug("Attempt {} to request {}.", attempt, request.getURI());
             try {
-                HttpURLConnection conn = getConnection(request, user, password);
-                statusCode = conn.getResponseCode();
-                if (statusCode != HttpStatus.SC_OK) {
+                String response;
+                if(request instanceof HttpGet){
+                    response = getConnectionGet(request.getURI().toString(), user, password,logger);
+                }else{
+                    response = getConnection(request,user, password,logger);
+                }
+                if (response == null) {
                     logger.warn("Failed to get response from Doris FE {}, http code is {}",
                             request.getURI(), statusCode);
                     continue;
                 }
-                InputStream stream = (InputStream) conn.getContent();
-                String res = IOUtils.toString(stream);
+
                 logger.trace("Success get response from Doris FE: {}, response is: {}.",
-                        request.getURI(), res);
+                        request.getURI(), response);
 
                 ObjectMapper mapper = new ObjectMapper();
 
-                Map map = mapper.readValue(res, Map.class);
+                Map map = mapper.readValue(response, Map.class);
                 //Handle the problem of inconsistent data format returned by http v1 and v2
                 if(map.containsKey("code") && map.containsKey("msg")) {
                     Object data = map.get("data");
                     return mapper.writeValueAsString(data);
                 } else {
-                    return res;
+                    return response;
                 }
             } catch (IOException e) {
                 ex = e;
@@ -159,32 +159,53 @@ public class RestService implements Serializable {
         throw new ConnectedFailedException(request.getURI().toString(), statusCode, ex);
     }
 
+    private static String getConnectionGet(String request,String user, String passwd,Logger logger) throws IOException {
+        URL realUrl = new URL(request);
+        // open connection
+        HttpURLConnection connection = (HttpURLConnection)realUrl.openConnection();
+        String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        connection.setRequestProperty("Authorization", "Basic " + authEncoding);
 
-    /**
-     * Get http connection
-     * @param request
-     * @param user
-     * @param passwd
-     * @return
-     * @throws IOException
-     */
-    private static HttpURLConnection getConnection(HttpRequestBase request, String user, String passwd) throws IOException {
+        connection.connect();
+        return parseResponse(connection,logger);
+    }
+
+    private static String parseResponse(HttpURLConnection connection,Logger logger) throws IOException {
+        if (connection.getResponseCode() != HttpStatus.SC_OK) {
+            logger.warn("Failed to get response from Doris  {}, http code is {}",
+                    connection.getURL(), connection.getResponseCode());
+            throw new IOException("Failed to get response from Doris");
+        }
+        String result = "";
+        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), "utf-8"));
+        String line;
+        while ((line = in.readLine()) != null) {
+            result += line;
+        }
+        if (in != null) {
+            in.close();
+        }
+        return result;
+    }
+
+    private static String getConnection(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
         URL url = new URL(request.getURI().toString());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod(request.getMethod());
         String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
-
-        InputStream content = ((HttpPost) request).getEntity().getContent();
-        String s = IOUtils.toString(content);
-
+        InputStream content = ((HttpPost)request).getEntity().getContent();
+        String res = IOUtils.toString(content);
         conn.setDoOutput(true);
         conn.setDoInput(true);
         PrintWriter out = new PrintWriter(conn.getOutputStream());
-        out.print(s);
+        // send request params
+        out.print(res);
+        // flush
         out.flush();
-        return conn;
+        // read response
+        return parseResponse(conn,logger);
     }
     /**
      * parse table identifier to array.

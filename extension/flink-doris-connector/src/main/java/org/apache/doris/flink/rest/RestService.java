@@ -126,6 +126,11 @@ public class RestService implements Serializable {
                 }else{
                     response = getConnection(request,  options.getUsername(), options.getPassword(),logger);
                 }
+                if (response == null) {
+                    logger.warn("Failed to get response from Doris FE {}, http code is {}",
+                            request.getURI(), statusCode);
+                    continue;
+                }
                 logger.trace("Success get response from Doris FE: {}, response is: {}.",
                         request.getURI(), response);
                 //Handle the problem of inconsistent data format returned by http v1 and v2
@@ -154,7 +159,6 @@ public class RestService implements Serializable {
         conn.setRequestMethod(request.getMethod());
         String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
-
         InputStream content = ((HttpPost)request).getEntity().getContent();
         String res = IOUtils.toString(content);
         conn.setDoOutput(true);
