@@ -47,7 +47,7 @@ class ColumnIterator;
 
 class SegmentIterator : public RowwiseIterator {
 public:
-    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema, std::shared_ptr<MemTracker> parent);
     ~SegmentIterator() override;
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
@@ -118,6 +118,8 @@ private:
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<ColumnPredicate*> _col_predicates;
+
+    int16_t** _select_vec;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`

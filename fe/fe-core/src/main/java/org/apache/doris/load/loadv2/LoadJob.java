@@ -32,6 +32,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -163,13 +164,21 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
 
         public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
-                long rows, boolean isDone) {
+                                                    long rows, boolean isDone) {
             if (counterTbl.contains(loadId, fragmentId)) {
                 counterTbl.put(loadId, fragmentId, rows);
             }
             if (isDone && unfinishedBackendIds.containsKey(loadId)) {
                 unfinishedBackendIds.get(loadId).remove(backendId);
             }
+        }
+
+        public synchronized long getScannedRows() {
+            long total = 0;
+            for (long rows : counterTbl.values()) {
+                total += rows;
+            }
+            return total;
         }
 
         public synchronized String toJson() {
@@ -243,6 +252,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public long getDbId() {
         return dbId;
     }
+
     public String getLabel() {
         return label;
     }
@@ -305,6 +315,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * The method is invoked by 'checkAuth' when authorization info is null in job.
      * Also it is invoked by 'gatherAuthInfo' which saves the auth info in the constructor of job.
      * Throw MetaNofFoundException when table name could not be found.
+     *
      * @return
      */
     abstract Set<String> getTableNames() throws MetaNotFoundException;
@@ -378,20 +389,20 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
     }
 
     /**
      * create pending task for load job and add pending task into pool
      * if job has been cancelled, this step will be ignored
      *
-     * @throws LabelAlreadyUsedException the job is duplicated
-     * @throws BeginTransactionException the limit of load job is exceeded
-     * @throws AnalysisException there are error params in job
-     * @throws DuplicatedRequestException 
+     * @throws LabelAlreadyUsedException  the job is duplicated
+     * @throws BeginTransactionException  the limit of load job is exceeded
+     * @throws AnalysisException          there are error params in job
+     * @throws DuplicatedRequestException
      */
     public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         writeLock();
         try {
             unprotectedExecute();
@@ -401,7 +412,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;
@@ -513,15 +524,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
             if (isCommitting) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("error_msg", "The txn which belongs to job is committing. "
-                                         + "The job could not be cancelled in this step").build());
+                        .add("error_msg", "The txn which belongs to job is committing. "
+                                + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                                 .add("state", state)
-                                 .add("error_msg", "Job could not be cancelled when job is " + state)
-                                 .build());
+                        .add("state", state)
+                        .add("error_msg", "Job could not be cancelled when job is " + state)
+                        .build());
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
 
@@ -539,9 +550,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             return;
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
-                                                                       PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                           PaloPrivilege.LOAD_PRIV);
+                    PaloPrivilege.LOAD_PRIV);
         }
     }
 
@@ -563,18 +574,18 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (tableNames.isEmpty()) {
                 // forward compatibility
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                                                                       PrivPredicate.LOAD)) {
+                        PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                   PaloPrivilege.LOAD_PRIV);
+                            PaloPrivilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                                                            tblName, PrivPredicate.LOAD)) {
+                            tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                                       command,
-                                                       ConnectContext.get().getQualifiedUser(),
-                                                       ConnectContext.get().getRemoteIP(), tblName);
+                                command,
+                                ConnectContext.get().getQualifiedUser(),
+                                ConnectContext.get().getRemoteIP(), tblName);
                     }
                 }
             }
@@ -587,8 +598,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * This method will cancel job without edit log and lock
      *
      * @param failMsg
-     * @param abortTxn
-     *            true: abort txn when cancel job, false: only change the state of job and ignore abort txn
+     * @param abortTxn true: abort txn when cancel job, false: only change the state of job and ignore abort txn
      */
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("transaction_id", transactionId)
@@ -600,8 +610,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // get load ids of all loading tasks, we will cancel their coordinator process later
         List<TUniqueId> loadIds = Lists.newArrayList();
         for (LoadTask loadTask : idToTasks.values()) {
-            if (loadTask instanceof LoadLoadingTask ) {
-                loadIds.add(((LoadLoadingTask)loadTask).getLoadId());
+            if (loadTask instanceof LoadLoadingTask) {
+                loadIds.add(((LoadLoadingTask) loadTask).getLoadId());
             }
         }
         idToTasks.clear();
@@ -622,9 +632,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // abort txn
             try {
                 LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                                  .add("transaction_id", transactionId)
-                                  .add("msg", "begin to abort txn")
-                                  .build());
+                        .add("transaction_id", transactionId)
+                        .add("msg", "begin to abort txn")
+                        .build());
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -633,7 +643,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                         .build());
             }
         }
-        
+
         // cancel all running coordinators, so that the scheduler's worker thread will be released
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
@@ -677,7 +687,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected void logFinalOperation() {
         Catalog.getCurrentCatalog().getEditLog().logEndLoadJob(
                 new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
-                                          state, failMsg));
+                        state, failMsg));
     }
 
     public void unprotectReadEndOperation(LoadJobFinalOperation loadJobFinalOperation) {
@@ -731,7 +741,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // task info
             jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
                                 + "; max_filter_ratio:" + getMaxFilterRatio());
-
             // error msg
             if (failMsg == null) {
                 jobInfo.add(FeConstants.null_string);
@@ -904,6 +913,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
         replayTxnAttachment(txnState);
         updateState(JobState.FINISHED);
+        auditFinishedLoadJob();
     }
 
     @Override
@@ -951,10 +961,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         LoadJob other = (LoadJob) obj;
 
         return this.id == other.id
-        && this.dbId == other.dbId
-        && this.label.equals(other.label)
-        && this.state.equals(other.state)
-        && this.jobType.equals(other.jobType);
+                && this.dbId == other.dbId
+                && this.label.equals(other.label)
+                && this.state.equals(other.state)
+                && this.jobType.equals(other.jobType);
     }
 
     @Override
@@ -1098,6 +1108,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         loadStartTimestamp = info.getLoadStartTimestamp();
     }
 
+    protected void auditFinishedLoadJob() {}
+
     public static class LoadJobStateUpdateInfo implements Writable {
         @SerializedName(value = "jobId")
         private long jobId;
@@ -1180,4 +1192,18 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public int getLoadParallelism() {
         return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
     }
+
+    // Return true if this job is finished for a long time
+    public boolean isExpired(long currentTimeMs) {
+        if (!isCompleted()) {
+            return false;
+        }
+        long expireTime = Config.label_keep_max_second;
+        if (jobType == EtlJobType.INSERT) {
+            expireTime = Config.streaming_label_keep_max_second;
+        }
+
+        return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
+    }
+
 }

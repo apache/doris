@@ -553,7 +553,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
-    private void replayPending(RollupJobV2 replayedJob) {
+    private void replayCreateJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -602,7 +602,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayWaitingTxn(RollupJobV2 replayedJob) {
+    private void replayPendingJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             // database may be dropped before replaying this log. just return
@@ -633,7 +633,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
-    private void replayFinished(RollupJobV2 replayedJob) {
+    private void replayRunningJob(RollupJobV2 replayedJob) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db != null) {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -670,13 +670,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
         switch (replayedJob.jobState) {
             case PENDING:
-                replayPending(replayedRollupJob);
+                replayCreateJob(replayedRollupJob);
                 break;
             case WAITING_TXN:
-                replayWaitingTxn(replayedRollupJob);
+                replayPendingJob(replayedRollupJob);
                 break;
             case FINISHED:
-                replayFinished(replayedRollupJob);
+                replayRunningJob(replayedRollupJob);
                 break;
             case CANCELLED:
                 replayCancelled(replayedRollupJob);
@@ -815,8 +815,16 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
                                                         SqlModeHelper.MODE_DEFAULT));
         ConnectContext connectContext = new ConnectContext();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        connectContext.setDatabase(Catalog.getCurrentCatalog().getDb(dbId).getFullName());
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        String clusterName = db.getClusterName();
+        // It's almost impossible that db's cluster name is null, just in case
+        // because before user want to create database, he must first enter a cluster which means that cluster is set to current ConnectContext
+        // then when createDBStmt is executed, cluster name is set to Database
+        if (clusterName == null || clusterName.length() == 0) {
+            clusterName = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        connectContext.setCluster(clusterName);
+        connectContext.setDatabase(db.getFullName());
         Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         CreateMaterializedViewStmt stmt = null;
         try {

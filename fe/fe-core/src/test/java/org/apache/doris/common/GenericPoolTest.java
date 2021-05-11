@@ -45,6 +45,7 @@ import org.apache.doris.thrift.TScanOpenParams;
 import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
@@ -216,6 +217,12 @@ public class GenericPoolTest {
 
         @Override
         public TScanCloseResult closeScanner(TScanCloseParams params) throws TException {
+            return null;
+        }
+
+        @Override
+        public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
+            // TODO Auto-generated method stub
             return null;
         }
     }

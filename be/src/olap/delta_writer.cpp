@@ -44,7 +44,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& p
           _tablet_schema(nullptr),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _mem_tracker(MemTracker::CreateTracker(-1, "DeltaWriter", parent)) {}
+          _parent_mem_tracker(parent) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -101,12 +101,14 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
+    _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
+                                             _parent_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << _tablet->full_name();
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return OLAP_ERR_TOO_MANY_VERSION;
     }
 
     {
@@ -162,6 +164,7 @@ OLAPStatus DeltaWriter::init() {
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
     writer_context.segments_overlap = OVERLAPPING;
+    writer_context.parent_mem_tracker = _mem_tracker;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
@@ -176,8 +179,15 @@ OLAPStatus DeltaWriter::init() {
 }
 
 OLAPStatus DeltaWriter::write(Tuple* tuple) {
-    if (!_is_init) {
+    std::lock_guard<SpinLock> l(_lock); 
+    if (!_is_init && !_is_cancelled) {
         RETURN_NOT_OK(init());
+    }
+
+    if (_is_cancelled) {
+        // The writer may be cancelled at any time by other thread.
+        // just return ERROR if writer is cancelled.
+        return OLAP_ERR_ALREADY_CANCELLED;
     }
 
     _mem_table->insert(tuple);
@@ -196,7 +206,20 @@ OLAPStatus DeltaWriter::_flush_memtable_async() {
     return _flush_token->submit(_mem_table);
 }
 
-OLAPStatus DeltaWriter::flush_memtable_and_wait() {
+OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
+    std::lock_guard<SpinLock> l(_lock); 
+    if (!_is_init) {
+        // This writer is not initialized before flushing. Do nothing
+        // But we return OLAP_SUCCESS instead of OLAP_ERR_ALREADY_CANCELLED,
+        // Because this method maybe called when trying to reduce mem consumption,
+        // and at that time, the writer may not be initialized yet and that is a normal case.
+        return OLAP_SUCCESS;
+    }
+    
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
+
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
@@ -208,7 +231,24 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
         DCHECK(mem_consumption() > _mem_table->memory_usage());
         // this means there should be at least one memtable in flush queue.
     }
-    // wait all memtables in flush queue to be flushed.
+
+    if (need_wait) {
+        // wait all memtables in flush queue to be flushed.
+        RETURN_NOT_OK(_flush_token->wait());
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus DeltaWriter::wait_flush() {
+    std::lock_guard<SpinLock> l(_lock); 
+    if (!_is_init) {
+        // return OLAP_SUCCESS instead of OLAP_ERR_ALREADY_CANCELLED for same reason
+        // as described in flush_memtable_and_wait()
+        return OLAP_SUCCESS;
+    }
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
     RETURN_NOT_OK(_flush_token->wait());
     return OLAP_SUCCESS;
 }
@@ -220,7 +260,8 @@ void DeltaWriter::_reset_mem_table() {
 }
 
 OLAPStatus DeltaWriter::close() {
-    if (!_is_init) {
+    std::lock_guard<SpinLock> l(_lock); 
+    if (!_is_init && !_is_cancelled) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
         // in same partition has data loaded.
@@ -229,14 +270,24 @@ OLAPStatus DeltaWriter::close() {
         RETURN_NOT_OK(init());
     }
 
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
+
     RETURN_NOT_OK(_flush_memtable_async());
     _mem_table.reset();
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+    std::lock_guard<SpinLock> l(_lock); 
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
+
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
+
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
     DCHECK_EQ(_mem_tracker->consumption(), 0);
@@ -257,8 +308,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     if (_new_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
-        SchemaChangeHandler schema_change;
-        res = schema_change.schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
+        auto schema_change_handler = SchemaChangeHandler::instance();
+        res = schema_change_handler->schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
                                                    &_new_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
@@ -290,12 +341,13 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
+    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    if (!_is_init) {
+    std::lock_guard<SpinLock> l(_lock); 
+    if (!_is_init || _is_cancelled) {
         return OLAP_SUCCESS;
     }
     _mem_table.reset();
@@ -304,6 +356,7 @@ OLAPStatus DeltaWriter::cancel() {
         _flush_token->cancel();
     }
     DCHECK_EQ(_mem_tracker->consumption(), 0);
+    _is_cancelled = true;
     return OLAP_SUCCESS;
 }
 

@@ -49,7 +49,7 @@ TEST(ThreadResourceMgr, BasicTest) {
 
     ThreadResourceMgr::ResourcePool* c1 = mgr.register_pool();
     c1->set_thread_available_cb(
-            boost::bind<void>(boost::mem_fn(&NotifiedCounter::Notify), &counter1, _1));
+            std::bind<void>(std::mem_fn(&NotifiedCounter::Notify), &counter1, _1));
     c1->acquire_thread_token();
     c1->acquire_thread_token();
     c1->acquire_thread_token();
@@ -76,7 +76,7 @@ TEST(ThreadResourceMgr, BasicTest) {
     // Register a new consumer, quota is cut in half
     ThreadResourceMgr::ResourcePool* c2 = mgr.register_pool();
     c2->set_thread_available_cb(
-            boost::bind<void>(boost::mem_fn(&NotifiedCounter::Notify), &counter2, _1));
+            std::bind<void>(std::mem_fn(&NotifiedCounter::Notify), &counter2, _1));
     EXPECT_FALSE(c1->try_acquire_thread_token());
     EXPECT_EQ(c1->num_threads(), 3);
     c1->acquire_thread_token();

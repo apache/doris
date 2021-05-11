@@ -24,8 +24,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <boost/filesystem.hpp>
-#include <boost/system/error_code.hpp>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 
@@ -45,10 +44,10 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
         return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", path));
     }
 
-    boost::filesystem::path p(path);
+    std::filesystem::path p(path);
 
     std::string partial_path;
-    for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
+    for (std::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
         partial_path = partial_path + it->string() + "/";
         bool is_dir = false;
 
@@ -84,10 +83,10 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
-    boost::filesystem::path boost_path(file_path);
-    boost::system::error_code ec;
-    boost::filesystem::remove_all(boost_path, ec);
-    if (ec != boost::system::errc::success) {
+    std::filesystem::path boost_path(file_path);
+    std::error_code ec;
+    std::filesystem::remove_all(boost_path, ec);
+    if (ec) {
         std::stringstream ss;
         ss << "remove all(" << file_path << ") failed, because: " << ec;
         return Status::InternalError(ss.str());

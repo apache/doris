@@ -39,6 +39,7 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/utils.h"
+#include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -48,6 +49,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -69,18 +71,46 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-static TFileFormatType::type parse_format(const std::string& format_str) {
-    if (boost::iequals(format_str, "CSV")) {
-        return TFileFormatType::FORMAT_CSV_PLAIN;
-    } else if (boost::iequals(format_str, "JSON")) {
-        return TFileFormatType::FORMAT_JSON;
+static TFileFormatType::type parse_format(const std::string& format_str,
+                                          const std::string& compress_type) {
+    if (format_str.empty()) {
+        return parse_format("CSV", compress_type);
     }
-    return TFileFormatType::FORMAT_UNKNOWN;
+    TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
+    if (boost::iequals(format_str, "CSV")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+        }
+        if (boost::iequals(compress_type, "GZ")) {
+            format_type = TFileFormatType::FORMAT_CSV_GZ;
+        } else if (boost::iequals(compress_type, "LZO")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZO;
+        } else if (boost::iequals(compress_type, "BZ2")) {
+            format_type = TFileFormatType::FORMAT_CSV_BZ2;
+        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
+        } else if (boost::iequals(compress_type, "LZOP")) {
+            format_type = TFileFormatType::FORMAT_CSV_LZOP;
+        } else if (boost::iequals(compress_type, "DEFLATE")) {
+            format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
+        }
+    } else if (boost::iequals(format_str, "JSON")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_JSON;
+        }
+    }
+    return format_type;
 }
 
 static bool is_format_support_streaming(TFileFormatType::type format) {
     switch (format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZO:
+    case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
         return true;
     default:
@@ -115,7 +145,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
                          << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
-    ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
+    ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
@@ -131,10 +161,15 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-
+#ifndef BE_TEST
+    if (config::enable_stream_load_record) {
+        str = ctx->prepare_stream_load_record(str);
+        _sava_stream_load_record(ctx, str);
+    }
+#endif
     // update statstics
     streaming_load_requests_total->increment(1);
-    streaming_load_duration_ms->increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_duration_ms->increment(ctx->load_cost_millis);
     streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
@@ -201,6 +236,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
+#ifndef BE_TEST
+        str = ctx->prepare_stream_load_record(str);
+        _sava_stream_load_record(ctx, str);
+#endif
         return -1;
     }
     return 0;
@@ -214,15 +253,15 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
 
     // get format of this put
-    if (http_req->header(HTTP_FORMAT_KEY).empty()) {
-        ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
-    } else {
-        ctx->format = parse_format(http_req->header(HTTP_FORMAT_KEY));
-        if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-            std::stringstream ss;
-            ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
-            return Status::InternalError(ss.str());
-        }
+    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() && boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+        return Status::InternalError("compress data of JSON format is not supported.");
+    }
+    ctx->format =
+            parse_format(http_req->header(HTTP_FORMAT_KEY), http_req->header(HTTP_COMPRESS_TYPE));
+    if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
+        std::stringstream ss;
+        ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
+        return Status::InternalError(ss.str());
     }
 
     // check content length
@@ -347,6 +386,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     if (!http_req->header(HTTP_COLUMN_SEPARATOR).empty()) {
         request.__set_columnSeparator(http_req->header(HTTP_COLUMN_SEPARATOR));
+    }
+    if (!http_req->header(HTTP_LINE_DELIMITER).empty()) {
+        request.__set_line_delimiter(http_req->header(HTTP_LINE_DELIMITER));
     }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
@@ -500,6 +542,19 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     ss << prefix << "/" << req->param(HTTP_TABLE_KEY) << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
     return Status::OK();
+}
+
+void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
+        std::string key = std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
+        auto st = stream_load_recorder->put(key, str);
+        if (st.ok()) {
+            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
+        }
+    } else {
+        LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
+    }
 }
 
 } // namespace doris

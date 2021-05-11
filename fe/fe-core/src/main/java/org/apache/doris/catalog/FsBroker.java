@@ -63,7 +63,7 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
                 isAlive = true;
                 isChanged = true;
                 lastStartTime = hbResponse.getHbTime();
-            } else if (lastStartTime == -1) {
+            } else if (lastStartTime <= 0) {
                 lastStartTime = hbResponse.getHbTime();
             }
             lastUpdateTime = hbResponse.getHbTime();

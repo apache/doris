@@ -44,6 +44,10 @@ public class MysqlAuthPacket extends MysqlPacket {
         return authResponse;
     }
 
+    public void setAuthResponse(byte[] bytes) {
+        authResponse = bytes;
+    }
+
     public String getDb() {
         return database;
     }
@@ -54,6 +58,10 @@ public class MysqlAuthPacket extends MysqlPacket {
 
     public MysqlCapability getCapability() {
         return capability;
+    }
+
+    public String getPluginName() {
+        return pluginName;
     }
 
     @Override

@@ -17,11 +17,14 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MasterDaemon;
@@ -63,16 +66,22 @@ public class LoadJobScheduler extends MasterDaemon {
 
     private void process() throws InterruptedException {
         while (true) {
-            // take one load job from queue
-            LoadJob loadJob = needScheduleJobs.poll();
-            if (loadJob == null) {
+            if (!needScheduleJobs.isEmpty()) {
+                if (needScheduleJobs.peek() instanceof BrokerLoadJob && Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().isTaskQueueFull()) {
+                    LOG.warn("Failed to take one broker load job from queue because of task queue in loading_load_task_scheduler is full");
+                    return;
+                }
+            } else {
                 return;
             }
+
+            // take one load job from queue
+            LoadJob loadJob = needScheduleJobs.poll();
 
             // schedule job
             try {
                 loadJob.execute();
-            } catch (LabelAlreadyUsedException | AnalysisException e) {
+            } catch (LabelAlreadyUsedException | AnalysisException | MetaNotFoundException | QuotaExceedException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
                                  .add("error_msg", "There are error properties in job. Job will be cancelled")
                                  .build(), e);

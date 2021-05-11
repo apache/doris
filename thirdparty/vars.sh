@@ -152,10 +152,10 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
-RAPIDJSON_NAME=rapidjson-1.1.0.tar.gz
-RAPIDJSON_SOURCE=rapidjson-1.1.0
-RAPIDJSON_MD5SUM="badd12c511e081fec6c89c43a7027bce"
+RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
+RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
+RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
+RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
 
 # curl
 CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.1.tar.gz"
@@ -170,22 +170,16 @@ RE2_SOURCE=re2-2017-05-01
 RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
-BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
-BOOST_NAME=boost_1_64_0.tar.gz
-BOOST_SOURCE=boost_1_64_0
-BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
+BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.73.0/source/boost_1_73_0.tar.gz"
+BOOST_NAME=boost_1_73_0.tar.gz
+BOOST_SOURCE=boost_1_73_0
+BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
 
 # mysql
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
 MYSQL_NAME=mysql-5.7.18.tar.gz
 MYSQL_SOURCE=mysql-server-mysql-5.7.18
 MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
-
-# boost for mysql
-BOOST_FOR_MYSQL_DOWNLOAD="http://sourceforge.net/projects/boost/files/boost/1.59.0/boost_1_59_0.tar.gz"
-BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
-BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
-BOOST_FOR_MYSQL_MD5SUM="51528a0e3b33d9e10aaa311d9eb451e3"
 
 # unix odbc
 ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
@@ -200,10 +194,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.5.tar.gz"
-BRPC_NAME=incubator-brpc-0.9.5.tar.gz
-BRPC_SOURCE=incubator-brpc-0.9.5
-BRPC_MD5SUM="c9f46e4c97a9cd5f836ba2c6c56978dd"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.7.tar.gz"
+BRPC_NAME=incubator-brpc-0.9.7.tar.gz
+BRPC_SOURCE=incubator-brpc-0.9.7
+BRPC_MD5SUM="a5b79339d139d1c55d39689c0a69bcef"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -264,6 +258,13 @@ CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.2.
 CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.2.60
 CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
+
+# fmt
+FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
+FMT_NAME="fmt-7.1.3.tar.gz"
+FMT_SOURCE="fmt-7.1.3"
+FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
+
 # ORC
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.5.8/orc-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
@@ -283,10 +284,10 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.23"
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.24"
 DATATABLES_NAME="DataTables.zip"
-DATATABLES_SOURCE="DataTables-1.10.23"
-DATATABLES_MD5SUM="f7f18a9f39d692ec33b5536bff617232"
+DATATABLES_SOURCE="DataTables-1.10.24"
+DATATABLES_MD5SUM="22404292d02cf3c5f4cd9f5a02d4b42c"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
@@ -327,8 +328,8 @@ AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
 # aws-s2n
 AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
 AWS_S2N_NAME="s2n-0.10.0.tar.gz"
-AWS_S2N_SOURCE="s2n-0.10.0"
-AWS_S2N_MD5SUM="9b3b39803b7090c2bd937f9cc73bc03f"
+AWS_S2N_SOURCE="s2n-tls-0.10.0"
+AWS_S2N_MD5SUM="345aa5d2f9e82347bb3e568c22104d0e"
 
 # aws-c-cal
 AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
@@ -347,6 +348,30 @@ TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanit
 TSAN_HEADER_NAME="tsan_interface_atomic.h"
 TSAN_HEADER_FILE="tsan_interface_atomic.h"
 TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
+
+# lzma
+LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"
+LZMA_NAME="liblzma-master.zip"
+LZMA_SOURCE="liblzma-master"
+LZMA_MD5SUM="ef11f2fbbfa6893b629f207a32bf730e"
+
+# xml2
+XML2_DOWNLOAD="https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.10/libxml2-v2.9.10.tar.gz"
+XML2_NAME="libxml2-v2.9.10.tar.gz"
+XML2_SOURCE="libxml2-v2.9.10"
+XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
+
+# gsasl
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
+GSASL_NAME="libgsasl-1.10.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.10.0"
+GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
+
+# hdfs3
+HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
+HDFS3_NAME="libhdfs3-master.zip"
+HDFS3_SOURCE="libhdfs3-master"
+HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
@@ -370,7 +395,6 @@ CURL
 RE2
 BOOST
 MYSQL
-BOOST_FOR_MYSQL
 ODBC
 LEVELDB
 BRPC
@@ -384,6 +408,7 @@ ZSTD
 S2
 BITSHUFFLE
 CROARINGBITMAP
+FMT
 ORC
 JEMALLOC
 CCTZ
@@ -398,4 +423,8 @@ AWS_C_CAL
 AWS_C_IO
 AWS_CHECKSUMS
 AWS_S2N
-AWS_SDK"
+AWS_SDK
+LZMA
+XML2
+GSASL
+HDFS3"

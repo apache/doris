@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import avro.shaded.com.google.common.collect.Lists;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -31,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -42,11 +44,10 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.plugin.AuditEvent.EventType;
-import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.proto.Data;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -106,16 +107,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
         
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
             .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-            .setScanBytes(statistics == null ? 0 : statistics.scan_bytes)
-            .setScanRows(statistics == null ? 0 : statistics.scan_rows)
-            .setCpuTimeMs(statistics == null ? 0 : statistics.cpu_ms)
+            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
@@ -180,9 +181,12 @@ public class ConnectProcessor {
 
         // execute this query.
         StatementBase parsedStmt = null;
+        List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
+        boolean alreadyAddedToAuditInfoList = false;
         try {
             List<StatementBase> stmts = analyze(originStmt);
             for (int i = 0; i < stmts.size(); ++i) {
+                alreadyAddedToAuditInfoList = false;
                 ctx.getState().reset();
                 if (i > 0) {
                     ctx.resetReturnRows();
@@ -198,6 +202,8 @@ public class ConnectProcessor {
                     ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
                     finalizeCommand();
                 }
+                auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+                alreadyAddedToAuditInfoList = true;
             }
         } catch (IOException e) {
             // Client failed.
@@ -219,20 +225,24 @@ public class ConnectProcessor {
             }
         }
 
+        // that means execute some statement failed
+        if (!alreadyAddedToAuditInfoList && executor != null) {
+            auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
+        }
+
         // audit after exec
-        // replace '\n' to '\\n' to make string in one line
-        // TODO(cmy): when user send multi-statement, the executor is the last statement's executor.
-        // We may need to find some way to resolve this.
-        if (executor != null) {
-            auditAfterExec(originStmt.replace("\n", " "), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+        if (!auditInfoList.isEmpty()) {
+            for (Pair<StatementBase, Data.PQueryStatistics> audit : auditInfoList) {
+                auditAfterExec(originStmt.replace("\n", " "), audit.first, audit.second);
+            }
         } else {
-            // executor can be null if we encounter analysis error.
+            // auditInfoList can be empty if we encounter analysis error.
             auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
 
     // analyze the origin stmt and return multi-statements
-    private List<StatementBase> analyze(String originStmt) throws AnalysisException {
+    private List<StatementBase> analyze(String originStmt) throws AnalysisException, DdlException {
         LOG.debug("the originStmts are: {}", originStmt);
         // Parse statement with parser generated by CUP&FLEX
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
@@ -241,9 +251,9 @@ public class ConnectProcessor {
             return SqlParserUtils.getMultiStmts(parser);
         } catch (Error e) {
             throw new AnalysisException("Please check your sql, we meet an error when parsing.", e);
-        } catch (AnalysisException e) {
-            LOG.warn("origin_stmt: " + originStmt + "; Analyze error message: " + parser.getErrorMsg(originStmt), e);
+        } catch (AnalysisException | DdlException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
+            LOG.debug("origin stmt: {}; Analyze error message: {}", originStmt, parser.getErrorMsg(originStmt), e);
             if (errorMessage == null) {
                 throw e;
             } else {
@@ -252,7 +262,7 @@ public class ConnectProcessor {
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
-            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug, please contact with Palo RD.");
+            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug");
         }
     }
 
@@ -398,47 +408,42 @@ public class ConnectProcessor {
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }
-        if (request.isSetTimeZone()) {
-            ctx.getSessionVariable().setTimeZone(request.getTimeZone());
-        }
         if (request.isSetStmtId()) {
             ctx.setForwardedStmtId(request.getStmtId());
-        }
-        if (request.isSetSqlMode()) {
-            ctx.getSessionVariable().setSqlMode(request.sqlMode);
-        }
-        if (request.isSetEnableStrictMode()) {
-            ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
         }
         if (request.isSetCurrentUserIdent()) {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
 
-        if (request.isSetInsertVisibleTimeoutMs()) {
-            ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+        if (request.isSetSessionVariables()) {
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
+        } else {
+            // For compatibility, all following variables are moved to SessionVariables.
+            // Should move in future.
+            if (request.isSetTimeZone()) {
+                ctx.getSessionVariable().setTimeZone(request.getTimeZone());
+            }
+            if (request.isSetSqlMode()) {
+                ctx.getSessionVariable().setSqlMode(request.sqlMode);
+            }
+            if (request.isSetEnableStrictMode()) {
+                ctx.getSessionVariable().setEnableInsertStrict(request.enableStrictMode);
+            }
+            if (request.isSetCurrentUserIdent()) {
+                UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
+                ctx.setCurrentUserIdentity(currentUserIdentity);
+            }
+            if (request.isSetInsertVisibleTimeoutMs()) {
+                ctx.getSessionVariable().setInsertVisibleTimeoutMs(request.getInsertVisibleTimeoutMs());
+            }
         }
 
         if (request.isSetQueryOptions()) {
-            TQueryOptions queryOptions = request.getQueryOptions();
-            if (queryOptions.isSetMemLimit()) {
-                ctx.getSessionVariable().setMaxExecMemByte(queryOptions.getMemLimit());
-            }
-            if (queryOptions.isSetQueryTimeout()) {
-                ctx.getSessionVariable().setQueryTimeoutS(queryOptions.getQueryTimeout());
-            }
-            if (queryOptions.isSetLoadMemLimit()) {
-                ctx.getSessionVariable().setLoadMemLimit(queryOptions.getLoadMemLimit());
-            }
-            if (queryOptions.isSetMaxScanKeyNum()) {
-                ctx.getSessionVariable().setMaxScanKeyNum(queryOptions.getMaxScanKeyNum());
-            }
-            if (queryOptions.isSetMaxPushdownConditionsPerColumn()) {
-                ctx.getSessionVariable().setMaxPushdownConditionsPerColumn(
-                        queryOptions.getMaxPushdownConditionsPerColumn());
-            }
+            ctx.getSessionVariable().setForwardedSessionVariables(request.getQueryOptions());
         } else {
-            // for compatibility, all following variables are moved to TQueryOptions.
+            // For compatibility, all following variables are moved to TQueryOptions.
+            // Should move in future.
             if (request.isSetExecMemLimit()) {
                 ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
             }

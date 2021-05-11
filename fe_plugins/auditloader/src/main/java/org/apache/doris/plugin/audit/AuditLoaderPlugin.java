@@ -54,7 +54,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private StringBuilder auditBuffer = new StringBuilder();
     private long lastLoadTime = 0;
 
-    private BlockingQueue<StringBuilder> batchQueue = new LinkedBlockingDeque<StringBuilder>(1);
+    private BlockingQueue<AuditEvent> auditEventQueue = new LinkedBlockingDeque<AuditEvent>(1);
     private DorisStreamLoader streamLoader;
     private Thread loadThread;
 
@@ -62,8 +62,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isClosed = false;
     private volatile boolean isInit = false;
 
-    // the max stmt length to be loaded in audit table.
-    private static final int MAX_STMT_LENGTH = 2000;
+    // the max auditEventQueue size to store audit_event
+    private static final int MAX_AUDIT_EVENT_SIZE = 4096;
 
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
@@ -132,8 +132,14 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     }
 
     public void exec(AuditEvent event) {
-        assembleAudit(event);
-        loadIfNecessary();
+        try {
+            auditEventQueue.add(event);
+        } catch (Exception e) {
+            // In order to ensure that the system can run normally, here we directly
+            // discard the current audit_event. If this problem occurs frequently,
+            // improvement can be considered.
+            LOG.debug("encounter exception when putting current audit batch, discard current audit event", e);
+        }
     }
 
     private void assembleAudit(AuditEvent event) {
@@ -152,13 +158,13 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.feIp).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        int maxLen = Math.min(MAX_STMT_LENGTH, event.stmt.getBytes().length);
+        int maxLen = Math.min(conf.max_stmt_length, event.stmt.getBytes().length);
         String stmt = new String(event.stmt.getBytes(), 0, maxLen).replace("\t", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         auditBuffer.append(stmt).append("\n");
     }
 
-    private void loadIfNecessary() {
+    private void loadIfNecessary(DorisStreamLoader loader) {
         if (auditBuffer.length() < conf.maxBatchSize && System.currentTimeMillis() - lastLoadTime < conf.maxBatchIntervalSec * 1000) {
             return;
         }
@@ -166,15 +172,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         lastLoadTime = System.currentTimeMillis();
         // begin to load
         try {
-            if (!batchQueue.isEmpty()) {
-                // TODO(cmy): if queue is not empty, which means the last batch is not processed.
-                // In order to ensure that the system can run normally, here we directly
-                // discard the current batch. If this problem occurs frequently,
-                // improvement can be considered.
-                throw new PluginException("The previous batch is not processed, and the current batch is discarded.");
-            }
-
-            batchQueue.put(this.auditBuffer);
+            DorisStreamLoader.LoadResponse response = loader.loadBatch(auditBuffer);
+            LOG.debug("audit loader response: {}", response);
         } catch (Exception e) {
             LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
         } finally {
@@ -193,6 +192,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public static final String PROP_PASSWORD = "password";
         public static final String PROP_DATABASE = "database";
         public static final String PROP_TABLE = "table";
+        // the max stmt length to be loaded in audit table.
+        public static final String MAX_STMT_LENGTH = "max_stmt_length";
 
         public long maxBatchSize = 50 * 1024 * 1024;
         public long maxBatchIntervalSec = 60;
@@ -203,6 +204,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public String table = "doris_audit_tbl__";
         // the identity of FE which run this plugin
         public String feIdentity = "";
+        public int max_stmt_length = 4096;
 
         public void init(Map<String, String> properties) throws PluginException {
             try {
@@ -227,6 +229,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 if (properties.containsKey(PROP_TABLE)) {
                     table = properties.get(PROP_TABLE);
                 }
+                if (properties.containsKey(MAX_STMT_LENGTH)) {
+                    max_stmt_length = Integer.parseInt(properties.get(MAX_STMT_LENGTH));
+                }
             } catch (Exception e) {
                 throw new PluginException(e.getMessage());
             }
@@ -243,16 +248,13 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    StringBuilder batch = batchQueue.poll(5, TimeUnit.SECONDS);
-                    if (batch == null) {
-                        continue;
+                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
+                    if (event != null) {
+                        assembleAudit(event);
+                        loadIfNecessary(loader);
                     }
-
-                    DorisStreamLoader.LoadResponse response = loader.loadBatch(batch);
-                    LOG.debug("audit loader response: {}", response);
                 } catch (InterruptedException e) {
                     LOG.debug("encounter exception when loading current audit batch", e);
-                    continue;
                 }
             }
         }

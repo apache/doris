@@ -22,7 +22,6 @@
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportUtils.h>
 
-#include <boost/foreach.hpp>
 #include <memory>
 #include <sstream>
 
@@ -48,7 +47,7 @@ ClientCacheHelper::~ClientCacheHelper() {
 
 Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_factory factory_method,
                                      void** client_key, int timeout_ms) {
-    boost::lock_guard<boost::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock(_lock);
     //VLOG_RPC << "get_client(" << hostport << ")";
     ClientCacheMap::iterator cache_entry = _client_cache.find(hostport);
 
@@ -79,7 +78,7 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_fac
 
 Status ClientCacheHelper::reopen_client(client_factory factory_method, void** client_key,
                                         int timeout_ms) {
-    boost::lock_guard<boost::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock(_lock);
     ClientMap::iterator i = _client_map.find(*client_key);
     DCHECK(i != _client_map.end());
     ThriftClientImpl* info = i->second;
@@ -135,7 +134,7 @@ Status ClientCacheHelper::create_client(const TNetworkAddress& hostport,
 
 void ClientCacheHelper::release_client(void** client_key) {
     DCHECK(*client_key != NULL) << "Trying to release NULL client";
-    boost::lock_guard<boost::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock(_lock);
     ClientMap::iterator client_map_entry = _client_map.find(*client_key);
     DCHECK(client_map_entry != _client_map.end());
     ThriftClientImpl* info = client_map_entry->second;
@@ -164,7 +163,7 @@ void ClientCacheHelper::release_client(void** client_key) {
 }
 
 void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
-    boost::lock_guard<boost::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock(_lock);
     ClientCacheMap::iterator cache_entry = _client_cache.find(hostport);
 
     if (cache_entry == _client_cache.end()) {
@@ -172,7 +171,7 @@ void ClientCacheHelper::close_connections(const TNetworkAddress& hostport) {
     }
 
     VLOG_RPC << "Invalidating all " << cache_entry->second.size() << " clients for: " << hostport;
-    BOOST_FOREACH (void* client_key, cache_entry->second) {
+    for (void* client_key : cache_entry->second) {
         ClientMap::iterator client_map_entry = _client_map.find(client_key);
         DCHECK(client_map_entry != _client_map.end());
         ThriftClientImpl* info = client_map_entry->second;
@@ -201,8 +200,8 @@ std::string ClientCacheHelper::debug_string() {
 void ClientCacheHelper::test_shutdown() {
     std::vector<TNetworkAddress> hostports;
     {
-        boost::lock_guard<boost::mutex> lock(_lock);
-        BOOST_FOREACH (const ClientCacheMap::value_type& i, _client_cache) {
+        std::lock_guard<std::mutex> lock(_lock);
+        for (const ClientCacheMap::value_type& i : _client_cache) {
             hostports.push_back(i.first);
         }
     }
@@ -216,7 +215,7 @@ void ClientCacheHelper::test_shutdown() {
 void ClientCacheHelper::init_metrics(const std::string& name) {
     // Not strictly needed if init_metrics is called before any cache
     // usage, but ensures that _metrics_enabled is published.
-    boost::lock_guard<boost::mutex> lock(_lock);
+    std::lock_guard<std::mutex> lock(_lock);
 
     _thrift_client_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("thrift_client.") + name, {{"name", name}});

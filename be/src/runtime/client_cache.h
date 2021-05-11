@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
 #define DORIS_BE_RUNTIME_CLIENT_CACHE_H
 
-#include <boost/bind.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/unordered_map.hpp>
 #include <list>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
+#include "util/hash_util.hpp"
 #include "util/metrics.h"
 #include "util/thrift_client.h"
 
@@ -59,7 +59,7 @@ public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
-    typedef boost::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
+    typedef std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
             client_factory;
 
     // Return client for specific host/port in 'client'. If a client
@@ -98,14 +98,14 @@ private:
     // Protects all member variables
     // TODO: have more fine-grained locks or use lock-free data structures,
     // this isn't going to scale for a high request rate
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // map from (host, port) to list of client keys for that address
-    typedef boost::unordered_map<TNetworkAddress, std::list<void*>> ClientCacheMap;
+    typedef std::unordered_map<TNetworkAddress, std::list<void*>> ClientCacheMap;
     ClientCacheMap _client_cache;
 
     // Map from client key back to its associated ThriftClientImpl transport
-    typedef boost::unordered_map<void*, ThriftClientImpl*> ClientMap;
+    typedef std::unordered_map<void*, ThriftClientImpl*> ClientMap;
     ClientMap _client_map;
 
     bool _metrics_enabled;
@@ -146,7 +146,7 @@ class ClientCache;
 template <class T>
 class ClientConnection {
 public:
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, Status* status)
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, Status* status)
             : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, 0);
 
@@ -155,7 +155,7 @@ public:
         }
     }
 
-    ClientConnection(ClientCache<T>* client_cache, TNetworkAddress address, int timeout_ms,
+    ClientConnection(ClientCache<T>* client_cache, const TNetworkAddress& address, int timeout_ms,
                      Status* status)
             : _client_cache(client_cache), _client(NULL) {
         *status = _client_cache->get_client(address, &_client, timeout_ms);
@@ -190,13 +190,15 @@ public:
     typedef ThriftClient<T> Client;
 
     ClientCache() : _client_cache_helper() {
-        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, _1, _2);
+        _client_factory =
+                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                                             std::placeholders::_1, std::placeholders::_2);
     }
 
     ClientCache(int max_cache_size) : _client_cache_helper(max_cache_size) {
-        _client_factory = boost::bind<ThriftClientImpl*>(boost::mem_fn(&ClientCache::make_client),
-                                                         this, _1, _2);
+        _client_factory =
+                std::bind<ThriftClientImpl*>(std::mem_fn(&ClientCache::make_client), this,
+                                             std::placeholders::_1, std::placeholders::_2);
     }
 
     // Close all clients connected to the supplied address, (e.g., in
@@ -265,10 +267,10 @@ private:
         transform(thrift_server_type.begin(), thrift_server_type.end(), thrift_server_type.begin(),
                   toupper);
         if (strcmp(typeid(T).name(), "N5doris21FrontendServiceClientE") == 0 &&
-            thrift_server_type == "THREADED") {
-            return ThriftServer::ServerType::THREADED;
+            thrift_server_type == "THREADED_SELECTOR") {
+            return ThriftServer::ServerType::NON_BLOCKING;
         } else {
-            return ThriftServer::ServerType::THREAD_POOL;
+            return ThriftServer::ServerType::THREADED;
         }
     }
 };

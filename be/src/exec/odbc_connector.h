@@ -47,7 +47,7 @@ struct ODBCConnectorParam {
 
 // Because the DataBinding have the mem alloc, so
 // this class should not be copyable
-struct DataBinding : public boost::noncopyable {
+struct DataBinding {
     SQLSMALLINT target_type;
     SQLINTEGER buffer_length;
     SQLLEN strlen_or_ind;
@@ -56,6 +56,9 @@ struct DataBinding : public boost::noncopyable {
     DataBinding() = default;
 
     ~DataBinding() { free(target_value_ptr); }
+    DataBinding(const DataBinding&) = delete;
+    DataBinding& operator=(const DataBinding&) = delete;
+    
 };
 
 // ODBC Connector for scan data from ODBC

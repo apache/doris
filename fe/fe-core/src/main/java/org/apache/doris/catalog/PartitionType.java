@@ -21,7 +21,8 @@ import org.apache.doris.thrift.TPartitionType;
 
 public enum PartitionType {
     UNPARTITIONED("UNPARTITIONED"),
-    RANGE("RANGE");
+    RANGE("RANGE"),
+    LIST("LIST");
 
     public String typeString;
 
@@ -35,6 +36,8 @@ public enum PartitionType {
                 return UNPARTITIONED;
             case RANGE_PARTITIONED:
                 return RANGE;
+            case LIST_PARTITIONED:
+                return LIST;
             default:
                 return UNPARTITIONED;
         }
@@ -46,6 +49,8 @@ public enum PartitionType {
                 return TPartitionType.UNPARTITIONED;
             case RANGE:
                 return TPartitionType.RANGE_PARTITIONED;
+            case LIST:
+                return TPartitionType.LIST_PARTITIONED;
             default:
                 return TPartitionType.UNPARTITIONED;
         }

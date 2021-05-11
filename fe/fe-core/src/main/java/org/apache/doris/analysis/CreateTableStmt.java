@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -169,6 +168,8 @@ public class CreateTableStmt extends DdlStmt {
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
 
+    public void setIfNotExists(boolean ifNotExists) { this.ifNotExists = ifNotExists; }
+
     public boolean isSetIfNotExists() {
         return ifNotExists;
     }
@@ -259,7 +260,7 @@ public class CreateTableStmt extends DdlStmt {
             throw new AnalysisException("Spark Load from hive table is coming soon");
         }
         // analyze key desc
-        if (!(engineName.equals("mysql") || engineName.equals("broker") || engineName.equals("hive"))) {
+        if (engineName.equalsIgnoreCase("olap")) {
             // olap table
             if (keysDesc == null) {
                 List<String> keysColumnNames = Lists.newArrayList();
@@ -301,7 +302,7 @@ public class CreateTableStmt extends DdlStmt {
                     // The OLAP table must has at least one short key and the float and double should not be short key.
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
-                        throw new AnalysisException("The first column could not be float or double,"
+                        throw new AnalysisException("The olap table first column could not be float or double,"
                                 + " use decimal instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
@@ -380,12 +381,12 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("Currently only support range partition with engine type olap");
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
+                    partitionDesc.analyze(columnDefs, properties);
+                } else {
+                    throw new AnalysisException("Currently only support range and list partition with engine type olap");
                 }
 
-                RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
-                rangePartitionDesc.analyze(columnDefs, properties);
             }
 
             // analyze distribution

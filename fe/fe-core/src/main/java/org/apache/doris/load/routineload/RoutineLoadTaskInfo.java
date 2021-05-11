@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -162,7 +164,7 @@ public abstract class RoutineLoadTaskInfo {
     // begin the txn of this task
     // return true if begin successfully, return false if begin failed.
     // throw exception if unrecoverable errors happen.
-    public boolean beginTxn() throws LabelAlreadyUsedException {
+    public boolean beginTxn() throws UserException {
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         try {
@@ -182,6 +184,10 @@ public abstract class RoutineLoadTaskInfo {
         } catch (AnalysisException | BeginTransactionException e) {
             LOG.debug("begin txn failed for routine load task: {}, {}", DebugUtil.printId(id), e.getMessage());
             return false;
+        } catch (MetaNotFoundException | QuotaExceedException e) {
+            LOG.warn("failed to begin txn for routine load task: {}, job id: {}",
+                    DebugUtil.printId(id), jobId, e);
+            throw e;
         }
         return true;
     }

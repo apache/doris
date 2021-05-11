@@ -38,6 +38,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -45,6 +46,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
@@ -55,16 +57,16 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -93,6 +95,9 @@ import java.util.stream.Collectors;
 public class DatabaseTransactionMgr {
 
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgr.class);
+    // the max number of txn that can be remove per round.
+    // set it to avoid holding lock too long when removing too many txns per round.
+    private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
 
     private long dbId;
 
@@ -106,9 +111,12 @@ public class DatabaseTransactionMgr {
     // transactionId -> final status TransactionState
     private Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
 
-
-    // to store transactionStates with final status
-    private ArrayDeque<TransactionState> finalStatusTransactionStateDeque = new ArrayDeque<>();
+    // The following 2 queues are to store transactionStates with final status
+    // These queues are mainly used to avoid traversing all txns and speed up the cleaning time when cleaning up expired txs.
+    // The "Short" queue is used to store the txns of the expire time controlled by Config.streaming_label_keep_max_second.
+    // The "Long" queue is used to store the txns of the expire time controlled by Config.label_keep_max_second.
+    private ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort = new ArrayDeque<>();
+    private ArrayDeque<TransactionState> finalStatusTransactionStateDequeLong = new ArrayDeque<>();
 
     // label -> txn ids
     // this is used for checking if label already used. a label may correspond to multiple txns,
@@ -203,7 +211,7 @@ public class DatabaseTransactionMgr {
 
     @VisibleForTesting
     protected int getFinishedTxnNums() {
-        return finalStatusTransactionStateDeque.size();
+        return idToFinalStatusTransactionState.size();
     }
 
     public List<List<String>> getTxnStateInfoList(boolean running, int limit) {
@@ -214,7 +222,7 @@ public class DatabaseTransactionMgr {
             if (running) {
                 transactionStateCollection = idToRunningTransactionState.values();
             } else {
-                transactionStateCollection = finalStatusTransactionStateDeque;
+                transactionStateCollection = idToFinalStatusTransactionState.values();
             }
             // get transaction order by txn id desc limit 'limit'
             transactionStateCollection.stream()
@@ -250,7 +258,8 @@ public class DatabaseTransactionMgr {
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
                                  TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
-            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
+            QuotaExceedException, MetaNotFoundException {
         checkDatabaseDataQuota();
         writeLock();
         try {
@@ -317,10 +326,10 @@ public class DatabaseTransactionMgr {
     }
 
 
-    private void checkDatabaseDataQuota() throws AnalysisException {
+    private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
         Database db = catalog.getDb(dbId);
         if (db == null) {
-            throw new AnalysisException("Database[" + dbId + "] does not exist");
+            throw new MetaNotFoundException("Database[" + dbId + "] does not exist");
         }
 
         if (usedQuotaDataBytes == -1) {
@@ -329,11 +338,7 @@ public class DatabaseTransactionMgr {
 
         long dataQuotaBytes = db.getDataQuota();
         if (usedQuotaDataBytes >= dataQuotaBytes) {
-            Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
-            String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                    + quotaUnitPair.second;
-            throw new AnalysisException("Database[" + db.getFullName()
-                    + "] data size exceeds quota[" + readableQuota + "]");
+            throw new QuotaExceedException(db.getFullName(), dataQuotaBytes);
         }
     }
 
@@ -590,15 +595,44 @@ public class DatabaseTransactionMgr {
         return transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
     }
 
-    public void deleteTransaction(TransactionState transactionState) {
+    @Deprecated
+    // use replayBatchDeleteTransaction instead
+    public void replayDeleteTransaction(TransactionState transactionState) {
         writeLock();
         try {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
-            // it must at the front of the finalStatusTransactionStateDeque
-            if (!finalStatusTransactionStateDeque.isEmpty() &&
-            transactionState.getTransactionId() == finalStatusTransactionStateDeque.getFirst().getTransactionId()) {
-                finalStatusTransactionStateDeque.pop();
-                clearTransactionState(transactionState);
+            // it must at the front of the finalStatusTransactionStateDeque.
+            // check both "short" and "long" queue.
+            if (!finalStatusTransactionStateDequeShort.isEmpty() &&
+                    transactionState.getTransactionId() == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
+                finalStatusTransactionStateDequeShort.pop();
+                clearTransactionState(transactionState.getTransactionId());
+            } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
+                    transactionState.getTransactionId() == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
+                finalStatusTransactionStateDequeLong.pop();
+                clearTransactionState(transactionState.getTransactionId());
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void replayBatchRemoveTransaction(List<Long> txnIds) {
+        writeLock();
+        try {
+            for (Long txnId : txnIds) {
+                // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
+                // it must at the front of the finalStatusTransactionStateDeque
+                // check both "short" and "long" queue.
+                if (!finalStatusTransactionStateDequeShort.isEmpty() &&
+                        txnId == finalStatusTransactionStateDequeShort.getFirst().getTransactionId()) {
+                    finalStatusTransactionStateDequeShort.pop();
+                    clearTransactionState(txnId);
+                } else if (!finalStatusTransactionStateDequeLong.isEmpty() &&
+                        txnId == finalStatusTransactionStateDequeLong.getFirst().getTransactionId()) {
+                    finalStatusTransactionStateDequeLong.pop();
+                    clearTransactionState(txnId);
+                }
             }
         } finally {
             writeUnlock();
@@ -889,7 +923,11 @@ public class DatabaseTransactionMgr {
                 }
             }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
-            finalStatusTransactionStateDeque.add(transactionState);
+            if (transactionState.isShortTxn()) {
+                finalStatusTransactionStateDequeShort.add(transactionState);
+            } else {
+                finalStatusTransactionStateDequeLong.add(transactionState);
+            }
         }
         updateTxnLabels(transactionState);
     }
@@ -1076,36 +1114,59 @@ public class DatabaseTransactionMgr {
     }
 
     public void removeExpiredTxns(long currentMillis) {
+        List<Long> expiredTxnIds = Lists.newArrayList();
+        // delete expired txns
+        int leftNum = MAX_REMOVE_TXN_PER_ROUND;
         writeLock();
         try {
-            while (!finalStatusTransactionStateDeque.isEmpty()) {
-                TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
-                if (transactionState.isExpired(currentMillis)) {
-                    finalStatusTransactionStateDeque.pop();
-                    clearTransactionState(transactionState);
-                    editLog.logDeleteTransactionState(transactionState);
-                    LOG.info("transaction [" + transactionState.getTransactionId() + "] is expired, remove it from transaction manager");
-                } else {
-                    break;
-                }
+            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeShort, leftNum);
+            leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeLong, leftNum);
 
-            }
+            Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
+            dbExpiredTxnIds.put(dbId, expiredTxnIds);
+            BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
+            editLog.logBatchRemoveTransactions(op);
+            LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
         } finally {
             writeUnlock();
         }
     }
 
-    private void clearTransactionState(TransactionState transactionState) {
-        idToFinalStatusTransactionState.remove(transactionState.getTransactionId());
-        Set<Long> txnIds = unprotectedGetTxnIdsByLabel(transactionState.getLabel());
-        txnIds.remove(transactionState.getTransactionId());
-        if (txnIds.isEmpty()) {
-            labelToTxnIds.remove(transactionState.getLabel());
+    private int unprotectedRemoveExpiredTxns(long currentMillis, List<Long> expiredTxnIds,
+                                             ArrayDeque<TransactionState> finalStatusTransactionStateDequeShort,
+                                             int maxNumber) {
+        int left = maxNumber;
+        while (!finalStatusTransactionStateDequeShort.isEmpty() && left > 0) {
+            TransactionState transactionState = finalStatusTransactionStateDequeShort.getFirst();
+            if (transactionState.isExpired(currentMillis)) {
+                finalStatusTransactionStateDequeShort.pop();
+                clearTransactionState(transactionState.getTransactionId());
+                expiredTxnIds.add(transactionState.getTransactionId());
+                left--;
+            } else {
+                break;
+            }
+        }
+        return left;
+    }
+
+    private void clearTransactionState(long txnId) {
+        TransactionState transactionState = idToFinalStatusTransactionState.remove(txnId);
+        if (transactionState != null) {
+            Set<Long> txnIds = unprotectedGetTxnIdsByLabel(transactionState.getLabel());
+            txnIds.remove(transactionState.getTransactionId());
+            if (txnIds.isEmpty()) {
+                labelToTxnIds.remove(transactionState.getLabel());
+            }
+            LOG.info("transaction [" + txnId + "] is expired, remove it from transaction manager");
+        } else {
+            // should not happen, add a warn log to observer
+            LOG.warn("transaction state is not found when clear transaction: " + txnId);
         }
     }
 
     public int getTransactionNum() {
-        return idToRunningTransactionState.size() + finalStatusTransactionStateDeque.size();
+        return idToRunningTransactionState.size() + idToFinalStatusTransactionState.size();
     }
 
 
@@ -1117,7 +1178,7 @@ public class DatabaseTransactionMgr {
                     return txn;
                 }
             }
-            for (TransactionState txn : finalStatusTransactionStateDeque) {
+            for (TransactionState txn : idToFinalStatusTransactionState.values()) {
                 if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
                     return txn;
                 }
@@ -1136,7 +1197,7 @@ public class DatabaseTransactionMgr {
                     return txn;
                 }
             }
-            for (TransactionState txn : finalStatusTransactionStateDeque) {
+            for (TransactionState txn : idToFinalStatusTransactionState.values()) {
                 if (txn.getCallbackId() == callbackId) {
                     return txn;
                 }
@@ -1436,9 +1497,13 @@ public class DatabaseTransactionMgr {
             entry.getValue().write(out);
         }
 
-        for (TransactionState transactionState : finalStatusTransactionStateDeque) {
+        // Use 2 queues instead of idToFinalStatusTransactionState to keep the order in queues.
+        for (TransactionState transactionState : finalStatusTransactionStateDequeShort) {
+            transactionState.write(out);
+        }
+
+        for (TransactionState transactionState : finalStatusTransactionStateDequeLong) {
             transactionState.write(out);
         }
     }
-
 }

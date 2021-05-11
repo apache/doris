@@ -44,6 +44,8 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         CHECK(sink.__isset.file_options);
         _file_opts.reset(new ResultFileOptions(sink.file_options));
     }
+
+    _name = "ResultSink";
 }
 
 ResultSink::~ResultSink() {}
@@ -79,7 +81,7 @@ Status ResultSink::prepare(RuntimeState* state) {
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
         _writer.reset(new (std::nothrow)
-                              FileResultWriter(_file_opts.get(), _output_expr_ctxs, _profile));
+                              FileResultWriter(_file_opts.get(), _output_expr_ctxs, _profile, _sender.get()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");

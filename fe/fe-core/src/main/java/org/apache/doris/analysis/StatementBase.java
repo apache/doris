@@ -35,10 +35,8 @@ public abstract class StatementBase implements ParseNode {
 
     private String clusterName;
 
-    // True if this QueryStmt is the top level query from an EXPLAIN <query>
-    protected boolean isExplain = false;
-    // True if the describe_stmt print verbose information, if `isVerbose` is true, `isExplain` must be set to true.
-    protected boolean isVerbose = false;
+    // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
+    protected ExplainOptions explainOptions = null;
 
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -60,7 +58,7 @@ public abstract class StatementBase implements ParseNode {
      */
     protected StatementBase(StatementBase other) {
         analyzer = other.analyzer;
-        isExplain = other.isExplain;
+        explainOptions = other.explainOptions;
     }
 
     /**
@@ -72,7 +70,6 @@ public abstract class StatementBase implements ParseNode {
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) return;
-        if (isExplain) analyzer.setIsExplain();
         this.analyzer = analyzer;
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -80,14 +77,33 @@ public abstract class StatementBase implements ParseNode {
         this.clusterName = analyzer.getClusterName();
     }
 
-    public Analyzer getAnalyzer() { return analyzer; }
-    public boolean isAnalyzed() { return analyzer != null; }
-    public void setIsExplain(boolean isExplain, boolean isVerbose) { this.isExplain = isExplain;  this.isVerbose = isVerbose;}
-    public boolean isExplain() { return isExplain; }
-    public boolean isVerbose() { return isVerbose; }
+    public Analyzer getAnalyzer() {
+        return analyzer;
+    }
+
+    public boolean isAnalyzed() {
+        return analyzer != null;
+    }
+
+    public void setIsExplain(ExplainOptions options) {
+        this.explainOptions = options;
+    }
+
+    public boolean isExplain() {
+        return this.explainOptions != null;
+    }
+
+    public boolean isVerbose() {
+        return explainOptions != null && explainOptions.isVerbose();
+    }
+
+    public ExplainOptions getExplainOptions() {
+        return explainOptions;
+    }
+
     /*
      * Print SQL syntax corresponding to this node.
-     * 
+     *
      * @see org.apache.doris.parser.ParseNode#toSql()
      */
     @Override

@@ -21,7 +21,7 @@
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/scoped_array.hpp>
 #include <boost/shared_ptr.hpp>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "runtime/disk_io_mgr.h"
 #include "runtime/tmp_file_mgr.h"
@@ -274,7 +274,7 @@ public:
         // Only used if _client_local is true.
         // TODO: Currently we use _block_mgr->_lock for this condvar. There is no reason to
         // use that _lock that is already overloaded, see IMPALA-1883.
-        boost::condition_variable _write_complete_cv;
+        std::condition_variable _write_complete_cv;
 
         // If true, this block is being written out so the underlying buffer can be
         // transferred to another block from the same client. We don't want this buffer
@@ -456,7 +456,7 @@ private:
     //   2. Using a buffer from the free list (which is populated by moving blocks from
     //      the unpinned list by writing them out).
     // Must be called with the _lock already taken. This function can block.
-    Status find_buffer(boost::unique_lock<boost::mutex>& lock, BufferDescriptor** buffer);
+    Status find_buffer(std::unique_lock<std::mutex>& lock, BufferDescriptor** buffer);
 
     // Writes unpinned blocks via DiskIoMgr until one of the following is true:
     //   1. The number of outstanding writes >= (_block_write_threshold - num free buffers)
@@ -521,7 +521,7 @@ private:
     // used for the blocking condvars: _buffer_available_cv and block->_write_complete_cv.
     // TODO: We should break the protection of the various structures and usages to
     //       different spinlocks and a mutex to be used in the wait()s, see IMPALA-1883.
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // If true, init() has been called.
     bool _initialized;
@@ -537,7 +537,7 @@ private:
     int _non_local_outstanding_writes;
 
     // Signal availability of free buffers.
-    boost::condition_variable _buffer_available_cv;
+    std::condition_variable _buffer_available_cv;
 
     // List of blocks _is_pinned = false AND are not on DiskIoMgr's write queue.
     // Blocks are added to and removed from the back of the list. (i.e. in LIFO order).
@@ -622,7 +622,7 @@ private:
     // map contains only weak ptrs. BufferedBlockMgr2s that are handed out are shared ptrs.
     // When all the shared ptrs are no longer referenced, the BufferedBlockMgr2
     // d'tor will be called at which point the weak ptr will be removed from the map.
-    typedef boost::unordered_map<TUniqueId, boost::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
+    typedef std::unordered_map<TUniqueId, boost::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
     static BlockMgrsMap _s_query_to_block_mgrs;
 
     // Unowned.

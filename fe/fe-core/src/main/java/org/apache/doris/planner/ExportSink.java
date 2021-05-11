@@ -48,6 +48,9 @@ public class ExportSink extends DataSink {
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
         StringBuilder sb = new StringBuilder();
         sb.append(prefix + "EXPORT SINK\n");
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return sb.toString();
+        }
         sb.append(prefix + "  path=" + exportPath + "\n");
         sb.append(prefix + "  columnSeparator="
                 + StringEscapeUtils.escapeJava(columnSeparator) + "\n");
@@ -64,11 +67,13 @@ public class ExportSink extends DataSink {
     @Override
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.EXPORT_SINK);
-        TExportSink tExportSink = new TExportSink(TFileType.FILE_BROKER, exportPath, columnSeparator, lineDelimiter);
+        TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter);
 
-        FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
-        if (broker != null) {
-            tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+        if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
+            FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+            if (broker != null) {
+                tExportSink.addToBrokerAddresses(new TNetworkAddress(broker.ip, broker.port));
+            }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
 

@@ -133,6 +133,7 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
+    uint32_t mem_size() const;
 
     inline TabletTypePB tablet_type() const { return _tablet_type; }
     inline TabletUid tablet_uid() const;
@@ -167,17 +168,15 @@ public:
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
+    // If same_version is true, the rowset in "to_delete" will not be added
+    // to _stale_rs_meta, but to be deleted from rs_meta directly.
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                         const std::vector<RowsetMetaSharedPtr>& to_delete);
+                         const std::vector<RowsetMetaSharedPtr>& to_delete,
+                         bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
-    void revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
-
-    inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
-    OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
-    void delete_inc_rs_meta_by_version(const Version& version);
-    RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
+    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
 
@@ -198,6 +197,11 @@ public:
 
     void set_preferred_rowset_type(RowsetTypePB preferred_rowset_type) {
         _preferred_rowset_type = preferred_rowset_type;
+    }
+
+    // used for after tablet cloned to clear stale rowset
+    void clear_stale_rowset() {
+        _stale_rs_metas.clear();
     }
 
 private:
@@ -222,7 +226,6 @@ private:
     TabletSchema _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
-    std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
@@ -328,10 +331,6 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
     return _rs_metas;
-}
-
-inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
-    return _inc_rs_metas;
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() const {

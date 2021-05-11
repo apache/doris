@@ -50,6 +50,7 @@
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -174,6 +175,10 @@ public:
     void create_base_compaction(TabletSharedPtr best_tablet,
                                 std::shared_ptr<BaseCompaction>& base_compaction);
 
+    std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
+
+    Status get_compaction_status_json(std::string* result);
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -221,7 +226,7 @@ private:
 
     void _path_scan_thread_callback(DataDir* data_dir);
 
-    void _tablet_checkpoint_callback(DataDir* data_dir);
+    void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -237,8 +242,13 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
-    vector<TabletSharedPtr> _compaction_tasks_generator(CompactionType compaction_type,
-                                                        std::vector<DataDir*> data_dirs);
+    vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
+                                                       std::vector<DataDir*>& data_dirs,
+                                                       bool check_score);
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
 private:
     struct CompactionCandidate {
@@ -296,6 +306,7 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    std::shared_ptr<MemTracker> _schema_change_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;
@@ -310,8 +321,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_gc_threads;
     // threads to scan disk paths
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
-    // threads to run tablet checkpoint
-    std::vector<scoped_refptr<Thread>> _tablet_checkpoint_threads;
+    // thread to produce tablet checkpoint tasks
+    scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
@@ -334,15 +345,23 @@ private:
 
     std::unique_ptr<ThreadPool> _compaction_thread_pool;
 
+    std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+
     CompactionPermitLimiter _permit_limiter;
 
     std::mutex _tablet_submitted_compaction_mutex;
-    std::map<DataDir*, vector<TTabletId>> _tablet_submitted_compaction;
+    // a tablet can do base and cumulative compaction at same time
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
+    std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
     AtomicInt32 _wakeup_producer_flag;
 
     std::mutex _compaction_producer_sleep_mutex;
     std::condition_variable _compaction_producer_sleep_cv;
+
+    std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };

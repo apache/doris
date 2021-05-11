@@ -21,7 +21,6 @@
 #include <math.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/functional/hash.hpp>
 #include <sstream>
 
 #include "exec/hash_table.hpp"

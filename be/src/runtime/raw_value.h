@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
 #define DORIS_BE_RUNTIME_RAW_VALUE_H
 
-#include <boost/functional/hash.hpp>
 #include <string>
 
 #include "common/logging.h"

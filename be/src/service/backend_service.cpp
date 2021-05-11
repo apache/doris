@@ -24,6 +24,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <boost/shared_ptr.hpp>
+#include <map>
 #include <memory>
 
 #include "common/config.h"
@@ -45,6 +46,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "service/backend_options.h"
 #include "util/arrow/row_batch.h"
 #include "util/blocking_queue.hpp"
@@ -310,6 +312,27 @@ void BackendService::close_scanner(TScanCloseResult& result_, const TScanClosePa
     Status st = _exec_env->external_scan_context_mgr()->clear_scan_context(context_id);
     st.to_thrift(&t_status);
     result_.status = t_status;
+}
+
+void BackendService::get_stream_load_record(TStreamLoadRecordResult& result, const int64_t last_stream_record_time) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
+        std::map<std::string, std::string> records;
+        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time), config::stream_load_record_batch_size, &records);
+        if (st.ok()) {
+            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: " << records.size() << ", last_stream_load_timestamp: " << last_stream_record_time;
+            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
+            std::map<std::string, std::string>::iterator it = records.begin();
+            for (; it != records.end(); it++) {
+                TStreamLoadRecord stream_load_item;
+                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
+                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
+            }
+            result.__set_stream_load_record(stream_load_record_batch);
+        }
+    } else {
+        LOG(WARNING) << "stream_load_recorder is null.";
+    }
 }
 
 } // namespace doris

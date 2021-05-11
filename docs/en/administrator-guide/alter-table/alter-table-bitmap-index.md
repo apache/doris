@@ -29,11 +29,11 @@ Users can speed up queries by creating a bitmap index
 This document focuses on how to create an index job, as well as some considerations and frequently asked questions when creating an index.
 
 ## Glossary
-* bitmap index：a fast data structure that speeds up queries
+* bitmap index: a fast data structure that speeds up queries
 
 ## Basic Principles
 Creating and dropping index is essentially a schema change job. For details, please refer to
-[Schema Change](alter-table-schema-change.html)。
+[Schema Change](alter-table-schema-change.html).
 
 ## Syntax
 There are two forms of index creation and modification related syntax, one is integrated with alter table statement, and the other is using separate
@@ -42,7 +42,7 @@ create/drop index syntax
 
     Please refer to [CREATE INDEX](../../sql-reference/sql-statements/Data%20Definition/CREATE%20INDEX.html) 
     or [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.html),
-    You can also specify a bitmap index when creating a table，Please refer to [CREATE TABLE](../../sql-reference/sql-statements/Data%20Definition/CREATE%20TABLE.html)
+    You can also specify a bitmap index when creating a table, Please refer to [CREATE TABLE](../../sql-reference/sql-statements/Data%20Definition/CREATE%20TABLE.html)
 
 2. Show Index
 
@@ -71,7 +71,7 @@ Please refer to [Schema Change](alter-table-schema-change.html)
     * `UNSIGNEDINT`
     * `BIGINT`
     * `CHAR`
-    * `VARCHAE`
+    * `VARCHAR`
     * `DATE`
     * `DATETIME`
     * `LARGEINT`

@@ -23,7 +23,9 @@
 
 #include "exec/broker_writer.h"
 #include "exec/local_file_writer.h"
+#include "exec/s3_writer.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
@@ -42,7 +44,9 @@ ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
           _t_output_expr(t_exprs),
           _bytes_written_counter(nullptr),
           _rows_written_counter(nullptr),
-          _write_timer(nullptr) {}
+          _write_timer(nullptr) {
+    _name = "ExportSink";
+}
 
 ExportSink::~ExportSink() {}
 
@@ -66,7 +70,10 @@ Status ExportSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
-    _mem_tracker = MemTracker::CreateTracker(-1, "ExportSink", state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(
+            -1,
+            "ExportSink:" + print_id(state->fragment_instance_id()),
+            state->instance_mem_tracker());
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
@@ -259,6 +266,13 @@ Status ExportSink::open_file_writer() {
                 _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(broker_writer->open());
         _file_writer.reset(broker_writer);
+        break;
+    }
+    case TFileType::FILE_S3: {
+        S3Writer* s3_writer = new S3Writer( _t_export_sink.properties,
+                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
+        RETURN_IF_ERROR(s3_writer->open());
+        _file_writer.reset(s3_writer);
         break;
     }
     default: {

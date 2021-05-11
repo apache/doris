@@ -36,27 +36,28 @@ under the License.
     2. Baidu AFS: afs for Baidu. Only be used inside Baidu.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
+    5. Amazon S3：Amazon S3。
 
-### Syntax: 
+### Syntax:
 
     LOAD LABEL load_label
     (
     data_desc1[, data_desc2, ...]
     )
-    WITH BROKER broker_name
-    [broker_properties]
+    WITH [BROKER broker_name | S3]
+    [load_properties]
     [opt_properties];
 
     1. load_label
 
         Unique load label within a database.
-        syntax: 
+        syntax:
         [database_name.]your_label
      
     2. data_desc
 
         To describe the data source. 
-        syntax: 
+        syntax:
             [MERGE|APPEND|DELETE]
             DATA INFILE
             (
@@ -68,11 +69,12 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
             [WHERE predicate] 
             [DELETE ON label=true]
 
-        Explain: 
+        Explain:
             file_path: 
 
             File path. Support wildcard. Must match to file, not directory. 
@@ -81,7 +83,7 @@ under the License.
 
             Data will only be loaded to specified partitions. Data out of partition's range will be filtered. If not specifed, all partitions will be loaded.
                     
-            NEGATIVE: 
+            NEGATIVE:
             
             If this parameter is specified, it is equivalent to importing a batch of "negative" data to offset the same batch of data loaded before.
             
@@ -98,14 +100,18 @@ under the License.
 
             Used to specify the type of imported file, such as parquet, orc, csv. Default values are determined by the file suffix name. 
  
-            column_list: 
+            column_list:
 
             Used to specify the correspondence between columns in the import file and columns in the table.
 
             When you need to skip a column in the import file, specify it as a column name that does not exist in the table.
 
-            syntax: 
+            syntax:
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
             
             SET:
             
@@ -131,7 +137,7 @@ under the License.
 
         The name of the Broker used can be viewed through the `show broker` command.
 
-    4. broker_properties
+    4. load_properties
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
@@ -159,24 +165,37 @@ under the License.
 
             kerberos authentication: 
             hadoop.security.authentication = kerberos
-            kerberos_principal:  kerberos's principal
-            kerberos_keytab:  path of kerberos's keytab file. This file should be able to access by Broker
+            kerberos_principal: kerberos's principal
+            kerberos_keytab: path of kerberos's keytab file. This file should be able to access by Broker
             kerberos_keytab_content: Specify the contents of the KeyTab file in Kerberos after base64 encoding. This option is optional from the kerberos_keytab configuration. 
 
             namenode HA: 
             By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
-            dfs.nameservices: hdfs service name，customize，eg: "dfs.nameservices" = "my_ha"
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
+        4. Amazon S3
+
+            fs.s3a.access.key：AmazonS3的access key
+            fs.s3a.secret.key：AmazonS3的secret key
+            fs.s3a.endpoint：AmazonS3的endpoint 
+        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+
+            (
+                "AWS_ENDPOINT" = "",
+                "AWS_ACCESS_KEY" = "",
+                "AWS_SECRET_KEY"="",
+                "AWS_REGION" = ""
+            )
 
     4. opt_properties
 
         Used to specify some special parameters. 
-        Syntax: 
+        Syntax:
         [PROPERTIES ("key"="value", ...)]
         
-        You can specify the following parameters: 
+        You can specify the following parameters:
         
         timout: Specifies the timeout time for the import operation. The default timeout is 4 hours per second.
 
@@ -454,6 +473,20 @@ under the License.
         "timeout" = "3600",
         "max_filter_ratio" = "0.1"
         );
+
+    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 

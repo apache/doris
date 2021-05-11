@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -28,27 +29,21 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
- * (hujie, cmy)
- * ATTN: do not delete it before considering useless for certain
+/**
+ * list partition pruner
  */
-@Deprecated
 public class ListPartitionPruner implements PartitionPruner {
-    private static final Logger LOG = LoggerFactory.getLogger(ListPartitionPruner.class);
 
-    private Map<Long, List<PartitionKey>> partitionListMap;
+    private Map<Long, PartitionItem> partitionListMap;
     private List<Column>                       partitionColumns;
     private Map<String, PartitionColumnFilter> partitionColumnFilters;
 
-    public ListPartitionPruner(Map<Long, List<PartitionKey>> listMap,
+    public ListPartitionPruner(Map<Long, PartitionItem> listMap,
                                List<Column> columns,
                                Map<String, PartitionColumnFilter> filters) {
         partitionListMap = listMap;
@@ -56,31 +51,99 @@ public class ListPartitionPruner implements PartitionPruner {
         partitionColumnFilters = filters;
     }
 
-    private Collection<Long> pruneListMap(
-            Map<Long, List<PartitionKey>> listMap,
-            Range<PartitionKey> range) {
+    private Collection<Long> pruneListMap(Map<Long, PartitionItem> listMap,
+                                          Range<PartitionKey> range,
+                                          int columnId) {
         Set<Long> resultSet = Sets.newHashSet();
-        for (Map.Entry<Long, List<PartitionKey>> entry : listMap.entrySet()) {
-            for (PartitionKey key : entry.getValue()) {
-                if (range.contains(key)) {
+        for (Map.Entry<Long, PartitionItem> entry : listMap.entrySet()) {
+            List<PartitionKey> partitionKeys = entry.getValue().getItems();
+            for (PartitionKey partitionKey : partitionKeys) {
+                LiteralExpr expr = partitionKey.getKeys().get(columnId);
+                if (contain(range, expr, columnId)) {
                     resultSet.add(entry.getKey());
-                    break;
                 }
             }
         }
         return resultSet;
     }
 
+    /**
+     * check literal expr exist in partition range
+     * @param range the partition key range
+     * @param literalExpr expr to be checked
+     * @param columnId expr column index in partition key
+     * @return
+     */
+    private boolean contain(Range<PartitionKey> range, LiteralExpr literalExpr, int columnId) {
+        LiteralExpr lowerExpr = range.lowerEndpoint().getKeys().get(columnId);
+        LiteralExpr upperExpr = range.upperEndpoint().getKeys().get(columnId);
+        BoundType lType = range.lowerBoundType();
+        BoundType uType = range.upperBoundType();
+        int ret1 = PartitionKey.compareLiteralExpr(literalExpr, lowerExpr);
+        int ret2 = PartitionKey.compareLiteralExpr(literalExpr, upperExpr);
+
+        if (lType == BoundType.CLOSED && uType == BoundType.CLOSED) {
+            if (ret1 >= 0 && ret2 <= 0) {
+                return true;
+            }
+        } else if (lType == BoundType.CLOSED && uType == BoundType.OPEN) {
+            if (ret1 >= 0 && ret2 < 0) {
+                return true;
+            }
+        } else if (lType == BoundType.OPEN && uType == BoundType.CLOSED) {
+            if (ret1 > 0 && ret2 <= 0) {
+                return true;
+            }
+        } else if (lType == BoundType.OPEN && uType == BoundType.OPEN) {
+            if (ret1 > 0 && ret2 < 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * get min literal expr from partition key list map by partition key column id.
+     * @param columnId
+     * @return
+     */
+    private LiteralExpr getMinLiteral(int columnId) {
+        LiteralExpr minLiteral = null;
+        for (Map.Entry<Long, PartitionItem> entry : partitionListMap.entrySet()) {
+            List<PartitionKey> partitionKeys = entry.getValue().getItems();
+            for (PartitionKey partitionKey : partitionKeys) {
+                minLiteral = getMinExpr(partitionKey.getKeys().get(columnId), minLiteral);
+            }
+        }
+        return minLiteral;
+    }
+
+    private LiteralExpr getMinExpr(LiteralExpr expr, LiteralExpr minLiteral) {
+        if (minLiteral == null) {
+            minLiteral = expr;
+            return minLiteral;
+        }
+        if (expr.compareLiteral(minLiteral) < 0) {
+            minLiteral = expr;
+        }
+        return minLiteral;
+    }
+
     private Collection<Long> prune(
-            Map<Long, List<PartitionKey>> listMap,
+            Map<Long, PartitionItem> listMap,
             int columnId,
             PartitionKey minKey,
             PartitionKey maxKey,
             int complex)
             throws AnalysisException {
+        // if partition item map is empty, no need to prune.
+        if (listMap.size() == 0) {
+            return Lists.newArrayList();
+        }
+
         if (columnId == partitionColumns.size()) {
             try {
-                return pruneListMap(listMap, Range.closed(minKey, maxKey));
+                return pruneListMap(listMap, Range.closed(minKey, maxKey), columnId - 1);
             } catch (IllegalArgumentException e) {
                 return Lists.newArrayList();
             }
@@ -89,13 +152,13 @@ public class ListPartitionPruner implements PartitionPruner {
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         // no filter in this column
         if (null == filter) {
-            minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
-                    keyColumn.getDataType());
+            minKey.pushColumn(getMinLiteral(columnId), keyColumn.getDataType());
             maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                    keyColumn.getDataType());
+                                keyColumn.getDataType());
             Collection<Long> result = null;
             try {
-                return pruneListMap(listMap, Range.closed(minKey, maxKey));
+                // prune next partition column
+                result = prune(listMap, columnId + 1, minKey, maxKey, complex);
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }
@@ -105,13 +168,18 @@ public class ListPartitionPruner implements PartitionPruner {
         }
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
+            // case: where k1 = 1;
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive 
                     && filter.lowerBound != null && filter.upperBound != null 
                     && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
-                Collection<Long> result =
-                        prune(listMap, columnId + 1, minKey, maxKey, complex);
+                // handle like in predicate
+                Collection<Long> result = pruneListMap(listMap, Range.closed(minKey, maxKey), columnId);
+                // prune next partition column
+                if (partitionColumns.size() > 1) {
+                    result.retainAll(prune(listMap, columnId + 1, minKey, maxKey, complex));
+                }
                 minKey.popColumn();
                 maxKey.popColumn();
                 return result;
@@ -124,25 +192,13 @@ public class ListPartitionPruner implements PartitionPruner {
             int lastColumnId = partitionColumns.size() - 1;
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
-                if (filter.lowerBoundInclusive && columnId != lastColumnId) {
-                    Column column = partitionColumns.get(columnId + 1);
-                    minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), false),
-                            column.getDataType());
-                    isPushMin = true;
-                }
             } else {
-                minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
+                minKey.pushColumn(getMinLiteral(columnId),
                         keyColumn.getDataType());
                 isPushMin = true;
             }
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
-                if (filter.upperBoundInclusive && columnId != lastColumnId) {
-                    Column column = partitionColumns.get(columnId + 1);
-                    maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), true),
-                            column.getDataType());
-                    isPushMax = true;
-                }
             } else {
                 maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
                         keyColumn.getDataType());
@@ -151,7 +207,12 @@ public class ListPartitionPruner implements PartitionPruner {
 
             Collection<Long> result = null;
             try {
-                return pruneListMap(listMap, Range.range(minKey, lowerType, maxKey, upperType));
+                result = pruneListMap(listMap, Range.range(minKey, lowerType, maxKey, upperType), columnId);
+                // prune next partition column
+                if (partitionColumns.size() > 1) {
+                    result.retainAll(prune(listMap, columnId + 1, minKey, maxKey, complex));
+                }
+                return result;
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }
@@ -170,7 +231,13 @@ public class ListPartitionPruner implements PartitionPruner {
             LiteralExpr expr = (LiteralExpr) inPredicate.getChild(i);
             minKey.pushColumn(expr, keyColumn.getDataType());
             maxKey.pushColumn(expr, keyColumn.getDataType());
-            resultSet.addAll(prune(listMap, columnId + 1, minKey, maxKey, complex));
+            Collection<Long> result = pruneListMap(listMap, Range.closed(minKey, maxKey), columnId);
+            // prune next partition column
+            if (partitionColumns.size() > 1) {
+                // Take the intersection
+                result.retainAll(prune(listMap, columnId + 1, minKey, maxKey, complex));
+            }
+            resultSet.addAll(result);
             minKey.popColumn();
             maxKey.popColumn();
         }
@@ -183,5 +250,3 @@ public class ListPartitionPruner implements PartitionPruner {
         return prune(partitionListMap, 0, minKey, maxKey, 1);
     }
 }
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

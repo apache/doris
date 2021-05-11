@@ -54,7 +54,7 @@ And then you could build Doris as following steps:
 #### Step1: Pull the docker image with Doris building environment
 
 ```
-$ docker pull apachedoris/doris-dev:build-env-1.2
+$ docker pull apachedoris/doris-dev:build-env-1.3
 ```
 
 You can check it by listing images, for example:
@@ -62,7 +62,7 @@ You can check it by listing images, for example:
 ```
 $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago         4.12GB
+apachedoris/doris-dev   build-env-1.3       c9665fbee395        5 days ago         3.55GB
 ```
 > NOTE: You may have to use different images to compile from source.
 >
@@ -70,7 +70,8 @@ apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago     
 > |---|---|---|
 > | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 > | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or 0.11.x |
-> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or later |
+> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or 0.13 |
+> | apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
 
 
 
@@ -80,13 +81,13 @@ apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago     
 You can run the image directly:
 
 ```
-$ docker run -it apachedoris/doris-dev:build-env-1.2
+$ docker run -it apachedoris/doris-dev:build-env-1.3
 ```
 
 Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
 
 ```
-$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.2
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.3
 ```
 
 #### Step3: Download Doris source
@@ -120,18 +121,37 @@ After successfully building, it will install binary files in the directory `outp
 You should install the following softwares:
 
 ```
-GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
+GCC 10.2.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+, Flex 2.6.0+
 ```
 
-After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
+Then set them to environment variable PATH and set JAVA_HOME.
 
-If your GCC version is lower than 7.3.0, you can run:
+If your GCC version is lower than 10.2.1, you can run:
 
 ```
-sudo yum install devtoolset-4-toolchain -y
+sudo yum install -y devtoolset-10-gcc* 
 ```
 
-and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
+If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can create
+repo file `CentOS-SCLo-scl.ol.repo` in path `/etc/yum.repos.d/`:
+
+```
+[ol7_software_collections]
+name=Software Collection packages for Oracle Linux 7 ($basearch)
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+```
+
+and then
+
+```
+wget http://public-yum.oracle.com/RPM-GPG-KEY-oracle-ol7 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+rpm --import  /etc/pki/rpm-gpg/RPM-GPG-KEY-*
+sudo yum install -y devtoolset-10-gcc*
+```
+Don't forget to set the path of GCC (e.g `/opt/rh/devtoolset-10/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 

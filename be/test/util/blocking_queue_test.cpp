@@ -22,7 +22,7 @@
 #include <unistd.h>
 
 #include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 namespace doris {
 
@@ -65,7 +65,7 @@ public:
         }
 
         {
-            boost::lock_guard<boost::mutex> guard(_lock);
+            std::lock_guard<std::mutex> guard(_lock);
 
             if (--_num_inserters == 0) {
                 _queue.shutdown();
@@ -83,7 +83,7 @@ public:
             }
 
             {
-                boost::lock_guard<boost::mutex> guard(_lock);
+                std::lock_guard<std::mutex> guard(_lock);
                 _gotten[arg] = _gotten[arg] + 1;
             }
         }
@@ -92,22 +92,22 @@ public:
     void Run() {
         for (int i = 0; i < _nthreads; ++i) {
             _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(boost::bind(&MultiThreadTest::inserter_thread, this, i))));
+                    new boost::thread(std::bind(&MultiThreadTest::inserter_thread, this, i))));
             _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(boost::bind(&MultiThreadTest::RemoverThread, this))));
+                    new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
         }
 
         // We add an extra thread to ensure that there aren't enough elements in
         // the queue to go around.  This way, we test removal after shutdown.
         _threads.push_back(boost::shared_ptr<boost::thread>(
-                new boost::thread(boost::bind(&MultiThreadTest::RemoverThread, this))));
+                new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
 
         for (int i = 0; i < _threads.size(); ++i) {
             _threads[i]->join();
         }
 
         // Let's check to make sure we got what we should have.
-        boost::lock_guard<boost::mutex> guard(_lock);
+        std::lock_guard<std::mutex> guard(_lock);
 
         for (int i = 0; i < _nthreads; ++i) {
             ASSERT_EQ(_iterations, _gotten[i]);
@@ -126,7 +126,7 @@ private:
     int _nthreads;
     BlockingQueue<int32_t> _queue;
     // Lock for _gotten and _num_inserters.
-    boost::mutex _lock;
+    std::mutex _lock;
     // Map from inserter thread id to number of consumed elements from that id.
     // Ultimately, this should map each thread id to _insertions elements.
     // Additionally, if the blocking_get returns false, this increments id=-1.

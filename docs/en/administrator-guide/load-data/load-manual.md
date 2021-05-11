@@ -41,7 +41,7 @@ Doris supports multiple imports. It is recommended to read this document in full
 
 ## Load mode
 
-To adapt to different data import requirements, Doris system provides five different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
+To adapt to different data import requirements, Doris system provides 6 different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
 
 All import methods support CSV data format. Broker load also supports parquet and orc data format.
 
@@ -66,6 +66,10 @@ For instructions on each import mode, please refer to the operation manual for a
 * Routine load
 
 	Users submit routine import jobs through MySQL protocol, generate a resident thread, read and import data from data sources (such as Kafka) uninterruptedly into Doris.
+
+* Load through S3 protocol
+
+  Users directly load data through the S3 protocol, and the usage is similar to Broker Load
 
 ## Basic Principles
 

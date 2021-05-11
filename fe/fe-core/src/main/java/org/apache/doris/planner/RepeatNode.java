@@ -33,10 +33,10 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TRepeatNode;
 
+import org.apache.commons.collections.CollectionUtils;
+
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
-
-import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -182,13 +182,16 @@ public class RepeatNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
         output.append(detailPrefix + "repeat: repeat ");
         output.append(repeatSlotIdList.size() - 1);
         output.append(" lines ");
         output.append(repeatSlotIdList);
-        output.append("\n" );
+        output.append("\n");
         if (CollectionUtils.isNotEmpty(outputTupleDesc.getSlots())) {
             output.append(detailPrefix + "generate: ");
             output.append(outputTupleDesc.getSlots().stream().map(slot -> "`" + slot.getColumn().getName() + "`")

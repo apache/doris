@@ -55,7 +55,7 @@ std::string dir_name(const std::string& path);
 // This is like basename(3) but for C++ strings.
 std::string base_name(const std::string& path);
 
-// It is used to replace boost::filesystem::path::extension().
+// It is used to replace std::filesystem::path::extension().
 // If the filename contains a dot but does not consist solely of one or to two dots,
 // returns the substring of file_name starting at the rightmost dot and ending at
 // the path's end. Otherwise, returns an empty string.

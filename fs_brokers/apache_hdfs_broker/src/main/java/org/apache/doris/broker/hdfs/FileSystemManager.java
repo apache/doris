@@ -35,6 +35,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -243,6 +244,10 @@ public class FileSystemManager {
                 logger.info("could not find file system for path " + path + " create a new one");
                 // create a new filesystem
                 Configuration conf = new HdfsConfiguration();
+
+                // fallback when kerberos auth fail
+                conf.set(CommonConfigurationKeys.IPC_CLIENT_FALLBACK_TO_SIMPLE_AUTH_ALLOWED_KEY, "true");
+
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 String tmpFilePath = null;
@@ -263,7 +268,8 @@ public class FileSystemManager {
                         long currentTime = System.currentTimeMillis();
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
-                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
+                        // different kerberos account has different file
+                        tmpFilePath = "/tmp/." + principal + "_" + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
                         FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
                         fileOutputStream.write(base64decodedBytes);
                         fileOutputStream.close();
@@ -338,6 +344,11 @@ public class FileSystemManager {
                     properties.containsKey(USER_NAME_KEY) && !Strings.isNullOrEmpty(username)) {
                     // Use the specified 'username' as the login name
                     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(username);
+                    // make sure hadoop client know what auth method would be used now,
+                    // don't set as default
+                    conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_SIMPLE);
+                    ugi.setAuthenticationMethod(UserGroupInformation.AuthenticationMethod.SIMPLE);
+
                     dfsFileSystem = ugi.doAs(new PrivilegedExceptionAction<FileSystem>() {
                         @Override
                         public FileSystem run() throws Exception {

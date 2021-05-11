@@ -39,9 +39,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -71,7 +70,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -106,6 +104,19 @@ public class OlapScanNode extends ScanNode {
      * Query2: select k1, min(v1) from table group by k1
      * This aggregation function in query is min which different from the schema.
      * So the data stored in storage engine need to be merged firstly before returning to scan node.
+     *
+     * There are currently two places to modify this variable:
+     * 1. The turnOffPreAgg() method of SingleNodePlanner.
+     *      This method will only be called on the left deepest OlapScanNode the plan tree,
+     *      while other nodes are false by default (because the Aggregation operation is executed after Join,
+     *      we cannot judge whether other OlapScanNodes can close the pre-aggregation).
+     *      So even the Duplicate key table, if it is not the left deepest node, it will remain false too.
+     *
+     * 2. After MaterializedViewSelector selects the materialized view, the updateScanRangeInfoByNewMVSelector()\
+     *    method of OlapScanNode may be called to update this variable.
+     *      This call will be executed on all ScanNodes in the plan tree. In this step,
+     *      for the DuplicateKey table, the variable will be set to true.
+     *      See comment of "isPreAggregation" variable in MaterializedViewSelector for details.
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
@@ -227,12 +238,15 @@ public class OlapScanNode extends ScanNode {
 
         if (update) {
             this.selectedIndexId = selectedIndexId;
-            this.isPreAggregation = isPreAggregation;
-            this.reasonOfPreAggregation = reasonOfDisable;
+            setIsPreAggregation(isPreAggregation, reasonOfDisable);
             updateColumnType();
-            LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
+            }
         } else {
-            LOG.warn("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+            }
         }
     }
 
@@ -317,22 +331,28 @@ public class OlapScanNode extends ScanNode {
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
-    private Collection<Long> partitionPrune(RangePartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
-        Map<Long, Range<PartitionKey>> keyRangeById = null;
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
+        PartitionPruner partitionPruner = null;
+        Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
-            keyRangeById = Maps.newHashMap();
+            keyItemMap = Maps.newHashMap();
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = olapTable.getPartition(partName, partitionNames.isTemp());
-                if (part == null) {
+                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
-                keyRangeById.put(part.getId(), partitionInfo.getRange(part.getId()));
+                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
             }
         } else {
-            keyRangeById = partitionInfo.getIdToRange(false);
+            keyItemMap = partitionInfo.getIdToItem(false);
         }
-        PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
-                partitionInfo.getPartitionColumns(), columnFilters);
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            partitionPruner = new RangePartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        } else if (partitionInfo.getType() == PartitionType.LIST) {
+            partitionPruner = new ListPartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        }
         return partitionPruner.prune();
     }
 
@@ -448,8 +468,8 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
             selectedPartitionIds = null;
         }
@@ -549,10 +569,14 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
 
         output.append(prefix).append("TABLE: ").append(olapTable.getName()).append("\n");
+
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return output.toString();
+        }
 
         if (null != sortColumn) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
@@ -626,11 +650,11 @@ public class OlapScanNode extends ScanNode {
         }
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         msg.olap_scan_node =
-              new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+                new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
-	msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
     }
 
     // export some tablets
@@ -643,7 +667,7 @@ public class OlapScanNode extends ScanNode {
         olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
-        olapScanNode.isPreAggregation = false;
+        olapScanNode.setIsPreAggregation(false, "Export job");
         olapScanNode.isFinalized = true;
         olapScanNode.result.addAll(locationsList);
 

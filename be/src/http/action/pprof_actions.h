@@ -24,10 +24,11 @@ namespace doris {
 
 class EvHttpServer;
 class ExecEnv;
+class ObjectPool;
 
 class PprofActions {
 public:
-    static Status setup(ExecEnv* exec_env, EvHttpServer* http_server);
+    static Status setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool);
 };
 
 } // namespace doris

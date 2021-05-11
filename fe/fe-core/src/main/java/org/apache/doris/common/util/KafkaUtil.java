@@ -21,18 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.proto.PKafkaLoadInfo;
-import org.apache.doris.proto.PKafkaMetaProxyRequest;
-import org.apache.doris.proto.PProxyRequest;
-import org.apache.doris.proto.PProxyResult;
-import org.apache.doris.proto.PStringPair;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
-
-import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
@@ -61,31 +56,30 @@ public class KafkaUtil {
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
             
             // create request
-            PKafkaLoadInfo kafkaLoadInfo = new PKafkaLoadInfo();
-            kafkaLoadInfo.brokers = brokerList;
-            kafkaLoadInfo.topic = topic;
-            for (Map.Entry<String, String> entry : convertedCustomProperties.entrySet()) {
-                PStringPair pair = new PStringPair();
-                pair.key = entry.getKey();
-                pair.val = entry.getValue();
-                if (kafkaLoadInfo.properties == null) {
-                    kafkaLoadInfo.properties = Lists.newArrayList();
-                }
-                kafkaLoadInfo.properties.add(pair);
-            }
-            PKafkaMetaProxyRequest kafkaRequest = new PKafkaMetaProxyRequest();
-            kafkaRequest.kafka_info = kafkaLoadInfo;
-            PProxyRequest request = new PProxyRequest();
-            request.kafka_meta_request = kafkaRequest;
+            InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
+                    InternalService.PKafkaMetaProxyRequest.newBuilder()
+                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
+                                    .setBrokers(brokerList)
+                                    .setTopic(topic)
+                                    .addAllProperties(
+                                            convertedCustomProperties.entrySet().stream().map(
+                                            e -> InternalService.PStringPair.newBuilder()
+                                                    .setKey(e.getKey())
+                                                    .setVal(e.getValue())
+                                                    .build()
+                                            ).collect(Collectors.toList())
+                                    )
+                            )
+            ).build();
             
             // get info
-            Future<PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
-            PProxyResult result = future.get(5, TimeUnit.SECONDS);
-            TStatusCode code = TStatusCode.findByValue(result.status.status_code);
+            Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
+            InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
+            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
-                throw new UserException("failed to get kafka partition info: " + result.status.error_msgs);
+                throw new UserException("failed to get kafka partition info: " + result.getStatus().getErrorMsgsList());
             } else {
-                return result.kafka_meta_result.partition_ids;
+                return result.getKafkaMetaResult().getPartitionIdsList();
             }
         } catch (Exception e) {
             LOG.warn("failed to get partitions.", e);

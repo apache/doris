@@ -20,11 +20,11 @@
 #include <unistd.h>
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <boost/unordered_map.hpp>
+#include <condition_variable>
+#include <mutex>
+#include <unordered_map>
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>

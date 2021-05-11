@@ -58,7 +58,8 @@ under the License.
         [where_predicates],
         [delete_on_predicates],
         [source_sequence],
-        [partitions]
+        [partitions],
+        [preceding_predicates]
 
         1. column_separator:
 
@@ -109,6 +110,12 @@ under the License.
         6. source_sequence:
         
             只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
+        7. preceding_predicates
+
+            PRECEDING FILTER predicate
+
+            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
 
     5. job_properties
 
@@ -467,6 +474,26 @@ under the License.
         COLUMNS TERMINATED BY ",",
         COLUMNS(k1,k2,source_sequence,v1,v2),
         ORDER BY source_sequence
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "30",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200"
+        ) FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
+
+    8. 过滤原始数据
+
+        CREATE ROUTINE LOAD example_db.test_job ON example_tbl
+        COLUMNS TERMINATED BY ",",
+        COLUMNS(k1,k2,source_sequence,v1,v2),
+        PRECEDING FILTER k1 > 2
         PROPERTIES
         (
             "desired_concurrent_number"="3",

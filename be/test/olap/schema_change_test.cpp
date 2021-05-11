@@ -649,7 +649,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar) {
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar) {
-    decimal12_t val(456, 789000000);
+    decimal12_t val = {456, 789000000};
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS);
 }
 

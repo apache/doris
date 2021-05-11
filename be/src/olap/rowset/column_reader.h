@@ -311,7 +311,7 @@ public:
         }
         case OLAP_FIELD_TYPE_DECIMAL: {
             _values = reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(decimal12_t)));
-            decimal12_t value(0, 0);
+            decimal12_t value = {0, 0};
             value.from_string(_default_value);
             for (int i = 0; i < size; ++i) {
                 ((decimal12_t*)_values)[i] = value;

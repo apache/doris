@@ -25,8 +25,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -55,7 +55,6 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
             .build();
 
-    public static final int IP_INDEX = 2;
     public static final int HOSTNAME_INDEX = 3;
 
     private SystemInfoService clusterInfoService;
@@ -120,7 +119,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
-                backendInfo.add(FrontendOptions.getHostnameByIp(backend.getHost()));
+                backendInfo.add(NetUtils.getHostnameByIp(backend.getHost()));
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));

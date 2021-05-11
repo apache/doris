@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_WEB_PAGE_HANDLER_H
 #define DORIS_BE_SRC_COMMON_UTIL_WEB_PAGE_HANDLER_H
 
-#include <boost/function.hpp>
-#include <boost/thread/mutex.hpp>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -37,9 +37,9 @@ class EvHttpServer;
 class WebPageHandler : public HttpHandler {
 public:
     typedef std::map<std::string, std::string> ArgumentMap;
-    typedef boost::function<void(const ArgumentMap& args, std::stringstream* output)>
+    typedef std::function<void(const ArgumentMap& args, std::stringstream* output)>
             PageHandlerCallback;
-    typedef boost::function<void(const ArgumentMap& args, EasyJson* output)>
+    typedef std::function<void(const ArgumentMap& args, EasyJson* output)>
             TemplatePageHandlerCallback;
 
     WebPageHandler(EvHttpServer* http_server);
@@ -112,7 +112,7 @@ private:
     std::string _www_path;
     EvHttpServer* _http_server;
     // Lock guarding the _path_handlers map
-    boost::mutex _map_lock;
+    std::mutex _map_lock;
     // Map of path to a PathHandler containing a list of handlers for that
     // path. More than one handler may register itself with a path so that many
     // components may contribute to a single page.

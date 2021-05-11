@@ -164,7 +164,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
         break;
     }
     case HLL_DATA_EXPLICIT: {
-        DCHECK(_hash_set.size() < HLL_EXPLICIT_INT64_NUM)
+        DCHECK(_hash_set.size() <= HLL_EXPLICIT_INT64_NUM)
                 << "Number of explicit elements(" << _hash_set.size()
                 << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
         *ptr++ = _type;

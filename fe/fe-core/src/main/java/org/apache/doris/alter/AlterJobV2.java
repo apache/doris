@@ -194,11 +194,11 @@ public abstract class AlterJobV2 implements Writable {
             throw new AlterCancelException(e.getMessage());
         }
 
-        boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
-
         tbl.writeLock();
         try {
+            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
+
             if (!isStable) {
                 errMsg = "table is unstable";
                 LOG.warn("wait table {} to be stable before doing {} job", tableId, type);
@@ -208,6 +208,7 @@ public abstract class AlterJobV2 implements Writable {
                 // table is stable, set is to ROLLUP and begin altering.
                 LOG.info("table {} is stable, start {} job {}", tableId, type);
                 tbl.setState(type == JobType.ROLLUP ? OlapTableState.ROLLUP : OlapTableState.SCHEMA_CHANGE);
+                errMsg = "";
                 return true;
             }
         } finally {

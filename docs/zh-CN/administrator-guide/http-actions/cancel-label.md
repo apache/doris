@@ -30,7 +30,7 @@ under the License.
         cancel_label: cancel a transaction with label
         
     SYNOPSIS
-        curl -u user:passwd -XPOST http://host:port/api/{db}/{label}/_cancel
+        curl -u user:passwd -XPOST http://host:port/api/{db}/_cancel?label={label}
 
     DESCRIPTION
         该命令用于cancel一个指定Label对应的事务，事务在Prepare阶段能够被成功cancel
@@ -47,7 +47,7 @@ under the License.
 ## example
 
     1. cancel testDb, testLabel的作业
-        curl -u root -XPOST http://host:port/api/testDb/testLabel/_cancel
+        curl -u root -XPOST http://host:port/api/testDb/_cancel?label=testLabel
  
 ## keyword
     CANCEL，LABEL

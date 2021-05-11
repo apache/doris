@@ -1117,7 +1117,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     _delete_handler.finalize();
 }
 
-} // namespace doris
+}  // namespace doris
 
 int main(int argc, char** argv) {
     doris::init_glog("be-test");

@@ -18,6 +18,7 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -35,7 +36,6 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -44,11 +44,11 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
-import org.apache.commons.io.FileUtils;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -150,10 +150,22 @@ public class UtFrameUtils {
         return fe_rpc_port;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+    public static void createMinDorisCluster(String runningDir) throws InterruptedException, NotInitException,
+            IOException, DdlException, EnvVarNotSetException, FeStartException {
+        createMinDorisCluster(runningDir, 1);
+    }
+
+    public static void createMinDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int fe_rpc_port = startFEServer(runningDir);
+        for (int i = 0; i < backendNum; i++) {
+            createBackend(fe_rpc_port);
+            // sleep to wait first heartbeat
+            Thread.sleep(6000);
+        }
+    }
 
+    public static void createBackend(int fe_rpc_port) throws IOException, InterruptedException {
         int be_heartbeat_port = findValidPort();
         int be_thrift_port = findValidPort();
         int be_brpc_port = findValidPort();
@@ -168,9 +180,9 @@ public class UtFrameUtils {
         backend.start();
 
         // add be
-        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
-        DiskInfo diskInfo1 = new DiskInfo("/path1");
+        DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
@@ -178,10 +190,10 @@ public class UtFrameUtils {
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        be.setBePort(be_thrift_port);
+        be.setHttpPort(be_http_port);
+        be.setBeRpcPort(be_brpc_port);
         Catalog.getCurrentSystemInfo().addBackend(be);
-
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
     }
 
     public static void cleanDorisFeDir(String baseDir) {
@@ -215,7 +227,7 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), TExplainLevel.NORMAL);
+            return planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
         } else {
             return ctx.getState().getErrorMessage();
         }

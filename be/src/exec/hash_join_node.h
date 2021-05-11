@@ -20,8 +20,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
@@ -67,7 +67,7 @@ private:
     bool _is_push_down;
 
     // for right outer joins, keep track of what's been joined
-    typedef boost::unordered_set<TupleRow*> BuildTupleRowSet;
+    typedef std::unordered_set<TupleRow*> BuildTupleRowSet;
     BuildTupleRowSet _joined_build_rows;
 
     TJoinOp::type _join_op;
@@ -105,7 +105,8 @@ private:
     // is responsible for.
     boost::scoped_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
-    bool _probe_eos;      // if true, probe child has no more rows to process
+    int _probe_counter;
+    bool _probe_eos; // if true, probe child has no more rows to process
     TupleRow* _current_probe_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
@@ -174,6 +175,13 @@ private:
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
+
+    // RELEASE_CONTEXT_COUNTER should be power of 2
+    // GCC will optimize the modulo operation to &(release_context_counter - 1)
+    // build_expr_context and probe_expr_context will free local alloc after this probe calculations
+    static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 5;
+    static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
+                  "should be power of 2");
 };
 
 } // namespace doris

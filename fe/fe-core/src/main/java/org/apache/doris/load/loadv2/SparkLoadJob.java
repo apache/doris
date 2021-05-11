@@ -52,6 +52,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -87,15 +88,15 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -168,7 +169,15 @@ public class SparkLoadJob extends BulkLoadJob {
      * @throws DdlException
      */
     private void setResourceInfo() throws DdlException {
-        // spark resource
+        if (resourceDesc == null) {
+            // resourceDesc is null means this is a replay thread.
+            // And resourceDesc is not persisted, so it should be null.
+            // sparkResource and brokerDesc are both persisted, so no need to handle them
+            // in replay process.
+            return;
+        }
+
+        // set sparkResource and brokerDesc
         String resourceName = resourceDesc.getName();
         Resource oriResource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
         if (oriResource == null) {
@@ -177,14 +186,14 @@ public class SparkLoadJob extends BulkLoadJob {
         sparkResource = ((SparkResource) oriResource).getCopiedResource();
         sparkResource.update(resourceDesc);
 
-        // broker desc
         Map<String, String> brokerProperties = sparkResource.getBrokerPropertiesWithoutPrefix();
         brokerDesc = new BrokerDesc(sparkResource.getBroker(), brokerProperties);
     }
 
     @Override
     public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
                                   new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),

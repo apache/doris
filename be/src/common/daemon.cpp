@@ -18,6 +18,8 @@
 #include "common/daemon.h"
 
 #include <signal.h>
+
+#include <aws/core/Aws.h>
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h>
 
@@ -65,6 +67,8 @@
 namespace doris {
 
 bool k_doris_exit = false;
+
+Aws::SDKOptions aws_options;
 
 void Daemon::tcmalloc_gc_thread() {
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
@@ -264,6 +268,14 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
+    // disable EC2 metadata service
+    setenv("AWS_EC2_METADATA_DISABLED", "true", false);
+    Aws::Utils::Logging::LogLevel logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+    aws_options.loggingOptions.logLevel = logLevel;
+    aws_options.loggingOptions.logger_create_fn = [logLevel] {
+        return std::make_shared<DorisAWSLogger>(logLevel);
+    };
+    Aws::InitAPI(aws_options);
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -289,6 +301,11 @@ void Daemon::start() {
     CHECK(st.ok()) << st.to_string();
 
     if (config::enable_metric_calculator) {
+        CHECK(DorisMetrics::instance()->is_inited())
+                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
+                << " or there may be some hardware error which causes metric init failed, please check log first;"
+                << " you can set enable_metric_calculator = false to quickly recover ";
+
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);
@@ -308,6 +325,7 @@ void Daemon::stop() {
     if (_calculate_metrics_thread) {
         _calculate_metrics_thread->join();
     }
+    Aws::ShutdownAPI(aws_options);
 }
 
 } // namespace doris

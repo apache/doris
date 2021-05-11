@@ -27,10 +27,13 @@ using strings::Substitute;
 namespace doris {
 
 RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
+        : RowBlockV2(schema, capacity, nullptr) {}
+
+RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity, std::shared_ptr<MemTracker> parent)
         : _schema(schema),
           _capacity(capacity),
           _column_vector_batches(_schema.num_columns()),
-          _tracker(new MemTracker(-1, "RowBlockV2")),
+          _tracker(MemTracker::CreateTracker(-1, "RowBlockV2", parent)),
           _pool(new MemPool(_tracker.get())),
           _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {

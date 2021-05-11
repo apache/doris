@@ -19,7 +19,7 @@ under the License.
 
 # Doris Document
 
-[Vuepress](https://github.com/vuejs/vuepress.git) is used as our document site generator, configurations are in `./docs/.vuepress` folder.
+[Vuepress](https://github.com/vuejs/vuepress.git) is used as our document site generator. Configurations are in `./docs/.vuepress` folder.
 
 ## Getting Started
 

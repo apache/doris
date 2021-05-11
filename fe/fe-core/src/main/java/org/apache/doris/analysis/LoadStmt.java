@@ -161,6 +161,12 @@ public class LoadStmt extends DdlStmt {
                     return Integer.valueOf(s);
                 }
             })
+            .put(CLUSTER_PROPERTY, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
+                }
+            })
             .build();
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
@@ -316,6 +322,14 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
                     && !((table instanceof OlapTable) && ((OlapTable) table).hasDeleteSign()) ) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
+            }
+            if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
+                for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
+                    dataDescription.getFilePaths().set(i,
+                        brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                    dataDescription.getFilePaths().set(i,
+                        ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                }
             }
         }
         if (isLoadFromTable) {

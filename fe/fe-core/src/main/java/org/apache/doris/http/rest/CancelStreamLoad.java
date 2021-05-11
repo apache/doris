@@ -40,7 +40,7 @@ public class CancelStreamLoad extends RestBaseAction {
     public static void registerAction(ActionController controller)
             throws IllegalArgException {
         CancelStreamLoad action = new CancelStreamLoad(controller);
-        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/{" + LABEL_KEY + "}/_cancel", action);
+        controller.registerHandler(HttpMethod.POST, "/api/{" + DB_KEY + "}/_cancel", action);
     }
 
     @Override

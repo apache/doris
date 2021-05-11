@@ -60,6 +60,7 @@ class TSessionState;
 class TQueryOptions;
 class TExportTaskRequest;
 class TExportStatusResult;
+class TStreamLoadRecordResult;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -139,6 +140,8 @@ public:
 
     // used for external service, close some context and release resource related with this context
     virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params);
+
+    virtual void get_stream_load_record(TStreamLoadRecordResult& result, const int64_t last_stream_record_time) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);

@@ -36,11 +36,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.bdbje.Timestamp;
-import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -52,6 +52,7 @@ import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -86,10 +87,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -295,20 +296,8 @@ public class JournalEntity implements Writable {
                 ((ExportJob.StateTransfer) data).readFields(in);
                 isRead = true;
                 break;
-            case OperationType.OP_FINISH_SYNC_DELETE: {
-                data = new DeleteInfo();
-                ((DeleteInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_FINISH_DELETE: {
-                data = new DeleteInfo();
-                ((DeleteInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_FINISH_ASYNC_DELETE: {
-                data = AsyncDeleteJob.read(in);
+                data = DeleteInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -323,8 +312,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
-                data = new Backend();
-                ((Backend) data).readFields(in);
+                data = Backend.read(in);
                 isRead = true;
                 break;
             }
@@ -443,6 +431,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BATCH_REMOVE_TXNS: {
+                data = BatchRemoveTransactionsOperation.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_REPOSITORY: {
                 data = Repository.read(in);
                 isRead = true;
@@ -518,6 +511,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_LOAD_JOB: {
                 data = LoadJobStateUpdateInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
+                data = FetchStreamLoadRecord.read(in);
                 isRead = true;
                 break;
             }

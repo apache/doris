@@ -77,7 +77,13 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
                                                  google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    auto st = _exec_plan_fragment(cntl);
+    auto st = Status::OK();
+    if (request->has_request()) {
+        st = _exec_plan_fragment(request->request());
+    } else {
+        // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
+        st = _exec_plan_fragment(cntl->request_attachment().to_string());
+    }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
     }
@@ -97,11 +103,10 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
     _tablet_worker_pool.offer([request, response, done, this]() {
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
-        int64_t wait_lock_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             auto st = _exec_env->load_channel_mgr()->add_batch(
-                    *request, response->mutable_tablet_vec(), &wait_lock_time_ns);
+                    *request, response->mutable_tablet_vec());
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -110,7 +115,6 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
             st.to_protobuf(response->mutable_status());
         }
         response->set_execution_time_us(execution_time_ns / 1000);
-        response->set_wait_lock_time_us(wait_lock_time_ns / 1000);
     });
 }
 
@@ -131,8 +135,7 @@ void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcControll
 }
 
 template <typename T>
-Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
-    auto ser_request = cntl->request_attachment().to_string();
+Status PInternalServiceImpl<T>::_exec_plan_fragment(const std::string& ser_request) {
     TExecPlanFragmentParams t_request;
     {
         const uint8_t* buf = (const uint8_t*)ser_request.data();
@@ -174,7 +177,8 @@ void PInternalServiceImpl<T>::fetch_data(google::protobuf::RpcController* cntl_b
                                          const PFetchDataRequest* request, PFetchDataResult* result,
                                          google::protobuf::Closure* done) {
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
+    bool resp_in_attachment = request->has_resp_in_attachment() ? request->resp_in_attachment() : true;
+    GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, resp_in_attachment, result, done);
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 

@@ -17,101 +17,31 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.PartitionKeyDesc.PartitionRangeType;
-import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import org.apache.doris.qe.ConnectContext;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // to describe the key range partition's information in create table stmt
 public class RangePartitionDesc extends PartitionDesc {
-    private List<String> partitionColNames;
-    private List<SingleRangePartitionDesc> singleRangePartitionDescs;
 
     public RangePartitionDesc(List<String> partitionColNames,
-                              List<SingleRangePartitionDesc> singlePartitionDescs) {
-        type = PartitionType.RANGE;
-        this.partitionColNames = partitionColNames;
-        this.singleRangePartitionDescs = singlePartitionDescs;
-        if (singleRangePartitionDescs == null) {
-            singleRangePartitionDescs = Lists.newArrayList();
-        }
-    }
-
-    public List<SingleRangePartitionDesc> getSingleRangePartitionDescs() {
-        return this.singleRangePartitionDescs;
-    }
-
-    public List<String> getPartitionColNames() {
-        return partitionColNames;
+                              List<SinglePartitionDesc> singlePartitionDescs) {
+        super(partitionColNames, singlePartitionDescs);
+        type = org.apache.doris.catalog.PartitionType.RANGE;
     }
 
     @Override
-    public void analyze(List<ColumnDef> columnDefs, Map<String, String> otherProperties) throws AnalysisException {
-        if (partitionColNames == null || partitionColNames.isEmpty()) {
-            throw new AnalysisException("No partition columns.");
-        }
-
-        Set<String> partColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (String partitionCol : partitionColNames) {
-            if (!partColNames.add(partitionCol)) {
-                throw new AnalysisException("Duplicated partition column " + partitionCol);
-            }
-
-            boolean found = false;
-            for (ColumnDef columnDef : columnDefs) {
-                if (columnDef.getName().equals(partitionCol)) {
-                    if (!columnDef.isKey() && columnDef.getAggregateType() != AggregateType.NONE) {
-                        throw new AnalysisException("The partition column could not be aggregated column");
-                    }
-                    if (columnDef.getType().isFloatingPointType()) {
-                        throw new AnalysisException("Floating point type column can not be partition column");
-                    }
-                    if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
-                            && columnDef.isAllowNull()) {
-                        throw new AnalysisException("The partition column must be NOT NULL");
-                    }
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                throw new AnalysisException("Partition column[" + partitionCol + "] does not exist in column list.");
-            }
-        }
-
-        Set<String> nameSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        PartitionRangeType partitionType = PartitionRangeType.INVALID;
-        for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {
-            if (!nameSet.add(desc.getPartitionName())) {
-                throw new AnalysisException("Duplicated partition name: " + desc.getPartitionName());
-            }
-            // in create table stmt, we use given properties
-            // copy one. because ProperAnalyzer will remove entry after analyze
-            Map<String, String> givenProperties = null;
-            if (otherProperties != null) {
-                givenProperties = Maps.newHashMap(otherProperties);
-            }
-            // check partitionType
-            if (partitionType == PartitionRangeType.INVALID) {
-                partitionType = desc.getPartitionKeyDesc().getPartitionType();
-            } else if (partitionType != desc.getPartitionKeyDesc().getPartitionType()) {
-                throw new AnalysisException("You can only use one of these methods to create partitions");
-            }
-            desc.analyze(columnDefs.size(), givenProperties);
+    public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
+        if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED &&
+                partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
+            throw new AnalysisException("You can only use fixed or less than values to create range partitions");
         }
     }
 
@@ -129,11 +59,11 @@ public class RangePartitionDesc extends PartitionDesc {
         }
         sb.append(")\n(\n");
         
-        for (int i = 0; i < singleRangePartitionDescs.size(); i++) {
+        for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");
             }
-            sb.append(singleRangePartitionDescs.get(i).toSql());
+            sb.append(singlePartitionDescs.get(i).toSql());
         }
         sb.append("\n)");
         return sb.toString();
@@ -147,28 +77,15 @@ public class RangePartitionDesc extends PartitionDesc {
     @Override
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
             throws DdlException {
-        List<Column> partitionColumns = Lists.newArrayList();
+        List<Column> partitionColumns = new ArrayList<>();
 
         // check and get partition column
         for (String colName : partitionColNames) {
             boolean find = false;
             for (Column column : schema) {
                 if (column.getName().equalsIgnoreCase(colName)) {
-                    if (!column.isKey() && column.getAggregationType() != AggregateType.NONE) {
-                        throw new DdlException("The partition column could not be aggregated column");
-                    }
-
-                    if (column.getType().isFloatingPointType()) {
-                        throw new DdlException("Floating point type column can not be partition column");
-                    }
-
-                    if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
-                            && column.isAllowNull()) {
-                        throw new DdlException("The partition column must be NOT NULL");
-                    }
-
                     try {
-                        RangePartitionInfo.checkRangeColumnType(column);
+                        RangePartitionInfo.checkPartitionColumn(column);
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -176,6 +93,7 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
+
                 }
             }
             if (!find) {
@@ -186,17 +104,17 @@ public class RangePartitionDesc extends PartitionDesc {
         /*
          * validate key range
          * eg.
-         * VALUE LESS THEN (10, 100, 1000)
-         * VALUE LESS THEN (50, 500)
-         * VALUE LESS THEN (80)
-         * 
+         * VALUE LESS THAN (10, 100, 1000)
+         * VALUE LESS THAN (50, 500)
+         * VALUE LESS THAN (80)
+         *
          * key range is:
          * ( {MIN, MIN, MIN},     {10,  100, 1000} )
          * [ {10,  100, 1000},    {50,  500, MIN } )
          * [ {50,  500, MIN },    {80,  MIN, MIN } )
          */
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
-        for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {
+        for (SinglePartitionDesc desc : singlePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
             rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);
         }

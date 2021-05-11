@@ -125,7 +125,7 @@ public class MergeJoinNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         String distrModeStr =
           (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
         StringBuilder output = new StringBuilder().append(

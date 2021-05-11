@@ -78,6 +78,16 @@ public:
 
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
+    void start_wait_worker_timer() {
+        _watcher.reset();
+        _watcher.start();
+    }
+
+    int64_t update_wait_worker_timer() {
+        return _watcher.elapsed_time();
+    }
+
+
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters);
@@ -86,6 +96,8 @@ private:
 
     // Update profile that need to be reported in realtime.
     void _update_realtime_counter();
+
+private:
 
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
@@ -131,6 +143,8 @@ private:
     int64_t _num_rows_pushed_cond_filtered = 0;
 
     bool _is_closed = false;
+
+    MonotonicStopWatch _watcher;
 };
 
 } // namespace doris

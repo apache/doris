@@ -23,6 +23,7 @@
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"
@@ -911,7 +912,7 @@ Status DppSink::finish(RuntimeState* state) {
     for (auto& iter : _translator_map) {
         for (auto& trans : iter.second) {
             state->exec_env()->etl_thread_pool()->offer(
-                    boost::bind<void>(&DppSink::process, this, state, trans, &latch));
+                    std::bind<void>(&DppSink::process, this, state, trans, &latch));
         }
     }
 

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
 
-#include "common/logging.h"
 #include "common/compiler_util.h"
+#include "common/logging.h"
 
 // For cross compiling with clang, we need to be able to generate an IR file with
 // no sse instructions.  Attempting to load a precompiled IR file that contains
@@ -29,10 +29,10 @@
 #include <nmmintrin.h>
 #endif
 #include <zlib.h>
-#include <cmath>
+
+#include "gen_cpp/Types_types.h"
 #include "util/cpu_info.h"
 #include "util/murmur_hash3.h"
-#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -59,10 +59,6 @@ public:
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
-        // When data is negative zero, rewrite it to 0.0, see Doris#5226
-        if (*(double*)data == 0.0 and std::signbit(*(double*)data) == true) {
-            *(double*)data = 0.0;
-        }
         const uint32_t* p = reinterpret_cast<const uint32_t*>(data);
 
         while (words--) {
@@ -139,27 +135,33 @@ public:
 
         const uint32_t c1 = 0xcc9e2d51;
         const uint32_t c2 = 0x1b873593;
-        const uint32_t * blocks = (const uint32_t *)(data + nblocks * 4);
+        const uint32_t* blocks = (const uint32_t*)(data + nblocks * 4);
 
-        for(int i = -nblocks; i; i++) {
+        for (int i = -nblocks; i; i++) {
             uint32_t k1 = blocks[i];
 
             k1 *= c1;
-            k1 = rotl32(k1,15);
+            k1 = rotl32(k1, 15);
             k1 *= c2;
 
             h1 ^= k1;
-            h1 = rotl32(h1,13);
+            h1 = rotl32(h1, 13);
             h1 = h1 * 5 + 0xe6546b64;
         }
 
-        const uint8_t * tail = (const uint8_t*)(data + nblocks * 4);
+        const uint8_t* tail = (const uint8_t*)(data + nblocks * 4);
         uint32_t k1 = 0;
-        switch(len & 3) {
-            case 3: k1 ^= tail[2] << 16;
-            case 2: k1 ^= tail[1] << 8;
-            case 1: k1 ^= tail[0];
-                k1 *= c1; k1 = rotl32(k1,15); k1 *= c2; h1 ^= k1;
+        switch (len & 3) {
+        case 3:
+            k1 ^= tail[2] << 16;
+        case 2:
+            k1 ^= tail[1] << 8;
+        case 1:
+            k1 ^= tail[0];
+            k1 *= c1;
+            k1 = rotl32(k1, 15);
+            k1 *= c2;
+            h1 ^= k1;
         };
 
         h1 ^= len;
@@ -187,21 +189,21 @@ public:
 
         const uint8_t* data2 = reinterpret_cast<const uint8_t*>(data);
         switch (len & 7) {
-            case 7:
-                h ^= uint64_t(data2[6]) << 48;
-            case 6:
-                h ^= uint64_t(data2[5]) << 40;
-            case 5:
-                h ^= uint64_t(data2[4]) << 32;
-            case 4:
-                h ^= uint64_t(data2[3]) << 24;
-            case 3:
-                h ^= uint64_t(data2[2]) << 16;
-            case 2:
-                h ^= uint64_t(data2[1]) << 8;
-            case 1:
-                h ^= uint64_t(data2[0]);
-                h *= MURMUR_PRIME;
+        case 7:
+            h ^= uint64_t(data2[6]) << 48;
+        case 6:
+            h ^= uint64_t(data2[5]) << 40;
+        case 5:
+            h ^= uint64_t(data2[4]) << 32;
+        case 4:
+            h ^= uint64_t(data2[3]) << 24;
+        case 3:
+            h ^= uint64_t(data2[2]) << 16;
+        case 2:
+            h ^= uint64_t(data2[1]) << 8;
+        case 1:
+            h ^= uint64_t(data2[0]);
+            h *= MURMUR_PRIME;
         }
 
         h ^= h >> MURMUR_R;
@@ -212,7 +214,7 @@ public:
 
     // default values recommended by http://isthe.com/chongo/tech/comp/fnv/
     static const uint32_t FNV_PRIME = 0x01000193; //   16777619
-    static const uint32_t FNV_SEED = 0x811C9DC5; // 2166136261
+    static const uint32_t FNV_SEED = 0x811C9DC5;  // 2166136261
     static const uint64_t FNV64_PRIME = 1099511628211UL;
     static const uint64_t FNV64_SEED = 14695981039346656037UL;
     static const uint64_t MURMUR_PRIME = 0xc6a4a7935bd1e995ULL;
@@ -224,13 +226,6 @@ public:
     // is taken on the hash, all values will collide to the same bucket.
     // For string values, Fnv is slightly faster than boost.
     static uint32_t fnv_hash(const void* data, int32_t bytes, uint32_t hash) {
-        // When data is negative zero, rewrite it to 0.0, which will be used in 
-        // DataStreamSender::send HashPartition, because the original value of 
-        // data is covered here, so -0.0 in the data after DataStreamSender 
-        // will be changed to 0.0, see Doris#5226
-        if (*(double*)data == 0.0 and std::signbit(*(double*)data) == true) {
-            *(double*)data = 0.0;
-        }
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -255,24 +250,24 @@ public:
     // Our hash function is MurmurHash2, 64 bit version.
     // It was modified in order to provide the same result in
     // big and little endian archs (endian neutral).
-    static uint64_t murmur_hash64A (const void* key, int32_t len, unsigned int seed) {
+    static uint64_t murmur_hash64A(const void* key, int32_t len, unsigned int seed) {
         const uint64_t m = MURMUR_PRIME;
         const int r = 47;
         uint64_t h = seed ^ (len * m);
-        const uint8_t *data = (const uint8_t *)key;
-        const uint8_t *end = data + (len-(len&7));
+        const uint8_t* data = (const uint8_t*)key;
+        const uint8_t* end = data + (len - (len & 7));
 
-        while(data != end) {
+        while (data != end) {
             uint64_t k;
 #if (BYTE_ORDER == BIG_ENDIAN)
-            k = (uint64_t) data[0];
-            k |= (uint64_t) data[1] << 8;
-            k |= (uint64_t) data[2] << 16;
-            k |= (uint64_t) data[3] << 24;
-            k |= (uint64_t) data[4] << 32;
-            k |= (uint64_t) data[5] << 40;
-            k |= (uint64_t) data[6] << 48;
-            k |= (uint64_t) data[7] << 56;
+            k = (uint64_t)data[0];
+            k |= (uint64_t)data[1] << 8;
+            k |= (uint64_t)data[2] << 16;
+            k |= (uint64_t)data[3] << 24;
+            k |= (uint64_t)data[4] << 32;
+            k |= (uint64_t)data[5] << 40;
+            k |= (uint64_t)data[6] << 48;
+            k |= (uint64_t)data[7] << 56;
 #else
             k = *((uint64_t*)data);
 #endif
@@ -285,15 +280,22 @@ public:
             data += 8;
         }
 
-        switch(len & 7) {
-            case 7: h ^= (uint64_t)data[6] << 48;
-            case 6: h ^= (uint64_t)data[5] << 40;
-            case 5: h ^= (uint64_t)data[4] << 32;
-            case 4: h ^= (uint64_t)data[3] << 24;
-            case 3: h ^= (uint64_t)data[2] << 16;
-            case 2: h ^= (uint64_t)data[1] << 8;
-            case 1: h ^= (uint64_t)data[0];
-                h *= m;
+        switch (len & 7) {
+        case 7:
+            h ^= (uint64_t)data[6] << 48;
+        case 6:
+            h ^= (uint64_t)data[5] << 40;
+        case 5:
+            h ^= (uint64_t)data[4] << 32;
+        case 4:
+            h ^= (uint64_t)data[3] << 24;
+        case 3:
+            h ^= (uint64_t)data[2] << 16;
+        case 2:
+            h ^= (uint64_t)data[1] << 8;
+        case 1:
+            h ^= (uint64_t)data[0];
+            h *= m;
         };
 
         h ^= h >> r;
@@ -335,14 +337,20 @@ public:
         murmur_hash3_x64_64(data, bytes, seed, &hash);
         return hash;
 #endif
-
+    }
+    // hash_combine is the same with boost hash_combine,
+    // except replace boost::hash with std::hash 
+    template <class T>
+    static inline void hash_combine(std::size_t& seed, const T& v) {
+        std::hash<T> hasher;
+        seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     }
 };
 
-}
+} // namespace doris
 
 namespace std {
-template<>
+template <>
 struct hash<doris::TUniqueId> {
     std::size_t operator()(const doris::TUniqueId& id) const {
         std::size_t seed = 0;
@@ -352,7 +360,7 @@ struct hash<doris::TUniqueId> {
     }
 };
 
-template<>
+template <>
 struct hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
         std::size_t seed = 0;
@@ -364,7 +372,7 @@ struct hash<doris::TNetworkAddress> {
 
 #if !defined(IR_COMPILE) && __GNUC__ < 6
 // Cause this is builtin function
-template<>
+template <>
 struct hash<__int128> {
     std::size_t operator()(const __int128& val) const {
         return doris::HashUtil::hash(&val, sizeof(val), 0);
@@ -372,7 +380,7 @@ struct hash<__int128> {
 };
 #endif
 
-template<>
+template <>
 struct hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
         size_t seed = 0;
@@ -383,6 +391,6 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
     }
 };
 
-}
+} // namespace std
 
 #endif

@@ -275,7 +275,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         rl_attach.__set_unselectedRows(ctx->number_unselected_rows);
         rl_attach.__set_receivedBytes(ctx->receive_bytes);
         rl_attach.__set_loadedBytes(ctx->loaded_bytes);
-        rl_attach.__set_loadCostMs(ctx->load_cost_nanos / 1000 / 1000);
+        rl_attach.__set_loadCostMs(ctx->load_cost_millis);
 
         attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
         attach->__isset.rlTaskTxnCommitAttachment = true;
