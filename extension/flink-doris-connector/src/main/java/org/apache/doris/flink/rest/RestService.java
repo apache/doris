@@ -151,7 +151,7 @@ public class RestService implements Serializable {
         URL url = new URL(request.getURI().toString());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
-        conn.setRequestMethod("POST");
+        conn.setRequestMethod(request.getMethod());
         String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
 
