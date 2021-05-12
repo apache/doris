@@ -284,10 +284,10 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         for (Expr e : getChildren()) {
             if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
-                throw new AnalysisException("Hll type can not be a operand: " + toSql());
+                throw new AnalysisException("Hll type dose not support operand: " + toSql());
             }
             if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
-                throw new AnalysisException("Bitmap type can not be a operand: " + toSql());
+                throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
             }
         }
 
