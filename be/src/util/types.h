@@ -25,7 +25,8 @@ struct PackedInt128 {
     PackedInt128() : value(0) {}
 
     PackedInt128(const __int128& value_) { value = value_; }
-
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     PackedInt128& operator=(const __int128& value_) {
         value = value_;
         return *this;
@@ -34,6 +35,8 @@ struct PackedInt128 {
         value = rhs.value;
         return *this;
     }
+#pragma GCC diagnostic pop
+
     __int128 value;
 } __attribute__((packed));
 
