@@ -57,7 +57,6 @@ ThreadResourceMgr::ResourcePool::ResourcePool(ThreadResourceMgr* parent) : _pare
 void ThreadResourceMgr::ResourcePool::reset() {
     _num_threads = 0;
     _num_reserved_optional_threads = 0;
-    _thread_available_fn = NULL;
     _max_quota = INT_MAX;
 }
 
@@ -83,7 +82,7 @@ ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
     pool->reset();
 
     // Added a new pool, update the quotas for each pool.
-    update_pool_quotas(pool);
+    update_pool_quotas();
     return pool;
 }
 
@@ -98,32 +97,12 @@ void ThreadResourceMgr::unregister_pool(ResourcePool* pool) {
     }
 }
 
-void ThreadResourceMgr::ResourcePool::set_thread_available_cb(thread_available_cb fn) {
-    std::unique_lock<std::mutex> l(_lock);
-    DCHECK(_thread_available_fn == NULL || fn == NULL);
-    _thread_available_fn = fn;
-}
-
-void ThreadResourceMgr::update_pool_quotas(ResourcePool* new_pool) {
+void ThreadResourceMgr::update_pool_quotas() {
     if (_pools.empty()) {
         return;
     }
 
     _per_pool_quota = ceil(static_cast<double>(_system_threads_quota) / _pools.size());
-
-    for (Pools::iterator it = _pools.begin(); it != _pools.end(); ++it) {
-        ResourcePool* pool = *it;
-
-        if (pool == new_pool) {
-            continue;
-        }
-
-        std::unique_lock<std::mutex> l(pool->_lock);
-
-        if (pool->num_available_threads() > 0 && pool->_thread_available_fn != NULL) {
-            pool->_thread_available_fn(pool);
-        }
-    }
 }
 
 } // namespace doris
