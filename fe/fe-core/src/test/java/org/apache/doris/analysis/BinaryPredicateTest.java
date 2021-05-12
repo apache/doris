@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -29,6 +25,10 @@ import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class BinaryPredicateTest {
 

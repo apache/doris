@@ -279,6 +279,9 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Type getCmpType() throws AnalysisException {
+        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
+        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
+
         for (Expr e : getChildren()) {
             if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 throw new AnalysisException("Hll type can not be a operand: " + toSql());
@@ -287,9 +290,6 @@ public class BinaryPredicate extends Predicate implements Writable {
                 throw new AnalysisException("Bitmap type can not be a operand: " + toSql());
             }
         }
-
-        PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
-        PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
             return Type.DATETIME;
