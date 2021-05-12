@@ -180,6 +180,21 @@ std::string HistogramMetric::to_prometheus(const std::string& display_name,
     ss << display_name << "_count"
        << labels_to_string({&entity_labels, &metric_labels})
        << " " << _stats.num() << "\n";
+    ss << display_name << "_max"
+       << labels_to_string({&entity_labels, &metric_labels})
+       << " " << _stats.max() << "\n";
+    ss << display_name << "_min"
+       << labels_to_string({&entity_labels, &metric_labels})
+       << " " << _stats.min() << "\n";
+    ss << display_name << "_average"
+       << labels_to_string({&entity_labels, &metric_labels})
+       << " " << _stats.average() << "\n";
+    ss << display_name << "_median"
+       << labels_to_string({&entity_labels, &metric_labels})
+       << " " << _stats.median() << "\n";
+    ss << display_name << "_standard_deviation"
+       << labels_to_string({&entity_labels, &metric_labels})
+       << " " << _stats.standard_deviation() << "\n";
 
     return ss.str();
 }
