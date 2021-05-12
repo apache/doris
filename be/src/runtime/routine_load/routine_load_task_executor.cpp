@@ -293,11 +293,10 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
         _data_consumer_pool.return_consumer(consumer);
 
         // delete TopicPartition finally
-        auto tp_deleter = [&topic_partitions]() {
+        Defer delete_tp{[&topic_partitions]() {
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
-        };
-        DeferOp delete_tp(std::bind<void>(tp_deleter));
+        }};
     } break;
     default:
         return;

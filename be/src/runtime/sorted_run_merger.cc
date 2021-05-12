@@ -188,7 +188,7 @@ private:
             // do merge from sender queue data
             _status_backup = _sorted_run(&_input_row_batch_backup);
             _backup_ready = true;
-            DeferOp defer_op([this]() { _batch_prepared_cv.notify_one(); });
+            Defer defer_op{[this]() { _batch_prepared_cv.notify_one(); }};
 
             if (!_status_backup.ok() || _input_row_batch_backup == nullptr || _cancel) {
                 if (!_status_backup.ok()) _input_row_batch_backup = nullptr;
