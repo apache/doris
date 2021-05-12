@@ -20,7 +20,6 @@
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/bind/bind.hpp>
 #include <memory>
 #include <sstream>
 
@@ -167,9 +166,9 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _fragment_instance_id(fragment_instance_id),
           _backend_num(backend_num),
           _exec_env(exec_env),
-          _executor(exec_env, boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback),
-                                              this, boost::placeholders::_1, boost::placeholders::_2,
-                                              boost::placeholders::_3)),
+          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
+                                              this, std::placeholders::_1, std::placeholders::_2,
+                                              std::placeholders::_3)),
           _timeout_second(-1),
           _fragments_ctx(fragments_ctx) {
     _start_time = DateTimeValue::local_time();
@@ -184,9 +183,9 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _backend_num(backend_num),
           _exec_env(exec_env),
           _coord_addr(coord_addr),
-          _executor(exec_env, boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback),
-                                              this, boost::placeholders::_1, boost::placeholders::_2,
-                                              boost::placeholders::_3)),
+          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
+                                              this, std::placeholders::_1, std::placeholders::_2,
+                                              std::placeholders::_3)),
           _timeout_second(-1) {
     _start_time = DateTimeValue::local_time();
 }

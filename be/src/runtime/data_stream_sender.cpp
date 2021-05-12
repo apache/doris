@@ -47,8 +47,8 @@
 #include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
-#include "util/defer_op.h"
 #include "util/debug_util.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 #include "util/ref_count_closure.h"
 #include "util/thrift_client.h"
@@ -468,9 +468,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
-                                             "DataStreamSender:" + print_id(state->fragment_instance_id()),
-                                             state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(
+            _profile, -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
+            state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.
@@ -492,8 +492,8 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
-            boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                                 profile()->total_time_counter()),
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
+                               profile()->total_time_counter()),
             "");
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));

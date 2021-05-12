@@ -58,6 +58,7 @@ under the License.
 
         The following parameters can be specified:
           column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
+          column: Specify the columns to be exported, separated by commas. If you do not fill in this parameter, the default is to export all the columns of the table.
           line_delimiter: Specifies the exported line separator, defaulting to\n. Supports invisible characters, such as'\x07'.
           exec_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 2GB in bytes.
           timeout: The time-out for importing jobs is 1 day by default, in seconds.
@@ -91,6 +92,9 @@ under the License.
 
     6. Export all data in the testTbl table to hdfs, using the invisible character "\x07" as the column and row separator. 
        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy")
+
+    7. Export column k1, v1 from the testTbl to the local.
+       EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
 
 ## keyword
     EXPORT

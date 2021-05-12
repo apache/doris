@@ -21,9 +21,9 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
-#include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
+#include <functional>
 #include <iostream>
 #include <mutex>
 
@@ -187,7 +187,7 @@ public:
         AtomicInt64 current_value_;
     };
 
-    typedef boost::function<int64_t()> DerivedCounterFunction;
+    typedef std::function<int64_t()> DerivedCounterFunction;
 
     // A DerivedCounter also has a name and type, but the value is computed.
     // Do not call Set() and Update().
@@ -392,7 +392,7 @@ public:
 
     // Function that returns a counter metric.
     // Note: this function should not block (or take a long time).
-    typedef boost::function<int64_t()> SampleFn;
+    typedef std::function<int64_t()> SampleFn;
 
     // Add a rate counter to the current profile based on src_counter with name.
     // The rate counter is updated periodically based on the src counter.

@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 #define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 
-#include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <condition_variable>
+#include <functional>
 #include <vector>
 
 #include "common/object_pool.h"
@@ -75,7 +75,7 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    typedef boost::function<void(const Status& status, RuntimeProfile* profile, bool done)>
+    typedef std::function<void(const Status& status, RuntimeProfile* profile, bool done)>
             report_status_callback;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile

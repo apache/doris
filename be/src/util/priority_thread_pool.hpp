@@ -33,7 +33,7 @@ public:
     // Signature of a work-processing function. Takes the integer id of the thread which is
     // calling it (ids run from 0 to num_threads - 1) and a reference to the item to
     // process.
-    typedef boost::function<void()> WorkFunction;
+    typedef std::function<void()> WorkFunction;
 
     struct Task {
     public:
@@ -57,7 +57,7 @@ public:
             : _work_queue(queue_size), _shutdown(false) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
-                    boost::bind<void>(boost::mem_fn(&PriorityThreadPool::work_thread), this, i));
+                    std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
         }
     }
 

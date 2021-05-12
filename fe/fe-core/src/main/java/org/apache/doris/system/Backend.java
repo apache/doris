@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -43,8 +44,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import com.google.gson.annotations.SerializedName;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -504,9 +503,10 @@ public class Backend implements Writable {
             Backend backend = new Backend();
             backend.readFields(in);
             return backend;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Backend.class);
         }
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Backend.class);
     }
 
     @Override
@@ -515,7 +515,8 @@ public class Backend implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         id = in.readLong();
         host = Text.readString(in);
         heartbeatPort = in.readInt();
@@ -695,7 +696,6 @@ public class Backend implements Writable {
         @SerializedName("lastStreamLoadTime")
         // the last time when the stream load status was reported by backend
         public long lastStreamLoadTime = -1;
-
     }
 }
 

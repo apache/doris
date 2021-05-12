@@ -44,8 +44,7 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RdKafka::Conf* conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
 
     // conf has to be deleted finally
-    auto conf_deleter = [conf]() { delete conf; };
-    DeferOp delete_conf(std::bind<void>(conf_deleter));
+    Defer delete_conf{[conf]() { delete conf; }};
 
     std::stringstream ss;
     ss << BackendOptions::get_localhost() << "_";
@@ -146,11 +145,10 @@ Status KafkaDataConsumer::assign_topic_partitions(
               << " assign topic partitions: " << topic << ", " << ss.str();
 
     // delete TopicPartition finally
-    auto tp_deleter = [&topic_partitions]() {
+    Defer delete_tp{[&topic_partitions]() {
         std::for_each(topic_partitions.begin(), topic_partitions.end(),
                       [](RdKafka::TopicPartition* tp1) { delete tp1; });
-    };
-    DeferOp delete_tp(std::bind<void>(tp_deleter));
+    }};
 
     // assign partition
     RdKafka::ErrorCode err = _k_consumer->assign(topic_partitions);
@@ -238,8 +236,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
     // create topic conf
     RdKafka::Conf* tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
-    auto conf_deleter = [tconf]() { delete tconf; };
-    DeferOp delete_conf(std::bind<void>(conf_deleter));
+    Defer delete_conf{[tconf]() { delete tconf; }};
 
     // create topic
     std::string errstr;
@@ -250,8 +247,8 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    auto topic_deleter = [topic]() { delete topic; };
-    DeferOp delete_topic(std::bind<void>(topic_deleter));
+
+    Defer delete_topic{[topic]() { delete topic; }};
 
     // get topic metadata
     RdKafka::Metadata* metadata = nullptr;
@@ -263,8 +260,8 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    auto meta_deleter = [metadata]() { delete metadata; };
-    DeferOp delete_meta(std::bind<void>(meta_deleter));
+
+    Defer delete_meta{[metadata]() { delete metadata; }};
 
     // get partition ids
     RdKafka::Metadata::TopicMetadataIterator it;

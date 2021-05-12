@@ -17,8 +17,6 @@
 
 #include "runtime/buffered_tuple_stream2.h"
 
-#include <boost/bind/bind.hpp>
-
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"

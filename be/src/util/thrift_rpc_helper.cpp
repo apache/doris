@@ -17,7 +17,6 @@
 
 #include "util/thrift_rpc_helper.h"
 
-#include <boost/functional/hash.hpp>
 #include <boost/thread/thread.hpp>
 #include <sstream>
 

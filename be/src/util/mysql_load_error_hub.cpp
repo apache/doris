@@ -70,7 +70,7 @@ Status MysqlLoadErrorHub::write_mysql() {
         return st;
     }
 
-    DeferOp close_mysql_conn(std::bind<void>(&mysql_close, my_conn));
+    Defer close_mysql_conn{[=]() { mysql_close(my_conn); }};
 
     Status status;
     std::stringstream sql_stream;
