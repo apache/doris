@@ -278,7 +278,16 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
-    private Type getCmpType() {
+    private Type getCmpType() throws AnalysisException {
+        for (Expr e : getChildren()) {
+            if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                throw new AnalysisException("Hll type can not be a operand: " + toSql());
+            }
+            if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
+                throw new AnalysisException("Bitmap type can not be a operand: " + toSql());
+            }
+        }
+
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
 
