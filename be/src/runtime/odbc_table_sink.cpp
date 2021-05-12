@@ -33,10 +33,10 @@ OdbcTableSink::OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
           _row_desc(row_desc),
           _t_output_expr(t_exprs),
           _mem_tracker(MemTracker::CreateTracker(-1, "OdbcTableSink")) {
-    _name = "OdbcTableSink";
+    _name = "OOBC_TABLE_SINK";
 }
 
-OdbcTableSink::~OdbcTableSink() {}
+OdbcTableSink::~OdbcTableSink() = default;
 
 Status OdbcTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(DataSink::init(t_sink));
@@ -58,7 +58,7 @@ Status OdbcTableSink::prepare(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
     std::stringstream title;
-    title << "OdbcTableSink (frag_id=" << state->fragment_instance_id() << ")";
+    title << "ODBC_TABLE_SINK (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     return Status::OK();
@@ -73,12 +73,23 @@ Status OdbcTableSink::open(RuntimeState* state) {
     if (_use_transaction) {
         RETURN_IF_ERROR(_writer->begin_trans());
     }
-    RETURN_IF_ERROR(_writer->init_to_write());
+    RETURN_IF_ERROR(_writer->init_to_write(_profile));
     return Status::OK();
 }
 
 Status OdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
-    return _writer->append(_odbc_tbl, batch);
+    if (batch == nullptr || batch->num_rows() == 0) {
+        return Status::OK();
+    }
+    uint32_t start_send_row = 0;
+    uint32_t num_row_sent = 0;
+    while (start_send_row < batch->num_rows()) {
+        auto status = _writer->append(_odbc_tbl, batch, start_send_row, &num_row_sent);
+        if (UNLIKELY(!status.ok())) return status;
+        start_send_row += num_row_sent;
+        num_row_sent = 0;
+    }
+    return Status::OK();
 }
 
 Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
