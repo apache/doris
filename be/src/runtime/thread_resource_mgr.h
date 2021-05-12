@@ -117,14 +117,6 @@ public:
         // Must not be called from from thread_available_cb.
         void release_thread_token(bool required);
 
-        // Add a callback to be notified when a thread is available.
-        // 'arg' is opaque and passed directly to the callback.
-        // The previous callback is no longer notified.
-        // TODO: rethink this.  How we do coordinate when we have multiple places in
-        // the execution that all need threads (e.g. do we use that thread for
-        // the scanner or for the join).
-        void set_thread_available_cb(thread_available_cb fn);
-
         // Returns the number of threads that are from acquire_thread_token.
         int num_required_threads() const { return _num_threads & 0xFFFFFFFF; }
 
@@ -170,13 +162,6 @@ public:
         // swap operations.  The number of required threads is the lower
         // 32 bits and the number of optional threads is the upper 32 bits.
         int64_t _num_threads;
-
-        // Lock for the fields below.  This lock is taken when the callback
-        // function is called.
-        // TODO: reconsider this.
-        std::mutex _lock;
-
-        thread_available_cb _thread_available_fn;
     };
 
     // Create a thread mgr object.  If threads_quota is non-zero, it will be
@@ -214,12 +199,7 @@ private:
     // Recycled list of pool objects
     std::list<ResourcePool*> _free_pool_objs;
 
-    // Updates the per pool quota and notifies any pools that now have
-    // more threads they can use.  Must be called with _lock taken.
-    // If new_pool is non-null, new_pool will *not* be notified.
-    void update_pool_quotas(ResourcePool* new_pool);
-
-    void update_pool_quotas() { update_pool_quotas(NULL); }
+    void update_pool_quotas();
 };
 
 inline void ThreadResourceMgr::ResourcePool::acquire_thread_token() {
@@ -263,20 +243,6 @@ inline void ThreadResourceMgr::ResourcePool::release_thread_token(bool required)
             if (__sync_bool_compare_and_swap(&_num_threads, previous_num_threads, new_value)) {
                 break;
             }
-        }
-    }
-
-    // We need to grab a lock before issuing the callback to prevent the
-    // callback from being removed while it is happening.
-    // Note: this is unlikely to be a big deal for performance currently
-    // since only scanner threads call this with any frequency and that only
-    // happens once when the scanner thread is complete.
-    // TODO: reconsider this.
-    if (num_available_threads() > 0 && _thread_available_fn != NULL) {
-        std::unique_lock<std::mutex> l(_lock);
-
-        if (num_available_threads() > 0 && _thread_available_fn != NULL) {
-            _thread_available_fn(this);
         }
     }
 }

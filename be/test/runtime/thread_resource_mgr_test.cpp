@@ -26,42 +26,20 @@
 
 namespace doris {
 
-class NotifiedCounter {
-public:
-    NotifiedCounter() : _counter(0) {}
-
-    void Notify(ThreadResourceMgr::ResourcePool* consumer) {
-        DCHECK(consumer != NULL);
-        DCHECK_LT(consumer->num_threads(), consumer->quota());
-        ++_counter;
-    }
-
-    int counter() const { return _counter; }
-
-private:
-    int _counter;
-};
-
 TEST(ThreadResourceMgr, BasicTest) {
     ThreadResourceMgr mgr(5);
-    NotifiedCounter counter1;
-    NotifiedCounter counter2;
 
     ThreadResourceMgr::ResourcePool* c1 = mgr.register_pool();
-    c1->set_thread_available_cb(
-            std::bind<void>(std::mem_fn(&NotifiedCounter::Notify), &counter1, _1));
     c1->acquire_thread_token();
     c1->acquire_thread_token();
     c1->acquire_thread_token();
     EXPECT_EQ(c1->num_threads(), 3);
     EXPECT_EQ(c1->num_required_threads(), 3);
     EXPECT_EQ(c1->num_optional_threads(), 0);
-    EXPECT_EQ(counter1.counter(), 0);
     c1->release_thread_token(true);
     EXPECT_EQ(c1->num_threads(), 2);
     EXPECT_EQ(c1->num_required_threads(), 2);
     EXPECT_EQ(c1->num_optional_threads(), 0);
-    EXPECT_EQ(counter1.counter(), 1);
     EXPECT_TRUE(c1->try_acquire_thread_token());
     EXPECT_TRUE(c1->try_acquire_thread_token());
     EXPECT_TRUE(c1->try_acquire_thread_token());
@@ -71,12 +49,9 @@ TEST(ThreadResourceMgr, BasicTest) {
     EXPECT_EQ(c1->num_optional_threads(), 3);
     c1->release_thread_token(true);
     c1->release_thread_token(false);
-    EXPECT_EQ(counter1.counter(), 3);
 
     // Register a new consumer, quota is cut in half
     ThreadResourceMgr::ResourcePool* c2 = mgr.register_pool();
-    c2->set_thread_available_cb(
-            std::bind<void>(std::mem_fn(&NotifiedCounter::Notify), &counter2, _1));
     EXPECT_FALSE(c1->try_acquire_thread_token());
     EXPECT_EQ(c1->num_threads(), 3);
     c1->acquire_thread_token();
@@ -86,8 +61,6 @@ TEST(ThreadResourceMgr, BasicTest) {
 
     mgr.unregister_pool(c1);
     mgr.unregister_pool(c2);
-    EXPECT_EQ(counter1.counter(), 3);
-    EXPECT_EQ(counter2.counter(), 1);
 }
 
 } // namespace doris
