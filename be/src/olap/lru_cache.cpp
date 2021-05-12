@@ -208,6 +208,7 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     MutexLock l(&_mutex);
     ++_lookup_count;
+    DorisMetrics::instance()->page_cache_lookup_total->increment(1L);
     LRUHandle* e = _table.lookup(key, hash);
     if (e != nullptr) {
         // we get it from _table, so in_cache must be true
@@ -218,6 +219,7 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         }
         e->refs++;
         ++_hit_count;
+        DorisMetrics::instance()->page_cache_hit_total->increment(1L);
     }
     return reinterpret_cast<Cache::Handle*>(e);
 }

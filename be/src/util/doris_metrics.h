@@ -100,6 +100,9 @@ public:
     IntCounter* meta_read_request_total;
     IntCounter* meta_read_request_duration_us;
 
+    IntCounter* page_cache_lookup_total;
+    IntCounter* page_cache_hit_total;
+
     // Counters for segment_v2
     // -----------------------
     // total number of segments read
