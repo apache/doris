@@ -27,7 +27,7 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String custom_config_dir = PaloFe.DORIS_HOME_DIR + "/conf";
-    
+
     /**
      * The max size of one sys log and audit log
      */
@@ -38,24 +38,24 @@ public class Config extends ConfigBase {
      *      This specifies FE log dir. FE will produces 2 log files:
      *      fe.log:      all logs of FE process.
      *      fe.warn.log  all WARNING and ERROR log of FE process.
-     *      
+     *
      * sys_log_level:
      *      INFO, WARNING, ERROR, FATAL
-     *      
+     *
      * sys_log_roll_num:
      *      Maximal FE log files to be kept within an sys_log_roll_interval.
      *      default is 10, which means there will be at most 10 log files in a day
-     *      
+     *
      * sys_log_verbose_modules:
      *      Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
      *      eg:
      *          sys_log_verbose_modules = org.apache.doris.catalog
      *      This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
-     *      
+     *
      * sys_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
      *      HOUR: log suffix is yyyyMMddHH
-     *      
+     *
      * sys_log_delete_age:
      *      default is 7 days, if log's last modify time is 7 days ago, it will be deleted.
      *      support format:
@@ -66,7 +66,7 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
-    @ConfField public static String sys_log_level = "INFO"; 
+    @ConfField public static String sys_log_level = "INFO";
     @ConfField public static int sys_log_roll_num = 10;
     @ConfField
     public static String[] sys_log_verbose_modules = {};
@@ -79,20 +79,20 @@ public class Config extends ConfigBase {
      * audit_log_dir:
      *      This specifies FE audit log dir.
      *      Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc.
-     * 
+     *
      * audit_log_roll_num:
      *      Maximal FE audit log files to be kept within an audit_log_roll_interval.
-     *      
+     *
      * audit_log_modules:
      *       Slow query contains all queries which cost exceed *qe_slow_log_ms*
-     *       
+     *
      * qe_slow_log_ms:
      *      If the response time of a query exceed this threshold, it will be recorded in audit log as slow_query.
-     *      
+     *
      * audit_log_roll_interval:
      *      DAY:  log suffix is yyyyMMdd
      *      HOUR: log suffix is yyyyMMddHH
-     *      
+     *
      * audit_log_delete_age:
      *      default is 30 days, if log's last modify time is 30 days ago, it will be deleted.
      *      support format:
@@ -133,19 +133,19 @@ public class Config extends ConfigBase {
     // Remove the finished job or task if expired.
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_label_keep_max_second = 43200; // 12 hour
-  
+
     /**
      * The max keep time of some kind of jobs.
      * like schema change job and rollup job.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
-  
+
     /**
      * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
      */
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
-  
+
     /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
@@ -160,13 +160,13 @@ public class Config extends ConfigBase {
      * 2. Safe (RAID)
      */
     @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
-    
+
     /**
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
      * file in this dir will be cleaned after these process is finished.
      */
     @ConfField public static String tmp_dir = PaloFe.DORIS_HOME_DIR + "/temp_dir";
-    
+
     /**
      * Edit log type.
      * BDB: write log to bdbje
@@ -174,25 +174,25 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String edit_log_type = "BDB";
-  
+
     /**
      * bdbje port
      */
     @ConfField
     public static int edit_log_port = 9010;
-  
+
     /**
      * Master FE will save image every *edit_log_roll_num* meta journals.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int edit_log_roll_num = 50000;
-      
+
     /**
      * Non-master FE will stop offering service
      * if meta data delay gap exceeds *meta_delay_toleration_second*
      */
     @ConfField public static int meta_delay_toleration_second = 300;    // 5 min
-  
+
     /**
      * Master FE sync policy of bdbje.
      * If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,
@@ -200,18 +200,18 @@ public class Config extends ConfigBase {
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
      */
     @ConfField public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
-  
+
     /**
      * Follower FE sync policy of bdbje.
      */
     @ConfField public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
-  
+
     /**
      * Replica ack policy of bdbje.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
      */
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
-    
+
     /**
      * The heartbeat timeout of bdbje between master and follower.
      * the default is 30 seconds, which is same as default value in bdbje.
@@ -326,7 +326,7 @@ public class Config extends ConfigBase {
     /**
      * The connection timeout and socket timeout config for thrift server
      * The default value for thrift_client_timeout_ms is set to be zero to prevent readtimeout
-     * 
+     *
      */
     @ConfField public static int thrift_client_timeout_ms = 0;
 
@@ -341,7 +341,7 @@ public class Config extends ConfigBase {
      * FE thrift server port
      */
     @ConfField public static int rpc_port = 9020;
-  
+
     /**
      * FE mysql server port
      */
@@ -366,14 +366,14 @@ public class Config extends ConfigBase {
      * Cluster name will be shown as the title of web page
      */
     @ConfField public static String cluster_name = "Baidu Palo";
-  
+
     /**
      * node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.
      * Cluster id is usually a random integer generated when master FE start at first time.
      * You can also specify one.
      */
     @ConfField public static int cluster_id = -1;
-  
+
     /**
      * Cluster token used for internal authentication.
      */
@@ -388,13 +388,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int tablet_create_timeout_second = 1;
-  
+
     /**
      * In order not to wait too long for create table(index), set a max timeout.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_create_table_timeout_second = 60;
-    
+
     /**
      * Maximal waiting time for all publish version tasks of one transaction to be finished
      */
@@ -417,28 +417,28 @@ public class Config extends ConfigBase {
      *      there are 3 replicas A, B, C
      *      load is already quorum finished(A,B) at t1 and C is not finished
      *      if (current_time - t1) > 300s, then palo will treat C as a failure node
-     *      will call transaction manager to commit the transaction and tell transaction manager 
+     *      will call transaction manager to commit the transaction and tell transaction manager
      *      that C is failed
-     * 
+     *
      * This is also used when waiting for publish tasks
-     * 
+     *
      * TODO this parameter is the default value for all job and the DBA could specify it for separate job
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int load_straggler_wait_second = 300;
-    
+
     /**
      * Maximal memory layout length of a row. default is 100 KB.
      * In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf).
      * And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
-     * 
+     *
      * eg.
      *      schema: k1(int), v1(decimal), v2(varchar(2000))
      *      then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
-     *      
+     *
      * See memory layout length of all types, run 'help create table' in mysql-client.
-     * 
-     * If you want to increase this number to support more columns in a row, you also need to increase the 
+     *
+     * If you want to increase this number to support more columns in a row, you also need to increase the
      * max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -504,13 +504,13 @@ public class Config extends ConfigBase {
     @Deprecated
     @ConfField(mutable = true, masterOnly = true)
     public static int mini_load_default_timeout_second = 3600; // 1 hour
-    
+
     /**
      * Default insert load timeout
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int insert_load_default_timeout_second = 3600; // 1 hour
-    
+
     /**
      * Default stream load and streaming mini load timeout
      */
@@ -887,17 +887,17 @@ public class Config extends ConfigBase {
      *      local:      Local File (for test or Boxer2 BCC version)
      */
     @ConfField public static String enable_deploy_manager = "disable";
-    
+
     // If use k8s deploy manager locally, set this to true and prepare the certs files
     @ConfField public static boolean with_k8s_certs = false;
-    
+
     // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
 
     // default timeout of backup job
     @ConfField(mutable = true, masterOnly = true)
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
-    
+
     /**
      * 'storage_high_watermark_usage_percent' limit the max capacity usage percent of a Backend storage path.
      * 'storage_min_left_capacity_bytes' limit the minimum left capacity of a Backend storage path.
@@ -925,24 +925,24 @@ public class Config extends ConfigBase {
     @ConfField public static int tablet_stat_update_interval_second = 300;  // 5 min
 
     /**
-     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system. 
+     * if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
      */
     @ConfField public static boolean enable_auth_check = true;
-    
+
     /**
      * Max bytes a broker scanner can process in one broker load job.
      * Commonly, each Backends has one broker scanner.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L; // 3G
-    
+
     /**
      * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
      * If exceed this number, load job is not allowed to be submitted.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long max_unfinished_load_job = 1000;
-    
+
     /**
      * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
      * This may reduce network transmission in following case:
@@ -953,7 +953,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection = false;
-    
+
     /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
@@ -961,9 +961,9 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long remote_fragment_exec_timeout_ms = 5000; // 5 sec
-    
+
     /**
-     * The number of query retries. 
+     * The number of query retries.
      * A query may retry if we encounter RPC exception and no result has been sent to user.
      * You may reduce this number to avoid Avalanche disaster.
      */
@@ -976,7 +976,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
-    
+
     /**
      * if this is set to true
      *    all pending load job will failed when call begin txn api
@@ -991,20 +991,20 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int db_used_data_quota_update_interval_secs = 300;
-    
+
     /**
      * Load using hadoop cluster will be deprecated in future.
      * Set to true to disable this kind of load.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_hadoop_load = false;
-    
+
     /**
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
      */
     @ConfField
     public static long es_state_sync_interval_second = 10;
-    
+
     /**
      * the factor of delay time before deciding to repair tablet.
      * if priority is VERY_HIGH, repair it immediately.
@@ -1014,13 +1014,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_repair_delay_factor_second = 60;
-    
+
     /**
      * the default slot number per path in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
     @ConfField public static int schedule_slot_num_per_path = 2;
-    
+
     /**
      * Deprecated after 0.10
      */
@@ -1071,11 +1071,11 @@ public class Config extends ConfigBase {
     // Some online time cost:
     // 1. disk report: 0-1 ms
     // 2. task report: 0-1 ms
-    // 3. tablet report 
+    // 3. tablet report
     //      10000 replicas: 200ms
     @ConfField(mutable = true, masterOnly = true)
     public static int report_queue_size = 100;
-    
+
     /**
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
@@ -1103,13 +1103,13 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 5;
 
     /**
-     * The max number of files store in SmallFileMgr 
+     * The max number of files store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_small_file_number = 100;
 
     /**
-     * The max size of a single file store in SmallFileMgr 
+     * The max size of a single file store in SmallFileMgr
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_small_file_size_bytes = 1024 * 1024; // 1MB
@@ -1132,7 +1132,7 @@ public class Config extends ConfigBase {
      * eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
      * a/b/c/d are distribution columns, so the recursion depth will be 5 * 4 * 3 * 2 = 120, larger than 100,
      * So that distribution pruner will no work and just return all buckets.
-     * 
+     *
      * Increase the depth can support distribution pruning for more elements, but may cost more CPU.
      */
     @ConfField(mutable = true, masterOnly = false)
@@ -1255,7 +1255,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
 
-    /** 
+    /**
      * If set to true, fe will enable sql result cache
      * This option is suitable for offline data update scenarios
      *                              case1   case2   case3   case4
@@ -1284,7 +1284,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static int cache_result_max_row_count = 3000;
-    
+
     /**
      * Used to limit element num of InPredicate in delete statement.
      */
@@ -1327,9 +1327,9 @@ public class Config extends ConfigBase {
      * Only enable httpv2 can user to use the new Frontend UI interface
      */
     @ConfField
-    public static boolean enable_http_server_v2 = false;
+    public static boolean enable_http_server_v2 = true;
 
-    /*    
+    /*
      * Base path is the URL prefix for all API paths.
      * Some deployment environments need to configure additional base path to match resources.
      * This Api will return the path configured in Config.http_api_extra_base_path.
