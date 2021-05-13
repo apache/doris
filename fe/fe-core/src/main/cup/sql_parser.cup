@@ -2555,6 +2555,10 @@ show_param ::=
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
     :}
+    | KW_VIEW from_or_in table_name:dbTblName opt_db:dbName
+    {:
+        RESULT = new ShowViewStmt(dbName, dbTblName);
+    :}
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
