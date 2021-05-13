@@ -17,11 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
-
 import com.google.common.collect.Lists;
 
 import org.junit.Assert;
@@ -74,6 +73,36 @@ public class BinaryPredicateTest {
             Assert.assertSame(null, Deencapsulation.getField(binaryPredicate, "fn"));
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testWrongOperand(@Injectable Expr child0, @Injectable Expr child1) {
+        BinaryPredicate predicate1 = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, child0, new StringLiteral("test"));
+        BinaryPredicate predicate2 = new BinaryPredicate(
+                BinaryPredicate.Operator.EQ, child1, new StringLiteral("test"));
+
+        new Expectations() {
+            {
+                child0.getType();
+                result = ScalarType.createType("HLL");
+
+                child1.getType();
+                result = ScalarType.createType("BITMAP");
+            }
+        };
+
+        try {
+            predicate1.analyzeImpl(analyzer);
+            Assert.fail();
+        } catch (AnalysisException e) {
+        }
+
+        try {
+            predicate2.analyzeImpl(analyzer);
+            Assert.fail();
+        } catch (AnalysisException e) {
         }
     }
 }
