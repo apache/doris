@@ -81,6 +81,14 @@ import java.util.TreeSet;
  */
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
+
+    private static final String LINE_DELIMITER = "line_delimiter";
+    private static final String FUZZY_PARSE = "fuzzy_parse";
+    private static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+    private static final String JSON_PATHS = "jsonpaths";
+    private static final String JSON_ROOT = "json_root";
+    private static final String NUM_AS_STRING = "num_as_string";
+
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
@@ -120,6 +128,7 @@ public class DataDescription {
     private String jsonRoot = "";
     private boolean fuzzyParse = false;
     private boolean readJsonByLine = false;
+    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -137,6 +146,7 @@ public class DataDescription {
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
+    private Map<String, String> properties;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -147,7 +157,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
@@ -163,7 +173,8 @@ public class DataDescription {
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
-                           String sequenceColName) {
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -179,6 +190,7 @@ public class DataDescription {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
+        this.properties = properties;
     }
 
     // data from table external_hive_table
@@ -189,7 +201,8 @@ public class DataDescription {
                            List<Expr> columnMappingList,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
-                           Expr deleteCondition) {
+                           Expr deleteCondition,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -204,6 +217,7 @@ public class DataDescription {
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
+        this.properties = properties;
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -499,12 +513,12 @@ public class DataDescription {
         this.fuzzyParse = fuzzyParse;
     }
 
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
+    public boolean isNumAsString() {
+        return numAsString;
     }
 
-    public void setReadJsonByLine(boolean readJsonByLine) {
-        this.readJsonByLine = readJsonByLine;
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {
@@ -755,6 +769,36 @@ public class DataDescription {
         }
     }
 
+    private void analyzeProperties() throws AnalysisException {
+        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        analysisMap.putAll(properties);
+
+        if (analysisMap.containsKey(LINE_DELIMITER)) {
+            lineDelimiter = new Separator(analysisMap.get(LINE_DELIMITER));
+            lineDelimiter.analyze();
+        }
+
+        if (analysisMap.containsKey(FUZZY_PARSE)) {
+            fuzzyParse = Boolean.parseBoolean(analysisMap.get(FUZZY_PARSE));
+        }
+
+        if (analysisMap.containsKey(STRIP_OUTER_ARRAY)) {
+            stripOuterArray = Boolean.parseBoolean(analysisMap.get(STRIP_OUTER_ARRAY));
+        }
+
+        if (analysisMap.containsKey(JSON_PATHS)) {
+            jsonPaths = analysisMap.get(JSON_PATHS);
+        }
+
+        if (analysisMap.containsKey(JSON_ROOT)) {
+            jsonRoot = analysisMap.get(JSON_ROOT);
+        }
+
+        if (analysisMap.containsKey(NUM_AS_STRING)) {
+            numAsString = Boolean.parseBoolean(analysisMap.get(NUM_AS_STRING));
+        }
+    }
+
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
@@ -817,6 +861,10 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
+
+        if (properties != null) {
+            analyzeProperties();
+        }
     }
 
     /*

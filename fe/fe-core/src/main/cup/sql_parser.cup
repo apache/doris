@@ -1414,9 +1414,10 @@ data_desc ::=
     where_clause:whereExpr
     delete_on_clause:deleteExpr
     sequence_col_clause:sequenceColName
+    opt_properties:properties
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
-        columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName);
+        columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
     opt_negative:isNeg
@@ -1425,9 +1426,10 @@ data_desc ::=
     opt_col_mapping_list:colMappingList
     where_clause:whereExpr
     delete_on_clause:deleteExpr
+    opt_properties:properties
     {:
         RESULT = new DataDescription(tableName, partitionNames, srcTableName, isNeg, colMappingList, whereExpr,
-        mergeType, deleteExpr);
+        mergeType, deleteExpr, properties);
     :}
     ;
 
