@@ -35,6 +35,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
+import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
@@ -47,6 +48,7 @@ import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
+import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
@@ -63,6 +65,7 @@ import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
+import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
@@ -186,10 +189,14 @@ public class ShowExecutor {
             handleHelp();
         } else if (stmt instanceof ShowDbStmt) {
             handleShowDb();
+        } else if (stmt instanceof ShowDbIdStmt) {
+            handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
             handleShowTable();
         } else if (stmt instanceof ShowTableStatusStmt) {
             handleShowTableStatus();
+        } else if (stmt instanceof ShowTableIdStmt) {
+            handleShowTableId();
         } else if (stmt instanceof DescribeStmt) {
             handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
@@ -230,6 +237,8 @@ public class ShowExecutor {
             handleShowCollation();
         } else if (stmt instanceof ShowPartitionsStmt) {
             handleShowPartitions();
+        } else if (stmt instanceof ShowPartitionIdStmt) {
+            handleShowPartitionId();
         } else if (stmt instanceof ShowTabletStmt) {
             handleShowTablet();
         } else if (stmt instanceof ShowBackupStmt) {
@@ -446,6 +455,80 @@ public class ShowExecutor {
                                         String.valueOf(percent + "%")));
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowDbId() throws AnalysisException {
+        ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
+        long dbId = showStmt.getDbId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        Database database = catalog.getDb(dbId);
+        if (database != null) {
+            List<String> row = new ArrayList<>();
+            row.add(database.getFullName());
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowTableId() throws AnalysisException {
+        ShowTableIdStmt showStmt = (ShowTableIdStmt) stmt;
+        long tableId = showStmt.getTableId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        List<Long> dbIds = catalog.getDbIds();
+        for (long dbId : dbIds) {
+            Database database = catalog.getDb(dbId);
+            if (database == null) {
+                continue;
+            }
+            Table table = database.getTable(tableId);
+            if (table != null) {
+                List<String> row = new ArrayList<>();
+                row.add(database.getFullName());
+                row.add(table.getName());
+                row.add(String.valueOf(database.getId()));
+                rows.add(row);
+                break;
+            }
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowPartitionId() throws AnalysisException {
+        ShowPartitionIdStmt showStmt = (ShowPartitionIdStmt) stmt;
+        long partitionId = showStmt.getPartitionId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        List<Long> dbIds = catalog.getDbIds();
+        for (long dbId : dbIds) {
+            Database database = catalog.getDb(dbId);
+            if (database == null) {
+                continue;
+            }
+            List<Table> tables = database.getTables();
+            for (Table tbl : tables) {
+                if (tbl instanceof OlapTable) {
+                    tbl.readLock();
+                    try {
+                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
+                        if (partition != null) {
+                            List<String> row = new ArrayList<>();
+                            row.add(database.getFullName());
+                            row.add(tbl.getName());
+                            row.add(partition.getName());
+                            row.add(String.valueOf(database.getId()));
+                            row.add(String.valueOf(tbl.getId()));
+                            rows.add(row);
+                            break;
+                        }
+                    } finally {
+                        tbl.readUnlock();
+                    }
+                }
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 

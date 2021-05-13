@@ -1467,7 +1467,6 @@ public class QueryPlanTest {
         //format less than
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02 10:01:28'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        System.out.println("wangxixu-explain:"+explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
 
     }
