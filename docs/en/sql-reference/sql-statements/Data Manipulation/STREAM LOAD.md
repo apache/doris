@@ -137,6 +137,9 @@ The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND
 
 `fuzzy_parse`  Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
 
+
+`num_as_string` Boolean type, true means that when parsing the json data, it will be converted into a number type and converted into a string, and then it will be imported without loss of precision.
+
 RETURN VALUES
 
 After the load is completed, the related content of this load will be returned in Json format. Current field included

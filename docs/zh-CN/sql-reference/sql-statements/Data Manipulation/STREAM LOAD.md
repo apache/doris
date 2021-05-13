@@ -103,6 +103,8 @@ under the License.
         
         fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
 
+        num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Status: 导入最后的状态。
