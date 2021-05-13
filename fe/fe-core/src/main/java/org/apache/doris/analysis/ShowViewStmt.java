@@ -90,9 +90,10 @@ public class ShowViewStmt extends ShowStmt {
         }
         tbl.analyze(analyzer);
 
-        Database database = Catalog.getCurrentCatalog().getDb(db);
+        String dbName = tbl.getDb();
+        Database database = Catalog.getCurrentCatalog().getDb(dbName);
         if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, db);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
         Table showTable = database.getTable(tbl.getTbl());
         if (showTable == null) {
@@ -102,33 +103,27 @@ public class ShowViewStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, getTbl());
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db, getTbl(), PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     getTbl());
         }
 
-        for (Table table : database.getTables()) {
-            if (!(table instanceof View)) {
-                continue;
-            }
+        for (Table table : database.getViews()) {
             View view = (View) table;
-            // Analyze view sql
             Map<Long, Table> tableMap = Maps.newHashMap();
-            Analyzer viewAnalyzer = new Analyzer(analyzer);
             // get tables from view sql
-            analyzeAndGetTables(viewAnalyzer, view, tableMap);
+            getTables(analyzer, view, tableMap);
             if (tableMap.containsKey(showTable.getId())) {
                 matchViews.add(view);
             }
         }
     }
 
-    private void analyzeAndGetTables(Analyzer analyzer, View view, Map<Long, Table> tableMap) throws UserException {
+    private void getTables(Analyzer analyzer, View view, Map<Long, Table> tableMap) throws UserException {
         Set<String> parentViewNameSet = Sets.newHashSet();
         QueryStmt queryStmt = view.getQueryStmt();
-        queryStmt.analyze(analyzer);
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
     }
 
