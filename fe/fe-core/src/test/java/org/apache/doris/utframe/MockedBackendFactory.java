@@ -333,14 +333,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public void triggerProfileReport(InternalService.PTriggerProfileReportRequest request, StreamObserver<InternalService.PTriggerProfileReportResult> responseObserver) {
-            System.out.println("get triggerProfileReport request");
-            responseObserver.onNext(InternalService.PTriggerProfileReportResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
-            responseObserver.onCompleted();
-        }
-
-        @Override
         public void getInfo(InternalService.PProxyRequest request, StreamObserver<InternalService.PProxyResult> responseObserver) {
             System.out.println("get get_info request");
             responseObserver.onNext(InternalService.PProxyResult.newBuilder()

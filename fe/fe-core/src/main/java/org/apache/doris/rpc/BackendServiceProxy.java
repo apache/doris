@@ -157,18 +157,6 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PTriggerProfileReportResult> triggerProfileReportAsync(
-            TNetworkAddress address, InternalService.PTriggerProfileReportRequest request) throws RpcException {
-        try {
-            final BackendServiceClient client = getProxy(address);
-            return client.triggerProfileReport(request);
-        } catch (Throwable e) {
-            LOG.warn("fetch data catch a exception, address={}:{}",
-                    address.getHostname(), address.getPort(), e);
-            throw new RpcException(address.hostname, e.getMessage());
-        }
-    }
-
     public Future<InternalService.PProxyResult> getInfo(
             TNetworkAddress address, InternalService.PProxyRequest request) throws RpcException {
         try {

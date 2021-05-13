@@ -59,6 +59,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
@@ -110,7 +111,7 @@ import java.util.stream.Collectors;
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
 // second: Do handle function for statement.
-public class StmtExecutor {
+public class StmtExecutor implements ProfileWriter {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
 
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
@@ -122,6 +123,9 @@ public class StmtExecutor {
     private Analyzer analyzer;
     private RuntimeProfile profile;
     private RuntimeProfile summaryProfile;
+    private RuntimeProfile plannerRuntimeProfile;
+    private final Object writeProfileLock = new Object();
+    private volatile boolean isFinishedProfile = false;
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -156,38 +160,36 @@ public class StmtExecutor {
     }
 
     // At the end of query execution, we begin to add up profile
-    public void initProfile(QueryPlannerProfile plannerProfile) {
-        // Summary profile
-        profile = new RuntimeProfile("Query");
-        summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
-        summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-
+    private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
         long currentTimestamp = System.currentTimeMillis();
         long totalTimeMs = currentTimestamp - context.getStartTime();
-        summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
-        summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+        if (profile == null) {
+            profile = new RuntimeProfile("Query");
+            summaryProfile = new RuntimeProfile("Summary");
+            profile.addChild(summaryProfile);
+            summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
+            summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
+            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
+            summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
+            summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
+            summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
+            summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
+            summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
 
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
-        summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
-        summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
-        summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
-        summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
-
-        RuntimeProfile plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
-        plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
-        summaryProfile.addChild(plannerRuntimeProfile);
-
-        profile.addChild(summaryProfile);
-
-        if (coord != null) {
-            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
-            coord.endProfile();
+            plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
+            summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(coord.getQueryProfile());
-            coord = null;
+        } else {
+            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
         }
+        plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
+
+        coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
+        coord.endProfile(waiteBeReport);
     }
 
     public Planner planner() {
@@ -292,9 +294,7 @@ public class StmtExecutor {
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
-                        if (context.getSessionVariable().isReportSucc()) {
-                            writeProfile();
-                        }
+                        writeProfile(true);
                         break;
                     } catch (RpcException e) {
                         if (i == retryTime - 1) {
@@ -320,9 +320,7 @@ public class StmtExecutor {
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
-                    if (context.getSessionVariable().isReportSucc()) {
-                        writeProfile();
-                    }
+                    writeProfile(true);
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
                     // the transaction of this insert may already begun, we will abort it at outer finally block.
@@ -413,10 +411,20 @@ public class StmtExecutor {
         masterOpExecutor.execute();
     }
 
-    private void writeProfile() {
-        initProfile(plannerProfile);
-        profile.computeTimeInChildProfile();
-        ProfileManager.getInstance().pushProfile(profile);
+    @Override
+    public void writeProfile(boolean isLastWriteProfile) {
+        if (!context.getSessionVariable().isReportSucc()) {
+            return;
+        }
+        synchronized (writeProfileLock) {
+            if (isFinishedProfile) {
+                return;
+            }
+            initProfile(plannerProfile, isLastWriteProfile);
+            profile.computeTimeInChildProfile();
+            ProfileManager.getInstance().pushProfile(profile);
+            isFinishedProfile = isLastWriteProfile;
+        }
     }
 
     // Analyze one statement to structure in memory.
@@ -788,8 +796,10 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner);
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+        coord.setProfileWriter(this);
         coord.exec();
         plannerProfile.setQueryScheduleFinishTime();
+        writeProfile(false);
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag

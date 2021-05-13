@@ -73,8 +73,6 @@ public:
 
     virtual void debug(std::stringstream& ss);
 
-    Status trigger_profile_report(const PTriggerProfileReportRequest* request);
-
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
     // execute external query, all query info are packed in TScanOpenParams
