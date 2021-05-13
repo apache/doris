@@ -73,11 +73,6 @@ public class BackendServiceClient {
         return stub.clearCache(request);
     }
 
-    public Future<InternalService.PTriggerProfileReportResult> triggerProfileReport(
-            InternalService.PTriggerProfileReportRequest request) {
-        return stub.triggerProfileReport(request);
-    }
-
     public Future<InternalService.PProxyResult> getInfo(InternalService.PProxyRequest request) {
         return stub.getInfo(request);
     }

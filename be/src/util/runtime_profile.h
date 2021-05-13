@@ -514,6 +514,10 @@ private:
     // of the total time in the entire profile tree.
     double _local_time_percent;
 
+    std::vector<Counter*> _rate_counters;
+
+    std::vector<Counter*> _sampling_counters;
+
     enum PeriodicCounterType {
         RATE_COUNTER = 0,
         SAMPLING_COUNTER,

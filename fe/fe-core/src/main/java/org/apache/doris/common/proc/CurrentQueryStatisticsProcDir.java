@@ -32,8 +32,10 @@ import org.apache.logging.log4j.Logger;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+
 /*
  * show proc "/current_queries"
+ * only set variable "set is_report_success = true" to enable "ScanBytes" and "ProcessRows".
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
@@ -78,12 +80,17 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getConnId());
             values.add(item.getDb());
             values.add(item.getUser());
-            final CurrentQueryInfoProvider.QueryStatistics statistics 
-                    = statisticsMap.get(item.getQueryId());
-            values.add(QueryStatisticsFormatter.getScanBytes(
-                    statistics.getScanBytes()));
-            values.add(QueryStatisticsFormatter.getRowsReturned(
-                    statistics.getRowsReturned()));
+            if (item.getIsReportSucc()) {
+                final CurrentQueryInfoProvider.QueryStatistics statistics
+                        = statisticsMap.get(item.getQueryId());
+                values.add(QueryStatisticsFormatter.getScanBytes(
+                        statistics.getScanBytes()));
+                values.add(QueryStatisticsFormatter.getRowsReturned(
+                        statistics.getRowsReturned()));
+            } else {
+                values.add("N/A");
+                values.add("N/A");
+            }
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }

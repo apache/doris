@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
+import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.LoadErrorHub;
@@ -156,6 +157,8 @@ public class Coordinator {
 
     private List<RuntimeProfile> fragmentProfile;
 
+    private ProfileWriter profileWriter;
+
     // populated in computeFragmentExecParams()
     private Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
@@ -266,6 +269,14 @@ public class Coordinator {
 
     public RuntimeProfile getQueryProfile() {
         return queryProfile;
+    }
+
+    public ProfileWriter getProfileWriter() {
+        return profileWriter;
+    }
+
+    public void setProfileWriter(ProfileWriter profileWriter) {
+        this.profileWriter = profileWriter;
     }
 
     public List<String> getDeltaUrls() {
@@ -1403,17 +1414,19 @@ public class Coordinator {
                     jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
                     params.done);
         }
-
-        return;
     }
 
     public void endProfile() {
+        endProfile(true);
+    }
+
+    public void endProfile(boolean waitProfileDone) {
         if (backendExecStates.isEmpty()) {
             return;
         }
 
-        // wait for all backends
-        if (needReport) {
+        // Wait for all backends to finish reporting when writing profile last time.
+        if (waitProfileDone && needReport) {
             try {
                 profileDoneSignal.await(2, TimeUnit.SECONDS);
             } catch (InterruptedException e1) {
@@ -1701,7 +1714,7 @@ public class Coordinator {
         PlanFragmentId fragmentId;
         int instanceId;
         boolean initiated;
-        boolean done;
+        volatile boolean done;
         boolean hasCanceled;
         int profileFragmentId;
         RuntimeProfile profile;

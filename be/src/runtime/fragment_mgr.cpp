@@ -286,8 +286,12 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
         if (runtime_state->query_options().query_type == TQueryType::LOAD) {
             params.__set_loaded_rows(runtime_state->num_rows_load_total());
         }
-        profile->to_thrift(&params.profile);
-        params.__isset.profile = true;
+        if (profile == nullptr) {
+            params.__isset.profile = false;
+        } else {
+            profile->to_thrift(&params.profile);
+            params.__isset.profile = true;
+        }
 
         if (!runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
@@ -581,31 +585,6 @@ void FragmentMgr::cancel_worker() {
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
-}
-
-Status FragmentMgr::trigger_profile_report(const PTriggerProfileReportRequest* request) {
-    if (request->instance_ids_size() > 0) {
-        for (int i = 0; i < request->instance_ids_size(); i++) {
-            const PUniqueId& p_fragment_id = request->instance_ids(i);
-            TUniqueId id;
-            id.__set_hi(p_fragment_id.hi());
-            id.__set_lo(p_fragment_id.lo());
-            {
-                std::lock_guard<std::mutex> lock(_lock);
-                auto iter = _fragment_map.find(id);
-                if (iter != _fragment_map.end()) {
-                    iter->second->executor()->report_profile_once();
-                }
-            }
-        }
-    } else {
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _fragment_map.begin();
-        for (; iter != _fragment_map.end(); iter++) {
-            iter->second->executor()->report_profile_once();
-        }
-    }
-    return Status::OK();
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {
