@@ -241,7 +241,7 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (_report_status_cb && config::status_report_interval > 0) {
+    if (_is_report_success && !_report_status_cb.empty() && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
@@ -365,9 +365,8 @@ void PlanFragmentExecutor::report_profile() {
     int report_fragment_offset = rand() % config::status_report_interval;
     // We don't want to wait longer than it takes to run the entire fragment.
     _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
-    bool is_report_profile_interval = _is_report_success && config::status_report_interval > 0;
     while (_report_thread_active) {
-        if (is_report_profile_interval) {
+        if (config::status_report_interval > 0) {
             // wait_for can return because the timeout occurred or the condition variable
             // was signaled.  We can't rely on its return value to distinguish between the
             // two cases (e.g. there is a race here where the wait timed out but before grabbing
@@ -376,8 +375,8 @@ void PlanFragmentExecutor::report_profile() {
             _stop_report_thread_cv.wait_for(l,
                                             std::chrono::seconds(config::status_report_interval));
         } else {
-            // Artificial triggering, such as show proc "/current_queries".
-            _stop_report_thread_cv.wait(l);
+            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting reporting thread.";
+            break;
         }
 
         if (VLOG_FILE_IS_ON) {
@@ -427,7 +426,11 @@ void PlanFragmentExecutor::send_report(bool done) {
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
-    _report_status_cb(status, profile(), done || !status.ok());
+    if (_is_report_success) {
+        _report_status_cb(status, profile(), done || !status.ok());
+    } else {
+        _report_status_cb(status, nullptr, done || !status.ok());
+    }
 }
 
 void PlanFragmentExecutor::stop_report_thread() {
@@ -565,7 +568,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        {
+        if (_is_report_success) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:

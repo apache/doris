@@ -34,6 +34,7 @@ import java.util.List;
 
 /*
  * show proc "/current_queries/{query_id}/fragments"
+ * set variable "set is_report_success = true" to enable "ScanBytes" and "ProcessRows".
  */
 public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryFragmentProcNode.class);
@@ -79,10 +80,15 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
             rowData.add(instanceStatistics.getFragmentId());
             rowData.add(instanceStatistics.getInstanceId().toString());
             rowData.add(instanceStatistics.getAddress().toString());
-            rowData.add(QueryStatisticsFormatter.getScanBytes(
-                    instanceStatistics.getScanBytes()));
-            rowData.add(QueryStatisticsFormatter.getRowsReturned(
-                    instanceStatistics.getRowsReturned()));
+            if (item.getIsReportSucc()) {
+                rowData.add(QueryStatisticsFormatter.getScanBytes(
+                        instanceStatistics.getScanBytes()));
+                rowData.add(QueryStatisticsFormatter.getRowsReturned(
+                        instanceStatistics.getRowsReturned()));
+            } else {
+                rowData.add("N/A");
+                rowData.add("N/A");
+            }
             sortedRowData.add(rowData);
         }
 
@@ -90,9 +96,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
         sortedRowData.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> l1, List<String> l2) {
-                final Integer fragmentId1 = Integer.valueOf(l1.get(0));
-                final Integer fragmentId2 = Integer.valueOf(l2.get(0));
-                return fragmentId1.compareTo(fragmentId2);
+                return l1.get(0).compareTo(l2.get(0));
             }
         });
         final BaseProcResult result = new BaseProcResult();

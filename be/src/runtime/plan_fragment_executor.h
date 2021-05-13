@@ -143,8 +143,6 @@ public:
 
     DataSink* get_sink() { return _sink.get(); }
 
-    void report_profile_once() { _stop_report_thread_cv.notify_one(); }
-
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
 private:

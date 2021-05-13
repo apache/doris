@@ -211,14 +211,6 @@ message PClearCacheRequest {
 };
 //End cache proto definition
 
-message PTriggerProfileReportRequest {
-    repeated PUniqueId instance_ids = 1;
-};
-
-message PTriggerProfileReportResult {
-    required PStatus status = 1;
-};
-
 message PStringPair {
     required string key = 1;
     required string val = 2;
@@ -257,7 +249,6 @@ service PBackendService {
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
-    rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
     rpc get_info(PProxyRequest) returns (PProxyResult); 
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
     rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
