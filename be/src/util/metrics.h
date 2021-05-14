@@ -410,6 +410,8 @@ public:
     std::string to_prometheus(bool with_tablet_metrics = false) const;
     std::string to_json(bool with_tablet_metrics = false) const;
     std::string to_core_string() const;
+    std::string aggregate_metric(const std::string& entityType,
+                                 const std::string& aggregate_label) const;
 
 private:
     const std::string _name;

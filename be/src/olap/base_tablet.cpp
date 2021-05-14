@@ -44,7 +44,9 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
 
     _metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             strings::Substitute("Tablet.$0", tablet_id()),
-            {{"tablet_id", std::to_string(tablet_id())}}, MetricEntityType::kTablet);
+            {{"tablet_id", std::to_string(tablet_id())},
+                        {"partition_id", std::to_string(partition_id())},
+                        {"table_id", std::to_string(table_id())}},MetricEntityType::kTablet);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_rows);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, query_scan_count);

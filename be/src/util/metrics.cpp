@@ -422,4 +422,70 @@ std::string MetricRegistry::to_core_string() const {
     return ss.str();
 }
 
+std::string MetricRegistry::aggregate_metric(const std::string& entity_type,
+                                             const std::string& aggregate_label) const {
+    rj::Document doc{rj::kArrayType};
+    rj::Document::AllocatorType &allocator = doc.GetAllocator();
+    std::lock_guard<SpinLock> l(_lock);
+    std::map<std::string,std::map<std::string, int64_t>> label_map;
+    MetricEntityType metric_entity_type = MetricEntityType::kTablet;
+    if (entity_type == "tablet") {
+        metric_entity_type = MetricEntityType::kTablet;
+    } else {
+        metric_entity_type = MetricEntityType::kServer;
+    }
+    if (aggregate_label.empty()) {
+        rj::StringBuffer strBuf;
+        rj::Writer<rj::StringBuffer> writer(strBuf);
+        doc.Accept(writer);
+        return strBuf.GetString();
+    }
+    for (const auto &entity : _entities) {
+        if (entity.first->_type != metric_entity_type) {
+            continue;
+        }
+        std::lock_guard<SpinLock> l(entity.first->_lock);
+        entity.first->trigger_hook_unlocked(false);
+        const auto &iter = entity.first->_labels.find(aggregate_label);
+        std::string label_value = iter->second.c_str();
+        if (iter != entity.first->_labels.end()) {
+            const auto &map_iter = label_map.find(label_value);
+            for (const auto &metric : entity.first->_metrics) {
+                std::string value = metric.second->to_string();
+                int64_t realValue = atoll(value.c_str());
+                if (map_iter == label_map.end()) {
+                    std::map<std::string, int64_t> metric_map;
+                    metric_map.insert(std::make_pair(metric.first->simple_name(), realValue));
+                    label_map.insert(std::make_pair(label_value, metric_map));
+                } else {
+                    auto metric_it = map_iter->second.find(metric.first->simple_name());
+                    if (metric_it != map_iter->second.end()) {
+                        metric_it->second += realValue;
+                    } else {
+                        map_iter->second.insert(std::make_pair(metric.first->simple_name(), realValue));
+                    }
+                }
+            }
+        }
+
+    }
+    for (auto label_it = label_map.begin(); label_it != label_map.end(); label_it++) {
+        rj::Value label_arr(rj::kArrayType);
+        rj::Value label_obj(rj::kObjectType);
+        for (auto metric_map_it = label_it->second.begin(); metric_map_it != label_it->second.end(); metric_map_it++) {
+            rj::Value metric_obj(rj::kObjectType);
+            metric_obj.AddMember(rj::Value(metric_map_it->first.c_str(), allocator),
+                                 rj::Value(std::to_string(metric_map_it->second).c_str(), allocator), allocator);
+            label_arr.PushBack(metric_obj, allocator);
+        }
+        label_obj.AddMember(rj::Value(label_it->first.c_str(), allocator),
+                            label_arr, allocator);
+        doc.PushBack(label_obj, allocator);
+    }
+    rj::StringBuffer strBuf;
+    rj::Writer<rj::StringBuffer> writer(strBuf);
+    doc.Accept(writer);
+    return strBuf.GetString();
+}
+
 } // namespace doris
