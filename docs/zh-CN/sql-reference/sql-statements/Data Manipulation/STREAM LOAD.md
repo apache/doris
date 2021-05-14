@@ -80,7 +80,7 @@ under the License.
 
         format: 指定导入数据格式，默认是csv，支持json格式。
 
-        jsonpaths: 导入json方式分为：简单模式和精准模式。
+        jsonpaths: 导入json方式分为：简单模式和匹配模式。
               简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
               {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
 
@@ -101,7 +101,7 @@ under the License.
         function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, 
             source_sequence可以是数据源中的列，也可以是表结构中的一列。
         
-        fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+        fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
 
         num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
 
