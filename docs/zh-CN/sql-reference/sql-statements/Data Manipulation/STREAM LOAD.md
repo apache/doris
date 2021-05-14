@@ -105,6 +105,8 @@ under the License.
 
         num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
 
+        read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
+
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Status: 导入最后的状态。
@@ -174,7 +176,7 @@ under the License.
            {"category":"C++","author":"avc","title":"C++ primer","price":895}
          导入命令：
            curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-         为了提升吞吐量，支持一次性导入多条json数据，每行为一个json对象，默认使用\n作为换行符，json数据格式如下：  
+         为了提升吞吐量，支持一次性导入多条json数据，每行为一个json对象，默认使用\n作为换行符，需要将read_json_by_line设置为true，json数据格式如下：  
             {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
             {"category":"Java","author":"avc","title":"Effective Java","price":95}
             {"category":"Linux","author":"avc","title":"Linux kernel","price":195}    

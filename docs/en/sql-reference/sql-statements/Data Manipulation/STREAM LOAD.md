@@ -140,6 +140,8 @@ The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND
 
 `num_as_string` Boolean type, true means that when parsing the json data, it will be converted into a number type and converted into a string, and then it will be imported without loss of precision.
 
+`read_json_by_line`: Boolean type, true means that one json object can be read per line, and the default value is false.
+
 RETURN VALUES
 
 After the load is completed, the related content of this load will be returned in Json format. Current field included
@@ -236,7 +238,7 @@ Where url is the url given by ErrorURL.
            {"category":"C++","author":"avc","title":"C++ primer","price":895}
        load command by curl:
            curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       In order to improve throughput, it supports importing multiple pieces of json data at one time. Each row is a json object. The default value for line delimeter is `\n`. The json data format is as follows:
+       In order to improve throughput, it supports importing multiple pieces of json data at one time. Each row is a json object. The default value for line delimeter is `\n`. Need to set read_json_by_line to true. The json data format is as follows:
             {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
             {"category":"Java","author":"avc","title":"Effective Java","price":95}
             {"category":"Linux","author":"avc","title":"Linux kernel","price":195}

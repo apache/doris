@@ -50,6 +50,7 @@ class TupleDescriptor;
 class MemTracker;
 class JsonReader;
 class LineReader;
+class FileReader;
 
 class JsonScanner : public BaseScanner {
 public:
@@ -90,8 +91,9 @@ private:
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
     int _next_range;
-    bool _cur_line_reader_eof;
+    bool _cur_reader_eof;
     bool _scanner_eof;
+    bool _read_json_by_line;
 
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
@@ -121,8 +123,8 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               LineReader* line_reader, bool strip_outer_array, bool num_as_string,
-               bool fuzzy_parse);
+               bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
+               FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~JsonReader();
 
@@ -166,6 +168,7 @@ private:
     RuntimeState* _state;
     ScannerCounter* _counter;
     RuntimeProfile* _profile;
+    FileReader* _file_reader;
     LineReader* _line_reader;
     bool _closed;
     bool _strip_outer_array;

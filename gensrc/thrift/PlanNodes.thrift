@@ -150,6 +150,7 @@ struct TBrokerRangeDesc {
     14: optional bool num_as_string;
     15: optional bool fuzzy_parse;
     16: optional THdfsParams hdfs_params
+    17: optional bool read_json_by_line;
 }
 
 struct TBrokerScanRangeParams {
