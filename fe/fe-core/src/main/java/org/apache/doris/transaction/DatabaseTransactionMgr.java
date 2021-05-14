@@ -1122,11 +1122,13 @@ public class DatabaseTransactionMgr {
             leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeShort, leftNum);
             leftNum = unprotectedRemoveExpiredTxns(currentMillis, expiredTxnIds, finalStatusTransactionStateDequeLong, leftNum);
 
-            Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
-            dbExpiredTxnIds.put(dbId, expiredTxnIds);
-            BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
-            editLog.logBatchRemoveTransactions(op);
-            LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+            if (!expiredTxnIds.isEmpty()) {
+                Map<Long, List<Long>> dbExpiredTxnIds = Maps.newHashMap();
+                dbExpiredTxnIds.put(dbId, expiredTxnIds);
+                BatchRemoveTransactionsOperation op = new BatchRemoveTransactionsOperation(dbExpiredTxnIds);
+                editLog.logBatchRemoveTransactions(op);
+                LOG.info("Remove {} expired transactions", MAX_REMOVE_TXN_PER_ROUND - leftNum);
+            }
         } finally {
             writeUnlock();
         }
