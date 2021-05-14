@@ -372,8 +372,7 @@ under the License.
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
 2. 创建一个 olap 表，使用 Hash 分桶，使用列存，相同key的记录进行覆盖，
@@ -391,7 +390,6 @@ under the License.
     UNIQUE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
-    "storage_type"="column"，
     "storage_medium" = "SSD",
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
@@ -624,8 +622,7 @@ under the License.
     )
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
 8. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
@@ -640,8 +637,7 @@ under the License.
     )
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
 9. 创建两张支持Colocate Join的表t1 和t2
@@ -700,8 +696,7 @@ under the License.
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
 12. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
