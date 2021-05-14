@@ -373,11 +373,13 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     } else {
         RETURN_IF_ERROR(_file_reader->read_one_message(&json_str_ptr, size));
         json_str = json_str_ptr.get();
+        if (*size == 0) {
+            *eof = true;
+        }
     }
 
     _bytes_read_counter += *size;
-    if (*size == 0 || *eof) {
-        *eof = true;
+    if (*eof) {
         return Status::OK();
     }
 
