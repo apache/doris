@@ -241,7 +241,7 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (_is_report_success && !_report_status_cb.empty() && config::status_report_interval > 0) {
+    if (_is_report_success && _report_status_cb && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
