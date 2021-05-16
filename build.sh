@@ -35,12 +35,6 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
-
 # Check args
 usage() {
   echo "
@@ -122,6 +116,12 @@ fi
 if [[ ${HELP} -eq 1 ]]; then
     usage
     exit
+fi
+
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi
 
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
