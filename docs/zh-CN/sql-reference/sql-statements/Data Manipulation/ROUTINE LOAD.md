@@ -220,6 +220,7 @@ under the License.
                 offset 可以指定从大于等于 0 的具体 offset，或者：
                 1) OFFSET_BEGINNING: 从有数据的位置开始订阅。
                 2) OFFSET_END: 从末尾开始订阅。
+                3) 时间戳，格式必须如："2021-05-11 10:00:00"，系统会自动定位到大于等于该时间戳的第一个消息的offset。注意，时间戳格式的offset不能和数字类型混用，只能选其一。
 
                 如果没有指定，则默认从 OFFSET_END 开始订阅 topic 下的所有 partition。
                 示例：
@@ -227,6 +228,9 @@ under the License.
                     "kafka_partitions" = "0,1,2,3",
                     "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
 
+                    "kafka_partitions" = "0,1",
+                    "kafka_offsets" = "2021-05-11 10:00:00, 2021-05-11 11:00:00"
+                    
             4. property
 
                 指定自定义kafka参数。
@@ -264,8 +268,11 @@ under the License.
                 值为
                     1) OFFSET_BEGINNING: 从有数据的位置开始订阅。
                     2) OFFSET_END: 从末尾开始订阅。
+                    3) 时间戳，格式同 kafka_offsets
+
                     示例：
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+                    "property.kafka_default_offsets" = "2021-05-11 10:00:00"
 
     8. 导入数据格式样例
 
@@ -505,6 +512,22 @@ under the License.
             "kafka_topic" = "my_topic",
             "kafka_partitions" = "0,1,2,3",
             "kafka_offsets" = "101,0,0,200"
+        );
+
+    9. 从指定的时间点开始消费
+
+        CREATE ROUTINE LOAD example_db.test_job ON example_tbl
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "30",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200"
+        ) FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "property.kafka_default_offsets" = "2021-10-10 11:00:00"
         );
 
 ## keyword

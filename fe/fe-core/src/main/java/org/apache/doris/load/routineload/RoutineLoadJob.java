@@ -67,9 +67,6 @@ import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -78,6 +75,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -1269,7 +1269,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    protected void unprotectUpdateProgress() {
+    protected void unprotectUpdateProgress() throws UserException {
     }
 
     protected boolean unprotectNeedReschedule() throws UserException {
@@ -1544,7 +1544,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws DdlException;
+    abstract public void modifyProperties(AlterRoutineLoadStmt stmt) throws UserException;
 
     abstract public void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 

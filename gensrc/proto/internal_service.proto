@@ -216,6 +216,11 @@ message PStringPair {
     required string val = 2;
 };
 
+message PIntegerPair {
+    required int32 key = 1;
+    required int64 val = 2;
+};
+
 message PKafkaLoadInfo {
     required string brokers = 1;
     required string topic = 2;
@@ -224,6 +229,7 @@ message PKafkaLoadInfo {
 
 message PKafkaMetaProxyRequest {
     optional PKafkaLoadInfo kafka_info = 1;
+    repeated PIntegerPair offset_times = 3;
 };
 
 message PProxyRequest {
@@ -234,9 +240,14 @@ message PKafkaMetaProxyResult {
     repeated int32 partition_ids = 1;
 };
 
+message PKafkaPartitionOffsets {
+    repeated PIntegerPair offset_times = 1;
+};
+
 message PProxyResult {
     required PStatus status = 1;
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
+	optional PKafkaPartitionOffsets partition_offsets = 3;
 };
 
 // NOTE(zc): If you want to add new method here,

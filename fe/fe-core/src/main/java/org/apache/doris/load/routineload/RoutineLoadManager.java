@@ -205,7 +205,7 @@ public class RoutineLoadManager implements Writable {
         return false;
     }
 
-    private RoutineLoadJob checkPrivAndGetJob(String dbName, String jobName)
+    public RoutineLoadJob checkPrivAndGetJob(String dbName, String jobName)
             throws MetaNotFoundException, DdlException, AnalysisException {
         RoutineLoadJob routineLoadJob = getJob(dbName, jobName);
         if (routineLoadJob == null) {
