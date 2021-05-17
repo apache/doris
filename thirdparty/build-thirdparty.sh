@@ -603,6 +603,7 @@ build_s2() {
     -DWITH_GFLAGS=ON \
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib" \
+    -DOPENSSL_ROOT_DIR=$TP_INSTALL_DIR/include \
     -DWITH_GLOG=ON ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
