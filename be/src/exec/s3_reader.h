@@ -40,7 +40,7 @@ public:
     // Return ok when read success, and 'buf_len' is set to size of read content
     // If reach to end of file, the eof is set to true. meanwhile 'buf_len'
     // is set to zero.
-    virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
+    virtual Status read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) override;
     virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
                           void* out) override;
 
@@ -50,7 +50,7 @@ public:
      * if read eof then return Status::OK and length is set 0 and buf is set NULL,
      *  other return readed bytes.
      */
-    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) override;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) override;
     virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;

@@ -22,12 +22,16 @@
 #include "common/logging.h"
 
 namespace doris {
-HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params,
-        const std::string& path, int64_t start_offset)
-        : _hdfs_params(hdfs_params), _path(path), _current_offset(start_offset),
-        _file_size(-1), _hdfs_fs(nullptr), _hdfs_file(nullptr) {
+HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params, const std::string& path,
+                               int64_t start_offset)
+        : _hdfs_params(hdfs_params),
+          _path(path),
+          _current_offset(start_offset),
+          _file_size(-1),
+          _hdfs_fs(nullptr),
+          _hdfs_file(nullptr) {
     std::stringstream namenode_ss;
-    namenode_ss << "hdfs://" << _hdfs_params.host<< ":" << _hdfs_params.port;
+    namenode_ss << "hdfs://" << _hdfs_params.host << ":" << _hdfs_params.port;
     _namenode = namenode_ss.str();
 }
 
@@ -47,7 +51,8 @@ Status HdfsFileReader::connect() {
         hdfsBuilderSetPrincipal(hdfs_builder, _hdfs_params.kerb_principal.c_str());
     }
     if (_hdfs_params.__isset.kerb_ticket_cache_path) {
-        hdfsBuilderSetKerbTicketCachePath(hdfs_builder, _hdfs_params.kerb_ticket_cache_path.c_str());
+        hdfsBuilderSetKerbTicketCachePath(hdfs_builder,
+                                          _hdfs_params.kerb_ticket_cache_path.c_str());
     }
     // set token
     if (_hdfs_params.__isset.token) {
@@ -107,7 +112,7 @@ bool HdfsFileReader::closed() {
 }
 
 // Read all bytes
-Status HdfsFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
+Status HdfsFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
     int64_t file_size = size() - _current_offset;
     if (file_size <= 0) {
         buf->reset();
@@ -115,15 +120,14 @@ Status HdfsFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t*
         return Status::OK();
     }
     bool eof;
-    *length = file_size;
     buf->reset(new uint8_t[file_size]);
-    read(buf->get(), length, &eof);
+    read(buf->get(), file_size, length, &eof);
     return Status::OK();
 }
 
-Status HdfsFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    readat(_current_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf);
-    if (*buf_len == 0) {
+Status HdfsFileReader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {
+    readat(_current_offset, buf_len, bytes_read, buf);
+    if (*bytes_read == 0) {
         *eof = true;
     } else {
         *eof = false;

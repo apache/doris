@@ -58,34 +58,35 @@ TEST_F(BufferedReaderTest, test_validity) {
     ASSERT_TRUE(st.ok());
     uint8_t buf[10];
     bool eof = false;
-    size_t buf_len = 10;
+    int64_t buf_len = 10;
+    int64_t read_length = 0;
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("vxzAbCdEfG", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("vxzAbCdEfG", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("hIj\n\nMnOpQ", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("hIj\n\nMnOpQ", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("rStUvWxYz\n", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("rStUvWxYz\n", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_STREQ("IjKl", std::string((char*)buf, 4).c_str());
     ASSERT_FALSE(eof);
 
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }
@@ -100,42 +101,43 @@ TEST_F(BufferedReaderTest, test_seek) {
     uint8_t buf[10];
     bool eof = false;
     size_t buf_len = 10;
+    int64_t read_length = 0;
 
     // Seek to the end of the file
     st = reader.seek(45);
     ASSERT_TRUE(st.ok());
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 
     // Seek to the beginning of the file
     st = reader.seek(0);
     ASSERT_TRUE(st.ok());
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
     // Seek to a wrong position
     st = reader.seek(-1);
     ASSERT_TRUE(st.ok());
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
     // Seek to a wrong position
     st = reader.seek(-1000);
     ASSERT_TRUE(st.ok());
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, buf_len).c_str());
+    ASSERT_STREQ("bdfhjlnprt", std::string((char*)buf, read_length).c_str());
     ASSERT_FALSE(eof);
 
     // Seek to a wrong position
     st = reader.seek(1000);
     ASSERT_TRUE(st.ok());
-    st = reader.read(buf, &buf_len, &eof);
+    st = reader.read(buf, buf_len, &read_length, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
 }

@@ -95,9 +95,9 @@ TEST_F(S3ReaderTest, normal) {
     ASSERT_EQ(_content.length(), reader->size());
     std::string verification_contents;
     verification_contents.resize(_content.length());
-    size_t total_read = _content.length();
+    int64_t total_read = 0;
     bool eof = false;
-    st = reader->read((uint8_t*)&verification_contents[0], &total_read, &eof);
+    st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(_content, verification_contents);
     ASSERT_EQ(_content.length(), total_read);
@@ -109,7 +109,7 @@ TEST_F(S3ReaderTest, normal) {
     st = reader->readat(_content.length(), _content.length(), (int64_t*)(&total_read),
                         (uint8_t*)&verification_contents[0]);
     LOG(INFO) << total_read;
-    ASSERT_TRUE(total_read==0);
+    ASSERT_TRUE(total_read == 0);
 }
 } // end namespace doris
 

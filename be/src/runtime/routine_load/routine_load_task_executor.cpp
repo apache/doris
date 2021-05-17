@@ -327,8 +327,9 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
         std::stringstream ss;
         while (true) {
             char one;
-            size_t len = 1;
-            Status st = pipe->read((uint8_t*)&one, &len, &eof);
+            int64_t len = 1;
+            int64_t read_bytes = 0;
+            Status st = pipe->read((uint8_t*)&one, len, &read_bytes, &eof);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
                 ctx->promise.set_value(st);
