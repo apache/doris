@@ -273,7 +273,7 @@ if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
         cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
 
         cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
-		mkdir -p ${DORIS_OUTPUT}/fe/log
+	mkdir -p ${DORIS_OUTPUT}/fe/log
 
     elif [ ${BUILD_SPARK_DPP} -eq 1 ]; then
         install -d ${DORIS_OUTPUT}/fe/spark-dpp/
