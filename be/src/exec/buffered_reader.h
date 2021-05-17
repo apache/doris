@@ -18,6 +18,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <memory>
 
 #include "common/status.h"
@@ -34,16 +35,16 @@ public:
     // If the reader need the file size, set it when construct FileReader.
     // There is no other way to set the file size.
     // buffered_reader will acquire reader
-    BufferedReader(FileReader* reader, int64_t = 1024 * 1024);
+    BufferedReader(FileReader* reader, int64_t buffer_size = 1024 * 1024);
     virtual ~BufferedReader();
 
     virtual Status open() override;
 
     // Read
-    virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) override;
+    virtual Status read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) override;
     virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read,
                           void* out) override;
-    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) override;
+    virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) override;
     virtual int64_t size() override;
     virtual Status seek(int64_t position) override;
     virtual Status tell(int64_t* position) override;

@@ -74,8 +74,9 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
     size_t write_offset = 0;
     bool eof = false;
     while (!eof) {
-        size_t read_len = buf_sz;
-        RETURN_IF_ERROR(broker_reader->read(reinterpret_cast<uint8_t*>(read_buf), &read_len, &eof));
+        int64_t read_len = 0;
+        RETURN_IF_ERROR(
+                broker_reader->read(reinterpret_cast<uint8_t*>(read_buf), buf_sz, &read_len, &eof));
 
         if (eof) {
             continue;

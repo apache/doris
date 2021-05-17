@@ -21,6 +21,7 @@
 
 #include "env/env.h"
 #include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
 #include "exec/local_file_reader.h"
 #include "exec/s3_reader.h"
 #include "exprs/expr.h"
@@ -37,8 +38,7 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
-                         const std::vector<ExprContext*>& pre_filter_ctxs,
-                         ScannerCounter* counter)
+                         const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter)
         : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
@@ -121,7 +121,9 @@ Status JsonScanner::open_next_reader() {
         break;
     }
     case TFileType::FILE_S3: {
-        S3Reader* s3_reader = new S3Reader(_params.properties, range.path, start_offset);
+        BufferedReader* s3_reader =
+                new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
+                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
         RETURN_IF_ERROR(s3_reader->open());
         file = s3_reader;
         break;
@@ -286,7 +288,7 @@ Status JsonReader::_parse_json_doc(bool* eof) {
     // read a whole message, must be delete json_str by `delete[]`
     SCOPED_TIMER(_file_read_timer);
     std::unique_ptr<uint8_t[]> json_str;
-    size_t length = 0;
+    int64_t length = 0;
     RETURN_IF_ERROR(_file_reader->read_one_message(&json_str, &length));
     _bytes_read_counter += length;
     if (length == 0) {
