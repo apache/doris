@@ -299,7 +299,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
-	mkdir -p ${DORIS_OUTPUT}/be/log
+    mkdir -p ${DORIS_OUTPUT}/be/log
 
 
 fi
