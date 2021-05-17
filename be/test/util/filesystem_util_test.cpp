@@ -35,8 +35,9 @@ TEST(FileSystemUtil, rlimit) {
 }
 
 TEST(FileSystemUtil, CreateDirectory) {
+    char filename[] = "temp-XXXXXX";
     // Setup a temporary directory with one subdir
-    std::string dir_name = std::tmpnam(nullptr);
+    std::string dir_name = mkdtemp(filename);
     path dir{dir_name};
     path subdir1 = dir / "path1";
     path subdir2 = dir / "path2";
