@@ -53,7 +53,7 @@ bool LocalFileReader::closed() {
 }
 
 // Read all bytes
-Status LocalFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
+Status LocalFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
     bool eof;
     int64_t file_size = size() - _current_offset;
     if (file_size <= 0) {
@@ -61,15 +61,14 @@ Status LocalFileReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t
         *length = 0;
         return Status::OK();
     }
-    *length = file_size;
     buf->reset(new uint8_t[file_size]);
-    read(buf->get(), length, &eof);
+    read(buf->get(), file_size, length, &eof);
     return Status::OK();
 }
 
-Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    readat(_current_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf);
-    if (*buf_len == 0) {
+Status LocalFileReader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {
+    readat(_current_offset, buf_len, bytes_read, buf);
+    if (*bytes_read == 0) {
         *eof = true;
     } else {
         *eof = false;

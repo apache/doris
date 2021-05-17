@@ -21,8 +21,10 @@
 #include <sstream>
 
 #include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/exec_node.h"
+#include "exec/hdfs_file_reader.h"
 #include "exec/local_file_reader.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/s3_reader.h"
@@ -36,14 +38,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
-#include "exprs/expr.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exec/plain_text_line_reader.h"
-#include "exec/hdfs_file_reader.h"
-#include "exec/local_file_reader.h"
-#include "exec/broker_reader.h"
-#include "exec/decompressor.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -52,7 +46,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
-							 const std::vector<ExprContext*>& pre_filter_ctxs,
+                             const std::vector<ExprContext*>& pre_filter_ctxs,
                              ScannerCounter* counter)
         : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
@@ -168,8 +162,9 @@ Status BrokerScanner::open_file_reader() {
         break;
     }
     case TFileType::FILE_HDFS: {
-        HdfsFileReader* file_reader = new HdfsFileReader(
-                range.hdfs_params, range.path, start_offset);
+        BufferedReader* file_reader =
+                new BufferedReader(new HdfsFileReader(range.hdfs_params, range.path, start_offset),
+                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;
         break;
@@ -183,7 +178,9 @@ Status BrokerScanner::open_file_reader() {
         break;
     }
     case TFileType::FILE_S3: {
-        S3Reader* s3_reader = new S3Reader(_params.properties, range.path, start_offset);
+        BufferedReader* s3_reader =
+                new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
+                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
         RETURN_IF_ERROR(s3_reader->open());
         _cur_file_reader = s3_reader;
         break;
@@ -320,12 +317,12 @@ void BrokerScanner::close() {
 
 void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
     const char* value = line.data;
-    size_t start = 0; // point to the start pos of next col value.
-    size_t curpos= 0; // point to the start pos of separator matching sequence.
-    size_t p1 = 0;    // point to the current pos of separator matching sequence.
+    size_t start = 0;  // point to the start pos of next col value.
+    size_t curpos = 0; // point to the start pos of separator matching sequence.
+    size_t p1 = 0;     // point to the current pos of separator matching sequence.
 
     // Separator: AAAA
-    // 
+    //
     //   curpos
     //     ▼
     //     AAAA
@@ -351,7 +348,7 @@ void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
         }
     }
 
-    CHECK(curpos == line.size) << curpos << " vs " <<  line.size;
+    CHECK(curpos == line.size) << curpos << " vs " << line.size;
     values->emplace_back(value + start, curpos - start);
 }
 
