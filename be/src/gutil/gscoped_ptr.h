@@ -85,7 +85,7 @@
 // gscoped_array. This is because casting array pointers may not be safe.
 //
 // -------------------------------------------------------------------------
-// Cloudera notes: this should be used in preference to boost::scoped_ptr since
+// Cloudera notes: this should be used in preference to std::unique_ptr since
 // it offers a ::release() method like unique_ptr. We unfortunately cannot
 // just use unique_ptr because it has an inconsistent implementation in
 // some of the older compilers we have to support.

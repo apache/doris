@@ -284,7 +284,7 @@ protected:
     int64_t _limit; // -1: no limit
     int64_t _num_rows_returned;
 
-    boost::scoped_ptr<RuntimeProfile> _runtime_profile;
+    std::unique_ptr<RuntimeProfile> _runtime_profile;
 
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -294,7 +294,7 @@ protected:
 
     /// MemPool for allocating data structures used by expression evaluators in this node.
     /// Created in Prepare().
-    boost::scoped_ptr<MemPool> _expr_mem_pool;
+    std::unique_ptr<MemPool> _expr_mem_pool;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;

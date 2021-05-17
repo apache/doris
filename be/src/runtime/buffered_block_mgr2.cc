@@ -43,8 +43,7 @@ using std::bind;
 using std::mem_fn;
 using std::lock_guard;
 using std::mutex;
-using boost::scoped_array;
-using boost::shared_ptr;
+using std::shared_ptr;
 using std::unique_lock;
 
 namespace doris {
@@ -225,7 +224,7 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
 Status BufferedBlockMgr2::create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
                                  RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
                                  int64_t mem_limit, int64_t block_size,
-                                 boost::shared_ptr<BufferedBlockMgr2>* block_mgr) {
+                                 std::shared_ptr<BufferedBlockMgr2>* block_mgr) {
     DCHECK(parent != nullptr);
     block_mgr->reset();
     {
@@ -587,8 +586,8 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
     // See IMPALA-1890.
     DCHECK_EQ(_non_local_outstanding_writes, 0) << endl << debug_internal();
     // Delete tmp files.
-    for (TmpFileMgr::File& file : _tmp_files) {
-        file.remove();
+    for (size_t i = 0; i < _tmp_files.size(); ++i) {
+        _tmp_files[i]->remove();
     }
     _tmp_files.clear();
 
@@ -812,12 +811,11 @@ Status BufferedBlockMgr2::allocate_scratch_space(int64_t block_size, TmpFileMgr:
     vector<std::string> errs;
     // Find the next physical file in round-robin order and create a write range for it.
     for (int attempt = 0; attempt < _tmp_files.size(); ++attempt) {
-        *tmp_file = &_tmp_files[_next_block_index];
         _next_block_index = (_next_block_index + 1) % _tmp_files.size();
-        if ((*tmp_file)->is_blacklisted()) {
+        if (_tmp_files[_next_block_index]->is_blacklisted()) {
             continue;
         }
-        Status status = (*tmp_file)->allocate_space(_max_block_size, file_offset);
+        Status status = _tmp_files[_next_block_index]->allocate_space(_max_block_size, file_offset);
         if (status.ok()) {
             return Status::OK();
         }
@@ -1309,7 +1307,7 @@ Status BufferedBlockMgr2::init_tmp_files() {
         // by active_tmp_devices() - handle this gracefully.
         Status status = _tmp_file_mgr->get_file(tmp_device_id, _query_id, &tmp_file);
         if (status.ok()) {
-            _tmp_files.push_back(tmp_file);
+            _tmp_files.emplace_back(tmp_file);
         }
     }
     if (_tmp_files.empty()) {

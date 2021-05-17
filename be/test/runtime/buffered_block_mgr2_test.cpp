@@ -22,7 +22,6 @@
 
 #include <boost/bind.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <filesystem>
 
@@ -39,7 +38,7 @@
 
 using std::filesystem::directory_iterator;
 using std::filesystem::remove;
-using boost::scoped_ptr;
+using std::unique_ptr;
 using std::unordered_map;
 using boost::thread;
 
@@ -543,7 +542,7 @@ protected:
         const int iters = 100;
         for (int i = 0; i < iters; ++i) {
             LOG(WARNING) << "CreateDestroyThread thread " << index << " begin " << i << std::endl;
-            boost::shared_ptr<BufferedBlockMgr2> mgr;
+            std::shared_ptr<BufferedBlockMgr2> mgr;
             Status status = BufferedBlockMgr2::create(
                     state, _test_env->block_mgr_parent_tracker(), state->runtime_profile(),
                     _test_env->tmp_file_mgr(), _block_size * num_buffers, _block_size, &mgr);
@@ -567,7 +566,7 @@ protected:
         workers.join_all();
     }
 
-    boost::scoped_ptr<TestEnv> _test_env;
+    std::unique_ptr<TestEnv> _test_env;
     std::shared_ptr<MemTracker> _client_tracker;
     std::vector<string> _created_tmp_dirs;
 };

@@ -20,7 +20,6 @@
 
 #include <stdint.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <string>
 
 #include "common/status.h"
@@ -261,7 +260,7 @@ private:
 
     /// A dummy profile to hold the counters in 'counters_' in the case that no profile
     /// is provided.
-    boost::scoped_ptr<DummyProfile> dummy_profile_;
+    std::unique_ptr<DummyProfile> dummy_profile_;
 
     /// The RuntimeProfile counters for this tracker.
     /// All non-NULL if 'initialized_' is true.

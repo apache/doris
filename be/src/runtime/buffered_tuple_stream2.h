@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
@@ -223,7 +222,7 @@ public:
     // Returns all the rows in the stream in batch. This pins the entire stream
     // in the process.
     // *got_rows is false if the stream could not be pinned.
-    Status get_rows(boost::scoped_ptr<RowBatch>* batch, bool* got_rows);
+    Status get_rows(std::unique_ptr<RowBatch>* batch, bool* got_rows);
 
     // Must be called once at the end to cleanup all resources. Idempotent.
     void close();

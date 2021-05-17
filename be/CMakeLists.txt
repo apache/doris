@@ -183,10 +183,10 @@ add_library(lz4 STATIC IMPORTED)
 set_target_properties(lz4 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblz4.a)
 
 add_library(thrift STATIC IMPORTED)
-set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthrift.a)
+set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthrift.13.a)
 
 add_library(thriftnb STATIC IMPORTED)
-set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
+set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.13.a)
 
 if(WITH_LZO)
     add_library(lzo STATIC IMPORTED)
@@ -306,7 +306,7 @@ set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/
 add_library(lzma STATIC IMPORTED)
 set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
 
-find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
+find_program(THRIFT_COMPILER thrift13 ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.
@@ -423,9 +423,9 @@ include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
     ${GENSRC_DIR}/
+    ${THIRDPARTY_DIR}/include/thrift13/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/thrift/
     ${THIRDPARTY_DIR}/include/event/
 )
 

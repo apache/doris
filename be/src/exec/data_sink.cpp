@@ -42,7 +42,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                                   const std::vector<TExpr>& output_exprs,
                                   const TPlanFragmentExecParams& params,
                                   const RowDescriptor& row_desc,
-                                  boost::scoped_ptr<DataSink>* sink) {
+                                  std::unique_ptr<DataSink>* sink) {
     DataSink* tmp_sink = NULL;
 
     switch (thrift_sink.type) {

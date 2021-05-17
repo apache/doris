@@ -94,7 +94,20 @@ TEST_F(ThreadPoolTest, TestNoTaskOpenClose) {
 static void simple_task_method(int n, std::atomic<int32_t>* counter) {
     while (n--) {
         (*counter)++;
-        boost::detail::yield(n);
+        if (n < 32 || n & 1) {
+            sched_yield();
+        } else {
+            // g++ -Wextra warns on {} or {0}
+            struct timespec rqtp = {0, 0};
+
+            // POSIX says that timespec has tv_sec and tv_nsec
+            // But it doesn't guarantee order or placement
+
+            rqtp.tv_sec = 0;
+            rqtp.tv_nsec = 1000;
+
+            nanosleep(&rqtp, 0);
+        }
     }
 }
 
@@ -536,7 +549,8 @@ TEST_F(ThreadPoolTest, TestFuzz) {
             ASSERT_TRUE(_pool->submit_func([sleep_ms]() {
                                  // Sleep a little first to increase task overlap.
                                  SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
-                             }).ok());
+                             })
+                                .ok());
         } else if (op < 75) {
             // submit with a randomly selected token.
             if (tokens.empty()) {

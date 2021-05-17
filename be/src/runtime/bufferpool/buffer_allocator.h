@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
 #define DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "runtime/bufferpool/buffer_pool_internal.h"
 #include "runtime/bufferpool/free_list.h"
 #include "util/aligned_new.h"
@@ -193,7 +191,7 @@ private:
     BufferPool* const pool_;
 
     /// System allocator that is ultimately used to allocate and free buffers.
-    const boost::scoped_ptr<SystemAllocator> system_allocator_;
+    const std::unique_ptr<SystemAllocator> system_allocator_;
 
     /// The minimum power-of-two buffer length that can be allocated.
     const int64_t min_buffer_len_;

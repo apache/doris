@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <boost/lexical_cast.hpp>
-#include <boost/variant.hpp>
 #include <map>
 #include <sstream>
 #include <string>
@@ -314,7 +313,7 @@ private:
     bool _is_convertible;
 };
 
-typedef boost::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>,
+typedef std::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>,
                        ColumnValueRange<int32_t>, ColumnValueRange<int64_t>,
                        ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
                        ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalValue>,

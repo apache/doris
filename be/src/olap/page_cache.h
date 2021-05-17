@@ -26,7 +26,6 @@
 #include "gen_cpp/segment_v2.pb.h" // for cache allocation
 #include "runtime/mem_tracker.h"
 
-
 namespace doris {
 
 class PageCacheHandle;

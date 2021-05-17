@@ -35,7 +35,7 @@
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
-//#include <boost/scoped_ptr.hpp>
+//
 //
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf

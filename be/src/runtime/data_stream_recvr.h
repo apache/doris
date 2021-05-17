@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"
@@ -167,7 +166,7 @@ private:
     std::vector<SenderQueue*> _sender_queues;
 
     // SortedRunMerger used to merge rows from different senders.
-    boost::scoped_ptr<SortedRunMerger> _merger;
+    std::unique_ptr<SortedRunMerger> _merger;
 
     std::vector<std::unique_ptr<SortedRunMerger>> _child_mergers;
 

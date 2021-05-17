@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <vector>
 
 #include "codegen/doris_ir.h"

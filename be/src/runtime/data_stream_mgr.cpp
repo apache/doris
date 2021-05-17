@@ -36,7 +36,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(data_stream_receiver_count, MetricUnit::NOUNI
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
 
 using std::mutex;
-using boost::shared_ptr;
+using std::shared_ptr;
 using std::unique_lock;
 using std::lock_guard;
 
@@ -144,7 +144,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request,
 }
 
 Status DataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
-    boost::shared_ptr<DataStreamRecvr> targert_recvr;
+    std::shared_ptr<DataStreamRecvr> targert_recvr;
     VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << fragment_instance_id
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
@@ -182,7 +182,7 @@ Status DataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, Pl
 
 void DataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {
     VLOG_QUERY << "cancelling all streams for fragment=" << fragment_instance_id;
-    std::vector<boost::shared_ptr<DataStreamRecvr>> recvrs;
+    std::vector<std::shared_ptr<DataStreamRecvr>> recvrs;
     {
         lock_guard<mutex> l(_lock);
         FragmentStreamSet::iterator i =

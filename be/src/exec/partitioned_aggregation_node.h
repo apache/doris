@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <deque>
 
 #include "exec/exec_node.h"
@@ -207,7 +206,7 @@ private:
     /// Permanent and result allocations for these allocators are allocated from
     /// 'expr_perm_pool_' and 'expr_results_pool_' respectively.
     std::vector<NewAggFnEvaluator*> agg_fn_evals_;
-    boost::scoped_ptr<MemPool> agg_fn_pool_;
+    std::unique_ptr<MemPool> agg_fn_pool_;
 
     /// Exprs used to evaluate input rows
     std::vector<Expr*> grouping_exprs_;
@@ -227,16 +226,16 @@ private:
 
     RuntimeState* state_;
     /// Allocator for hash table memory.
-    boost::scoped_ptr<Suballocator> ht_allocator_;
+    std::unique_ptr<Suballocator> ht_allocator_;
     /// MemPool used to allocate memory for when we don't have grouping and don't initialize
     /// the partitioning structures, or during Close() when creating new output tuples.
     /// For non-grouping aggregations, the ownership of the pool's memory is transferred
     /// to the output batch on eos. The pool should not be Reset() to allow amortizing
     /// memory allocation over a series of Reset()/Open()/GetNext()* calls.
-    boost::scoped_ptr<MemPool> mem_pool_;
+    std::unique_ptr<MemPool> mem_pool_;
 
     // MemPool for allocations made by copying expr results
-    boost::scoped_ptr<MemPool> expr_results_pool_;
+    std::unique_ptr<MemPool> expr_results_pool_;
 
     /// The current partition and iterator to the next row in its hash table that we need
     /// to return in GetNext()
@@ -338,7 +337,7 @@ private:
 
     /// Row batch used as argument to GetNext() for the child node preaggregations. Store
     /// in node to avoid reallocating for every GetNext() call when streaming.
-    boost::scoped_ptr<RowBatch> child_batch_;
+    std::unique_ptr<RowBatch> child_batch_;
 
     /// If true, no more rows to output from partitions.
     bool partition_eos_;
@@ -349,10 +348,10 @@ private:
     /// Used for hash-related functionality, such as evaluating rows and calculating hashes.
     /// It also owns the evaluators for the grouping and build expressions used during hash
     /// table insertion and probing.
-    boost::scoped_ptr<PartitionedHashTableCtx> ht_ctx_;
+    std::unique_ptr<PartitionedHashTableCtx> ht_ctx_;
 
     /// Object pool that holds the Partition objects in hash_partitions_.
-    boost::scoped_ptr<ObjectPool> partition_pool_;
+    std::unique_ptr<ObjectPool> partition_pool_;
 
     /// Current partitions we are partitioning into. IMPALA-5788: For the case where we
     /// rebuild a spilled partition that fits in memory, all pointers in this vector will
@@ -430,13 +429,13 @@ private:
         /// Hash table for this partition.
         /// Can be NULL if this partition is no longer maintaining a hash table (i.e.
         /// is spilled or we are passing through all rows for this partition).
-        boost::scoped_ptr<PartitionedHashTable> hash_tbl;
+        std::unique_ptr<PartitionedHashTable> hash_tbl;
 
         /// Clone of parent's agg_fn_evals_. Permanent allocations come from
         /// 'agg_fn_perm_pool' and result allocations come from the ExecNode's
         /// 'expr_results_pool_'.
         std::vector<NewAggFnEvaluator*> agg_fn_evals;
-        boost::scoped_ptr<MemPool> agg_fn_pool;
+        std::unique_ptr<MemPool> agg_fn_pool;
 
         /// Tuple stream used to store aggregated rows. When the partition is not spilled,
         /// (meaning the hash table is maintained), this stream is pinned and contains the
@@ -446,18 +445,18 @@ private:
         /// For streaming preaggs, this may be NULL if sufficient memory is not available.
         /// In that case hash_tbl is also NULL and all rows for the partition will be passed
         /// through.
-        boost::scoped_ptr<BufferedTupleStream3> aggregated_row_stream;
+        std::unique_ptr<BufferedTupleStream3> aggregated_row_stream;
 
         /// Unaggregated rows that are spilled. Always NULL for streaming pre-aggregations.
         /// Always unpinned. Has a write buffer allocated when the partition is spilled and
         /// unaggregated rows are being processed.
-        boost::scoped_ptr<BufferedTupleStream3> unaggregated_row_stream;
+        std::unique_ptr<BufferedTupleStream3> unaggregated_row_stream;
     };
 
     /// Stream used to store serialized spilled rows. Only used if needs_serialize_
     /// is set. This stream is never pinned and only used in Partition::Spill as a
     /// a temporary buffer.
-    boost::scoped_ptr<BufferedTupleStream3> serialize_stream_;
+    std::unique_ptr<BufferedTupleStream3> serialize_stream_;
 
     /// Accessor for 'hash_tbls_' that verifies consistency with the partitions.
     PartitionedHashTable* ALWAYS_INLINE GetHashTable(int partition_idx) {

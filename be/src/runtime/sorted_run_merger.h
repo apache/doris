@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 #define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"

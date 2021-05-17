@@ -19,8 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
-
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/test_env.h"

@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
 
 #include <stdlib.h>
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <glog/loging.h>
 
 namespace doris {

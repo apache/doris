@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <functional>
 
 #include "exec/exec_node.h"
@@ -64,14 +63,14 @@ public:
     virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
 private:
-    boost::scoped_ptr<HashTable> _hash_tbl;
+    std::unique_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _output_iterator;
 
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
 
     /// FunctionContext for each agg fn and backing pool.
     std::vector<doris_udf::FunctionContext*> _agg_fn_ctxs;
-    boost::scoped_ptr<MemPool> _agg_fn_pool;
+    std::unique_ptr<MemPool> _agg_fn_pool;
 
     // Exprs used to evaluate input rows
     std::vector<ExprContext*> _probe_expr_ctxs;
@@ -89,7 +88,7 @@ private:
     TupleDescriptor* _output_tuple_desc;
 
     Tuple* _singleton_output_tuple; // result of aggregation w/o GROUP BY
-    boost::scoped_ptr<MemPool> _tuple_pool;
+    std::unique_ptr<MemPool> _tuple_pool;
 
     typedef void (*ProcessRowBatchFn)(AggregationNode*, RowBatch*);
     // Jitted ProcessRowBatch function pointer.  Null if codegen is disabled.

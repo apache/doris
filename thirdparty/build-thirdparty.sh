@@ -204,8 +204,8 @@ build_thrift() {
     echo ${TP_LIB_DIR}
     ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
     --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
-    --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs \
-    --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby \
+    --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-rs\
+    --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-c_glib \
     --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp \
     --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
 
@@ -586,6 +586,14 @@ build_arrow() {
         cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a	
     fi	
     cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
+
+    # avoid file conflict with the older thrift 0.9 we rename thrift 0.13, rename at here because of build arrow need thrift, 
+    # if we use a new version of docker build env, we should remove this, TODO(yangzhg)
+    mkdir ${TP_INCLUDE_DIR}/thrift13/ && mv ${TP_INCLUDE_DIR}/thrift ${TP_INCLUDE_DIR}/thrift13/ && \
+    mv $TP_INSTALL_DIR/lib64/libthrift.a $TP_INSTALL_DIR/lib64/libthrift.13.a && \
+    mv $TP_INSTALL_DIR/lib64/libthriftnb.a $TP_INSTALL_DIR/lib64/libthriftnb.13.a && \
+    mv $TP_INSTALL_DIR/lib64/libthriftz.a $TP_INSTALL_DIR/lib64/libthriftz.13.a && \
+    mv $TP_INSTALL_DIR/bin/thrift $TP_INSTALL_DIR/bin/thrift13
 }
 
 # s2
@@ -808,7 +816,6 @@ build_aws_sdk() {
 build_lzma() {
     check_if_source_exist $LZMA_SOURCE
     cd $TP_SOURCE_DIR/$LZMA_SOURCE
-    export ACLOCAL_PATH=/usr/share/aclocal
     sh autogen.sh
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic
@@ -823,6 +830,8 @@ build_xml2() {
     sh autogen.sh
     make distclean
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
+        CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+                CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
     ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-python=no
     make -j $PARALLEL && make install
 }

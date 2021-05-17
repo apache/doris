@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <fstream>
 #include <sstream>
 
@@ -110,11 +109,11 @@ private:
     int _slot_num;
 
     // Pool for allocating tuple data, including all varying-length slots.
-    boost::scoped_ptr<MemPool> _tuple_pool;
+    std::unique_ptr<MemPool> _tuple_pool;
     // Util class for doing real file reading
-    boost::scoped_ptr<CsvScanner> _csv_scanner;
+    std::unique_ptr<CsvScanner> _csv_scanner;
     // Helper class for converting text to other types;
-    boost::scoped_ptr<TextConverter> _text_converter;
+    std::unique_ptr<TextConverter> _text_converter;
     // Current tuple.
     Tuple* _tuple;
     // Current RuntimeState

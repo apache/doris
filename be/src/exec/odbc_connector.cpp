@@ -310,7 +310,6 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch *batch, uin
                 }
             }
 
-
             if (i < num_rows - 1 && _insert_stmt_buffer.size() < INSERT_BUFFER_SIZE) {
                 fmt::format_to(_insert_stmt_buffer, "{}", "),(");
             } else {

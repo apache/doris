@@ -20,7 +20,6 @@
 
 #include <stdint.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <string>
 #include <vector>
 
@@ -300,7 +299,7 @@ private:
 
     /// Allocator for allocating and freeing all buffer memory and managing lists of free
     /// buffers and clean pages.
-    boost::scoped_ptr<BufferAllocator> allocator_;
+    std::unique_ptr<BufferAllocator> allocator_;
 
     /// The minimum length of a buffer in bytes. All buffers and pages are a power-of-two
     /// multiple of this length. This is always a power of two.
@@ -402,7 +401,7 @@ private:
     /// Child of the client's tracker used to track the sub-reservation. Usage is not
     /// tracked against this tracker - instead the reservation is always transferred back
     /// to the client's tracker before use.
-    boost::scoped_ptr<ReservationTracker> tracker_;
+    std::unique_ptr<ReservationTracker> tracker_;
 };
 
 /// A handle to a buffer allocated from the buffer pool. Each BufferHandle should only

@@ -40,7 +40,7 @@ using std::make_pair;
 
 using std::condition_variable;
 using std::mutex;
-using boost::scoped_ptr;
+using std::unique_ptr;
 using std::unique_lock;
 using std::try_lock;
 using std::lock_guard;
@@ -127,7 +127,7 @@ private:
     // The batch that was most recently returned via get_batch(), i.e. the current batch
     // from this queue being processed by a consumer. Is destroyed when the next batch
     // is retrieved.
-    scoped_ptr<RowBatch> _current_batch;
+    std::unique_ptr<RowBatch> _current_batch;
 
     // Set to true when the first batch has been received
     bool _received_first_batch;

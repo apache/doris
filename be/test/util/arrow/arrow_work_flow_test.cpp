@@ -21,7 +21,6 @@
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/logging.h"

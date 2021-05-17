@@ -17,8 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/shared_ptr.hpp>
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/buffer_control_block.h"

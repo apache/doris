@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <string>
 
 namespace doris {

@@ -17,9 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/bind.hpp>
 #include <filesystem>
-#include <boost/scoped_ptr.hpp>
 #include <limits> // for std::numeric_limits<int>::max()
 #include <string>
 
@@ -38,7 +36,7 @@
 
 using std::vector;
 
-using boost::scoped_ptr;
+using std::unique_ptr;
 
 static const int BATCH_SIZE = 250;
 static const uint32_t PRIME = 479001599;
@@ -351,7 +349,7 @@ protected:
         }
     }
 
-    boost::scoped_ptr<TestEnv> _test_env;
+    std::unique_ptr<TestEnv> _test_env;
     RuntimeState* _runtime_state;
     BufferedBlockMgr2::Client* _client;
 
@@ -359,7 +357,7 @@ protected:
     ObjectPool _pool;
     RowDescriptor* _int_desc;
     RowDescriptor* _string_desc;
-    boost::scoped_ptr<MemPool> _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 };
 
 // Tests with a non-NULLable tuple per row.
@@ -735,11 +733,11 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
         //             malloc(tuple_descs[0]->byte_size())));
         // gscoped_ptr<Tuple, FreeDeleter> tuple1(reinterpret_cast<Tuple*>(
         //             malloc(tuple_descs[1]->byte_size())));
-        boost::scoped_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
+        std::unique_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
                     malloc(tuple_descs.size() * sizeof(Tuple*))));
-        boost::scoped_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
+        std::unique_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[0]->byte_size())));
-        boost::scoped_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
+        std::unique_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[1]->byte_size())));
         memset(tuple0.get(), 0, tuple_descs[0]->byte_size());
         memset(tuple1.get(), 0, tuple_descs[1]->byte_size());

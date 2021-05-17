@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
 #include <string>
 #include <unordered_set>
@@ -77,8 +76,8 @@ private:
     // _right_batch must be cleared before calling get_next().  used cache child(1)'s data
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<ChildReaderContext> _left_child_ctx;
-    boost::scoped_ptr<ChildReaderContext> _right_child_ctx;
+    std::unique_ptr<ChildReaderContext> _left_child_ctx;
+    std::unique_ptr<ChildReaderContext> _right_child_ctx;
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
     std::vector<int> _right_tuple_idx;
     int _right_tuple_size;

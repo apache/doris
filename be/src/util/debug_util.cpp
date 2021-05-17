@@ -42,7 +42,7 @@
 namespace doris {
 
 #define THRIFT_ENUM_OUTPUT_FN_IMPL(E, MAP)                         \
-    std::ostream& operator<<(std::ostream& os, const E::type& e) { \
+    inline std::ostream& operator<<(std::ostream& os, const E::type& e) { \
         std::map<int, const char*>::const_iterator i;              \
         i = MAP.find(e);                                           \
         if (i != MAP.end()) {                                      \

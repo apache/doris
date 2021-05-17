@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
 #define DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
 
-#include <boost/scoped_ptr.hpp>
 #include <map>
 #include <mutex>
 

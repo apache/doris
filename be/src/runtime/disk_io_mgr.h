@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <condition_variable>
 #include <list>
@@ -726,7 +725,7 @@ private:
     // active as well as those in the process of being cancelled. This is a cache
     // of context objects that get recycled to minimize object allocations and lock
     // contention.
-    boost::scoped_ptr<RequestContextCache> _request_context_cache;
+    std::unique_ptr<RequestContextCache> _request_context_cache;
 
     // Protects _free_buffers and _free_buffer_descs
     std::mutex _free_buffers_lock;

@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "gen_cpp/PlanNodes_types.h"
@@ -65,7 +64,7 @@ private:
     TDescriptorTable _t_desc_table;
     DescriptorTbl* _desc_tbl;
     TPlanNode _tnode;
-    boost::scoped_ptr<ExecEnv> _env;
+    std::unique_ptr<ExecEnv> _env;
     RuntimeState* _state;
 }; // end class CsvScanNodeTest
 

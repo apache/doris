@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_SELECT_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_SELECT_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
 
@@ -41,7 +39,7 @@ public:
 
 private:
     // current row batch of child
-    boost::scoped_ptr<RowBatch> _child_row_batch;
+    std::unique_ptr<RowBatch> _child_row_batch;
 
     // index of current row in _child_row_batch
     int _child_row_idx;
