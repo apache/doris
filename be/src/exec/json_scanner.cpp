@@ -371,9 +371,11 @@ Status JsonReader::_parse_json_doc(size_t* size, bool* eof) {
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, size, eof));
     } else {
-        RETURN_IF_ERROR(_file_reader->read_one_message(&json_str_ptr, size));
+        int64_t length = 0;
+        RETURN_IF_ERROR(_file_reader->read_one_message(&json_str_ptr, &length));
         json_str = json_str_ptr.get();
-        if (*size == 0) {
+        *size = length;
+        if (length == 0) {
             *eof = true;
         }
     }
