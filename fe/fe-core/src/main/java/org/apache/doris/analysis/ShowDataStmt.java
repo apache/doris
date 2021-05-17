@@ -368,6 +368,15 @@ public class ShowDataStmt extends ShowStmt {
 
         builder.append(" FROM `").append(dbName).append("`");
         if (tableName == null) {
+            // Order By clause
+            if (orderByElements != null) {
+                builder.append(" ORDER BY ");
+                for (int i = 0; i < orderByElements.size(); ++i) {
+                    builder.append(orderByElements.get(i).getExpr().toSql());
+                    builder.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
+                    builder.append((i + 1 != orderByElements.size()) ? ", " : "");
+                }
+            }
             return builder.toString();
         }
         builder.append(".`").append(tableName).append("`");
