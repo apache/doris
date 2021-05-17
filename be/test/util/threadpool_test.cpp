@@ -314,6 +314,7 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 // deadlocks, so we'll disable the entire test instead.
 #ifndef THREAD_SANITIZER
 TEST_F(ThreadPoolTest, TestDeadlocks) {
+    ::testing::FLAGS_gtest_death_test_style = "threadsafe";
     const char* death_msg = "called pool function that would result in deadlock";
     ASSERT_DEATH(
             {
