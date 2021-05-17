@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
 #include <string>
 #include <unordered_set>
@@ -62,7 +61,7 @@ protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
-    boost::scoped_ptr<HashTable> _hash_tbl;
+    std::unique_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _hash_tbl_iterator;
     bool _is_push_down;
 
@@ -92,7 +91,7 @@ private:
 
     bool _matched_probe;                    // if true, we have matched the current probe row
     bool _eos;                              // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
+    std::unique_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
 
     // Size of the TupleRow (just the Tuple ptrs) from the build (right) and probe (left)
     // sides. Set to zero if the build/probe tuples are not returned, e.g., for semi joins.
@@ -103,7 +102,7 @@ private:
     // _probe_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<RowBatch> _probe_batch;
+    std::unique_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
     int _probe_counter;
     bool _probe_eos; // if true, probe child has no more rows to process

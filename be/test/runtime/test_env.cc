@@ -88,7 +88,7 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
         return Status::InternalError("Unexpected error creating RuntimeState");
     }
 
-    boost::shared_ptr<BufferedBlockMgr2> mgr;
+    std::shared_ptr<BufferedBlockMgr2> mgr;
     RETURN_IF_ERROR(BufferedBlockMgr2::create(
             *runtime_state, _block_mgr_parent_tracker, (*runtime_state)->runtime_profile(),
             _tmp_file_mgr.get(), calculate_mem_tracker(max_buffers, block_size), block_size, &mgr));

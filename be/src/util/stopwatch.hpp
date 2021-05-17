@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <time.h>
 
 namespace doris {

@@ -33,7 +33,7 @@ MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorT
           _tuple_id(tnode.merge_node.tuple_id),
           _const_result_expr_idx(0),
           _child_idx(INVALID_CHILD_IDX),
-          _child_row_batch(NULL),
+          _child_row_batch(nullptr),
           _child_eos(false),
           _child_row_idx(0) {}
 

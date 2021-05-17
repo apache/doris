@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 
-#include <boost/cstdint.hpp>
-#include <boost/scoped_ptr.hpp>
+#include <cstdint>
+
 #include <memory>
 #include <vector>
 
@@ -117,7 +117,7 @@ public:
                          int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool,
                          const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
                          const RowDescriptor& row_desc_probe,
-                         boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx);
+                         std::unique_ptr<PartitionedHashTableCtx>* ht_ctx);
 
     /// Initialize the build and probe expression evaluators.
     Status Open(RuntimeState* state);
@@ -325,17 +325,17 @@ public:
 
         /// Array for caching up to 'capacity_' number of rows worth of evaluated expression
         /// values. Each row consumes 'expr_values_bytes_per_row_' number of bytes.
-        boost::scoped_array<uint8_t> expr_values_array_;
+        std::unique_ptr<uint8_t[]> expr_values_array_;
 
         /// Array for caching up to 'capacity_' number of rows worth of null booleans.
         /// Each row contains 'num_exprs_' booleans to indicate nullness of expression values.
         /// Used when the hash table supports NULL. Use 'uint8_t' to guarantee each entry is 1
         /// byte as sizeof(bool) is implementation dependent. The IR depends on this
         /// assumption.
-        boost::scoped_array<uint8_t> expr_values_null_array_;
+        std::unique_ptr<uint8_t[]> expr_values_null_array_;
 
         /// Array for caching up to 'capacity_' number of rows worth of hashed values.
-        boost::scoped_array<uint32_t> expr_values_hash_array_;
+        std::unique_ptr<uint32_t[]> expr_values_hash_array_;
 
         /// One bit for each row. A bit is set if that row is not hashed as it's evaluated
         /// to NULL but the hash table doesn't support NULL. Such rows may still be included

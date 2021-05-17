@@ -34,7 +34,7 @@ using std::vector;
 using std::bind;
 using std::function;
 using std::mem_fn;
-using boost::scoped_ptr;
+using std::unique_ptr;
 
 namespace doris {
 
@@ -219,7 +219,7 @@ private:
 
     // _buffered_batch is used to return TupleRows to the merger when this run is being
     // merged. _buffered_batch is returned in calls to get_next_batch().
-    scoped_ptr<RowBatch> _buffered_batch;
+    std::unique_ptr<RowBatch> _buffered_batch;
 
     // Members used when a run is read in get_next().
     // The index into the _fixed_len_blocks and _var_len_blocks vectors of the current blocks being
@@ -1033,19 +1033,19 @@ SpillSorter::SpillSorter(const TupleRowComparator& compare_less_than,
                          RuntimeState* state)
         : _state(state),
           _compare_less_than(compare_less_than),
-          _in_mem_tuple_sorter(NULL),
+          _in_mem_tuple_sorter(nullptr),
           _block_mgr(state->block_mgr2()),
-          _block_mgr_client(NULL),
+          _block_mgr_client(nullptr),
           _has_var_len_slots(false),
           _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
           _mem_tracker(mem_tracker),
           _output_row_desc(output_row_desc),
-          _unsorted_run(NULL),
+          _unsorted_run(nullptr),
           _profile(profile),
-          _initial_runs_counter(NULL),
-          _num_merges_counter(NULL),
-          _in_mem_sort_timer(NULL),
-          _sorted_data_size(NULL),
+          _initial_runs_counter(nullptr),
+          _num_merges_counter(nullptr),
+          _in_mem_sort_timer(nullptr),
+          _sorted_data_size(nullptr),
           _spilled(false) {}
 
 SpillSorter::~SpillSorter() {
@@ -1243,7 +1243,7 @@ Status SpillSorter::merge_intermediate_runs() {
     // For an intermediate merge, intermediate_merge_batch contains deep-copied rows from
     // the input runs. If (_sorted_runs.size() > max_runs_per_final_merge),
     // one or more intermediate merges are required.
-    scoped_ptr<RowBatch> intermediate_merge_batch;
+    std::unique_ptr<RowBatch> intermediate_merge_batch;
     while (_sorted_runs.size() > max_runs_per_final_merge) {
         // An intermediate merge adds one merge to _unmerged_sorted_runs.
         // Merging 'runs - (_max_runs_final - 1)' number of runs is sufficient to guarantee

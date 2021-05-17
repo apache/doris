@@ -180,8 +180,8 @@ AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
 
     heartbeat_server->init_cluster_id();
 
-    boost::shared_ptr<HeartbeatServer> handler(heartbeat_server);
-    boost::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
+    std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
+    std::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
     string server_name("heartbeat");
     *thrift_server =
             new ThriftServer(server_name, server_processor, server_port, worker_thread_num);

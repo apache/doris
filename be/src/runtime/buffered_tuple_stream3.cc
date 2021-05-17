@@ -683,7 +683,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
 }
 */
 Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
-                                     boost::scoped_ptr<RowBatch>* batch, bool* got_rows) {
+                                     std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(

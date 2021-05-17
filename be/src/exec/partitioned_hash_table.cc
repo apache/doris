@@ -136,7 +136,7 @@ Status PartitionedHashTableCtx::Create(
         const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
         int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool,
         const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
-        const RowDescriptor& row_desc_probe, boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx) {
+        const RowDescriptor& row_desc_probe, std::unique_ptr<PartitionedHashTableCtx>* ht_ctx) {
     ht_ctx->reset(new PartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls, finds_nulls,
                                               initial_seed, max_levels, mem_pool, expr_results_pool,
                                               tracker));

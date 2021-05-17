@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 #define DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 

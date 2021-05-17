@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 #define DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
@@ -74,7 +73,7 @@ public:
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
                                    const RowDescriptor& row_desc,
-                                   boost::scoped_ptr<DataSink>* sink);
+                                   std::unique_ptr<DataSink>* sink);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;

@@ -59,14 +59,14 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      boost::shared_ptr<BufferControlBlock>* sender) {
+                                      std::shared_ptr<BufferControlBlock>* sender) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
         return Status::OK();
     }
 
-    boost::shared_ptr<BufferControlBlock> control_block(
+    std::shared_ptr<BufferControlBlock> control_block(
             new BufferControlBlock(query_id, buffer_size));
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -76,7 +76,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     return Status::OK();
 }
 
-boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
+std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
         const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
     std::lock_guard<std::mutex> l(_lock);
@@ -86,11 +86,11 @@ boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
         return iter->second;
     }
 
-    return boost::shared_ptr<BufferControlBlock>();
+    return std::shared_ptr<BufferControlBlock>();
 }
 
 Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
 
     if (NULL == cb) {
         // the sender tear down its buffer block
@@ -104,7 +104,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << tid;
         ctx->on_failure(Status::InternalError("no result for this query"));

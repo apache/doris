@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 #define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 
-#include <boost/scoped_array.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <string>
 #include <vector>
 
@@ -185,10 +183,10 @@ private:
     const bool _is_merge;
     /// Indicates which functions must be loaded.
     const bool _is_analytic_fn;
-    boost::scoped_ptr<HybridMap> _hybrid_map;
+    std::unique_ptr<HybridMap> _hybrid_map;
     bool _is_multi_distinct;
     std::vector<ExprContext*> _input_exprs_ctxs;
-    boost::scoped_array<char> _string_buffer; //for count distinct
+    std::unique_ptr<char[]> _string_buffer; //for count distinct
     int _string_buffer_len;                   //for count distinct
     std::shared_ptr<MemTracker> _mem_tracker; // saved c'tor param
 
@@ -211,7 +209,7 @@ private:
     // Context to run the aggregate functions.
     // TODO: this and _pool make this not thread safe but they are easy to duplicate
     // per thread.
-    // boost::scoped_ptr<doris_udf::FunctionContext> _ctx;
+    // std::unique_ptr<doris_udf::FunctionContext> _ctx;
 
     // Created to a subclass of AnyVal for type(). We use this to convert values
     // from the UDA interface to the Expr interface.

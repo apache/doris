@@ -94,7 +94,7 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
 
     if (!std::filesystem::exists(full_path)) {
         LOG(INFO) << "download dir not exist: " << *download_path;
-        boost::system::error_code error_code;
+        std::error_code error_code;
         std::filesystem::create_directories(*download_path, error_code);
 
         if (0 != error_code) {

@@ -409,7 +409,6 @@ long double powl(long double x, long double y)
 	return z;
 }
 
-
 /* Find a multiple of 1/NXT that is within 1/NXT of x. */
 static long double reducl(long double x)
 {

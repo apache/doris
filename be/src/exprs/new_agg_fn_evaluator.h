@@ -18,8 +18,6 @@
 #ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 #define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_array.hpp>
 #include <string>
 
 #include "codegen/doris_ir.h"
@@ -217,7 +215,7 @@ private:
     /// This contains runtime state such as constant input arguments to the aggregate
     /// functions and a FreePool from which the intermediate values are allocated.
     /// Owned by this evaluator.
-    boost::scoped_ptr<FunctionContext> agg_fn_ctx_;
+    std::unique_ptr<FunctionContext> agg_fn_ctx_;
 
     /// Evaluators for input expressions for this aggregate function.
     /// Empty if there is no input expression (e.g. count(*)).

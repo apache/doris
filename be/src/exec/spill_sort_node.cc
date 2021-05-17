@@ -28,7 +28,7 @@ namespace doris {
 SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _sorter(NULL),
+          _sorter(nullptr),
           _num_rows_skipped(0) {}
 
 SpillSortNode::~SpillSortNode() {}

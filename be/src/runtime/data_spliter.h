@@ -75,7 +75,7 @@ private:
     Status send_row(RuntimeState* state, const TabletDesc& desc, TupleRow* row, DppSink* dpp_sink);
     Status process_one_row(RuntimeState* state, TupleRow* row);
 
-    boost::scoped_ptr<ObjectPool> _obj_pool;
+    std::unique_ptr<ObjectPool> _obj_pool;
     const RowDescriptor& _row_desc;
 
     // Information used to partition data

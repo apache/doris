@@ -19,8 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/shared_ptr.hpp>
-
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/buffer_control_block.h"
 #include "util/cpu_info.h"
@@ -44,7 +42,7 @@ TEST_F(ResultBufferMgrTest, create_normal) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    boost::shared_ptr<BufferControlBlock> control_block1;
+    std::shared_ptr<BufferControlBlock> control_block1;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 }
 
@@ -54,9 +52,9 @@ TEST_F(ResultBufferMgrTest, create_same_buffer) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    boost::shared_ptr<BufferControlBlock> control_block1;
+    std::shared_ptr<BufferControlBlock> control_block1;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
-    boost::shared_ptr<BufferControlBlock> control_block2;
+    std::shared_ptr<BufferControlBlock> control_block2;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block2).ok());
 
     ASSERT_EQ(control_block1.get(), control_block1.get());
@@ -68,7 +66,7 @@ TEST_F(ResultBufferMgrTest, fetch_data_normal) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    boost::shared_ptr<BufferControlBlock> control_block1;
+    std::shared_ptr<BufferControlBlock> control_block1;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
@@ -86,7 +84,7 @@ TEST_F(ResultBufferMgrTest, fetch_data_no_block) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    boost::shared_ptr<BufferControlBlock> control_block1;
+    std::shared_ptr<BufferControlBlock> control_block1;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
@@ -102,7 +100,7 @@ TEST_F(ResultBufferMgrTest, normal_cancel) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    boost::shared_ptr<BufferControlBlock> control_block1;
+    std::shared_ptr<BufferControlBlock> control_block1;
     ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
     ASSERT_TRUE(buffer_mgr.cancel(query_id).ok());

@@ -27,7 +27,6 @@
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TSocket.h>
 
-#include <boost/shared_ptr.hpp>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -83,9 +82,9 @@ private:
     int _port;
 
     // All shared pointers, because Thrift requires them to be
-    boost::shared_ptr<apache::thrift::transport::TSocket> _socket;
-    boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    boost::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TSocket> _socket;
+    std::shared_ptr<apache::thrift::transport::TTransport> _transport;
+    std::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
 };
 
 // Utility client to a Thrift server. The parameter type is the
@@ -101,7 +100,7 @@ public:
     InterfaceType* iface() { return _iface.get(); }
 
 private:
-    boost::shared_ptr<InterfaceType> _iface;
+    std::shared_ptr<InterfaceType> _iface;
 };
 
 template <class InterfaceType>

@@ -27,7 +27,6 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/time.h"
 
-
 namespace doris {
 const std::string STREAM_LOAD_POSTFIX = "/stream_load";
 

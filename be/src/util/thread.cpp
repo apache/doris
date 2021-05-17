@@ -301,8 +301,25 @@ int64_t Thread::wait_for_tid() const {
     int loop_count = 0;
     while (true) {
         int64_t t = Acquire_Load(&_tid);
-        if (t != PARENT_WAITING_TID) return t;
-        boost::detail::yield(loop_count++);
+        if (t != PARENT_WAITING_TID) {
+            return t;
+        }
+        // copied from boost::detail::yield
+        int k = loop_count++;
+        if (k < 32 || k & 1) {
+            sched_yield();
+        } else {
+            // g++ -Wextra warns on {} or {0}
+            struct timespec rqtp = {0, 0};
+
+            // POSIX says that timespec has tv_sec and tv_nsec
+            // But it doesn't guarantee order or placement
+
+            rqtp.tv_sec = 0;
+            rqtp.tv_nsec = 1000;
+
+            nanosleep(&rqtp, 0);
+        }
     }
 }
 

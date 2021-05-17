@@ -56,7 +56,7 @@
 
 #include <vector>
 #include <cstring>
-#include <boost/cstdint.hpp>
+#include <cstdint>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"

@@ -29,7 +29,7 @@ using std::string;
 using std::vector;
 using std::list;
 
-using boost::scoped_ptr;
+using std::unique_ptr;
 
 namespace doris {
 
@@ -477,7 +477,7 @@ int BufferedTupleStream2::compute_num_null_indicator_bytes(int block_size) const
     }
 }
 
-Status BufferedTupleStream2::get_rows(scoped_ptr<RowBatch>* batch, bool* got_rows) {
+Status BufferedTupleStream2::get_rows(std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     RETURN_IF_ERROR(pin_stream(false, got_rows));
     if (!*got_rows) {
         return Status::OK();

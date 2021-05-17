@@ -87,7 +87,6 @@ public:
         return _watcher.elapsed_time();
     }
 
-
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters);

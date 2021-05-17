@@ -18,10 +18,7 @@
 #ifndef IMPALA_UTIL_TEMPLATE_UTIL_H
 #define IMPALA_UTIL_TEMPLATE_UTIL_H
 
-#include <boost/type_traits/is_arithmetic.hpp>
-#include <boost/type_traits/is_float.hpp>
-#include <boost/type_traits/is_integral.hpp>
-#include <boost/utility/enable_if.hpp>
+#include <type_traits>
 
 /// The ENABLE_IF_* macros are used to 'enable' - i.e. to make available to the compiler -
 /// a method only if a type parameter belongs to the set described by each macro. Each
@@ -33,20 +30,20 @@
 /// Enables a method only if 'type_param' is arithmetic, that is an integral type or a
 /// floating-point type
 #define ENABLE_IF_ARITHMETIC(type_param, return_type) \
-    typename boost::enable_if_c<boost::is_arithmetic<type_param>::value, return_type>::type
+    typename std::enable_if<std::is_arithmetic<type_param>::value, return_type>::type
 
 /// Enables a method only if 'type_param' is not arithmetic, that is neither an integral
 /// type or a floating-point type
 #define ENABLE_IF_NOT_ARITHMETIC(type_param, return_type) \
-    typename boost::enable_if_c<!boost::is_arithmetic<type_param>::value, return_type>::type
+    typename std::enable_if<!std::is_arithmetic<type_param>::value, return_type>::type
 
 /// Enables a method only if 'type_param' is integral, i.e. some variant of int or long
 #define ENABLE_IF_INTEGRAL(type_param, return_type) \
-    typename boost::enable_if_c<boost::is_integral<type_param>::value, return_type>::type
+    typename std::enable_if<std::is_integral<type_param>::value, return_type>::type
 
 /// Enables a method only if 'type_param' is a floating point type, i.e. some variant of
 /// float or double.
 #define ENABLE_IF_FLOAT(type_param, return_type) \
-    typename boost::enable_if_c<!boost::is_integral<type_param>::value, return_type>::type
+    typename std::enable_if<!std::is_integral<type_param>::value, return_type>::type
 
 #endif

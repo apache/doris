@@ -44,7 +44,7 @@ using std::string;
 using std::vector;
 using std::multiset;
 
-using boost::scoped_ptr;
+using std::unique_ptr;
 using boost::thread;
 
 namespace doris {
@@ -220,7 +220,7 @@ protected:
     string _stmt;
 
     // RowBatch generation
-    boost::scoped_ptr<RowBatch> _batch;
+    std::unique_ptr<RowBatch> _batch;
     int _next_val;
     int64_t* _tuple_mem;
 
@@ -249,7 +249,7 @@ protected:
         int receiver_num;
 
         thread* thread_handle;
-        boost::shared_ptr<DataStreamRecvr> stream_recvr;
+        std::shared_ptr<DataStreamRecvr> stream_recvr;
         Status status;
         int num_rows_received;
         multiset<int64_t> data_values;
@@ -514,8 +514,8 @@ protected:
 
     // Start backend in separate thread.
     void start_backend() {
-        boost::shared_ptr<DorisTestBackend> handler(new DorisTestBackend(_stream_mgr));
-        boost::shared_ptr<apache::thrift::TProcessor> processor(
+        std::shared_ptr<DorisTestBackend> handler(new DorisTestBackend(_stream_mgr));
+        std::shared_ptr<apache::thrift::TProcessor> processor(
                 new BackendServiceProcessor(handler));
         _server = new ThriftServer("DataStreamTest backend", processor, config::port, NULL);
         _server->start();
@@ -562,7 +562,7 @@ protected:
 
         EXPECT_TRUE(sender.prepare(&state).ok());
         EXPECT_TRUE(sender.open(&state).ok());
-        boost::scoped_ptr<RowBatch> batch(create_row_batch());
+        std::unique_ptr<RowBatch> batch(create_row_batch());
         SenderInfo& info = _sender_info[sender_num];
         int next_val = 0;
 

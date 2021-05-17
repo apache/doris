@@ -38,7 +38,7 @@ using std::unique_lock;
 using std::mutex;
 using std::mem_fn;
 using std::condition_variable;
-using boost::scoped_ptr;
+using std::unique_ptr;
 using boost::thread;
 using boost::thread_group;
 
@@ -179,7 +179,7 @@ protected:
         return range;
     }
 
-    boost::scoped_ptr<ObjectPool> _pool;
+    std::unique_ptr<ObjectPool> _pool;
 
     mutex _written_mutex;
     condition_variable _writes_done;
@@ -203,7 +203,7 @@ TEST_F(DiskIoMgrTest, SingleWriter) {
         EXPECT_TRUE(false);
     }
 
-    boost::scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
+    std::unique_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
     std::shared_ptr<MemTracker> reader_mem_tracker(new MemTracker(LARGE_MEM_LIMIT));
     Status status = read_io_mgr->init(reader_mem_tracker);
     ASSERT_TRUE(status.ok());
@@ -319,7 +319,7 @@ TEST_F(DiskIoMgrTest, SingleWriterCancel) {
         EXPECT_TRUE(false);
     }
 
-    boost::scoped_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
+    std::unique_ptr<DiskIoMgr> read_io_mgr(new DiskIoMgr(1, 1, 1, 10));
     std::shared_ptr<MemTracker> reader_mem_tracker(new MemTracker(LARGE_MEM_LIMIT));
     Status status = read_io_mgr->init(reader_mem_tracker);
     ASSERT_TRUE(status.ok());
@@ -1070,7 +1070,7 @@ TEST_F(DiskIoMgrTest, PartialRead) {
     stat(tmp_file, &stat_val);
 
     _pool.reset(new ObjectPool);
-    boost::scoped_ptr<DiskIoMgr> io_mgr(new DiskIoMgr(1, 1, read_len, read_len));
+    std::unique_ptr<DiskIoMgr> io_mgr(new DiskIoMgr(1, 1, read_len, read_len));
 
     Status status = io_mgr->init(mem_tracker);
     ASSERT_TRUE(status.ok());

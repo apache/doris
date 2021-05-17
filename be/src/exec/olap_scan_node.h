@@ -20,7 +20,6 @@
 
 #include <atomic>
 #include <boost/thread.hpp>
-#include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
 #include <queue>
 
@@ -64,7 +63,7 @@ protected:
         Tuple* tuple;
         int id;
     } HeapType;
-    class IsFixedValueRangeVisitor : public boost::static_visitor<bool> {
+    class IsFixedValueRangeVisitor {
     public:
         template <class T>
         bool operator()(T& v) const {
@@ -72,7 +71,7 @@ protected:
         }
     };
 
-    class GetFixedValueSizeVisitor : public boost::static_visitor<size_t> {
+    class GetFixedValueSizeVisitor {
     public:
         template <class T>
         size_t operator()(T& v) const {
@@ -80,7 +79,7 @@ protected:
         }
     };
 
-    class ExtendScanKeyVisitor : public boost::static_visitor<Status> {
+    class ExtendScanKeyVisitor {
     public:
         ExtendScanKeyVisitor(OlapScanKeys& scan_keys, int32_t max_scan_key_num)
                 : _scan_keys(scan_keys), _max_scan_key_num(max_scan_key_num) {}
@@ -94,9 +93,9 @@ protected:
         int32_t _max_scan_key_num;
     };
 
-    typedef boost::variant<std::list<std::string>> string_list;
+    typedef std::variant<std::list<std::string>> string_list;
 
-    class ToOlapFilterVisitor : public boost::static_visitor<void> {
+    class ToOlapFilterVisitor{
     public:
         template <class T, class P>
         void operator()(T& v, P& v2) const {

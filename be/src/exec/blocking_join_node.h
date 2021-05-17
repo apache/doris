@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
 #include <string>
 
@@ -61,12 +60,12 @@ private:
     const std::string _node_name;
     TJoinOp::type _join_op;
     bool _eos;                              // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced from build side
+    std::unique_ptr<MemPool> _build_pool; // holds everything referenced from build side
 
     // _left_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<RowBatch> _left_batch;
+    std::unique_ptr<RowBatch> _left_batch;
     int _left_batch_pos; // current scan pos in _left_batch
     bool _left_side_eos; // if true, left child has no more rows to process
     TupleRow* _current_left_child_row;

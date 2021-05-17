@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <string>
+#include <system_error>
 
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
@@ -37,14 +38,15 @@ namespace doris {
 AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
         : _exec_env(exec_env), _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
     for (auto& path : exec_env->store_paths()) {
-        try {
-            string dpp_download_path_str = path.path + DPP_PREFIX;
-            std::filesystem::path dpp_download_path(dpp_download_path_str);
-            if (std::filesystem::exists(dpp_download_path)) {
-                std::filesystem::remove_all(dpp_download_path);
+        std::error_code ec;
+        string dpp_download_path_str = path.path + DPP_PREFIX;
+        std::filesystem::path dpp_download_path(dpp_download_path_str);
+        if (std::filesystem::exists(dpp_download_path)) {
+            std::filesystem::remove_all(dpp_download_path, ec);
+            if (ec) {
+                LOG(WARNING) << "error when remove dpp download path. path=" << path.path
+                             << ", message=" << ec.message();
             }
-        } catch (...) {
-            LOG(WARNING) << "boost exception when remove dpp download path. path=" << path.path;
         }
     }
 
@@ -52,16 +54,14 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     // to make code to be more readable.
 
 #ifndef BE_TEST
-#define CREATE_AND_START_POOL(type, pool_name)                                                 \
-    pool_name.reset(                                                                           \
-            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
-                               TaskWorkerPool::ThreadModel::MULTI_THREADS));                   \
+#define CREATE_AND_START_POOL(type, pool_name)                                                    \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+                                       master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
     pool_name->start();
 
-#define CREATE_AND_START_THREAD(type, pool_name)                                               \
-    pool_name.reset(                                                                           \
-            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
-                               TaskWorkerPool::ThreadModel::SINGLE_THREAD));                   \
+#define CREATE_AND_START_THREAD(type, pool_name)                                                  \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+                                       master_info, TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
     pool_name->start();
 #else
 #define CREATE_AND_START_POOL(type, pool_name)
@@ -209,8 +209,8 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
     Status ret_st;
     string snapshot_path;
     bool allow_incremental_clone = false;
-    OLAPStatus err_code =
-            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
+    OLAPStatus err_code = SnapshotManager::instance()->make_snapshot(
+            snapshot_request, &snapshot_path, &allow_incremental_clone);
     if (err_code != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                      << ", schema_hash=" << snapshot_request.schema_hash

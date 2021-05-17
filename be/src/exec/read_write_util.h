@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
 #define DORIS_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <sstream>
 
 #include "common/logging.h"

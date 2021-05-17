@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_ROW_BATCH_H
 #define DORIS_BE_RUNTIME_ROW_BATCH_H
 
-#include <boost/scoped_ptr.hpp>
 #include <cstring>
 #include <vector>
 
@@ -442,7 +441,7 @@ private:
     bool _need_to_return;
 
     // holding (some of the) data referenced by rows
-    boost::scoped_ptr<MemPool> _tuple_data_pool;
+    std::unique_ptr<MemPool> _tuple_data_pool;
 
     // holding some complex agg object data (bitmap, hll)
     std::unique_ptr<ObjectPool> _agg_object_pool;

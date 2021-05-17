@@ -54,7 +54,7 @@ StorageByteBuffer* StorageByteBuffer::create(uint64_t capacity) {
     StorageByteBuffer* buf = new (std::nothrow) StorageByteBuffer;
 
     if (buf != NULL && memory != NULL) {
-        buf->_buf = boost::shared_ptr<char>(memory, BufDeleter());
+        buf->_buf = std::shared_ptr<char>(memory, BufDeleter());
         buf->_array = buf->_buf.get();
         buf->_capacity = capacity;
         buf->_limit = capacity;
@@ -111,7 +111,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
         return NULL;
     }
 
-    buf->_buf = boost::shared_ptr<char>(memory, deleter);
+    buf->_buf = std::shared_ptr<char>(memory, deleter);
     buf->_array = buf->_buf.get();
     buf->_capacity = length;
     buf->_limit = length;
@@ -146,7 +146,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
         return NULL;
     }
 
-    buf->_buf = boost::shared_ptr<char>(memory, deleter);
+    buf->_buf = std::shared_ptr<char>(memory, deleter);
     buf->_array = buf->_buf.get();
     buf->_capacity = length;
     buf->_limit = length;

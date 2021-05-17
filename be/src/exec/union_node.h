@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <boost/scoped_ptr.hpp>
-
 #include "codegen/doris_ir.h"
 #include "exec/exec_node.h"
 #include "runtime/row_batch.h"
@@ -80,7 +78,7 @@ private:
 
     /// Current row batch of current child. We reset the pointer to a new RowBatch
     /// when switching to a different child.
-    boost::scoped_ptr<RowBatch> _child_batch;
+    std::unique_ptr<RowBatch> _child_batch;
 
     /// Index of current row in child_row_batch_.
     int _child_row_idx;

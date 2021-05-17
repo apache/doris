@@ -64,10 +64,10 @@ OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.tar.gz"
-THRIFT_NAME=thrift-0.9.3.tar.gz
-THRIFT_SOURCE=thrift-0.9.3
-THRIFT_MD5SUM="88d667a8ae870d5adeca8cb7d6795442"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
+THRIFT_NAME=thrift-0.13.0.tar.gz
+THRIFT_SOURCE=thrift-0.13.0
+THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
 
 # llvm
 LLVM_DOWNLOAD="http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz"
@@ -137,7 +137,6 @@ LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
-BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
@@ -167,7 +166,7 @@ RE2_SOURCE=re2-2017-05-01
 RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
-BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.73.0/source/boost_1_73_0.tar.gz"
+BOOST_DOWNLOAD="https://boostorg.jfrog.io/artifactory/main/release/1.73.0/source/boost_1_73_0.tar.gz"
 BOOST_NAME=boost_1_73_0.tar.gz
 BOOST_SOURCE=boost_1_73_0
 BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"

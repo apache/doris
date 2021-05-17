@@ -18,11 +18,11 @@
 #include "exec/olap_scan_node.h"
 
 #include <algorithm>
-#include <boost/variant.hpp>
 #include <iostream>
 #include <sstream>
 #include <string>
 #include <utility>
+#include <variant>
 
 #include "agent/cgroups_mgr.h"
 #include "common/logging.h"
@@ -547,10 +547,10 @@ Status OlapScanNode::normalize_conjuncts() {
 Status OlapScanNode::build_olap_filters() {
     for (auto& iter : _column_value_ranges) {
         ToOlapFilterVisitor visitor;
-        boost::variant<std::vector<TCondition>> filters;
-        boost::apply_visitor(visitor, iter.second, filters);
+        std::variant<std::vector<TCondition>> filters;
+        std::visit(visitor, iter.second, filters);
 
-        std::vector<TCondition> new_filters = boost::get<std::vector<TCondition>>(filters);
+        std::vector<TCondition> new_filters = std::get<std::vector<TCondition>>(filters);
         if (new_filters.empty()) {
             continue;
         }
@@ -579,7 +579,7 @@ Status OlapScanNode::build_scan_key() {
         }
 
         ExtendScanKeyVisitor visitor(_scan_keys, _max_scan_key_num);
-        RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
+        RETURN_IF_ERROR(std::visit(visitor, column_range_iter->second));
     }
 
     VLOG_CRITICAL << _scan_keys.debug_string();

@@ -17,8 +17,6 @@
 
 #include "exec/exchange_node.h"
 
-#include <boost/scoped_ptr.hpp>
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/data_stream_recvr.h"

@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
-#include <boost/scoped_ptr.hpp>
 #include <cstdlib>
 
 #include "gen_cpp/Types_types.h" // for TUniqueId

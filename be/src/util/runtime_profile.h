@@ -21,7 +21,6 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <boost/thread/thread.hpp>
 #include <functional>
 #include <iostream>
@@ -557,7 +556,7 @@ private:
         volatile bool _done;
 
         // Thread performing asynchronous updates.
-        boost::scoped_ptr<boost::thread> update_thread;
+        std::unique_ptr<boost::thread> update_thread;
 
         // A map of the dst (rate) counter to the src counter and elapsed time.
         typedef std::map<Counter*, RateCounterInfo> RateCounterMap;

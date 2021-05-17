@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_UDF_UDA_TEST_HARNESS_H
 #define DORIS_BE_UDF_UDA_TEST_HARNESS_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
 #include <sstream>
 #include <string>
 #include <vector>

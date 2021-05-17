@@ -18,9 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 
-#include <boost/ptr_container/ptr_vector.hpp>
-#include <boost/scoped_array.hpp>
-#include <boost/shared_ptr.hpp>
 #include <unordered_map>
 
 #include "runtime/disk_io_mgr.h"
@@ -288,7 +285,7 @@ public:
     // - buffer_size: maximum size of each buffer.
     static Status create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
                          RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr, int64_t mem_limit,
-                         int64_t buffer_size, boost::shared_ptr<BufferedBlockMgr2>* block_mgr);
+                         int64_t buffer_size, std::shared_ptr<BufferedBlockMgr2>* block_mgr);
 
     ~BufferedBlockMgr2();
 
@@ -563,7 +560,7 @@ private:
 
     // Temporary physical file handle, (one per tmp device) to which blocks may be written.
     // Blocks are round-robined across these files.
-    boost::ptr_vector<TmpFileMgr::File> _tmp_files;
+    std::vector<std::unique_ptr<TmpFileMgr::File>> _tmp_files;
 
     // Index into _tmp_files denoting the file to which the next block to be persisted will
     // be written.
@@ -579,7 +576,7 @@ private:
     bool _is_cancelled;
 
     // Counters and timers to track behavior.
-    boost::scoped_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _profile;
 
     // These have a fixed value for the lifetime of the manager and show memory usage.
     RuntimeProfile::Counter* _mem_tracker_counter;
@@ -622,7 +619,7 @@ private:
     // map contains only weak ptrs. BufferedBlockMgr2s that are handed out are shared ptrs.
     // When all the shared ptrs are no longer referenced, the BufferedBlockMgr2
     // d'tor will be called at which point the weak ptr will be removed from the map.
-    typedef std::unordered_map<TUniqueId, boost::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
+    typedef std::unordered_map<TUniqueId, std::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
     static BlockMgrsMap _s_query_to_block_mgrs;
 
     // Unowned.

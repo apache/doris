@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
 #define DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "gen_cpp/AgentService_types.h"
 #include "http/http_handler.h"
 

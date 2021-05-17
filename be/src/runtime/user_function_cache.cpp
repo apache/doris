@@ -164,7 +164,8 @@ Status UserFunctionCache::_load_cached_lib() {
             }
             auto st = _load_entry_from_lib(sub_dir, file);
             if (!st.ok()) {
-                LOG(WARNING) << "load a library failed, dir=" << sub_dir << ", file=" << file;
+                LOG(WARNING) << "load a library failed, dir=" << sub_dir << ", file=" 
+                << file << ", msg=" << st.to_string();
             }
             return true;
         };
