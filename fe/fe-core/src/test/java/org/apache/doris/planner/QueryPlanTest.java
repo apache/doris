@@ -497,7 +497,7 @@ public class QueryPlanTest {
 
         testBitmapQueryPlan(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "type not match, originType=BITMAP, targeType=DOUBLE"
+                "Bitmap type dose not support operand: `id2` = 1"
         );
 
     }
@@ -556,7 +556,7 @@ public class QueryPlanTest {
 
         testHLLQueryPlan(
                 "select count(*) from test.hll_table where id2 = 1",
-                "type not match, originType=HLL, targeType=DOUBLE"
+                "Hll type dose not support operand: `id2` = 1"
         );
     }
 
