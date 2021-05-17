@@ -290,7 +290,7 @@ public class StmtExecutor implements ProfileWriter {
                         if (i > 0) {
                             UUID uuid = UUID.randomUUID();
                             TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, newQueryId);
+                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
