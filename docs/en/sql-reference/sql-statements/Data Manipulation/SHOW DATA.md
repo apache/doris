@@ -74,7 +74,8 @@ Explain:
 
     ```
     SHOW DATA FROM example_db.test;
-    
+    ```
+    ```
     +-----------+-----------+-----------+--------------+----------+
     | TableName | IndexName | Size      | ReplicaCount | RowCount |
     +-----------+-----------+-----------+--------------+----------+
@@ -84,7 +85,26 @@ Explain:
     |           | Total     | 80.000    | 90           |          |
     +-----------+-----------+-----------+--------------+----------+
     ```
+3. Can be combined and sorted according to the data volume, replica count,and number of rows,etc.
 
+    ```
+    SHOW DATA ORDER BY ReplicaCount desc,Size asc;
+    ```
+    
+    ```
+    +-----------+-------------+--------------+
+    | TableName | Size        | ReplicaCount |
+    +-----------+-------------+--------------+
+    | table_c   | 3.102 KB    | 40           |
+    | table_d   | .000        | 20           |
+    | table_b   | 324.000 B   | 20           |
+    | table_a   | 1.266 KB    | 10           |
+    | Total     | 4.684 KB    | 90           |
+    | Quota     | 1024.000 GB | 1073741824   |
+    | Left      | 1024.000 GB | 1073741734   |
+    +-----------+-------------+--------------+
+    ``` 
+        
 ## keyword
 
     SHOW,DATA
