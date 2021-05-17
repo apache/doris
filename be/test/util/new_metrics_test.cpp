@@ -21,10 +21,10 @@
 #include <thread>
 
 #include "common/config.h"
+#include "test_util/test_util.h"
 #include "util/logging.h"
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -128,7 +128,8 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntCounter>, kThreadLoopCount, &mt_counter,
+                                  &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
@@ -143,7 +144,8 @@ TEST_F(MetricsTest, CounterPerf) {
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
-            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter, &used_time);
+            updaters.emplace_back(&mt_updater<IntAtomicCounter>, kThreadLoopCount, &mt_counter,
+                                  &used_time);
         }
         for (int i = 0; i < 8; ++i) {
             updaters[i].join();
@@ -415,14 +417,13 @@ TEST_F(MetricsTest, HistogramRegistryOutput) {
         // Register one histogram metric to the entity
         auto entity = registry.register_entity("test_entity");
 
-        MetricPrototype task_duration_type(MetricType::HISTOGRAM,
-                                           MetricUnit::MILLISECONDS,
+        MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,
                                            "task_duration");
-        HistogramMetric* task_duration = (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
+        HistogramMetric* task_duration =
+                (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
         }
-
         ASSERT_EQ(R"(# TYPE test_registry_task_duration histogram
 test_registry_task_duration{quantile="0.50"} 50
 test_registry_task_duration{quantile="0.75"} 75
@@ -431,13 +432,19 @@ test_registry_task_duration{quantile="0.95"} 100
 test_registry_task_duration{quantile="0.99"} 100
 test_registry_task_duration_sum 5050
 test_registry_task_duration_count 100
+test_registry_task_duration_max 100
+test_registry_task_duration_min 1
+test_registry_task_duration_average 50.5
+test_registry_task_duration_median 50
+test_registry_task_duration_standard_deviation 28.8661
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
+        ASSERT_EQ(
+                R"*([{"tags":{"metric":"task_duration"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
                 R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
                 R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
-                  registry.to_json());
+                registry.to_json());
         registry.deregister_entity(entity);
     }
 
@@ -445,11 +452,10 @@ test_registry_task_duration_count 100
         // Register one histogram metric with lables to the entity
         auto entity = registry.register_entity("test_entity", {{"instance", "test"}});
 
-        MetricPrototype task_duration_type(MetricType::HISTOGRAM,
-                                           MetricUnit::MILLISECONDS,
-                                           "task_duration", "", "",
-                                           {{"type", "create_tablet"}});
-        HistogramMetric* task_duration = (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
+        MetricPrototype task_duration_type(MetricType::HISTOGRAM, MetricUnit::MILLISECONDS,
+                                           "task_duration", "", "", {{"type", "create_tablet"}});
+        HistogramMetric* task_duration =
+                (HistogramMetric*)entity->register_metric<HistogramMetric>(&task_duration_type);
         for (int j = 1; j <= 100; j++) {
             task_duration->add(j);
         }
@@ -462,13 +468,19 @@ test_registry_task_duration{instance="test",type="create_tablet",quantile="0.95"
 test_registry_task_duration{instance="test",type="create_tablet",quantile="0.99"} 100
 test_registry_task_duration_sum{instance="test",type="create_tablet"} 5050
 test_registry_task_duration_count{instance="test",type="create_tablet"} 100
+test_registry_task_duration_max{instance="test",type="create_tablet"} 100
+test_registry_task_duration_min{instance="test",type="create_tablet"} 1
+test_registry_task_duration_average{instance="test",type="create_tablet"} 50.5
+test_registry_task_duration_median{instance="test",type="create_tablet"} 50
+test_registry_task_duration_standard_deviation{instance="test",type="create_tablet"} 28.8661
 )",
                   registry.to_prometheus());
-        ASSERT_EQ(R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
+        ASSERT_EQ(
+                R"*([{"tags":{"metric":"task_duration","type":"create_tablet","instance":"test"},"unit":"milliseconds",)*"
                 R"*("value":{"total_count":100,"min":1,"average":50.5,"median":50.0,)*"
                 R"*("percentile_50":50.0,"percentile_75":75.0,"percentile_90":95.83333333333334,"percentile_95":100.0,"percentile_99":100.0,)*"
                 R"*("standard_deviation":28.86607004772212,"max":100,"total_sum":5050}}])*",
-                  registry.to_json());
+                registry.to_json());
         registry.deregister_entity(entity);
     }
 }
