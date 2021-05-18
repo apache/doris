@@ -95,19 +95,21 @@ public class ShowViewStmt extends ShowStmt {
         if (database == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-        Table showTable = database.getTable(tbl.getTbl());
-        if (showTable == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getTbl());
-        }
-        if (!(showTable instanceof OlapTable)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, getTbl());
-        }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     getTbl());
+        }
+
+        Table showTable = database.getTable(tbl.getTbl());
+        if (showTable == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getTbl());
+        }
+
+        if (!(showTable instanceof OlapTable)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, getTbl());
         }
 
         for (Table table : database.getViews()) {
