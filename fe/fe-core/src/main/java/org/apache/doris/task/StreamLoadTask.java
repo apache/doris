@@ -56,6 +56,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String jsonPaths;
     private String jsonRoot;
     private boolean fuzzyParse;
+    private boolean readJsonByLine;
 
     // optional
     private ImportColumnDescs columnExprDescs = new ImportColumnDescs();
@@ -83,6 +84,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.stripOuterArray = false;
         this.numAsString = false;
         this.fuzzyParse = false;
+        this.readJsonByLine = false;
     }
 
     public TUniqueId getId() {
@@ -152,6 +154,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public boolean isNumAsString() {
         return numAsString;
+    }
+
+    @Override
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
     }
 
     @Override
@@ -263,6 +270,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             stripOuterArray = request.isStripOuterArray();
             numAsString = request.isNumAsString();
             fuzzyParse = request.isFuzzyParse();
+            readJsonByLine = request.isReadJsonByLine();
         }
         if (request.isSetMergeType()) {
             try {

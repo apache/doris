@@ -199,6 +199,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     private static final String PROPS_JSONROOT = "json_root";
     private static final String PROPS_FUZZY_PARSE = "fuzzy_parse";
 
+
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
@@ -560,16 +561,24 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return value;
     }
 
+    @Override
     public boolean isStripOuterArray() {
         return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
     }
 
+    @Override
     public boolean isNumAsString() {
         return Boolean.valueOf(jobProperties.get(PROPS_NUM_AS_STRING));
     }
 
+    @Override
     public boolean isFuzzyParse() {
         return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
+    }
+
+    @Override
+    public boolean isReadJsonByLine() {
+        return false;
     }
 
     @Override

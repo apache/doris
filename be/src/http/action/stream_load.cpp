@@ -463,6 +463,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_fuzzy_parse(false);
     }
+
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            request.__set_read_json_by_line(true);
+        } else {
+            request.__set_read_json_by_line(false);
+        }
+    } else {
+        request.__set_read_json_by_line(false);
+    }
+
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
