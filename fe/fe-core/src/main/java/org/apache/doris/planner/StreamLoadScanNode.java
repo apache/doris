@@ -103,6 +103,7 @@ public class StreamLoadScanNode extends LoadScanNode {
             rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
             rangeDesc.setNumAsString(taskInfo.isNumAsString());
             rangeDesc.setFuzzyParse(taskInfo.isFuzzyParse());
+            rangeDesc.setReadJsonByLine(taskInfo.isReadJsonByLine());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {
