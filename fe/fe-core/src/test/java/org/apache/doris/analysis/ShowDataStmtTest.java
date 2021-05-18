@@ -150,5 +150,9 @@ public class ShowDataStmtTest {
         Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
         Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
+
+        stmt = new ShowDataStmt(null, null, Arrays.asList(orderByElementOne, orderByElementTwo));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
     }
 }
