@@ -119,6 +119,7 @@ public class DataDescription {
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = false;
+    private boolean readJsonByLine = false;
 
     private String sequenceCol;
 
@@ -496,6 +497,14 @@ public class DataDescription {
 
     public void setFuzzyParse(boolean fuzzyParse) {
         this.fuzzyParse = fuzzyParse;
+    }
+
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
+    }
+
+    public void setReadJsonByLine(boolean readJsonByLine) {
+        this.readJsonByLine = readJsonByLine;
     }
 
     public String getJsonPaths() {

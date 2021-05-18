@@ -102,6 +102,7 @@ public class BrokerFileGroup implements Writable {
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = true;
+    private boolean readJsonByLine = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -236,6 +237,7 @@ public class BrokerFileGroup implements Writable {
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
             fuzzyParse = dataDescription.isFuzzyParse();
+            readJsonByLine = dataDescription.isReadJsonByLine();
         }
     }
 
@@ -345,6 +347,14 @@ public class BrokerFileGroup implements Writable {
 
     public void setFuzzyParse(boolean fuzzyParse) {
         this.fuzzyParse = fuzzyParse;
+    }
+
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
+    }
+
+    public void setReadJsonByLine(boolean readJsonByLine) {
+        this.readJsonByLine = readJsonByLine;
     }
 
     public String getJsonPaths() {

@@ -314,6 +314,16 @@ Status MiniLoadAction::_merge_header(HttpRequest* http_req,
     } else {
         (*params)[HTTP_FUZZY_PARSE] = "false";
     }
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            (*params)[HTTP_READ_JSON_BY_LINE] = "true";
+        } else {
+            (*params)[HTTP_READ_JSON_BY_LINE] = "false";
+        }
+    } else {
+        (*params)[HTTP_READ_JSON_BY_LINE] = "false";
+    }
+
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         (*params)[HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL] =
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL);
