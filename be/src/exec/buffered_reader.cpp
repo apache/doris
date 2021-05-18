@@ -32,6 +32,9 @@ BufferedReader::BufferedReader(FileReader* reader, int64_t buffer_size)
           _buffer_limit(0),
           _cur_offset(0) {
     _buffer = new char[_buffer_size];
+    // set the _cur_offset of this reader as same as the inner reader's,
+    // to make sure the buffer reader will start to read at right position.
+    _reader->tell(&_cur_offset);
 }
 
 BufferedReader::~BufferedReader() {
