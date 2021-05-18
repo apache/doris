@@ -49,6 +49,8 @@ struct TResultFileSinkOptions {
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
     8: optional string success_file_name
+    9: optional list<list<string>> schema            // for parquet/orc file
+    10: optional map<string, string> file_properties // for parquet/orc file
 }
 
 struct TMemoryScratchSink {

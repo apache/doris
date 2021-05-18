@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
@@ -27,7 +29,6 @@ import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -38,8 +39,6 @@ import org.junit.rules.ExpectedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import mockit.Mock;
-import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -579,5 +578,54 @@ public class SelectStmtTest {
         Assert.assertEquals(2, tblRefs.size());
         Assert.assertEquals("table1", tblRefs.get(0).getName().getTbl());
         Assert.assertEquals("table2", tblRefs.get(1).getName().getTbl());
+    }
+
+    @Test
+    public void testOutfile() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        Config.enable_outfile_to_local = true;
+        String sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int32,siteid;required,byte_array,username;\");";
+        dorisAssert.query(sql).explainQuery();
+        // must contains schema
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET;";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("schema is required for parquet file"));
+        }
+        // schema must contains 3 fields
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("must only contains repetition type/column type/column name"));
+        }
+        // unknown repetition type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeat, int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("unknown repetition type"));
+        }
+        // only support required type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeated,int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("currently only support required type"));
+        }
+        // unknown data type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int128,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            System.out.println("wangxixu-data:"+e.getMessage());
+            Assert.assertTrue(e.getMessage().contains("data type is not supported"));
+        }
+        // contains parquet properties
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int32,siteid;\", 'parquet.compression'='snappy');";
+        dorisAssert.query(sql).explainQuery();
+        // support parquet for broker
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
     }
 }

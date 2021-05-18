@@ -25,15 +25,15 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +46,8 @@ public class OutFileClause {
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
     public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+    public static final List<String> PARQUET_REPETITION_TYPES = Lists.newArrayList();
+    public static final List<String> PARQUET_DATA_TYPES = Lists.newArrayList();
 
     static {
         RESULT_COL_NAMES.add("FileNumber");
@@ -57,6 +59,19 @@ public class OutFileClause {
         RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
         RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
         RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+
+        PARQUET_REPETITION_TYPES.add("required");
+        PARQUET_REPETITION_TYPES.add("repeated");
+        PARQUET_REPETITION_TYPES.add("optional");
+
+        PARQUET_DATA_TYPES.add("boolean");
+        PARQUET_DATA_TYPES.add("int32");
+        PARQUET_DATA_TYPES.add("int64");
+        PARQUET_DATA_TYPES.add("int96");
+        PARQUET_DATA_TYPES.add("byte_array");
+        PARQUET_DATA_TYPES.add("float");
+        PARQUET_DATA_TYPES.add("double");
+        PARQUET_DATA_TYPES.add("fixed_len_byte_array");
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
@@ -66,10 +81,13 @@ public class OutFileClause {
     private static final String PROP_LINE_DELIMITER = "line_delimiter";
     private static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
+    private static final String PARQUET_PROP_PREFIX = "parquet.";
+    private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
     private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
+
 
     private String filePath;
     private String format;
@@ -85,6 +103,8 @@ public class OutFileClause {
     // If set to true, the brokerDesc must be null.
     private boolean isLocalOutput = false;
     private String successFileName = "";
+    private List<List<String>> schema = new ArrayList<>();
+    private Map<String, String> fileProperties = new HashMap<>();
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -121,10 +141,19 @@ public class OutFileClause {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         analyzeFilePath();
 
-        if (!format.equals("csv")) {
-            throw new AnalysisException("Only support CSV format");
+        if (Strings.isNullOrEmpty(filePath)) {
+            throw new AnalysisException("Must specify file in OUTFILE clause");
         }
-        fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        switch (this.format) {
+            case "csv":
+                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "parquet":
+                fileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            default:
+                throw new AnalysisException("format:"+this.format+" not be supported.");
+        }
 
         analyzeProperties();
 
@@ -166,7 +195,7 @@ public class OutFileClause {
             columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
             processedPropKeys.add(PROP_COLUMN_SEPARATOR);
         }
-        
+
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
@@ -189,11 +218,16 @@ public class OutFileClause {
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
+        if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
+            getParquetProperties(processedPropKeys);
+        }
+
         if (processedPropKeys.size() != properties.size()) {
             LOG.debug("{} vs {}", processedPropKeys, properties);
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
                     .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
+
     }
 
     private void getBrokerProperties(Set<String> processedPropKeys) {
@@ -202,7 +236,7 @@ public class OutFileClause {
         }
         String brokerName = properties.get(PROP_BROKER_NAME);
         processedPropKeys.add(PROP_BROKER_NAME);
-        
+
         Map<String, String> brokerProps = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
@@ -216,6 +250,43 @@ public class OutFileClause {
         brokerDesc = new BrokerDesc(brokerName, brokerProps);
     }
 
+    private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
+        String schema = properties.get(SCHEMA);
+        if (schema == null || schema.length() <= 0) {
+            throw new AnalysisException("schema is required for parquet file");
+        }
+        schema = schema.replace(" ","");
+        schema = schema.toLowerCase();
+        String[] schemas = schema.split(";");
+        for (String item:schemas) {
+            String[] properties = item.split(",");
+            if (properties.length != 3) {
+                throw new AnalysisException("must only contains repetition type/column type/column name");
+            }
+            if (!PARQUET_REPETITION_TYPES.contains(properties[0])) {
+                throw new AnalysisException("unknown repetition type");
+            }
+            if (!properties[0].equalsIgnoreCase("required")) {
+                throw new AnalysisException("currently only support required type");
+            }
+            if (!PARQUET_DATA_TYPES.contains(properties[1])) {
+                throw new AnalysisException("data type is not supported:"+properties[1]);
+            }
+            List<String> column = new ArrayList<>();
+            column.addAll(Arrays.asList(properties));
+            this.schema.add(column);
+        }
+        processedPropKeys.add(SCHEMA);
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
+                processedPropKeys.add(entry.getKey());
+                fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
+            }
+        }
+    }
+
     private boolean isCsvFormat() {
         return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
@@ -224,6 +295,10 @@ public class OutFileClause {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    private boolean isParquetFormat() {
+        return fileFormatType == TFileFormatType.FORMAT_PARQUET;
     }
 
     @Override
@@ -256,6 +331,10 @@ public class OutFileClause {
         }
         if (!Strings.isNullOrEmpty(successFileName)) {
             sinkOptions.setSuccessFileName(successFileName);
+        }
+        if (isParquetFormat()) {
+            sinkOptions.setSchema(this.schema);
+            sinkOptions.setFileProperties(this.fileProperties);
         }
         return sinkOptions;
     }
