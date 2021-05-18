@@ -91,16 +91,16 @@ public class ShowViewStmt extends ShowStmt {
         tbl.analyze(analyzer);
 
         String dbName = tbl.getDb();
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     getTbl());
+        }
+
+        Database database = Catalog.getCurrentCatalog().getDb(dbName);
+        if (database == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
         Table showTable = database.getTable(tbl.getTbl());
