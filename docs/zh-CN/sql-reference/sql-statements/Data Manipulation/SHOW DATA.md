@@ -33,7 +33,7 @@ under the License.
 语法：
 
 ```
-SHOW DATA [FROM db_name[.table_name]];
+SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
 ```
     
 说明：
@@ -47,6 +47,8 @@ SHOW DATA [FROM db_name[.table_name]];
 4. 结果集中的 `Total` 行表示汇总行。`Quota` 行表示当前数据库设置的配额。`Left` 行表示剩余配额。
 
 5. 如果想查看各个 Partition 的大小，请参阅 `help show partitions`。
+
+6. 可以使用 ORDER BY 对任意列组合进行排序。
 
 ## example
 
@@ -72,7 +74,9 @@ SHOW DATA [FROM db_name[.table_name]];
 
     ```
     SHOW DATA FROM example_db.test;
+    ```
     
+    ```
     +-----------+-----------+-----------+--------------+----------+
     | TableName | IndexName | Size      | ReplicaCount | RowCount |
     +-----------+-----------+-----------+--------------+----------+
@@ -82,7 +86,27 @@ SHOW DATA [FROM db_name[.table_name]];
     |           | Total     | 80.000    | 90           |          |
     +-----------+-----------+-----------+--------------+----------+
     ```
+    
+3. 可以按照数据量、副本数量、统计行数等进行组合排序
 
+    ```
+    SHOW DATA ORDER BY ReplicaCount desc,Size asc;
+    ```
+    
+    ```
+    +-----------+-------------+--------------+
+    | TableName | Size        | ReplicaCount |
+    +-----------+-------------+--------------+
+    | table_c   | 3.102 KB    | 40           |
+    | table_d   | .000        | 20           |
+    | table_b   | 324.000 B   | 20           |
+    | table_a   | 1.266 KB    | 10           |
+    | Total     | 4.684 KB    | 90           |
+    | Quota     | 1024.000 GB | 1073741824   |
+    | Left      | 1024.000 GB | 1073741734   |
+    +-----------+-------------+--------------+
+    ``` 
+        
 ## keyword
 
     SHOW,DATA
