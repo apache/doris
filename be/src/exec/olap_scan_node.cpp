@@ -1252,6 +1252,13 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     }
     // read from scanner
     while (LIKELY(status.ok())) {
+        // When query cancel, _transfer_done is set to true at OlapScanNode::close,
+        // and the loop is exited at this time, and the current thread exits after
+        // waiting for _running_thread to decrease to 0.
+        if (UNLIKELY(_transfer_done)) {
+            LOG(INFO) << "Transfer thread cancelled, wait for the end of scan thread.";
+            break;
+        }
         int assigned_thread_num = 0;
         // copy to local
         {
@@ -1361,6 +1368,15 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    if (UNLIKELY(_transfer_done)) {
+        _scanner_done = true;
+        std::unique_lock<std::mutex> l(_scan_batches_lock);
+        _running_thread--;
+        _scan_batch_added_cv.notify_one();
+        _scan_thread_exit_cv.notify_one();
+        LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
+        return;
+    }
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
