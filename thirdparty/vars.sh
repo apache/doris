@@ -21,9 +21,6 @@
 # which are used for compiling thirdparties and palo itself.
 ############################################################
 
-# --job param for *make*
-PARALLEL=$[$(nproc)/4+1]
-
 ###################################################
 # DO NOT change variables bellow unless you known 
 # what you are doing.
