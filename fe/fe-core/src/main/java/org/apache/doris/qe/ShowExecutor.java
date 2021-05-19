@@ -69,6 +69,7 @@ import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
+import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -211,7 +212,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowLoadStmt) {
             handleShowLoad();
         } else if (stmt instanceof ShowStreamLoadStmt) {
-                     handleShowStreamLoad();
+            handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
         } else if (stmt instanceof ShowRoutineLoadStmt) {
@@ -270,6 +271,8 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
+        } else if (stmt instanceof ShowViewStmt) {
+            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
@@ -717,6 +720,26 @@ public class ShowExecutor {
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
                     db.getFullName() + "." + showStmt.getTableName().toString());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    //Show view statement.
+    private void handleShowView() {
+        ShowViewStmt showStmt = (ShowViewStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<View> matchViews = showStmt.getMatchViews();
+        for (View view : matchViews) {
+            view.readLock();
+            try {
+                List<String> createViewStmt = Lists.newArrayList();
+                Catalog.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */);
+                if (!createViewStmt.isEmpty()) {
+                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
+                }
+            } finally {
+                view.readUnlock();
+            }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
