@@ -40,6 +40,7 @@ import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TMiniLoadRequest;
@@ -156,44 +157,33 @@ public class MultiLoadMgr {
     // user can pass commitLabel which use this string commit to jobmgr
     public void commit(String fullDbName, String label) throws DdlException {
         LabelName multiLabel = new LabelName(fullDbName, label);
+        List<Long> jobIds = Lists.newArrayList();
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
             if (multiLoadDesc == null) {
                 throw new DdlException("Unknown label(" + multiLabel + ")");
             }
-            Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt());
+            jobIds.add(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt()));
             infoMap.remove(multiLabel);
         } finally {
             lock.writeLock().unlock();
         }
+        final long jobId = jobIds.isEmpty() ? -1 : jobIds.get(0);
         Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("db: " + fullDbName + "not found!");
-        }
-        long dbId = db.getId();
         ConnectContext ctx = ConnectContext.get();
         Awaitility.await().atMost(Config.broker_load_default_timeout_second, TimeUnit.SECONDS).until(() -> {
             ConnectContext.threadLocalInfo.set(ctx);
-            List<List<Comparable>> loadInfos = catalog.getLoadManager().getLoadJobInfosByDb(dbId, label, true,
-                    Sets.newHashSet(JobState.PENDING.name(), JobState.ETL.name(), JobState.LOADING.name()));
-            if (loadInfos.isEmpty()) {
-                throw new DdlException("No job is running with label: " + label);
-            } else if (loadInfos.size() > 1) {
-                throw new DdlException("There are " + loadInfos.size() + " jobs running with label: " + label + ", this shouldn't happen");
-            }
-            List<Comparable> loadInfo = loadInfos.get(0);
-            String jobState = loadInfo.get(LoadProcDir.STATE_INDEX).toString();
-            if (jobState.equals(JobState.FINISHED.name())) {
+            LoadJob loadJob = catalog.getLoadManager().getLoadJob(jobId);
+            if (loadJob.getState() == JobState.FINISHED) {
                 return true;
-            } else if (jobState.equals(JobState.PENDING.name()) || jobState.equals(JobState.LOADING.name())) {
+            } else if (loadJob.getState() == JobState.PENDING || loadJob.getState() == JobState.LOADING) {
                 return false;
             } else {
-                throw new DdlException("job failed. ErrorMsg: " + loadInfo.get(LoadProcDir.ERR_MSG_INDEX).toString()
-                        + ", URL: " + loadInfo.get(LoadProcDir.URL_INDEX).toString()
-                        + ", JobDetails: " + loadInfo.get(LoadProcDir.JOB_DETAILS_INDEX).toString());
+                throw new DdlException("job failed. ErrorMsg: " + loadJob.getFailMsg().getMsg()
+                        + ", URL: " + loadJob.getLoadingStatus().getTrackingUrl()
+                        + ", JobDetails: " + loadJob.getLoadStatistic().toJson());
             }
         });
     }
