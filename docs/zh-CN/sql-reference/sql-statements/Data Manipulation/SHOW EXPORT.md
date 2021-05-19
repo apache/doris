@@ -32,7 +32,7 @@ under the License.
         [FROM db_name]
         [
             WHERE
-            [EXPORT_JOB_ID = your_job_id]
+            [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
         ]
         [ORDER BY ...]
@@ -55,8 +55,8 @@ under the License.
         SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
     
     4. 展示指定db，指定job_id的导出任务
-            SHOW EXPORT FROM example_db WHERE EXPORT_JOB_ID = job_id;
+            SHOW EXPORT FROM example_db WHERE ID = job_id;
 
 ## keyword
     SHOW,EXPORT
-    
+
