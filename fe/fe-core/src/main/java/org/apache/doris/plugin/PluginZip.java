@@ -133,7 +133,6 @@ class PluginZip {
             }
         }
 
-        DigestUtils.md5Hex(Files.readAllBytes(zip));
         final String actualChecksum = DigestUtils.md5Hex(Files.readAllBytes(zip));
 
         if (!StringUtils.equalsIgnoreCase(expectedChecksum, actualChecksum)) {
