@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
+#include <atomic>
 #include <boost/thread.hpp>
 #include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
@@ -245,8 +246,9 @@ private:
 
     int _max_materialized_row_batches;
     bool _start;
-    bool _scanner_done;
-    bool _transfer_done;
+    // Used in Scan thread to ensure thread-safe
+    std::atomic_bool _scanner_done;
+    std::atomic_bool _transfer_done;
     size_t _direct_conjunct_size;
 
     int _total_assign_num;
