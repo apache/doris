@@ -59,6 +59,20 @@ public class DateLiteralTest {
     }
 
     @Test
+    public void testParseDateTimeToHourORMinute() throws Exception{
+        String s = "2020-12-13 12:13:14";
+        Type type = Type.DATETIME;
+        DateLiteral literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:14"));
+        s = "2020-12-13 12:13";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:00"));
+        s = "2020-12-13 12";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:00:00"));
+    }
+
+    @Test
     public void uncheckedCastTo() {
         boolean hasException = false;
         try {
