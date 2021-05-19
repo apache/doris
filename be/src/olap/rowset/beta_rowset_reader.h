@@ -30,7 +30,7 @@ namespace doris {
 class BetaRowsetReader : public RowsetReader {
 public:
     BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                     const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
+                     std::shared_ptr<MemTracker> parent_tracker = nullptr);
 
     ~BetaRowsetReader() override { _rowset->release(); }
 

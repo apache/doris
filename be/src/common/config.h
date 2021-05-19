@@ -598,6 +598,12 @@ CONF_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "256");
 
+// Default level of MemTracker to show in web page
+// now MemTracker support two level:
+//      RELEASE: 0
+//      DEBUG: 1
+// the level equal or lower than mem_tracker_level will show in web page
+CONF_Int16(mem_tracker_level, "0");
 } // namespace config
 
 } // namespace doris

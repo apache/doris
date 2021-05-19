@@ -447,7 +447,7 @@ DataStreamRecvr::DataStreamRecvr(
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
     _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "DataStreamRecvr:" + print_id(_fragment_instance_id), parent_tracker);
+            _profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
