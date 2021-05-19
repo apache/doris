@@ -132,7 +132,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _mem_tracker = MemTracker::CreateTracker(bytes_limit,
                                              "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
                                                      print_id(params.fragment_instance_id),
-                                             _exec_env->process_mem_tracker());
+                                             _exec_env->process_mem_tracker(), true, false);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     LOG(INFO) << "Using query memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);

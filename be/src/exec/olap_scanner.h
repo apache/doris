@@ -145,6 +145,8 @@ private:
     bool _is_closed = false;
 
     MonotonicStopWatch _watcher;
+
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 } // namespace doris
