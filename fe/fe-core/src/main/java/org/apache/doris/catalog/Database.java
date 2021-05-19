@@ -107,6 +107,8 @@ public class Database extends MetaObject implements Writable {
     private String attachDbName;
     private DbState dbState;
 
+    private DatabaseProperty dbProperties = new DatabaseProperty();
+
     public Database() {
         this(0, null);
     }
@@ -300,6 +302,7 @@ public class Database extends MetaObject implements Writable {
         return nameToTable.containsKey(tableName);
     }
 
+    // return pair <success?, table exist?>
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
@@ -534,7 +537,7 @@ public class Database extends MetaObject implements Writable {
                 table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                         if (ret < replicationNum) {
                             ret = replicationNum;
                         }
@@ -596,6 +599,7 @@ public class Database extends MetaObject implements Writable {
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
+        dbProperties.write(out);
     }
 
     @Override
@@ -651,6 +655,10 @@ public class Database extends MetaObject implements Writable {
             replicaQuotaSize = in.readLong();
         } else {
             replicaQuotaSize = FeConstants.default_db_replica_quota_size;
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
+            dbProperties = DatabaseProperty.read(in);
         }
     }
 

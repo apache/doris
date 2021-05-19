@@ -33,6 +33,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -67,7 +68,7 @@ public class AnotherDemoTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        UtFrameUtils.createMinDorisCluster(runningDir, 1);
+        UtFrameUtils.createDorisCluster(runningDir, 1);
     }
 
     @AfterClass

@@ -45,6 +45,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.View;
@@ -566,11 +567,10 @@ public class Alter {
 
         // get value from properties here
         // 1. data property
-        DataProperty newDataProperty =
-                PropertyAnalyzer.analyzeDataProperty(properties, null);
-        // 2. replication num
-        short newReplicationNum =
-                PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
+        DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, null);
+        // 2. replica allocation
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
         // 3. in memory
         boolean newInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
                 PropertyAnalyzer.PROPERTIES_INMEMORY, false);
@@ -586,9 +586,9 @@ public class Alter {
             if (newDataProperty != null) {
                 partitionInfo.setDataProperty(partition.getId(), newDataProperty);
             }
-            // 2. replication num
-            if (newReplicationNum != (short) -1) {
-                partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            // 2. replica allocation
+            if (!replicaAlloc.isNotSet()) {
+                partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
             }
             // 3. in memory
             boolean oldInMemory = partitionInfo.getIsInMemory(partition.getId());
@@ -600,7 +600,7 @@ public class Alter {
                 partitionInfo.setTabletType(partition.getId(), tTabletType);
             }
             ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                    newDataProperty, newReplicationNum, hasInMemory ? newInMemory : oldInMemory);
+                    newDataProperty, replicaAlloc, hasInMemory ? newInMemory : oldInMemory);
             modifyPartitionInfos.add(info);
         }
 
@@ -618,8 +618,8 @@ public class Alter {
             if (info.getDataProperty() != null) {
                 partitionInfo.setDataProperty(info.getPartitionId(), info.getDataProperty());
             }
-            if (info.getReplicationNum() != (short) -1) {
-                partitionInfo.setReplicationNum(info.getPartitionId(), info.getReplicationNum());
+            if (!info.getReplicaAlloc().isNotSet()) {
+                partitionInfo.setReplicaAllocation(info.getPartitionId(), info.getReplicaAlloc());
             }
             partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
         } finally {

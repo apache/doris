@@ -17,22 +17,42 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
-public class ClusterLoadStatByMedium implements ProcDirInterface {
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+// SHOW PROC "/cluster_balance/cluster_load_stat"
+public class ClusterLoadStatByTag implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
             "StorageMedium").build();
+
+    private Map<String, Tag> tagMap = Maps.newHashMap();
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        for (TStorageMedium medium : TStorageMedium.values()) {
-            result.addRow(Lists.newArrayList(medium.name()));
+        List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        Set<Tag> tags = Sets.newHashSet();
+        for (long beId : beIds) {
+            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            if (be != null) {
+                tags.add(be.getTag());
+            }
+        }
+        for (Tag tag : tags) {
+            result.addRow(Lists.newArrayList(tag.toKey()));
+            tagMap.put(tag.toKey(), tag);
         }
         return result;
     }
@@ -44,12 +64,11 @@ public class ClusterLoadStatByMedium implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
-        for (TStorageMedium medium : TStorageMedium.values()) {
-            if (name.equalsIgnoreCase(medium.name())) {
-                return new ClusterLoadStatisticProcDir(medium);
-            }
+        Tag tag = tagMap.get(name);
+        if (tag == null) {
+            throw new AnalysisException("No such tag: " + name);
         }
-        throw new AnalysisException("no such storage medium: " + name);
+        return new ClusterLoadStatByTagAndMedium(tag);
     }
 
 }
