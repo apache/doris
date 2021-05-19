@@ -266,8 +266,7 @@ under the License.
     [rollup]
     1. 创建 index: example_rollup_index，基于 base index（k1,k2,k3,v1,v2）。列式存储。
         ALTER TABLE example_db.my_table
-        ADD ROLLUP example_rollup_index(k1, k3, v1, v2)
-        PROPERTIES("storage_type"="column");
+        ADD ROLLUP example_rollup_index(k1, k3, v1, v2);
         
     2. 创建 index: example_rollup_index2，基于 example_rollup_index（k1,k3,v1,v2）
         ALTER TABLE example_db.my_table
@@ -277,7 +276,7 @@ under the License.
     3. 创建 index: example_rollup_index3, 基于 base index (k1,k2,k3,v1), 自定义 rollup 超时时间一小时。
         ALTER TABLE example_db.my_table
         ADD ROLLUP example_rollup_index(k1, k3, v1)
-        PROPERTIES("storage_type"="column", "timeout" = "3600");
+        PROPERTIES("timeout" = "3600");
 
     4. 删除 index: example_rollup_index2
         ALTER TABLE example_db.my_table

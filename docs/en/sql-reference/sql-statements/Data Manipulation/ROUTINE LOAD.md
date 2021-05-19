@@ -443,8 +443,7 @@ FROM data_source
     PARTITION p20200511 VALUES [("20200511"), ("20200512")))
     DISTRIBUTED BY HASH(`category`,`author`,`timestamp`) BUCKETS 4
     PROPERTIES (
-    "storage_type" = "COLUMN",
-     "replication_num" = "1"
+    "replication_num" = "1"
     );
     
     CREATE ROUTINE LOAD example_db.test1 ON example_tbl
