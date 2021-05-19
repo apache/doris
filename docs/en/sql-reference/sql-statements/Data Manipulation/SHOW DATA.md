@@ -33,7 +33,7 @@ This statement is used to show the amount of data, the number of replica and num
 Syntax:
 
 ```
-SHOW DATA [FROM db_name[.table_name]];
+SHOW DATA [FROM db_name[.table_name]] [ORDER BY ...];
 ```
 
 Explain:
@@ -45,6 +45,10 @@ Explain:
 3. When counting the number of rows, the replica with the largest number of rows among multiple replicas shall prevail.
 
 4. The `Total` row in the result set represents the summary row. The `Quota` row indicates the current quota of the database. The `Left` line indicates the remaining quota.
+
+5. If you want to check the size of each Partition, please refer to `help show partitions`.
+
+6. Arbitrary column combinations can be sorted using ORDER BY.
 
 ## example
 
@@ -70,7 +74,8 @@ Explain:
 
     ```
     SHOW DATA FROM example_db.test;
-    
+    ```
+    ```
     +-----------+-----------+-----------+--------------+----------+
     | TableName | IndexName | Size      | ReplicaCount | RowCount |
     +-----------+-----------+-----------+--------------+----------+
@@ -80,7 +85,26 @@ Explain:
     |           | Total     | 80.000    | 90           |          |
     +-----------+-----------+-----------+--------------+----------+
     ```
+3. Can be combined and sorted according to the data volume, replica count,and number of rows,etc.
 
+    ```
+    SHOW DATA ORDER BY ReplicaCount desc,Size asc;
+    ```
+    
+    ```
+    +-----------+-------------+--------------+
+    | TableName | Size        | ReplicaCount |
+    +-----------+-------------+--------------+
+    | table_c   | 3.102 KB    | 40           |
+    | table_d   | .000        | 20           |
+    | table_b   | 324.000 B   | 20           |
+    | table_a   | 1.266 KB    | 10           |
+    | Total     | 4.684 KB    | 90           |
+    | Quota     | 1024.000 GB | 1073741824   |
+    | Left      | 1024.000 GB | 1073741734   |
+    +-----------+-------------+--------------+
+    ``` 
+        
 ## keyword
 
     SHOW,DATA
