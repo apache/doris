@@ -563,7 +563,8 @@ public class Function implements Writable {
     enum FunctionType {
         ORIGIN(0),
         SCALAR(1),
-        AGGREGATE(2);
+        AGGREGATE(2),
+        ALIAS(3);
 
         private int code;
 
@@ -582,6 +583,8 @@ public class Function implements Writable {
                     return SCALAR;
                 case 2:
                     return AGGREGATE;
+                case 3:
+                    return ALIAS;
             }
             return null;
         }
@@ -652,6 +655,9 @@ public class Function implements Writable {
             case AGGREGATE:
                 function = new AggregateFunction();
                 break;
+            case ALIAS:
+                function = new AliasFunction();
+                break;
             default:
                 throw new Error("Unsupported function type, type=" + functionType);
         }
@@ -674,6 +680,9 @@ public class Function implements Writable {
             // intermediate type
             if (this instanceof ScalarFunction) {
                 row.add("Scalar");
+                row.add("NULL");
+            } else if (this instanceof AliasFunction) {
+                row.add("Alias");
                 row.add("NULL");
             } else {
                 row.add("Aggregate");
