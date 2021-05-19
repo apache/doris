@@ -35,14 +35,6 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
-
-PARALLEL=$[$(nproc)/4+1]
-
 # Check args
 usage() {
   echo "
@@ -53,6 +45,7 @@ Usage: $0 <options>
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
      --clean            clean and build target
+     -j                 build Backend parallel
 
   Eg.
     $0                                      build all
@@ -75,6 +68,7 @@ OPTS=$(getopt \
   -l 'spark-dpp' \
   -l 'clean' \
   -l 'help' \
+  -o 'j:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -83,12 +77,12 @@ fi
 
 eval set -- "$OPTS"
 
+PARALLEL=$[$(nproc)/4+1]
 BUILD_BE=
 BUILD_FE=
 BUILD_UI=
 BUILD_SPARK_DPP=
 CLEAN=
-RUN_UT=
 HELP=0
 if [ $# == 1 ] ; then
     # default
@@ -97,14 +91,12 @@ if [ $# == 1 ] ; then
     BUILD_UI=1
     BUILD_SPARK_DPP=1
     CLEAN=0
-    RUN_UT=0
 else
     BUILD_BE=0
     BUILD_FE=0
     BUILD_UI=0
     BUILD_SPARK_DPP=0
     CLEAN=0
-    RUN_UT=0
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
@@ -112,11 +104,11 @@ else
             --ui) BUILD_UI=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
-            --ut) RUN_UT=1   ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
+            -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
-            *) ehco "Internal error" ; exit 1 ;;
+            *) echo "Internal error" ; exit 1 ;;
         esac
     done
 fi
@@ -124,6 +116,12 @@ fi
 if [[ ${HELP} -eq 1 ]]; then
     usage
     exit
+fi
+
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi
 
 if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
@@ -146,8 +144,8 @@ echo "Get params:
     BUILD_FE            -- $BUILD_FE
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
-    RUN_UT              -- $RUN_UT
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY

@@ -39,8 +39,6 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-PARALLEL=$[$(nproc)/4+1]
-
 # Check args
 usage() {
   echo "
@@ -49,6 +47,7 @@ Usage: $0 <options>
      --clean    clean and build ut
      --run      build and run all ut
      --run xx   build and run specified ut
+     -j         build parallel
 
   Eg.
     $0                          build ut
@@ -65,6 +64,7 @@ OPTS=$(getopt \
   -o '' \
   -l 'run' \
   -l 'clean' \
+  -o 'j:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -73,6 +73,7 @@ fi
 
 eval set -- "$OPTS"
 
+PARALLEL=$[$(nproc)/4+1]
 CLEAN=
 RUN=
 if [ $# == 1 ] ; then
@@ -86,6 +87,7 @@ else
         case "$1" in
             --clean) CLEAN=1 ; shift ;;
             --run) RUN=1 ; shift ;;
+            -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
             *) echo "Internal error" ; exit 1 ;;
         esac
@@ -94,6 +96,11 @@ fi
 
 CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
+
+echo "Get params:
+    PARALLEL            -- $PARALLEL
+    CLEAN               -- $CLEAN
+"
 echo "Build Backend UT"
 
 CMAKE_BUILD_DIR=${DORIS_HOME}/be/ut_build_${CMAKE_BUILD_TYPE}
