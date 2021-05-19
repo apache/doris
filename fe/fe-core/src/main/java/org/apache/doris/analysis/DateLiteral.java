@@ -63,8 +63,12 @@ public class DateLiteral extends LiteralExpr {
 
     private static final int DATEKEY_LENGTH = 8;
     private static final int MAX_MICROSECOND = 999999;
+    private static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
+    private static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
 
     private static DateTimeFormatter DATE_TIME_FORMATTER = null;
+    private static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
+    private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
     /* 
      * Dates containing two-digit year values are ambiguous because the century is unknown. 
@@ -90,6 +94,8 @@ public class DateLiteral extends LiteralExpr {
     static {
         try {
             DATE_TIME_FORMATTER = formatBuilder("%Y-%m-%d %H:%i:%s").toFormatter();
+            DATE_TIME_FORMATTER_TO_HOUR = formatBuilder("%Y-%m-%d %H").toFormatter();
+            DATE_TIME_FORMATTER_TO_MINUTE = formatBuilder("%Y-%m-%d %H:%i").toFormatter();
             DATE_FORMATTER = formatBuilder("%Y-%m-%d").toFormatter();
             DATEKEY_FORMATTER = formatBuilder("%Y%m%d").toFormatter();
             DATE_TIME_FORMATTER_TWO_DIGIT = formatBuilder("%y-%m-%d %H:%i:%s").toFormatter();
@@ -268,7 +274,14 @@ public class DateLiteral extends LiteralExpr {
                 if (s.split("-")[0].length() == 2) {
                     dateTime = DATE_TIME_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
                 } else {
-                    dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(s);
+                    // parse format '%Y-%m-%d %H:%i' and '%Y-%m-%d %H'
+                    if (s.length() == DATETIME_TO_MINUTE_STRING_LENGTH) {
+                        dateTime = DATE_TIME_FORMATTER_TO_MINUTE.parseLocalDateTime(s);
+                    } else if (s.length() == DATETIME_TO_HOUR_STRING_LENGTH) {
+                        dateTime = DATE_TIME_FORMATTER_TO_HOUR.parseLocalDateTime(s);
+                    } else {
+                        dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(s);
+                    }
                 }
             }
 

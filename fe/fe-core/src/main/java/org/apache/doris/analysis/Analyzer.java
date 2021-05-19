@@ -41,6 +41,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
+import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -257,6 +258,7 @@ public class Analyzer {
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
+            rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
