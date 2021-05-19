@@ -343,8 +343,7 @@ Syntax:
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
 2. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
@@ -361,7 +360,6 @@ Syntax:
     UNIQUE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
-    "storage_type"="column",
     "storage_medium" = "SSD",
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
@@ -661,8 +659,7 @@ Syntax:
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
-    DISTRIBUTED BY HASH(k1) BUCKETS 32
-    PROPERTIES ("storage_type"="column");
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
 12. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
