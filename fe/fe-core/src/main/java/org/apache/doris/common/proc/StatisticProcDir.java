@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -130,7 +131,7 @@ public class StatisticProcDir implements ProcDirInterface {
                     table.readLock();
                     try {
                         for (Partition partition : olapTable.getAllPartitions()) {
-                            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                            ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                             ++dbPartitionNum;
                             for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                                 ++dbIndexNum;
@@ -141,7 +142,7 @@ public class StatisticProcDir implements ProcDirInterface {
                                     Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
                                             infoService, db.getClusterName(),
                                             partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                            replicationNum, aliveBeIdsInCluster);
+                                            replicaAlloc, aliveBeIdsInCluster);
 
                                     // here we treat REDUNDANT as HEALTHY, for user friendly.
                                     if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT

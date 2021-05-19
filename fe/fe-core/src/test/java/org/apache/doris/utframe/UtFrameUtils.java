@@ -150,12 +150,12 @@ public class UtFrameUtils {
         return fe_rpc_port;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws InterruptedException, NotInitException,
+    public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
             IOException, DdlException, EnvVarNotSetException, FeStartException {
-        createMinDorisCluster(runningDir, 1);
+        createDorisCluster(runningDir, 1);
     }
 
-    public static void createMinDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
+    public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int fe_rpc_port = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {

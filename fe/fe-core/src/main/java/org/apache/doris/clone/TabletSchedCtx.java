@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -808,11 +809,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (tablet == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
             }
-            
+
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+            ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicationNum,
+                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicaAlloc,
                     aliveBeIdsInCluster);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");

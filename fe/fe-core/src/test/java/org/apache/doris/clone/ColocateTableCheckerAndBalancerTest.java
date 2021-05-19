@@ -17,15 +17,12 @@
 
 package org.apache.doris.clone;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
-
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -44,6 +41,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class ColocateTableCheckerAndBalancerTest {
     private ColocateTableCheckerAndBalancer balancer = ColocateTableCheckerAndBalancer.getInstance();
@@ -134,7 +135,8 @@ public class ColocateTableCheckerAndBalancerTest {
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
         distributionCols.add(new Column("k1", PrimitiveType.INT));
-        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 3);
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5,
+                ReplicaAllocation.DEFAULT_ALLOCATION);
         Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
         group2Schema.put(groupId, groupSchema);
 
@@ -205,7 +207,8 @@ public class ColocateTableCheckerAndBalancerTest {
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
         distributionCols.add(new Column("k1", PrimitiveType.INT));
-        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 1);
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5,
+                new ReplicaAllocation((short) 1));
         Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
         group2Schema.put(groupId, groupSchema);
 
@@ -249,7 +252,7 @@ public class ColocateTableCheckerAndBalancerTest {
         };
         GroupId groupId = new GroupId(10000, 10001);
         List<Column> distributionCols = Lists.newArrayList();
-        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, (short) 1);
+        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId, distributionCols, 5, new ReplicaAllocation((short) 1));
         Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
         group2Schema.put(groupId, groupSchema);
 

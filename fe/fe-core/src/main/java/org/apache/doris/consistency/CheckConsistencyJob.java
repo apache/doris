@@ -147,8 +147,8 @@ public class CheckConsistencyJob {
             }
 
             // check partition's replication num. if 1 replication. skip
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-            if (replicationNum == (short) 1) {
+            short replicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+            if (replicaNum == (short) 1) {
                 LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
             }
@@ -199,7 +199,7 @@ public class CheckConsistencyJob {
                 ++sentTaskReplicaNum;
             }
 
-            if (sentTaskReplicaNum < replicationNum / 2 + 1) {
+            if (sentTaskReplicaNum < replicaNum / 2 + 1) {
                 LOG.info("tablet[{}] does not have enough replica to check.", tabletId);
             } else {
                 if (maxDataSize > 0) {

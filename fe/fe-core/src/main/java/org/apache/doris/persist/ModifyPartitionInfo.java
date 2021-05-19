@@ -19,8 +19,12 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -37,23 +41,25 @@ public class ModifyPartitionInfo implements Writable {
     private long partitionId;
     @SerializedName(value = "dataProperty")
     private DataProperty dataProperty;
-    @SerializedName(value = "replicationNum")
+    @Deprecated
     private short replicationNum;
     @SerializedName(value = "isInMemory")
     private boolean isInMemory;
+    @SerializedName(value = "replicaAlloc")
+    private ReplicaAllocation replicaAlloc;
 
     public ModifyPartitionInfo() {
         // for persist
     }
 
     public ModifyPartitionInfo(long dbId, long tableId, long partitionId,
-                               DataProperty dataProperty, short replicationNum,
+                               DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                boolean isInMemory) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.dataProperty = dataProperty;
-        this.replicationNum = replicationNum;
+        this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
     }
 
@@ -73,8 +79,8 @@ public class ModifyPartitionInfo implements Writable {
         return dataProperty;
     }
 
-    public short getReplicationNum() {
-        return replicationNum;
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     public boolean isInMemory() {
@@ -82,9 +88,14 @@ public class ModifyPartitionInfo implements Writable {
     }
 
     public static ModifyPartitionInfo read(DataInput in) throws IOException {
-        ModifyPartitionInfo info = new ModifyPartitionInfo();
-        info.readFields(in);
-        return info;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            ModifyPartitionInfo info = new ModifyPartitionInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, ModifyPartitionInfo.class);
+        }
     }
 
     @Override
@@ -97,32 +108,21 @@ public class ModifyPartitionInfo implements Writable {
         }
         ModifyPartitionInfo otherInfo = (ModifyPartitionInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
-                dataProperty.equals(otherInfo.getDataProperty()) && replicationNum == otherInfo.getReplicationNum()
+                dataProperty.equals(otherInfo.getDataProperty()) && replicaAlloc.equals(otherInfo.replicaAlloc)
                 && isInMemory == otherInfo.isInMemory();
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        out.writeLong(partitionId);
-
-        if (dataProperty == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            dataProperty.write(out);
-        }
-
-        out.writeShort(replicationNum);
-        out.writeBoolean(isInMemory);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionId = in.readLong();
-        
+
         boolean hasDataProperty = in.readBoolean();
         if (hasDataProperty) {
             dataProperty = DataProperty.read(in);
@@ -131,9 +131,13 @@ public class ModifyPartitionInfo implements Writable {
         }
 
         replicationNum = in.readShort();
+        if (replicationNum > 0) {
+            replicaAlloc = new ReplicaAllocation(replicationNum);
+        } else {
+            replicaAlloc = ReplicaAllocation.NOT_SET;
+        }
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
             isInMemory = in.readBoolean();
         }
     }
-
 }

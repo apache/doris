@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
@@ -203,7 +204,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
                         long visibleVersionHash = partition.getVisibleVersionHash();
                         // Here we only get VISIBLE indexes. All other indexes are not queryable.
@@ -216,7 +218,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Set<Long> bucketsSeq = backendBucketsSeq.get(idx);
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum, bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, replicationNum, bucketsSeq);
+                                TabletStatus st = tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
                                     isGroupStable = false;
                                     LOG.debug("get unhealthy tablet {} in colocate table. status: {}", tablet.getId(), st);
@@ -306,13 +308,15 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                        ColocateTableIndex colocateIndex, SystemInfoService infoService,
                                        ClusterLoadStatistic statistic, List<List<Long>> balancedBackendsPerBucketSeq) {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
-        int replicationNum = groupSchema.getReplicationNum();
+        // FIXME(cmy): should be aware of tag info
+        int replicationNum = groupSchema.getReplicaAlloc().getTotalReplicaNum();
         List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(colocateIndex.getBackendsPerBucketSeq(groupId));
         // [[A,B,C],[B,C,D]] -> [A,B,C,B,C,D]
         List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toList());
 
         boolean isChanged = false;
-        OUT: while (true) {
+        OUT:
+        while (true) {
             // update backends and hosts at each round
             backendsPerBucketSeq = Lists.partition(flatBackendsPerBucketSeq, replicationNum);
             List<List<String>> hostsPerBucketSeq = getHostsPerBucketSeq(backendsPerBucketSeq, infoService);

@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -93,7 +92,7 @@ public class CreateTableAsSelectStmt extends StatementBase {
         // Create table
         try {
             analyzer.getCatalog().createTable(createTableStmt);
-        } catch (DdlException e) {
+        } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
     }

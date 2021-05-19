@@ -18,6 +18,9 @@
 package org.apache.doris.catalog;
 
 
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -41,6 +44,9 @@ public class TablePropertyTest {
 
     @Test
     public void testNormal() throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();

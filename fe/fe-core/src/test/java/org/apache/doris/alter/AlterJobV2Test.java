@@ -53,7 +53,7 @@ public class AlterJobV2Test {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
 
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         Config.enable_alpha_rowset = true;
 
         // create connect context

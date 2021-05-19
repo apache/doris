@@ -196,9 +196,9 @@ public class ColocateMetaService {
             List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
             //check the Backend id
             for (List<Long> backendIds : backendsPerBucketSeq) {
-                if (backendIds.size() != groupSchema.getReplicationNum()) {
+                if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {
                     throw new DdlException("Invalid backend num per bucket. expected: "
-                            + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
+                            + groupSchema.getReplicaAlloc().getTotalReplicaNum() + ", actual: " + backendIds.size());
                 }
                 for (Long beId : backendIds) {
                     if (!clusterBackendIds.contains(beId)) {

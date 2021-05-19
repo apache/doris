@@ -56,7 +56,7 @@ public class InsertStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db.tbl(kk1 int, kk2 varchar(32), kk3 int, kk4 int) "
                 + "AGGREGATE KEY(kk1, kk2,kk3,kk4) distributed by hash(kk1) buckets 3 properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();

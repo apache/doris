@@ -195,8 +195,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_PARTITION: {
-                data = new ModifyPartitionInfo();
-                ((ModifyPartitionInfo) data).readFields(in);
+                data = ModifyPartitionInfo.read(in);
                 isRead = true;
                 break;
             }

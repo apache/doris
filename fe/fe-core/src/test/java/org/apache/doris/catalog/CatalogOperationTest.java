@@ -47,7 +47,7 @@ public class CatalogOperationTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();

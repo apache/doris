@@ -359,7 +359,7 @@ public class TabletChecker extends MasterDaemon {
                         db.getClusterName(),
                         partition.getVisibleVersion(),
                         partition.getVisibleVersionHash(),
-                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
 
                 if (statusWithPrio.first == TabletStatus.HEALTHY) {

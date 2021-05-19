@@ -57,7 +57,7 @@ public class DynamicPartitionTableTest {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
 
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -107,7 +107,7 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable table = (OlapTable) db.getTable("dynamic_partition_normal");
-        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), DynamicPartitionProperty.NOT_SET_REPLICATION_NUM);
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
     }
 
     @Test
@@ -447,7 +447,7 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable table = (OlapTable) db.getTable(tableName);
-        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), 2);
+        Assert.assertEquals(2, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 
     @Test

@@ -58,7 +58,7 @@ public class SelectStmtTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "

@@ -496,7 +496,7 @@ public class TabletScheduler extends MasterDaemon {
                 Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, tabletOrderIdx);
                 TabletStatus st = tablet.getColocateHealthStatus(
                         partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         backendsSet);
                 statusPair = Pair.create(st, Priority.HIGH);
                 tabletCtx.setColocateGroupBackendIds(backendsSet);
@@ -506,7 +506,7 @@ public class TabletScheduler extends MasterDaemon {
                         infoService, tabletCtx.getCluster(),
                         partition.getVisibleVersion(),
                         partition.getVisibleVersionHash(),
-                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
             }
 

@@ -51,11 +51,11 @@ import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -396,7 +396,7 @@ public class LoadChecker extends MasterDaemon {
                         return null;
                     }
                     
-                    short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
+                    short replicationNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {

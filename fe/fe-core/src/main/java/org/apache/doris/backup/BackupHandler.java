@@ -405,7 +405,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicationNum(),
+                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
         catalog.getEditLog().logRestoreJob(restoreJob);
 

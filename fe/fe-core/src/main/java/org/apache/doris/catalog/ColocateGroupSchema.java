@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
@@ -38,17 +39,17 @@ public class ColocateGroupSchema implements Writable {
     private GroupId groupId;
     private List<Type> distributionColTypes = Lists.newArrayList();
     private int bucketsNum;
-    private short replicationNum;
+    private ReplicaAllocation replicaAlloc;
 
     private ColocateGroupSchema() {
 
     }
 
-    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum, short replicationNum) {
+    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum, ReplicaAllocation replicaAlloc) {
         this.groupId = groupId;
         this.distributionColTypes = distributionCols.stream().map(c -> c.getType()).collect(Collectors.toList());
         this.bucketsNum = bucketsNum;
-        this.replicationNum = replicationNum;
+        this.replicaAlloc = replicaAlloc;
     }
 
     public GroupId getGroupId() {
@@ -59,8 +60,8 @@ public class ColocateGroupSchema implements Writable {
         return bucketsNum;
     }
 
-    public short getReplicationNum() {
-        return replicationNum;
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     public List<Type> getDistributionColTypes() {
@@ -69,7 +70,7 @@ public class ColocateGroupSchema implements Writable {
 
     public void checkColocateSchema(OlapTable tbl) throws DdlException {
         checkDistribution(tbl.getDefaultDistributionInfo());
-        checkReplicationNum(tbl.getPartitionInfo());
+        checkReplicaAllocation(tbl.getPartitionInfo());
     }
 
     public void checkDistribution(DistributionInfo distributionInfo) throws DdlException {
@@ -95,17 +96,19 @@ public class ColocateGroupSchema implements Writable {
         }
     }
 
-    public void checkReplicationNum(PartitionInfo partitionInfo) throws DdlException {
-        for (Short repNum : partitionInfo.idToReplicationNum.values()) {
-            if (repNum != replicationNum) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, replicationNum);
+    public void checkReplicaAllocation(PartitionInfo partitionInfo) throws DdlException {
+        for (ReplicaAllocation replicaAlloc : partitionInfo.idToReplicaAllocation.values()) {
+            if (!replicaAlloc.equals(this.replicaAlloc)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
+                        this.replicaAlloc);
             }
         }
     }
 
-    public void checkReplicationNum(short repNum) throws DdlException {
-        if (repNum != replicationNum) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, replicationNum);
+    public void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
+        if (!replicaAlloc.equals(this.replicaAlloc)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
+                    this.replicaAlloc);
         }
     }
 
@@ -123,7 +126,7 @@ public class ColocateGroupSchema implements Writable {
             ColumnType.write(out, type);
         }
         out.writeInt(bucketsNum);
-        out.writeShort(replicationNum);
+        this.replicaAlloc.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -133,6 +136,11 @@ public class ColocateGroupSchema implements Writable {
             distributionColTypes.add(ColumnType.read(in));
         }
         bucketsNum = in.readInt();
-        replicationNum = in.readShort();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            short replicationNum = in.readShort();
+            this.replicaAlloc = new ReplicaAllocation(replicationNum);
+        } else {
+            this.replicaAlloc = ReplicaAllocation.read(in);
+        }
     }
 }

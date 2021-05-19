@@ -129,6 +129,7 @@ public class OperationType {
     public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
+    public static final short OP_MODIFY_BACKEND = 91;
 
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;

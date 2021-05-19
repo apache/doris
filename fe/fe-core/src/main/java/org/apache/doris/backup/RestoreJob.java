@@ -41,6 +41,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.Table;
@@ -70,9 +71,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -82,6 +80,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -125,7 +126,7 @@ public class RestoreJob extends AbstractJob {
     private long snapshotFinishedTime = -1;
     private long downloadFinishedTime = -1;
 
-    private int restoreReplicationNum;
+    private ReplicaAllocation replicaAlloc;
 
     // this 2 members is to save all newly restored objs
     // tbl name -> part
@@ -157,13 +158,13 @@ public class RestoreJob extends AbstractJob {
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo,
-            boolean allowLoad, int restoreReplicationNum, long timeoutMs, int metaVersion,
-            Catalog catalog, long repoId) {
+                      boolean allowLoad, ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion,
+                      Catalog catalog, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
         this.allowLoad = allowLoad;
-        this.restoreReplicationNum = restoreReplicationNum;
+        this.replicaAlloc = replicaAlloc;
         this.state = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
     }
@@ -507,7 +508,6 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
-
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
         db.readLock();
@@ -590,7 +590,7 @@ public class RestoreJob extends AbstractJob {
                                         Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
                                                 partitionName,
                                                 db.getClusterName(),
-                                                restoreReplicationNum);
+                                                replicaAlloc);
                                         if (restorePart == null) {
                                             return;
                                         }
@@ -619,7 +619,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // reset all ids in this table
-                    Status st = remoteOlapTbl.resetIdsForRestore(catalog, db, restoreReplicationNum);
+                    Status st = remoteOlapTbl.resetIdsForRestore(catalog, db, replicaAlloc);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -769,7 +769,7 @@ public class RestoreJob extends AbstractJob {
                         PartitionItem remoteItem = remoteTbl.getPartitionInfo().getItem(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                         localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
-                                remoteDataProperty, (short) restoreReplicationNum,
+                                remoteDataProperty, replicaAlloc,
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
@@ -899,12 +899,14 @@ public class RestoreJob extends AbstractJob {
 
     private boolean genFileMappingWhenBackupReplicasEqual(PartitionInfo localPartInfo, Partition localPartition, Table localTbl,
                                                           BackupPartitionInfo backupPartInfo, String partitionName, BackupOlapTableInfo tblInfo) {
-        if (localPartInfo.getReplicationNum(localPartition.getId()) != restoreReplicationNum) {
+        short restoreReplicaNum = replicaAlloc.getTotalReplicaNum();
+        short localReplicaNum = localPartInfo.getReplicaAllocation(localPartition.getId()).getTotalReplicaNum();
+        if (localReplicaNum != restoreReplicaNum) {
             status = new Status(ErrCode.COMMON_ERROR, "Partition " + partitionName
                     + " in table " + localTbl.getName()
                     + " has different replication num '"
-                    + localPartInfo.getReplicationNum(localPartition.getId())
-                    + "' with partition in repository, which is " + restoreReplicationNum);
+                    + localReplicaNum
+                    + "' with partition in repository, which is " + restoreReplicaNum);
             return true;
         }
 
@@ -949,13 +951,13 @@ public class RestoreJob extends AbstractJob {
     // reset remote partition.
     // reset all id in remote partition, but DO NOT modify any exist catalog objects.
     private Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
-            String clusterName, int restoreReplicationNum) {
+                                               String clusterName, ReplicaAllocation replicaAlloc) {
         Preconditions.checkState(localTbl.getPartition(partName) == null);
         Partition remotePart = remoteTbl.getPartition(partName);
         Preconditions.checkNotNull(remotePart);
         PartitionInfo localPartitionInfo = localTbl.getPartitionInfo();
         Preconditions.checkState(localPartitionInfo.getType() == PartitionType.RANGE
-                                    || localPartitionInfo.getType() == PartitionType.LIST);
+                || localPartitionInfo.getType() == PartitionType.LIST);
 
         // generate new partition id
         long newPartId = catalog.getNextId();
@@ -993,19 +995,17 @@ public class RestoreJob extends AbstractJob {
                 remoteIdx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
 
                 // replicas
-                List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(restoreReplicationNum, true,
-                                                                                      true, clusterName);
-                if (beIds == null) {
-                    status = new Status(ErrCode.COMMON_ERROR,
-                            "failed to get enough backends for creating replica of tablet "
-                                    + newTabletId + ". need: " + restoreReplicationNum);
+                try {
+                    List<Long> beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
+                    for (Long beId : beIds) {
+                        long newReplicaId = catalog.getNextId();
+                        Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                visibleVersion, visibleVersionHash, schemaHash);
+                        newTablet.addReplica(newReplica, true /* is restore */);
+                    }
+                } catch (DdlException e) {
+                    status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
                     return null;
-                }
-                for (Long beId : beIds) {
-                    long newReplicaId = catalog.getNextId();
-                    Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                            visibleVersion, visibleVersionHash, schemaHash);
-                    newTablet.addReplica(newReplica, true /* is restore */);
                 }
             }
         }
@@ -1077,7 +1077,7 @@ public class RestoreJob extends AbstractJob {
             long remotePartId = backupPartitionInfo.id;
             DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
-                    remoteDataProperty, (short) restoreReplicationNum,
+                    remoteDataProperty, replicaAlloc,
                     remotePartitionInfo.getIsInMemory(remotePartId));
             localTbl.addPartition(restorePart);
 
@@ -1455,7 +1455,7 @@ public class RestoreJob extends AbstractJob {
         info.add(dbName);
         info.add(state.name());
         info.add(String.valueOf(allowLoad));
-        info.add(String.valueOf(restoreReplicationNum));
+        info.add(replicaAlloc.toCreateStmt());
         info.add(getRestoreObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(metaPreparedTime));
@@ -1652,7 +1652,7 @@ public class RestoreJob extends AbstractJob {
         out.writeLong(snapshotFinishedTime);
         out.writeLong(downloadFinishedTime);
 
-        out.writeInt(restoreReplicationNum);
+        replicaAlloc.write(out);
 
         out.writeInt(restoredPartitions.size());
         for (Pair<String, Partition> entry : restoredPartitions) {
@@ -1720,7 +1720,12 @@ public class RestoreJob extends AbstractJob {
         snapshotFinishedTime = in.readLong();
         downloadFinishedTime = in.readLong();
 
-        restoreReplicationNum = in.readInt();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            int restoreReplicationNum = in.readInt();
+            replicaAlloc = new ReplicaAllocation((short) restoreReplicationNum);
+        } else {
+            replicaAlloc = ReplicaAllocation.read(in);
+        }
 
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

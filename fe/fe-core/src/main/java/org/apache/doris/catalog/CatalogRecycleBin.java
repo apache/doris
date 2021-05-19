@@ -108,7 +108,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
                                                  Range<PartitionKey> range, PartitionItem listPartitionItem,
                                                  DataProperty dataProperty,
-                                                 short replicationNum,
+                                                 ReplicaAllocation replicaAlloc,
                                                  boolean isInMemory) {
         if (idToPartition.containsKey(partition.getId())) {
             LOG.error("partition[{}] already in recycle bin.", partition.getId());
@@ -120,8 +120,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                                                                      range, listPartitionItem, dataProperty, replicationNum,
-                                                                      isInMemory);
+                range, listPartitionItem, dataProperty, replicaAlloc, isInMemory);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
@@ -450,7 +449,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         long partitionId = recoverPartition.getId();
         partitionInfo.setItem(partitionId, false, recoverItem);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
-        partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
+        partitionInfo.setReplicaAllocation(partitionId, recoverPartitionInfo.getReplicaAlloc());
         partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
 
         // remove from recycle bin
@@ -485,7 +484,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
             partitionInfo.setItem(partitionId, false, recoverItem);
             partitionInfo.setDataProperty(partitionId, recyclePartitionInfo.getDataProperty());
-            partitionInfo.setReplicationNum(partitionId, recyclePartitionInfo.getReplicationNum());
+            partitionInfo.setReplicaAllocation(partitionId, recyclePartitionInfo.getReplicaAlloc());
             partitionInfo.setIsInMemory(partitionId, recyclePartitionInfo.isInMemory());
 
             iterator.remove();
@@ -740,7 +739,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         private Range<PartitionKey> range;
         private PartitionItem listPartitionItem;
         private DataProperty dataProperty;
-        private short replicationNum;
+        private ReplicaAllocation replicaAlloc;
         private boolean isInMemory;
 
         public RecyclePartitionInfo() {
@@ -749,7 +748,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
                                     Range<PartitionKey> range, PartitionItem listPartitionItem,
-                                    DataProperty dataProperty, short replicationNum,
+                                    DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                     boolean isInMemory) {
             this.dbId = dbId;
             this.tableId = tableId;
@@ -757,7 +756,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             this.range = range;
             this.listPartitionItem = listPartitionItem;
             this.dataProperty = dataProperty;
-            this.replicationNum = replicationNum;
+            this.replicaAlloc = replicaAlloc;
             this.isInMemory = isInMemory;
         }
 
@@ -785,8 +784,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             return dataProperty;
         }
 
-        public short getReplicationNum() {
-            return replicationNum;
+        public ReplicaAllocation getReplicaAlloc() {
+            return replicaAlloc;
         }
 
         public boolean isInMemory() {
@@ -801,7 +800,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             RangeUtils.writeRange(out, range);
             listPartitionItem.write(out);
             dataProperty.write(out);
-            out.writeShort(replicationNum);
+            replicaAlloc.write(out);
             out.writeBoolean(isInMemory);
         }
 
@@ -817,7 +816,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
 
             dataProperty = DataProperty.read(in);
-            replicationNum = in.readShort();
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+                short replicationNum = in.readShort();
+                replicaAlloc = new ReplicaAllocation(replicationNum);
+            } else {
+                replicaAlloc = ReplicaAllocation.read(in);
+            }
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
                 isInMemory = in.readBoolean();
             }

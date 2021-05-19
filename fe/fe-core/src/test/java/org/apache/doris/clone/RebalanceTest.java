@@ -17,11 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -33,6 +28,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -50,6 +46,10 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletInfo;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -65,6 +65,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 
 public class RebalanceTest {
@@ -169,7 +172,8 @@ public class RebalanceTest {
             long id = 31 + idx;
             Partition partition = new Partition(id, "p" + idx, index, new HashDistributionInfo());
             olapTable.addPartition(partition);
-            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD), (short) 3, false);
+            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD),
+                    ReplicaAllocation.DEFAULT_ALLOCATION, false);
         });
 
     }

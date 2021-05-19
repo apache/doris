@@ -33,6 +33,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.catalog.Table;
@@ -62,12 +63,12 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -346,7 +347,7 @@ public class SparkLoadJobTest {
         long fileSize = 6L;
         filePathToSize.put(filePath, fileSize);
         PartitionInfo partitionInfo = new RangePartitionInfo();
-        partitionInfo.addPartition(partitionId, null, (short) 1, false);
+        partitionInfo.addPartition(partitionId, null, new ReplicaAllocation((short) 1), false);
 
         new Expectations() {
             {

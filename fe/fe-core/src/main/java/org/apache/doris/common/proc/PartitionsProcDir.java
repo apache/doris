@@ -267,8 +267,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(distributionInfo.getBucketNum());
 
-                short replicationNum = tblPartitionInfo.getReplicationNum(partitionId);
-                partitionInfo.add(String.valueOf(replicationNum));
+                partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());

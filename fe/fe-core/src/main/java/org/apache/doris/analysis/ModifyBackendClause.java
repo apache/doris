@@ -21,44 +21,18 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.resource.Tag;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 
-public class AddBackendClause extends BackendClause {
-    // be in free state is not owned by any cluster
-    protected boolean isFree;
-    // cluster that backend will be added to 
-    protected String destCluster;
+public class ModifyBackendClause extends BackendClause {
     protected Map<String, String> properties = Maps.newHashMap();
     private Tag tag;
 
-    public AddBackendClause(List<String> hostPorts) {
+    public ModifyBackendClause(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
-        this.isFree = true;
-        this.destCluster = "";
-    }
-
-    public AddBackendClause(List<String> hostPorts, boolean isFree, Map<String, String> properties) {
-        super(hostPorts);
-        this.isFree = isFree;
-        this.destCluster = "";
         this.properties = properties;
-        if (this.properties == null) {
-            this.properties = Maps.newHashMap();
-        }
-    }
-
-    public AddBackendClause(List<String> hostPorts, String destCluster) {
-        super(hostPorts);
-        this.isFree = false;
-        this.destCluster = destCluster;
-    }
-
-    public Tag getTag() {
-        return tag;
     }
 
     @Override
@@ -67,24 +41,14 @@ public class AddBackendClause extends BackendClause {
         tag = PropertyAnalyzer.analyzeBackendTagProperties(properties);
     }
 
-    @Override
-    public Map<String, String> getProperties() {
-        return properties;
+    public Tag getTag() {
+        return tag;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD ");
-        if (isFree) {
-            sb.append("FREE ");
-        }
-        sb.append("BACKEND ");
-
-        if (!Strings.isNullOrEmpty(destCluster)) {
-            sb.append("to").append(destCluster);
-        }
-
+        sb.append("MODIFY BACKEND ");
         for (int i = 0; i < hostPorts.size(); i++) {
             sb.append("\"").append(hostPorts.get(i)).append("\"");
             if (i != hostPorts.size() - 1) {
@@ -93,14 +57,4 @@ public class AddBackendClause extends BackendClause {
         }
         return sb.toString();
     }
-
-    public boolean isFree() {
-        return this.isFree;
-    } 
-
-    public String getDestCluster() {
-        return destCluster;
-    }
-
 }
-

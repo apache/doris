@@ -2976,7 +2976,7 @@ public class Catalog {
      * 10. add this table to FE's meta
      * 11. add this table to ColocateGroup if necessary
      */
-     public void createTable(CreateTableStmt stmt) throws DdlException {
+    public void createTable(CreateTableStmt stmt) throws UserException {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3110,9 +3110,10 @@ public class Catalog {
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
             // partition properties should inherit table properties
-            Short replicationNum = olapTable.getDefaultReplicationNum();
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                    && !properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
@@ -3155,7 +3156,7 @@ public class Catalog {
                 ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
                 Preconditions.checkNotNull(groupSchema);
                 groupSchema.checkDistribution(distributionInfo);
-                groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
+                groupSchema.checkReplicaAllocation(singlePartitionDesc.getReplicaAlloc());
             }
 
             indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
@@ -3184,14 +3185,14 @@ public class Catalog {
                     indexIdToMeta,
                     distributionInfo,
                     dataProperty.getStorageMedium(),
-                    singlePartitionDesc.getReplicationNum(),
+                    singlePartitionDesc.getReplicaAlloc(),
                     singlePartitionDesc.getVersionInfo(),
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType()
-                    );
+            );
 
             // check again
             table = db.getTable(tableName);
@@ -3267,14 +3268,14 @@ public class Catalog {
                             partitionInfo.getItem(partitionId).getItems(),
                             ListPartitionItem.DUMMY_ITEM,
                             dataProperty,
-                            partitionInfo.getReplicationNum(partitionId),
+                            partitionInfo.getReplicaAllocation(partitionId),
                             partitionInfo.getIsInMemory(partitionId),
                             isTempPartition);
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             RangePartitionItem.DUMMY_ITEM,
                             partitionInfo.getItem(partitionId), dataProperty,
-                            partitionInfo.getReplicationNum(partitionId),
+                            partitionInfo.getReplicaAllocation(partitionId),
                             partitionInfo.getIsInMemory(partitionId),
                             isTempPartition);
                 }
@@ -3313,7 +3314,7 @@ public class Catalog {
             }
 
             partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
-                    partitionItem, info.getDataProperty(), info.getReplicationNum(), info.isInMemory());
+                    partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory());
 
             if (!isCheckpointThread()) {
                 // add to inverted index
@@ -3429,7 +3430,7 @@ public class Catalog {
                                                  Map<Long, MaterializedIndexMeta> indexIdToMeta,
                                                  DistributionInfo distributionInfo,
                                                  TStorageMedium storageMedium,
-                                                 short replicationNum,
+                                                 ReplicaAllocation replicaAlloc,
                                                  Pair<Long, Long> versionInfo,
                                                  Set<String> bfColumns,
                                                  double bfFpp,
@@ -3466,6 +3467,7 @@ public class Catalog {
         long version = partition.getVisibleVersion();
         long versionHash = partition.getVisibleVersionHash();
 
+        short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
@@ -3475,7 +3477,7 @@ public class Catalog {
             int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
-                    replicationNum, tabletMeta, tabletIdSet);
+                    replicaAlloc, tabletMeta, tabletIdSet);
 
             boolean ok = false;
             String errMsg = null;
@@ -3485,7 +3487,7 @@ public class Catalog {
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
             KeysType keysType = indexMeta.getKeysType();
-            int totalTaskNum = index.getTablets().size() * replicationNum;
+            int totalTaskNum = index.getTablets().size() * totalReplicaNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Tablet tablet : index.getTablets()) {
@@ -3551,7 +3553,7 @@ public class Catalog {
     }
 
     // Create olap table and related base index synchronously.
-    private void createOlapTable(Database db, CreateTableStmt stmt) throws DdlException {
+    private void createOlapTable(Database db, CreateTableStmt stmt) throws UserException {
         String tableName = stmt.getTableName();
         LOG.debug("begin create olap table: {}", tableName);
 
@@ -3633,23 +3635,18 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // analyze replication_num
-        short replicationNum = FeConstants.default_replication_num;
-        try {
-            boolean isReplicationNumSet = properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
-            replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-            if (isReplicationNumSet) {
-                olapTable.setReplicationNum(replicationNum);
-            }
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
+        // analyze replica allocation
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        if (replicaAlloc.isNotSet()) {
+            replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
+        olapTable.setReplicationAllocation(replicaAlloc);
 
         // set in memory
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
-        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
+        TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
         } catch (AnalysisException e) {
@@ -3671,7 +3668,7 @@ public class Catalog {
             }
             Preconditions.checkNotNull(dataProperty);
             partitionInfo.setDataProperty(partitionId, dataProperty);
-            partitionInfo.setReplicationNum(partitionId, replicationNum);
+            partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
             partitionInfo.setTabletType(partitionId, tabletType);
         }
@@ -3784,7 +3781,7 @@ public class Catalog {
                         olapTable.getIndexIdToMeta(),
                         distributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
-                        partitionInfo.getReplicationNum(partitionId),
+                        partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
                         isInMemory, storageFormat, tabletType);
@@ -3819,7 +3816,7 @@ public class Catalog {
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
                             olapTable.getIndexIdToMeta(), distributionInfo,
                             dataProperty.getStorageMedium(),
-                            partitionInfo.getReplicationNum(entry.getValue()),
+                            partitionInfo.getReplicaAllocation(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
@@ -3890,7 +3887,6 @@ public class Catalog {
 
     private void createOdbcTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
-
         List<Column> columns = stmt.getColumns();
 
         long tableId = Catalog.getCurrentCatalog().getNextId();
@@ -4054,9 +4050,9 @@ public class Catalog {
             sb.append("\nPROPERTIES (\n");
 
             // replicationNum
-            Short replicationNum = olapTable.getDefaultReplicationNum();
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-            sb.append(replicationNum).append("\"");
+            ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
+            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION).append("\" = \"");
+            sb.append(replicaAlloc.toCreateStmt()).append("\"");
 
             // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
@@ -4088,7 +4084,7 @@ public class Catalog {
 
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicationNum));
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
             }
 
             // in memory
@@ -4316,18 +4312,16 @@ public class Catalog {
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
-                               DistributionInfo distributionInfo, long version, long versionHash, short replicationNum,
+                               DistributionInfo distributionInfo, long version, long versionHash, ReplicaAllocation replicaAlloc,
                                TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
-        Preconditions.checkArgument(replicationNum > 0);
-
         DistributionInfoType distributionInfoType = distributionInfo.getType();
+        Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         if (distributionInfoType == DistributionInfoType.HASH) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             List<List<Long>> backendsPerBucketSeq = null;
             GroupId groupId = null;
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 // if this is a colocate table, try to get backend seqs from colocation index.
-                Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
                 groupId = colocateIndex.getGroup(tabletMeta.getTableId());
                 backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
             }
@@ -4353,16 +4347,17 @@ public class Catalog {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
                     if (Config.enable_strict_storage_medium_check) {
-                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
+                        chosenBackendIds = getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName,
+                                tabletMeta.getStorageMedium());
                     } else {
-                        chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                        chosenBackendIds = getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
                     }
                     backendsPerBucketSeq.add(chosenBackendIds);
                 } else {
                     // get backends from existing backend sequence
                     chosenBackendIds = backendsPerBucketSeq.get(i);
                 }
-                
+
                 // create replicas
                 for (long backendId : chosenBackendIds) {
                     long replicaId = getNextId();
@@ -4370,7 +4365,8 @@ public class Catalog {
                             tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                 }
-                Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
+                Preconditions.checkState(chosenBackendIds.size() == totalReplicaNum,
+                        chosenBackendIds.size() + " vs. " + totalReplicaNum);
             }
 
             if (groupId != null && chooseBackendsArbitrary) {
@@ -4382,24 +4378,6 @@ public class Catalog {
         } else {
             throw new DdlException("Unknown distribution type: " + distributionInfoType);
         }
-    }
-
-    // create replicas for tablet with random chosen backends
-    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName, TStorageMedium storageMedium) throws DdlException {
-        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMedium(replicationNum,
-                true, true, clusterName, storageMedium);
-        if (chosenBackendIds == null) {
-            throw new DdlException("Failed to find enough host with storage medium is " + storageMedium + " in all backends. need: " + replicationNum);
-        }
-        return chosenBackendIds;
-    }
-
-    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName) throws DdlException {
-        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true, true, clusterName);
-        if (chosenBackendIds == null) {
-            throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
-        }
-        return chosenBackendIds;
     }
 
     // Drop table
@@ -4829,7 +4807,7 @@ public class Catalog {
                                     new ModifyPartitionInfo(db.getId(), olapTable.getId(),
                                             partition.getId(),
                                             DataProperty.DEFAULT_DATA_PROPERTY,
-                                            (short) -1,
+                                            ReplicaAllocation.NOT_SET,
                                             partitionInfo.getIsInMemory(partition.getId()));
                             editLog.logModifyPartition(info);
                         }
@@ -5224,18 +5202,18 @@ public class Catalog {
                 PartitionInfo partitionInfo = table.getPartitionInfo();
                 if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                     int bucketsNum = -1;
-                    short replicationNum = -1;
+                    ReplicaAllocation replicaAlloc = null;
                     for (Partition partition : table.getPartitions()) {
                         if (bucketsNum == -1) {
                             bucketsNum = partition.getDistributionInfo().getBucketNum();
                         } else if (bucketsNum != partition.getDistributionInfo().getBucketNum()) {
                             throw new DdlException("Partitions in table " + table.getName() + " have different buckets number");
                         }
-                        
-                        if (replicationNum == -1) {
-                            replicationNum = partitionInfo.getReplicationNum(partition.getId());
-                        } else if (replicationNum != partitionInfo.getReplicationNum(partition.getId())) {
-                            throw new DdlException("Partitions in table " + table.getName() + " have different replication number");
+
+                        if (replicaAlloc == null) {
+                            replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+                        } else if (!replicaAlloc.equals(partitionInfo.getReplicaAllocation(partition.getId()))) {
+                            throw new DdlException("Partitions in table " + table.getName() + " have different replica allocation.");
                         }
                     }
                 }
@@ -5446,7 +5424,7 @@ public class Catalog {
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
-            throws DdlException {
+            throws UserException {
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -5472,10 +5450,10 @@ public class Catalog {
      * @param properties
      * @throws DdlException
      */
-    // The caller need to hold the table's write lock
-    public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+    // The caller need to hold the table write lock
+    public void modifyTableReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) throws UserException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
-        String defaultReplicationNumName = "default."+ PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             throw new DdlException("This is a partitioned table, you should specify partitions with MODIFY PARTITION clause." +
@@ -5488,35 +5466,40 @@ public class Catalog {
             throw new DdlException("Partition does not exist. name: " + partitionName);
         }
 
-        short replicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        Catalog.getCurrentSystemInfo().checkReplicaAllocation(db.getClusterName(), replicaAlloc);
+        Preconditions.checkState(!replicaAlloc.isNotSet());
         boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
         DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
-        partitionInfo.setReplicationNum(partition.getId(), replicationNum);
+        partitionInfo.setReplicaAllocation(partition.getId(), replicaAlloc);
         // log
         ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                newDataProperty, replicationNum, isInMemory);
+                newDataProperty, replicaAlloc, isInMemory);
         editLog.logModifyPartition(info);
-        LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), table.getId(), partition.getName(),
-                replicationNum);
+        LOG.debug("modify partition[{}-{}-{}] replica allocation to {}", db.getId(), table.getId(),
+                partition.getName(), replicaAlloc.toCreateStmt());
     }
 
     /**
-     * Set default replication number for a specified table.
-     * You can see the default replication number by Show Create Table stmt.
+     * Set default replication allocation for a specified table.
+     * You can see the default replication allocation by executing Show Create Table stmt.
      * @param db
      * @param table
      * @param properties
      */
-    // The caller need to hold the table's write lock
-    public void modifyTableDefaultReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
+    // The caller need to hold the table write lock
+    public void modifyTableDefaultReplicaAllocation(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+        
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             tableProperty = new TableProperty(properties);
+            table.setTableProperty(tableProperty);
         } else {
             tableProperty.modifyTableProperties(properties);
         }
-        tableProperty.buildReplicationNum();
+        tableProperty.buildReplicaAllocation();
+
         // log
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyReplicationNum(info);
@@ -6195,15 +6178,16 @@ public class Catalog {
                         olapTable.readLock();
                         try {
                             for (Partition partition : olapTable.getPartitions()) {
-                                final short replicationNum = olapTable.getPartitionInfo()
-                                        .getReplicationNum(partition.getId());
+                                ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo()
+                                        .getReplicaAllocation(partition.getId());
+                                short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                                     if (materializedIndex.getState() != IndexState.NORMAL) {
                                         continue;
                                     }
                                     for (Tablet tablet : materializedIndex.getTablets()) {
                                         int replicaNum = 0;
-                                        int quorum = replicationNum / 2 + 1;
+                                        int quorum = totalReplicaNum / 2 + 1;
                                         for (Replica replica : tablet.getReplicas()) {
                                             if (replica.getState() != ReplicaState.CLONE
                                                     && beIds.contains(replica.getBackendId())) {
@@ -6525,7 +6509,7 @@ public class Catalog {
                         copiedTbl.getIndexIdToMeta(),
                         copiedTbl.getDefaultDistributionInfo(),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
-                        copiedTbl.getPartitionInfo().getReplicationNum(oldPartitionId),
+                        copiedTbl.getPartitionInfo().getReplicaAllocation(oldPartitionId),
                         null /* version info */,
                         copiedTbl.getCopiedBfColumns(),
                         copiedTbl.getBfFpp(),

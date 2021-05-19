@@ -28,6 +28,10 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,14 +40,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
-import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import java.lang.reflect.Type;
+import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.lang.reflect.Type;
-import java.util.List;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
@@ -138,9 +139,9 @@ public class ColocateMetaService extends RestBaseController {
         List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         //check the Backend id
         for (List<Long> backendIds : backendsPerBucketSeq) {
-            if (backendIds.size() != groupSchema.getReplicationNum()) {
+            if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {
                 return ResponseEntityBuilder.okWithCommonError("Invalid backend num per bucket. expected: "
-                        + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
+                        + groupSchema.getReplicaAlloc().getTotalReplicaNum() + ", actual: " + backendIds.size());
             }
             for (Long beId : backendIds) {
                 if (!clusterBackendIds.contains(beId)) {

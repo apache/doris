@@ -24,10 +24,10 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Multimap;
 
-import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -38,7 +38,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.io.File;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,7 +57,7 @@ public class ColocateTableTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
 
     }
@@ -129,7 +128,7 @@ public class ColocateTableTest {
         Assert.assertNotNull(groupSchema);
         Assert.assertEquals(dbId, groupSchema.getGroupId().dbId);
         Assert.assertEquals(1, groupSchema.getBucketsNum());
-        Assert.assertEquals(1, groupSchema.getReplicationNum());
+        Assert.assertEquals((short) 1, groupSchema.getReplicaAlloc().getTotalReplicaNum());
     }
 
     @Test
@@ -246,7 +245,7 @@ public class ColocateTableTest {
                 ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication num: 1");
+        expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
                 " `k1` int NULL COMMENT \"\",\n" +
                 " `k2` varchar(10) NULL COMMENT \"\"\n" +

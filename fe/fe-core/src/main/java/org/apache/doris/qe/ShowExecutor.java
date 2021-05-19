@@ -90,6 +90,7 @@ import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
@@ -1737,8 +1738,10 @@ public class ShowExecutor {
                     }
                     DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
-                    int replicationNum = dynamicPartitionProperty.getReplicationNum();
-                    replicationNum = (replicationNum == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) ? olapTable.getDefaultReplicationNum() : replicationNum;
+                    ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
+                    if (replicaAlloc.isNotSet()) {
+                        replicaAlloc = olapTable.getDefaultReplicaAllocation();
+                    }
                     rows.add(Lists.newArrayList(
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
@@ -1747,7 +1750,7 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
-                            String.valueOf(replicationNum),
+                            replicaAlloc.toCreateStmt(),
                             dynamicPartitionProperty.getStartOfInfo(),
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),

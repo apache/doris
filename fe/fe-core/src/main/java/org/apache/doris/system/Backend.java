@@ -25,6 +25,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
@@ -112,6 +113,8 @@ public class Backend implements Writable {
     // additional backendStatus information for BE, display in JSON format
     @SerializedName("backendStatus")
     private BackendStatus backendStatus = new BackendStatus();
+    @SerializedName("tag")
+    private Tag tag = Tag.DEFAULT_BACKEND_TAG;
 
     public Backend() {
         this.host = "";
@@ -128,7 +131,6 @@ public class Backend implements Writable {
 
         this.ownerClusterName = "";
         this.backendState = BackendState.free.ordinal();
-        
         this.decommissionType = DecommissionType.SystemDecommission.ordinal();
     }
 
@@ -696,6 +698,14 @@ public class Backend implements Writable {
         @SerializedName("lastStreamLoadTime")
         // the last time when the stream load status was reported by backend
         public long lastStreamLoadTime = -1;
+    }
+
+    public void setTag(Tag tag) {
+        this.tag = tag;
+    }
+
+    public Tag getTag() {
+        return tag;
     }
 }
 

@@ -408,14 +408,16 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
-            long visibleVersion, long visibleVersionHash, int replicationNum,
+            long visibleVersion, long visibleVersionHash, ReplicaAllocation replicaAlloc,
             List<Long> aliveBeIdsInCluster) {
 
+        // FIXME(cmy): should be aware of tag info
+        short replicationNum = replicaAlloc.getTotalReplicaNum();
         int alive = 0;
         int aliveAndVersionComplete = 0;
         int stable = 0;
         int availableInCluster = 0;
-        
+
         Replica needFurtherRepairReplica = null;
         Set<String> hosts = Sets.newHashSet();
         for (Replica replica : replicas) {
@@ -536,19 +538,20 @@ public class Tablet extends MetaObject implements Writable {
      *      
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,4,5
-     *      
+     *
      * 2. Version incomplete:
      *      backend matched, but some replica(in backends set)'s version is incomplete
-     *      
+     *
      * 3. Redundant:
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,3,4
-     *      
+     *
      * No need to check if backend is available. We consider all backends in 'backendsSet' are available,
      * If not, unavailable backends will be relocated by CalocateTableBalancer first.
      */
-    public TabletStatus getColocateHealthStatus(long visibleVersion, int replicationNum, Set<Long> backendsSet) {
-
+    public TabletStatus getColocateHealthStatus(long visibleVersion, ReplicaAllocation replicaAlloc, Set<Long> backendsSet) {
+        // FIXME(cmy): need to be aware of the tag info
+        Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         // 1. check if replicas' backends are mismatch
         Set<Long> replicaBackendIds = getBackendIds();
         if (!replicaBackendIds.containsAll(backendsSet)) {
@@ -569,7 +572,7 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 3. check redundant
-        if (replicas.size() > replicationNum) {
+        if (replicas.size() > totalReplicaNum) {
             return TabletStatus.COLOCATE_REDUNDANT;
         }
 

@@ -75,14 +75,14 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -174,7 +174,8 @@ public class DeleteHandler implements Writable {
                         throw new DdlException("Partition does not exist. name: " + partName);
                     }
                     partitions.add(partition);
-                    partitionReplicaNum.put(partition.getId(), ((OlapTable) table).getPartitionInfo().getReplicationNum(partition.getId()));
+                    partitionReplicaNum.put(partition.getId(),
+                            ((OlapTable) table).getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum());
                 }
 
                 List<String> deleteConditions = Lists.newArrayList();

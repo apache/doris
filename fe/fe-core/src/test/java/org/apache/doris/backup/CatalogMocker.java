@@ -41,6 +41,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
@@ -238,7 +239,7 @@ public class CatalogMocker {
         Partition partition =
                 new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setReplicationNum(TEST_SINGLE_PARTITION_ID, (short) 3);
+        partitionInfo.setReplicaAllocation(TEST_SINGLE_PARTITION_ID, new ReplicaAllocation((short) 3));
         partitionInfo.setIsInMemory(TEST_SINGLE_PARTITION_ID, false);
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
@@ -301,23 +302,23 @@ public class CatalogMocker {
 
         PartitionKey rangeP2Lower =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         PartitionKey rangeP2Upper =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
         PartitionItem item2 = new RangePartitionItem(rangeP2);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item2);
 
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, (short) 3);
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, (short) 3);
+        rangePartitionInfo.setReplicaAllocation(TEST_PARTITION1_ID, new ReplicaAllocation((short) 3));
+        rangePartitionInfo.setReplicaAllocation(TEST_PARTITION2_ID, new ReplicaAllocation((short) 3));
         DataProperty dataPropertyP1 = new DataProperty(TStorageMedium.HDD);
         DataProperty dataPropertyP2 = new DataProperty(TStorageMedium.HDD);
         rangePartitionInfo.setDataProperty(TEST_PARTITION1_ID, dataPropertyP1);
         rangePartitionInfo.setDataProperty(TEST_PARTITION2_ID, dataPropertyP2);
 
         OlapTable olapTable2 = new OlapTable(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA,
-                                             KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
+                KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
         Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);

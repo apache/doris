@@ -61,6 +61,7 @@ public class Tag implements Writable {
     public static final String VALUE_STORE = "store";
     public static final String VALUE_COMPUTATION = "computation";
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
+    public static final String VALUE_DEFAULT_TAG = "default";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
@@ -68,6 +69,12 @@ public class Tag implements Writable {
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_DEFAULT_CLUSTER);
     private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+
+    public static final Tag DEFAULT_BACKEND_TAG;
+
+    static {
+        DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
+    }
 
     @SerializedName(value = "type")
     public String type;
@@ -98,7 +105,7 @@ public class Tag implements Writable {
             return false;
         }
         Tag otherTag = (Tag) other;
-        return type.equalsIgnoreCase(otherTag.type) && value.equalsIgnoreCase(otherTag.value);
+        return type.equals(otherTag.type) && value.equals(otherTag.value);
     }
 
     @Override

@@ -449,7 +449,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                 long visiableVersion = partition.getVisibleVersion();
                 long visiableVersionHash = partition.getVisibleVersionHash();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicationNum(partition.getId());
+                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
+
 
                 MaterializedIndex rollupIndex = entry.getValue();
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {

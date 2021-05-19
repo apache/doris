@@ -26,6 +26,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -535,7 +536,7 @@ public class ReportHandler extends Daemon {
                         continue;
                     }
 
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                     long indexId = tabletMeta.getIndexId();
                     MaterializedIndex index = partition.getIndex(indexId);
@@ -976,7 +977,7 @@ public class ReportHandler extends Daemon {
             if (partition == null) {
                 throw new MetaNotFoundException("partition[" + partitionId + "] does not exist");
             }
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+            ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
 
             MaterializedIndex materializedIndex = partition.getIndex(indexId);
             if (materializedIndex == null) {
@@ -1012,7 +1013,7 @@ public class ReportHandler extends Daemon {
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Pair<TabletStatus, TabletSchedCtx.Priority> status = tablet.getHealthStatusWithPriority(infoService,
                     db.getClusterName(), visibleVersion, visibleVersionHash,
-                    replicationNum, aliveBeIdsInCluster);
+                    replicaAlloc, aliveBeIdsInCluster);
 
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
                     || status.first == TabletStatus.UNRECOVERABLE) {
@@ -1065,7 +1066,7 @@ public class ReportHandler extends Daemon {
                     }
                 }
                 throw new MetaNotFoundException(
-                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicationNum + "]");
+                        "replica is enough[" + tablet.getReplicas().size() + "-" + replicaAlloc.toCreateStmt() + "]");
             }
         } finally {
             olapTable.writeUnlock();

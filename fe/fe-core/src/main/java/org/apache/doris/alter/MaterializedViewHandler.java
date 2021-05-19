@@ -368,7 +368,7 @@ public class MaterializedViewHandler extends AlterHandler {
             MaterializedIndex mvIndex = new MaterializedIndex(mvIndexId, IndexState.SHADOW);
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             TabletMeta mvTabletMeta = new TabletMeta(dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+            short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
             for (Tablet baseTablet : baseIndex.getTablets()) {
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = catalog.getNextId();

@@ -454,7 +454,7 @@ public class Database extends MetaObject implements Writable {
                 table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                         if (ret < replicationNum) {
                             ret = replicationNum;
                         }

@@ -213,7 +213,7 @@ public class CatalogTestUtil {
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(partitionId, (short) 3);
+        partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);

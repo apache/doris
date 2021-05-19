@@ -51,6 +51,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -1318,7 +1319,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId, newSchemaHash, medium);
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+                ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
+                Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = catalog.getNextId();
@@ -1351,7 +1353,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         healthyReplicaNum++;
                     }
 
-                    if (healthyReplicaNum < replicationNum / 2 + 1) {
+                    if (healthyReplicaNum < totalReplicaNum / 2 + 1) {
                         /*
                          * TODO(cmy): This is a bad design.
                          * Because in the schema change job, we will only send tasks to the shadow replicas that have been created,
@@ -1635,12 +1637,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-                        Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Preconditions.checkNotNull(properties.get("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+                        Catalog.getCurrentCatalog().modifyTableDefaultReplicaAllocation(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Catalog.getCurrentCatalog().modifyTableReplicaAllocation(db, olapTable, properties);
                         return;
                     }
                 }

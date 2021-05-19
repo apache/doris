@@ -51,7 +51,7 @@ public class CreateFunctionTest {
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         FeConstants.runningUnitTest = true;
     }
 

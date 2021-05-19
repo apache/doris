@@ -424,6 +424,11 @@ public class EditLog {
                     Catalog.getCurrentSystemInfo().replayDropBackend(be);
                     break;
                 }
+                case OperationType.OP_MODIFY_BACKEND: {
+                    Backend be = (Backend) journal.getData();
+                    Catalog.getCurrentSystemInfo().replayModifyBackend(be);
+                    break;
+                }
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().updateBackendState(be);
@@ -1044,6 +1049,10 @@ public class EditLog {
 
     public void logDropBackend(Backend be) {
         logEdit(OperationType.OP_DROP_BACKEND, be);
+    }
+
+    public void logModifyBackend(Backend be) {
+        logEdit(OperationType.OP_MODIFY_BACKEND, be);
     }
 
     public void logAddFrontend(Frontend fe) {

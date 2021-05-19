@@ -39,13 +39,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.File;
 import java.util.List;
@@ -64,7 +64,7 @@ public class AlterTest {
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -270,28 +270,28 @@ public class AlterTest {
         alterTable(stmt, false);
 
         // set table's default replication num
-        Assert.assertEquals(Short.valueOf("1"), tbl.getDefaultReplicationNum());
+        Assert.assertEquals((short) 1, tbl.getDefaultReplicaAllocation().getTotalReplicaNum());
         stmt = "alter table test.tbl1 set ('default.replication_num' = '3');";
         alterTable(stmt, false);
-        Assert.assertEquals(Short.valueOf("3"), tbl.getDefaultReplicationNum());
+        Assert.assertEquals((short) 3, tbl.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         // set range table's real replication num
         Partition p1 = tbl.getPartition("p1");
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicationNum(p1.getId())));
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
         stmt = "alter table test.tbl1 set ('replication_num' = '3');";
         alterTable(stmt, true);
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicationNum(p1.getId())));
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum()));
 
         // set un-partitioned table's real replication num
         OlapTable tbl2 = (OlapTable) db.getTable("tbl2");
         Partition partition = tbl2.getPartition(tbl2.getName());
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl2.getPartitionInfo().getReplicationNum(partition.getId())));
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         stmt = "alter table test.tbl2 set ('replication_num' = '3');";
-        alterTable(stmt, false);
-        Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl2.getPartitionInfo().getReplicationNum(partition.getId())));
+        alterTable(stmt, true);
+        // Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl2.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
 
         Thread.sleep(5000); // sleep to wait dynamic partition scheduler run
-        // add partition without set replication num
+        // add partition without set replication num, and default num is 3.
         stmt = "alter table test.tbl1 add partition p4 values less than('2020-04-10')";
         alterTable(stmt, true);
 
@@ -311,16 +311,16 @@ public class AlterTest {
         Partition p4 = tbl4.getPartition("p4");
 
         // batch update replication_num property
-        String stmt = "alter table test.tbl4 modify partition (p1, p2, p4) set ('replication_num' = '3')";
+        String stmt = "alter table test.tbl4 modify partition (p1, p2, p4) set ('replication_num' = '1')";
         List<Partition> partitionList = Lists.newArrayList(p1, p2, p4);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
-        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(p3.getId())));
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(p3.getId()).getTotalReplicaNum()));
 
         // batch update in_memory property
         stmt = "alter table test.tbl4 modify partition (p1, p2, p3) set ('in_memory' = 'true')";
@@ -355,7 +355,7 @@ public class AlterTest {
         partitionList = Lists.newArrayList(p1, p2, p3, p4);
         alterTable(stmt, false);
         for (Partition partition : partitionList) {
-            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicationNum(partition.getId())));
+            Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
     }
 

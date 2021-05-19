@@ -46,12 +46,15 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -186,11 +189,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             // construct partition desc
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
-            HashMap<String, String> partitionProperties = Maps.newHashMap();
-            if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
-                partitionProperties.put("replication_num", String.valueOf(olapTable.getDefaultReplicationNum()));
+            HashMap<String, String> partitionProperties = new HashMap<>(1);
+            if (dynamicPartitionProperty.getReplicaAllocation().isNotSet()) {
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        olapTable.getDefaultReplicaAllocation().toCreateStmt());
             } else {
-                partitionProperties.put("replication_num", String.valueOf(dynamicPartitionProperty.getReplicationNum()));
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        dynamicPartitionProperty.getReplicaAllocation().toCreateStmt());
             }
 
             if (hotPartitionNum > 0) {

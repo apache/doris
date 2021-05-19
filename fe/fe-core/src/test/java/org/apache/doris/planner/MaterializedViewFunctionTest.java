@@ -56,7 +56,7 @@ public class MaterializedViewFunctionTest {
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withEnableMV().withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
     }
