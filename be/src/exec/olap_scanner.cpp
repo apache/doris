@@ -47,7 +47,11 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _tuple_idx(parent->_tuple_idx),
-          _direct_conjunct_size(parent->_direct_conjunct_size) {
+          _direct_conjunct_size(parent->_direct_conjunct_size),
+          _mem_tracker(MemTracker::CreateTracker(runtime_state->fragment_mem_tracker()->limit(),
+                                             "OlapScanner",
+                                             runtime_state->fragment_mem_tracker(),
+                                             true, true, MemTrackerLevel::DEBUG)) {
     _reader.reset(new Reader());
     DCHECK(_reader.get() != NULL);
 
@@ -90,7 +94,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
             OLAPStatus acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_params.rs_readers);
+                    _tablet->capture_rs_readers(rd_version, &_params.rs_readers, _mem_tracker);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -248,11 +252,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    auto tracker = MemTracker::CreateTracker(state->fragment_mem_tracker()->limit(),
-                                             "OlapScanner:" + print_id(state->query_id()),
-                                             state->fragment_mem_tracker());
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
-
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);

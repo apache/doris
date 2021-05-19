@@ -215,9 +215,9 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     _query_mem_tracker =
             MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
-                                      _exec_env->process_mem_tracker());
+                                      _exec_env->process_mem_tracker(), true, false);
     _instance_mem_tracker = MemTracker::CreateTracker(
-            &_profile, -1, "RuntimeState:instance:" + print_id(query_id), _query_mem_tracker);
+            &_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext

@@ -17,6 +17,8 @@
 
 #include "beta_rowset_reader.h"
 
+#include <utility>
+
 #include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
 #include "olap/row_block.h"
@@ -28,12 +30,17 @@
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                                   const std::shared_ptr<MemTracker>& parent_tracker)
-        : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(parent_tracker) {
+                                   std::shared_ptr<MemTracker>  parent_tracker)
+        : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(std::move(parent_tracker)) {
     _rowset->aquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    // If do not init the RowsetReader with a parent_tracker, use the runtime_state instance_mem_tracker
+    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
+        _parent_tracker = read_context->runtime_state->instance_mem_tracker();
+    }
+
     RETURN_NOT_OK(_rowset->load(true, _parent_tracker));
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -110,13 +117,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // init input block
     _input_block.reset(new RowBlockV2(schema, 1024, _parent_tracker));
 
-    // init output block and row
-    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
-        _output_block.reset(new RowBlock(read_context->tablet_schema,
-                                         read_context->runtime_state->instance_mem_tracker()));
-    } else {
-        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
-    }
+    // init input/output block and row
+    _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+
     RowBlockInfo output_block_info;
     output_block_info.row_num = 1024;
     output_block_info.null_supported = true;

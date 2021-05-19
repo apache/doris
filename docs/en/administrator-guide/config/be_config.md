@@ -874,6 +874,7 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 ### `aws_log_level`
 
 * Type: int32
+
 * Description: log level of AWS SDK, 
   ```
      Off = 0,
@@ -884,4 +885,15 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
      Debug = 5,
      Trace = 6
   ```
+  
 * Default: 3
+
+### `mem_tracker_level`
+
+* Type: int16
+* Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
+  ```
+    RELEASE = 0
+    DEBUG = 1
+  ```
+* Default: 0
