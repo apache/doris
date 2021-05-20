@@ -36,7 +36,8 @@ OdbcScanNode::OdbcScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _connect_string(std::move(tnode.odbc_scan_node.connect_string)),
           _query_string(std::move(tnode.odbc_scan_node.query_string)),
           _tuple_id(tnode.odbc_scan_node.tuple_id),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
 
 OdbcScanNode::~OdbcScanNode() {}
 
@@ -115,7 +116,8 @@ Status OdbcScanNode::write_text_slot(char* value, int value_length, SlotDescript
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         std::stringstream ss;
-		ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`" << slot->col_name() + "`";
+        ss << "Fail to convert odbc value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 

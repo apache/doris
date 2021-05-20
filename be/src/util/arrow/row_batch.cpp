@@ -168,7 +168,7 @@ class FromRowBatchConverter : public arrow::TypeVisitor {
 public:
     FromRowBatchConverter(const RowBatch& batch, const std::shared_ptr<arrow::Schema>& schema,
                           arrow::MemoryPool* pool)
-            : _batch(batch), _schema(schema), _pool(pool) {
+            : _batch(batch), _schema(schema), _pool(pool), _cur_field_idx(-1) {
         // obtain local time zone
         time_t ts = 0;
         struct tm t;

@@ -30,8 +30,11 @@
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                                   std::shared_ptr<MemTracker>  parent_tracker)
-        : _rowset(std::move(rowset)), _stats(&_owned_stats), _parent_tracker(std::move(parent_tracker)) {
+                                   std::shared_ptr<MemTracker> parent_tracker)
+        : _context(nullptr),
+          _rowset(std::move(rowset)),
+          _stats(&_owned_stats),
+          _parent_tracker(std::move(parent_tracker)) {
     _rowset->aquire();
 }
 
@@ -65,8 +68,9 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
     }
     if (read_context->delete_handler != nullptr) {
-        read_context->delete_handler->get_delete_conditions_after_version(_rowset->end_version(),
-                &read_options.delete_conditions, read_options.delete_condition_predicates.get());
+        read_context->delete_handler->get_delete_conditions_after_version(
+                _rowset->end_version(), &read_options.delete_conditions,
+                read_options.delete_condition_predicates.get());
     }
     if (read_context->predicates != nullptr) {
         read_options.column_predicates.insert(read_options.column_predicates.end(),

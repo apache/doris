@@ -36,7 +36,8 @@ MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
           _tuple_id(tnode.mysql_scan_node.tuple_id),
           _columns(tnode.mysql_scan_node.columns),
           _filters(tnode.mysql_scan_node.filters),
-          _tuple_desc(nullptr) {}
+          _tuple_desc(nullptr),
+          _slot_num(0) {}
 
 MysqlScanNode::~MysqlScanNode() {}
 
@@ -136,7 +137,8 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescrip
     if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
                                      _tuple_pool.get())) {
         std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`" << slot->col_name() + "`";
+        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
+           << slot->col_name() + "`";
         return Status::InternalError(ss.str());
     }
 
