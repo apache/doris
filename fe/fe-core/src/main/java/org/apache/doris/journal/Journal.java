@@ -19,6 +19,7 @@ package org.apache.doris.journal;
 
 import org.apache.doris.common.io.Writable;
 
+import java.io.IOException;
 import java.util.List;
 
 public interface Journal {
@@ -44,9 +45,9 @@ public interface Journal {
     // Get all the journals whose id: fromKey <= id <= toKey
     // toKey = -1 means toKey = Long.Max_Value
     public JournalCursor read(long fromKey, long toKey);
-    
+
     // Write a journal and sync to disk
-    public void write(short op, Writable writable);
+    public void write(short op, Writable writable) throws IOException;
     
     // Delete journals whose max id is less than deleteToJournalId
     public void deleteJournals(long deleteJournalToId);

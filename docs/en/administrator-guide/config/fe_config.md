@@ -182,6 +182,12 @@ It should be less than 'max_running_txn_num_per_db'
 
 ### `bdbje_lock_timeout_second`
 
+### `bdbje_replica_ack_timeout_second`
+
+Metadata will be synchronously written to multiple Follower FEs. This parameter is used to control the timeout period for Master FE to wait for Follower FE to send ack. When the written data is large, the ack time may be longer. If it times out, the metadata writing will fail and the FE process will exit. At this time, you can increase this parameter appropriately.
+
+Default: 10 seconds.
+
 ### `broker_load_default_timeout_second`
 
 ### `brpc_idle_wait_max_time`
