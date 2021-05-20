@@ -390,7 +390,7 @@ public:
         }
         return std::accumulate(
                 roarings.cbegin(), roarings.cend(), (uint64_t)0,
-                [](uint64_t previous, const std::pair<uint32_t, Roaring>& map_entry) {
+                [](uint64_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
                     return previous + map_entry.second.cardinality();
                 });
     }
@@ -400,7 +400,7 @@ public:
     */
     bool isEmpty() const {
         return std::all_of(roarings.cbegin(), roarings.cend(),
-                           [](const std::pair<uint32_t, Roaring>& map_entry) {
+                           [](const std::pair<const uint32_t, Roaring>& map_entry) {
                                return map_entry.second.isEmpty();
                            });
     }
@@ -415,7 +415,7 @@ public:
         // to avoid a clash with the Windows.h header under Windows
         return roarings.size() == ((size_t)(std::numeric_limits<uint32_t>::max)()) + 1
                        ? std::all_of(roarings.cbegin(), roarings.cend(),
-                                     [](const std::pair<uint32_t, Roaring>& roaring_map_entry) {
+                                     [](const std::pair<const uint32_t, Roaring>& roaring_map_entry) {
                                          // roarings within map are saturated if cardinality
                                          // is uint32_t max + 1
                                          return roaring_map_entry.second.cardinality() ==
@@ -458,7 +458,7 @@ public:
         // Annoyingly, VS 2017 marks std::accumulate() as [[nodiscard]]
         (void)std::accumulate(
                 roarings.cbegin(), roarings.cend(), ans,
-                [](uint64_t* previous, const std::pair<uint32_t, Roaring>& map_entry) {
+                [](uint64_t* previous, const std::pair<const uint32_t, Roaring>& map_entry) {
                     for (uint32_t low_bits : map_entry.second)
                         *previous++ = uniteBytes(map_entry.first, low_bits);
                     return previous;
@@ -601,7 +601,7 @@ public:
      */
     void iterate(roaring_iterator64 iterator, void* ptr) const {
         std::for_each(roarings.begin(), roarings.cend(),
-                      [=](const std::pair<uint32_t, Roaring>& map_entry) {
+                      [=](const std::pair<const uint32_t, Roaring>& map_entry) {
                           roaring_iterate64(&map_entry.second.roaring, iterator,
                                             uint64_t(map_entry.first) << 32, ptr);
                       });
@@ -669,7 +669,7 @@ public:
         // push map size
         buf = (char*)encode_varint64((uint8_t*)buf, roarings.size());
         std::for_each(roarings.cbegin(), roarings.cend(),
-                      [&buf](const std::pair<uint32_t, Roaring>& map_entry) {
+                      [&buf](const std::pair<const uint32_t, Roaring>& map_entry) {
                           // push map key
                           encode_fixed32_le((uint8_t*)buf, map_entry.first);
                           buf += sizeof(uint32_t);
@@ -731,7 +731,7 @@ public:
         // start with type code, map size and size of keys for each map entry
         size_t init = 1 + varint_length(roarings.size()) + roarings.size() * sizeof(uint32_t);
         return std::accumulate(roarings.cbegin(), roarings.cend(), init,
-                               [=](size_t previous, const std::pair<uint32_t, Roaring>& map_entry) {
+                               [=](size_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
                                    // add in bytes used by each Roaring
                                    return previous + map_entry.second.getSizeInBytes();
                                });
@@ -805,7 +805,7 @@ public:
                     },
                     (void*)&outer_iter_data);
             std::for_each(
-                    ++map_iter, roarings.cend(), [](const std::pair<uint32_t, Roaring>& map_entry) {
+                    ++map_iter, roarings.cend(), [](const std::pair<const uint32_t, Roaring>& map_entry) {
                         map_entry.second.iterate(
                                 [](uint32_t low_bits, void* high_bits) -> bool {
                                     std::printf(",%llu", (long long unsigned)uniteBytes(
@@ -844,7 +844,7 @@ public:
                     (void*)&outer_iter_data);
             std::for_each(
                     ++map_iter, roarings.cend(),
-                    [&outer_iter_data](const std::pair<uint32_t, Roaring>& map_entry) {
+                    [&outer_iter_data](const std::pair<const uint32_t, Roaring>& map_entry) {
                         outer_iter_data.high_bits = map_entry.first;
                         map_entry.second.iterate(
                                 [](uint32_t low_bits, void* inner_iter_data) -> bool {
