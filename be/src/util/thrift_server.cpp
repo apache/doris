@@ -17,7 +17,7 @@
 
 #include "util/thrift_server.h"
 
-#include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/concurrency/PosixThreadFactory.h>
 #include <thrift/concurrency/Thread.h>
 #include <thrift/concurrency/ThreadManager.h>
 #include <thrift/protocol/TBinaryProtocol.h>
@@ -287,7 +287,7 @@ Status ThriftServer::start() {
             new apache::thrift::protocol::TBinaryProtocolFactory());
     std::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
     std::shared_ptr<apache::thrift::concurrency::ThreadFactory> thread_factory(
-            new apache::thrift::concurrency::ThreadFactory());
+            new apache::thrift::concurrency::PosixThreadFactory());
     std::shared_ptr<apache::thrift::transport::TServerTransport> fe_server_transport;
     std::shared_ptr<apache::thrift::transport::TTransportFactory> transport_factory;
     std::shared_ptr<apache::thrift::transport::TNonblockingServerSocket> socket(

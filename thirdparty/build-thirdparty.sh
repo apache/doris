@@ -587,13 +587,13 @@ build_arrow() {
     fi	
     cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
 
-    # avoid file conflict with the older thrift 0.9 we rename thrift 0.13, rename at here because of build arrow need thrift, 
+    # avoid file conflict with the older thrift 0.9 we rename thrift 0.12, rename at here because of build arrow need thrift, 
     # if we use a new version of docker build env, we should remove this, TODO(yangzhg)
-    mkdir ${TP_INCLUDE_DIR}/thrift13/ && mv ${TP_INCLUDE_DIR}/thrift ${TP_INCLUDE_DIR}/thrift13/ && \
-    mv $TP_INSTALL_DIR/lib64/libthrift.a $TP_INSTALL_DIR/lib64/libthrift.13.a && \
-    mv $TP_INSTALL_DIR/lib64/libthriftnb.a $TP_INSTALL_DIR/lib64/libthriftnb.13.a && \
-    mv $TP_INSTALL_DIR/lib64/libthriftz.a $TP_INSTALL_DIR/lib64/libthriftz.13.a && \
-    mv $TP_INSTALL_DIR/bin/thrift $TP_INSTALL_DIR/bin/thrift13
+    mkdir ${TP_INCLUDE_DIR}/thrift12/ && mv ${TP_INCLUDE_DIR}/thrift ${TP_INCLUDE_DIR}/thrift12/ && \
+    mv $TP_INSTALL_DIR/lib64/libthrift.a $TP_INSTALL_DIR/lib64/libthrift.12.a && \
+    mv $TP_INSTALL_DIR/lib64/libthriftnb.a $TP_INSTALL_DIR/lib64/libthriftnb.12.a && \
+    mv $TP_INSTALL_DIR/lib64/libthriftz.a $TP_INSTALL_DIR/lib64/libthriftz.12.a && \
+    mv $TP_INSTALL_DIR/bin/thrift $TP_INSTALL_DIR/bin/thrift12
 }
 
 # s2

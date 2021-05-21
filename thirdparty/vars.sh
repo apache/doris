@@ -67,10 +67,10 @@ OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
 
 # thrift
-THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
-THRIFT_NAME=thrift-0.13.0.tar.gz
-THRIFT_SOURCE=thrift-0.13.0
-THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
+THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.12.0/thrift-0.12.0.tar.gz"
+THRIFT_NAME=thrift-0.12.0.tar.gz
+THRIFT_SOURCE=thrift-0.12.0
+THRIFT_MD5SUM="3deebbb4d1ca77dd9c9e009a1ea02183"
 
 # llvm
 LLVM_DOWNLOAD="http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz"

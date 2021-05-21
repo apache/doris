@@ -19,7 +19,7 @@
 
 #include <arrow/record_batch.h>
 #include <gperftools/heap-profiler.h>
-#include <thrift/concurrency/ThreadFactory.h>
+#include <thrift/concurrency/PosixThreadFactory.h>
 #include <thrift/processor/TMultiplexedProcessor.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -64,7 +64,7 @@ using apache::thrift::TProcessor;
 using apache::thrift::TMultiplexedProcessor;
 using apache::thrift::transport::TTransportException;
 using apache::thrift::concurrency::ThreadFactory;
-using apache::thrift::concurrency::ThreadFactory;
+using apache::thrift::concurrency::PosixThreadFactory;
 
 BackendService::BackendService(ExecEnv* exec_env)
         : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
@@ -78,7 +78,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
-    std::shared_ptr<ThreadFactory> thread_factory(new ThreadFactory());
+    std::shared_ptr<ThreadFactory> thread_factory(new PosixThreadFactory());
 
     std::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
 
