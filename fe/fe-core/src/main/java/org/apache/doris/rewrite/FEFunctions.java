@@ -39,6 +39,8 @@ import org.joda.time.LocalDateTime;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
 
 /**
  * compute functions in FE.
@@ -112,6 +114,27 @@ public class FEFunctions {
      public static DateLiteral secondsAdd(LiteralExpr date, LiteralExpr second) throws AnalysisException {
         DateLiteral dateLiteral = (DateLiteral) date;
         return dateLiteral.plusSeconds((int) second.getLongValue());
+    }
+
+    @FEFunction(name = "last_day", argTypes = { "DATETIME"}, returnType = "DATE")
+    public static DateLiteral lastDay(LiteralExpr date) throws AnalysisException {
+        int year = (int) ((DateLiteral) date).getYear();
+        int month = (int) ((DateLiteral) date).getMonth();
+        Calendar cal = Calendar.getInstance();
+        cal.set(Calendar.YEAR, year);
+        cal.set(Calendar.MONTH, month);
+        int lastDay = cal.getMinimum(Calendar.DATE);
+        cal.set(Calendar.DAY_OF_MONTH, lastDay - 1);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        String result = sdf.format(cal.getTime());
+        try {
+            DateLiteral dateLiteral = new DateLiteral();
+            dateLiteral.fromDateFormatStr("%Y-%m-%d", result, false);
+            return dateLiteral;
+        } catch (InvalidFormatException e) {
+            e.printStackTrace();
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     @FEFunction(name = "date_format", argTypes = { "DATETIME", "VARCHAR" }, returnType = "VARCHAR")
@@ -373,8 +396,8 @@ public class FEFunctions {
 
     @FEFunction(name = "divide", argTypes = { "DOUBLE", "DOUBLE" }, returnType = "DOUBLE")
     public static FloatLiteral divideDouble(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (second.getDoubleValue() == 0.0) {	
-            return null;	
+        if (second.getDoubleValue() == 0.0) {
+            return null;
         }
         double result = first.getDoubleValue() / second.getDoubleValue();
         return new FloatLiteral(result, Type.DOUBLE);
@@ -384,8 +407,8 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimal(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-        if (right.compareTo(BigDecimal.ZERO) == 0) {	
-            return null;	
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
         }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);
@@ -395,8 +418,8 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimalV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-        if (right.compareTo(BigDecimal.ZERO) == 0) {	
-            return null;	
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
         }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);

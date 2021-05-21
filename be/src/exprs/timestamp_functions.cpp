@@ -608,6 +608,28 @@ DateTimeVal TimestampFunctions::time_round(FunctionContext* ctx, const DateTimeV
     return new_ts_val;
 }
 
+DateTimeVal TimestampFunctions::last_day(FunctionContext* ctx, const DateTimeVal& ts_val) {
+    if (ts_val.is_null) {
+        return DateTimeVal::null();
+    }
+    const DateTimeValue& ts_value = DateTimeValue::from_datetime_val(ts_val);
+    int last_days[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int day ;
+    int year = ts_value.year();
+    int month = ts_value.month();
+    if((year % 4 == 0 && year % 100 !=0)||(year % 400 ==0 )) {
+	 day = 29 ;
+    } else {
+         day = last_days[month - 1]; 
+    }
+    DateTimeVal ts_val_last_day;
+    uint64_t dst_value = DateTimeValue::calc_daynr(year,month,day);
+    DateTimeValue dst_tv ;
+    dst_tv.from_date_daynr(dst_value);
+    dst_tv.to_datetime_val(&ts_val_last_day);  
+    return ts_val_last_day;
+}
+
 StringVal TimestampFunctions::date_format(FunctionContext* ctx, const DateTimeVal& ts_val,
                                           const StringVal& format) {
     if (ts_val.is_null || format.is_null) {
