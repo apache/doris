@@ -132,8 +132,12 @@ public class GsonUtils {
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter());
 
+    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
+
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
+
+    public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*
      * The exclusion strategy of GSON serialization.
