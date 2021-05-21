@@ -18,7 +18,7 @@
 #include "util/thrift_util.h"
 
 #include <thrift/Thrift.h>
-#include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/concurrency/ThreadManager.h>
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/transport/TServerSocket.h>

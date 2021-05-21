@@ -34,6 +34,52 @@ curdir=`cd "$curdir"; pwd`
 export DORIS_HOME=$curdir/..
 export TP_DIR=$curdir
 
+# Check args
+usage() {
+  echo "
+Usage: $0 <options>
+  Optional options:
+     -j                 build thirdparty parallel
+  "
+  exit 1
+}
+
+OPTS=$(getopt \
+  -n $0 \
+  -o '' \
+  -o 'h' \
+  -l 'help' \
+  -o 'j:' \
+  -- "$@")
+
+if [ $? != 0 ] ; then
+    usage
+fi
+
+eval set -- "$OPTS"
+
+PARALLEL=$[$(nproc)/4+1]
+if [[ $# -ne 1 ]] ; then
+    while true; do
+        case "$1" in
+            -j) PARALLEL=$2; shift 2 ;;
+            -h) HELP=1; shift ;;
+            --help) HELP=1; shift ;;
+            --) shift ;  break ;;
+            *) echo "Internal error" ; exit 1 ;;
+        esac
+    done
+fi
+
+if [[ ${HELP} -eq 1 ]]; then
+    usage
+    exit
+fi
+
+echo "Get params:
+    PARALLEL            -- $PARALLEL
+"
+
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/env.sh ]]; then
     . ${DORIS_HOME}/env.sh

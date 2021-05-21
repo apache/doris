@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -34,12 +33,19 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ComparisonChain;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -64,16 +70,28 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .build();
+    public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN = new ImmutableList.Builder<String>()
+        .add("TableName").add("Size").add("ReplicaCount")
+        .build();
+
+    public static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN = new ImmutableList.Builder<String>()
+        .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
+        .build();
 
     private String dbName;
     private String tableName;
 
     List<List<String>> totalRows;
+    List<List<Object>> totalRowsObject = Lists.newArrayList();
 
-    public ShowDataStmt(String dbName, String tableName) {
+    private List<OrderByElement> orderByElements;
+    private List<OrderByPair> orderByPairs;
+
+    public ShowDataStmt(String dbName, String tableName, List<OrderByElement> orderByElements) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.totalRows = Lists.newArrayList();
+        this.orderByElements = orderByElements;
     }
 
     @Override
@@ -91,6 +109,20 @@ public class ShowDataStmt extends ShowStmt {
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+
+        // order by
+        if (orderByElements != null && !orderByElements.isEmpty()) {
+            orderByPairs = new ArrayList<>();
+            for (OrderByElement orderByElement : orderByElements) {
+                if (!(orderByElement.getExpr() instanceof SlotRef)) {
+                    throw new AnalysisException("Should order by column");
+                }
+                SlotRef slotRef = (SlotRef)orderByElement.getExpr();
+                int index = analyzeColumn(slotRef.getColumnName(),tableName);
+                OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
+                orderByPairs.add(orderByPair);
+            }
         }
 
         if (tableName == null) {
@@ -132,16 +164,35 @@ public class ShowDataStmt extends ShowStmt {
                     } finally {
                         olapTable.readUnlock();
                     }
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint(tableSize);
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
-                            + tableSizePair.second;
-
-                    List<String> row = Arrays.asList(table.getName(), readableSize, String.valueOf(replicaCount));
-                    totalRows.add(row);
+                    //|TableName|Size|ReplicaCount|
+                    List<Object> row = Arrays.asList(table.getName(), tableSize, replicaCount);
+                    totalRowsObject.add(row);
 
                     totalSize += tableSize;
                     totalReplicaCount += replicaCount;
                 } // end for tables
+
+                // sort by
+                if (orderByPairs != null && !orderByPairs.isEmpty()) {
+                    // k-> index, v-> isDesc
+                    Map<Integer, Boolean> sortMap = Maps.newLinkedHashMap();
+                    for (OrderByPair orderByPair : orderByPairs) {
+                        sortMap.put(orderByPair.getIndex(), orderByPair.isDesc());
+
+                    }
+                    totalRowsObject.sort(sortRows(sortMap));
+                }
+
+                // for output
+                for (List<Object> row : totalRowsObject) {
+                    //|TableName|Size|ReplicaCount|
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(1));
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
+                        + tableSizePair.second;
+                    List<String> result = Arrays.asList(String.valueOf(row.get(0)), readableSize,
+                        String.valueOf(row.get(2)));
+                    totalRows.add(result);
+                }
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
@@ -205,29 +256,47 @@ public class ShowDataStmt extends ShowStmt {
                         indexRowCount += mIndex.getRowCount();
                     }
 
-                    Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(indexSizePair.first) + " "
-                            + indexSizePair.second;
-
-                    List<String> row = null;
-                    if (i == 0) {
-                        row = Arrays.asList(tableName,
-                                olapTable.getIndexNameById(indexId),
-                                readableSize, String.valueOf(indexReplicaCount),
-                                String.valueOf(indexRowCount));
-                    } else {
-                        row = Arrays.asList("",
-                                olapTable.getIndexNameById(indexId),
-                                readableSize, String.valueOf(indexReplicaCount),
-                                String.valueOf(indexRowCount));
-                    }
+                    String indexName = olapTable.getIndexNameById(indexId);
+                    //         .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
+                    List<Object> row = Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount);
+                    totalRowsObject.add(row);
 
                     totalSize += indexSize;
                     totalReplicaCount += indexReplicaCount;
-                    totalRows.add(row);
 
                     i++;
                 } // end for indices
+
+                // sort by
+                if (orderByPairs != null && !orderByPairs.isEmpty()) {
+                    // k-> index, v-> isDesc
+                    Map<Integer, Boolean> sortMap = Maps.newLinkedHashMap();
+                    for (OrderByPair orderByPair : orderByPairs) {
+                        sortMap.put(orderByPair.getIndex(), orderByPair.isDesc());
+
+                    }
+                    totalRowsObject.sort(sortRows(sortMap));
+                }
+
+                // for output
+                for (int index = 0;index<= totalRowsObject.size() -1;index++) {
+                    //| TableName| IndexName | Size | ReplicaCount | RowCount |
+                    List<Object> row = totalRowsObject.get(index);
+                    List<String> result;
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(2));
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
+                        + tableSizePair.second;
+                    if (index == 0) {
+                        result = Arrays.asList(tableName, String.valueOf(1),
+                            readableSize, String.valueOf(3),
+                            String.valueOf(row.get(4)));
+                    } else {
+                        result = Arrays.asList("", String.valueOf(1),
+                            readableSize, String.valueOf(3),
+                            String.valueOf(row.get(4)));
+                    }
+                    totalRows.add(result);
+                }
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
@@ -238,6 +307,39 @@ public class ShowDataStmt extends ShowStmt {
                 olapTable.readUnlock();
             }
         }
+    }
+
+    public static int analyzeColumn(String columnName,String tableName) throws AnalysisException {
+        ImmutableList<String> titles = SHOW_TABLE_DATA_META_DATA_ORIGIN;
+        if(tableName != null){
+            titles = SHOW_INDEX_DATA_META_DATA_ORIGIN;
+        }
+        for (String title : titles) {
+            if (title.equalsIgnoreCase(columnName)) {
+                return titles.indexOf(title);
+            }
+        }
+
+        throw new AnalysisException("Title name[" + columnName + "] does not exist");
+    }
+
+    private static Comparator<List<Object>> sortRows(Map<Integer, Boolean> sortMap) {
+        Ordering ordering = Ordering.natural();
+
+        return new Comparator<List<Object>>() {
+            @Override
+            public int compare(final List<Object> o1, final List<Object> o2) {
+                ComparisonChain comparisonChain = ComparisonChain.start();
+
+                for (Map.Entry<Integer, Boolean> sort : sortMap.entrySet()) {
+                    int index = sort.getKey();
+                    boolean isDesc = sort.getValue();
+                    comparisonChain = comparisonChain.compare(o1.get(index), o2.get(index),
+                        isDesc ? ordering.reverse() : ordering);
+                }
+                return comparisonChain.result();
+            }
+        };
     }
 
     public boolean hasTable() {
@@ -266,10 +368,19 @@ public class ShowDataStmt extends ShowStmt {
         }
 
         builder.append(" FROM `").append(dbName).append("`");
-        if (tableName == null) {
-            return builder.toString();
+        if (tableName != null) {
+            builder.append(".`").append(tableName).append("`");
         }
-        builder.append(".`").append(tableName).append("`");
+
+        // Order By clause
+        if (orderByElements != null) {
+            builder.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                builder.append(orderByElements.get(i).getExpr().toSql());
+                builder.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
+                builder.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
         return builder.toString();
     }
 

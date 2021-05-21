@@ -269,8 +269,7 @@ under the License.
     [rollup]
     1. Create index: example_rollup_index, based on base index(k1,k2,k3,v1,v2). Columnar storage.
         ALTER TABLE example_db.my_table
-        ADD ROLLUP example_rollup_index(k1, k3, v1, v2)
-        PROPERTIES("storage_type"="column");
+        ADD ROLLUP example_rollup_index(k1, k3, v1, v2);
         
     2. Create index: example_rollup_index2, based on example_rollup_index(k1,k3,v1,v2)
         ALTER TABLE example_db.my_table
@@ -281,7 +280,7 @@ under the License.
         
         ALTER TABLE example_db.my_table
         ADD ROLLUP example_rollup_index(k1, k3, v1)
-        PROPERTIES("storage_type"="column", "timeout" = "3600");
+        PROPERTIES("timeout" = "3600");
     
     3. Delete index: example_rollup_index2
         ALTER TABLE example_db.my_table

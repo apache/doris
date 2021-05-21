@@ -1467,9 +1467,117 @@ public class QueryPlanTest {
         //format less than
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02 10:01:28'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        System.out.println("wangxixu-explain:"+explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
 
     }
 
+    @Test
+    public void testCheckInvalidDate() throws Exception {
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "select day from tbl_int_date where day = '2020-10-30'";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
+        sql = "select day from tbl_int_date where day = str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2014-12-21 12:34:56'"));
+        //valid date
+        sql = "select day from tbl_int_date where day = 20201030";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        //valid date
+        sql = "select day from tbl_int_date where day = '20201030'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
+        //valid date contains micro second
+        sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01.111111'"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = '2020-10-32'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = '20201032'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = 20201032";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = 'hello'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = 2020-10-30";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid date
+        sql = "select day from tbl_int_date where day = 10-30";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+
+        //valid datetime
+        sql = "select day from tbl_int_date where date = '2020-10-30 12:12:30'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:30'"));
+        //valid datetime, support parsing to minute
+        sql = "select day from tbl_int_date where date = '2020-10-30 12:12'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:00'"));
+        //valid datetime, support parsing to hour
+        sql = "select day from tbl_int_date where date = '2020-10-30 12'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:00:00'"));
+        //valid datetime
+        sql = "select day from tbl_int_date where date = 20201030";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
+        //valid datetime
+        sql = "select day from tbl_int_date where date = '20201030'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
+        //valid datetime
+        sql = "select day from tbl_int_date where date = '2020-10-30'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
+        //valid datetime contains micro second
+        sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01.111111'"));
+        //invalid datetime
+        sql = "select day from tbl_int_date where date = '2020-10-32'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid datetime
+        sql = "select day from tbl_int_date where date = 'hello'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid datetime
+        sql = "select day from tbl_int_date where date = 2020-10-30";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid datetime
+        sql = "select day from tbl_int_date where date = 10-30";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid datetime
+        sql = "select day from tbl_int_date where date = '2020-10-12 12:23:76'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //invalid datetime with timestamp
+        sql = "select day from tbl_int_date where date = '1604031150'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+        //valid datetime with timestamp in micro second
+        sql = "select day from tbl_int_date where date = '1604031150000'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+    }
 }

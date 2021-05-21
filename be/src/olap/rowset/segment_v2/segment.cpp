@@ -46,7 +46,7 @@ Status Segment::open(std::string filename, uint32_t segment_id, const TabletSche
 
 Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema, std::shared_ptr<MemTracker> parent)
         : _fname(std::move(fname)), _segment_id(segment_id),
-          _tablet_schema(tablet_schema), _mem_tracker(MemTracker::CreateTracker(-1, "Segment", std::move(parent), false)) {}
+          _tablet_schema(tablet_schema), _mem_tracker(MemTracker::CreateTracker(-1, "Segment", std::move(parent), false, true)) {}
 
 Segment::~Segment() {
     _mem_tracker->Release(_mem_tracker->consumption());

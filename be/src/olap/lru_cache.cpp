@@ -400,7 +400,7 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, std::shared_ptr<MemTracker> parent)
         : _name(name), _last_id(1),
-        _mem_tracker(MemTracker::CreateTracker(-1, name, parent, true)) {
+        _mem_tracker(MemTracker::CreateTracker(-1, name, parent, true, false)) {
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
         _shards[s].set_capacity(per_shard);

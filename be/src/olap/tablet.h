@@ -121,9 +121,12 @@ public:
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           vector<RowsetSharedPtr>* rowsets) const;
     OLAPStatus capture_rs_readers(const Version& spec_version,
-                                  vector<RowsetReaderSharedPtr>* rs_readers) const;
+                                  vector<RowsetReaderSharedPtr>* rs_readers,
+                                  std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
+
     OLAPStatus capture_rs_readers(const vector<Version>& version_path,
-                                  vector<RowsetReaderSharedPtr>* rs_readers) const;
+                                  vector<RowsetReaderSharedPtr>* rs_readers,
+                                  std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
 
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);

@@ -534,7 +534,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
     _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
-                                             state->instance_mem_tracker());
+                                             state->instance_mem_tracker(), true, false);
 
     SCOPED_TIMER(_profile->total_time_counter());
 

@@ -2467,13 +2467,13 @@ show_param ::=
         RESULT = new ShowAlterStmt(type, db, parser.where, orderByClause, limitClause);
     :}
     /* Show data statement: used to show data size of specified range */
-    | KW_DATA
+     | KW_DATA order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(null, null);
+        RESULT = new ShowDataStmt(null, null, orderByClause);
     :}
-    | KW_DATA KW_FROM table_name:dbTblName
+    | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl());
+        RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl(), orderByClause);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -2554,6 +2554,10 @@ show_param ::=
     | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
+    :}
+    | KW_VIEW from_or_in table_name:dbTblName opt_db:dbName
+    {:
+        RESULT = new ShowViewStmt(dbName, dbTblName);
     :}
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:

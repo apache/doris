@@ -1338,7 +1338,7 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
     std::vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : src_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        auto res = rowset->create_reader(&rs_reader);
+        auto res = rowset->create_reader(_mem_tracker, &rs_reader);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to create rowset reader.";
             return false;
@@ -1473,6 +1473,9 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     // for schema change, seek_columns is the same to return_columns
     reader_context.seek_columns = &return_columns;
 
+    auto mem_tracker = MemTracker::CreateTracker(-1, "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-"
+        + std::to_string(new_tablet->tablet_id()), _mem_tracker, true, false, MemTrackerLevel::DEBUG);
+
     do {
         // get history data to be converted and it will check if there is hold in base tablet
         res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1535,7 +1538,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         }
 
         // acquire data sources correspond to history versions
-        base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
+        base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers, mem_tracker);
         if (rs_readers.size() < 1) {
             LOG(WARNING) << "fail to acquire all data sources. "
                          << "version_num=" << versions_to_be_changed.size()
@@ -1688,7 +1691,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     reader_context.seek_columns = &return_columns;
 
     RowsetReaderSharedPtr rowset_reader;
-    RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
+    RETURN_NOT_OK((*base_rowset)->create_reader(_mem_tracker, &rowset_reader));
     rowset_reader->init(&reader_context);
 
     RowsetWriterContext writer_context;

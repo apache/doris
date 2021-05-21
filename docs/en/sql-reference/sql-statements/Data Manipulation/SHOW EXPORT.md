@@ -32,7 +32,7 @@ SHOW EXPORT
 [FROM both names]
 [
 WHERE
-[EXPORT_JOB_ID = your_job_id]
+[ID = your_job_id]
 [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
 ]
 [ORDER BY ...]
@@ -55,7 +55,7 @@ SHOW EXPORT FROM example_db ORDER BY StartTime DESC;
 SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
 
 4. Show the export task of specifying dB and job_id
-SHOW EXPORT FROM example_db WHERE EXPORT_JOB_ID = job_id;
+SHOW EXPORT FROM example_db WHERE ID = job_id;
 
 ## keyword
 SHOW,EXPORT

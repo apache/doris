@@ -62,6 +62,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
+          _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
@@ -214,9 +215,9 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     _query_mem_tracker =
             MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
-                                      _exec_env->process_mem_tracker());
+                                      _exec_env->process_mem_tracker(), true, false);
     _instance_mem_tracker = MemTracker::CreateTracker(
-            &_profile, -1, "RuntimeState:instance:" + print_id(query_id), _query_mem_tracker);
+            &_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
