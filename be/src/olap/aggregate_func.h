@@ -507,7 +507,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto bitmap = new BitmapValue(src_slice->data);
-
+        mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
         dst_slice->data = (char*)bitmap;
 
         agg_pool->add(bitmap);

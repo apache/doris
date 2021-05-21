@@ -60,6 +60,7 @@ public:
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
+    void free_expr_local_allocations();
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
@@ -88,6 +89,9 @@ protected:
 	const std::vector<ExprContext*>& _pre_filter_ctxs;
 
     bool _strict_mode;
+
+    int32_t _line_counter;
+    const static constexpr int32_t RELEASE_CONTEXT_COUNTER = 1 << 5;
     // Profile
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _rows_read_counter;
