@@ -68,6 +68,7 @@ Status S3Reader::open() {
         return Status::InternalError(out.str());
     }
 }
+
 Status S3Reader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {
     DCHECK_NE(buf_len, 0);
     RETURN_IF_ERROR(readat(_cur_offset, buf_len, bytes_read, buf));
@@ -78,6 +79,7 @@ Status S3Reader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* 
     }
     return Status::OK();
 }
+
 Status S3Reader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     CHECK_S3_CLIENT(_client);
     if (position >= _file_size) {
@@ -107,6 +109,7 @@ Status S3Reader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, v
     response.GetResult().GetBody().read((char*)out, *bytes_read);
     return Status::OK();
 }
+
 Status S3Reader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
     bool eof;
     int64_t file_size = size() - _cur_offset;
@@ -123,17 +126,21 @@ Status S3Reader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* leng
 int64_t S3Reader::size() {
     return _file_size;
 }
+
 Status S3Reader::seek(int64_t position) {
     _cur_offset = position;
     return Status::OK();
 }
+
 Status S3Reader::tell(int64_t* position) {
     *position = _cur_offset;
     return Status::OK();
 }
+
 void S3Reader::close() {
     _closed = true;
 }
+
 bool S3Reader::closed() {
     return _closed;
 }
