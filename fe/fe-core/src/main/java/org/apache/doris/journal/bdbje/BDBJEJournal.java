@@ -127,30 +127,27 @@ public class BDBJEJournal implements Journal {
     }
 
     @Override
-    public synchronized void write(short op, Writable writable) {
+    public synchronized void write(short op, Writable writable) throws IOException {
         JournalEntity entity = new JournalEntity();
         entity.setOpCode(op);
         entity.setData(writable);
-        
+
         // id is the key
         long id = nextJournalId.getAndIncrement();
         Long idLong = id;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
         idBinding.objectToEntry(idLong, theKey);
-        
+
         // entity is the value
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
-        try {
-            entity.write(buffer);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        entity.write(buffer);
+
         DatabaseEntry theData = new DatabaseEntry(buffer.getData());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase((long) theData.getSize());
         }
-        LOG.debug("opCode = {}, journal size = {}", op, theData.getSize()); 
+        LOG.debug("opCode = {}, journal size = {}", op, theData.getSize());
         // Write the key value pair to bdb.
         boolean writeSucceed = false;
         for (int i = 0; i < RETRY_TIME; i++) {

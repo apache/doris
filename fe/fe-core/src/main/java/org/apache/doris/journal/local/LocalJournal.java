@@ -125,15 +125,11 @@ public class LocalJournal implements Journal {
     }
 
     @Override
-    public synchronized void write(short op, Writable writable) {
-        try {
-            outputStream.write(op, writable);
-            outputStream.setReadyToFlush();
-            outputStream.flush();
-            journalId.incrementAndGet();
-        } catch (IOException e) {
-            LOG.error(e);
-        }
+    public synchronized void write(short op, Writable writable) throws IOException {
+        outputStream.write(op, writable);
+        outputStream.setReadyToFlush();
+        outputStream.flush();
+        journalId.incrementAndGet();
     }
 
     @Override
