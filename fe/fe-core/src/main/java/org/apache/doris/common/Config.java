@@ -218,7 +218,8 @@ public class Config extends ConfigBase {
      * If the network is experiencing transient problems, of some unexpected long java GC annoying you,
      * you can try to increase this value to decrease the chances of false timeouts
      */
-    @ConfField public static int bdbje_heartbeat_timeout_second = 30;
+    @ConfField
+    public static int bdbje_heartbeat_timeout_second = 30;
 
     /**
      * The lock timeout of bdbje operation
@@ -226,6 +227,14 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int bdbje_lock_timeout_second = 1;
+
+    /**
+     * The replica ack timeout when writing to bdbje
+     * When writing some relatively large logs, the ack time may time out, resulting in log writing failure.
+     * At this time, you can increase this value appropriately.
+     */
+    @ConfField
+    public static int bdbje_replica_ack_timeout_second = 10;
 
     /**
      * num of thread to handle heartbeat events in heartbeat_mgr.

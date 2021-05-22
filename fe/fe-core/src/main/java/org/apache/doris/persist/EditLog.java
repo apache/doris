@@ -52,10 +52,10 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -853,8 +853,9 @@ public class EditLog {
 
         try {
             journal.write(op, writable);
-        } catch (Exception e) {
-            LOG.error("Fatal Error : write stream Exception", e);
+        } catch (Throwable t) {
+            // Throwable contains all Exception and Error, such as IOException and OutOfMemoryError
+            LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }
 
