@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.thrift.TStorageMedium;
 
 import java.util.Map;
 import java.util.TimeZone;

@@ -148,6 +148,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
         int idx = createHistoryPartition ? dynamicPartitionProperty.getStart() : 0;
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
+        String timeUnit = dynamicPartitionProperty.getTimeUnit();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);
@@ -188,7 +189,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             // construct partition desc
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
-            HashMap<String, String> partitionProperties = new HashMap<>(1);
+            HashMap<String, String> partitionProperties = Maps.newHashMap();
             if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
                 partitionProperties.put("replication_num", String.valueOf(olapTable.getDefaultReplicationNum()));
             } else {
@@ -197,7 +198,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             if (hotPartitionNum > 0) {
                 // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
-                setStorageMediumProperty(partitionProperties, now, hotPartitionNum, idx);
+                setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
             }
 
 
@@ -220,9 +221,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return addPartitionClauses;
     }
 
-    private void setStorageMediumProperty(HashMap<String, String> partitionProperties, ZonedDateTime now, int hotPartitionNum, int offset) {
+    private void setStorageMediumProperty(HashMap<String, String> partitionProperties, DynamicPartitionProperty property,
+                                          ZonedDateTime now, int hotPartitionNum, int offset) {
+        if (offset + hotPartitionNum <= 0) {
+            return;
+        }
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
-        String cooldownTime = DynamicPartitionUtil.getPartitionRangeOfHour(now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
+        String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + hotPartitionNum,
+                DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, cooldownTime);
     }
 

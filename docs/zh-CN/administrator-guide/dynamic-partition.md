@@ -128,6 +128,12 @@ under the License.
     默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当 end - start 的值大于 `max_dynamic_partition_num` 值时，操作将被禁止。
 
     当不指定 `start` 属性时，该参数不生效。
+
+* `dynamic_partition.hot_partition_num`
+
+    指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。假设按天分区，该参数设置为2，则最近2天的分区，`storage_medium` 都为 SSD。其中昨天的分区的 `storage_cooldown_time` 为明天0点，而今天分区的 `storage_cooldown_time` 为后天0点。
+
+    默认为 0，表示没有热分区。
   
 ### 注意事项 
  

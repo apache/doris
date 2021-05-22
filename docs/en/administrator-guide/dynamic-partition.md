@@ -131,6 +131,12 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When the `start` attribute is not specified, this parameter has no effect.
 
+* `dynamic_partition.hot_partition_num`
+
+    Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`. Assuming that the partition is divided by day and the parameter is set to 2, then the partitions of the last 2 days, `storage_medium` are all SSDs. The `storage_cooldown_time` of yesterday's partition is 0 o'clock tomorrow, and the `storage_cooldown_time` of today's partition is 0 o'clock the day after tomorrow.
+
+    default is 0, which means there is no hot partition.
+
 ### Notice
 
 If some partitions between `dynamic_partition.start` and `dynamic_partition.end` are lost due to some unexpected circumstances when using dynamic partition, the lost partitions between the current time and `dynamic_partition.end` will be recreated, but the lost partitions between `dynamic_partition.start` and the current time will not be recreated.
