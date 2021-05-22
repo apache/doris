@@ -63,15 +63,13 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _task_map.clear();
 }
 
-Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
-                                                         std::vector<int32_t>* partition_ids) {
-    DCHECK(request.has_kafka_info());
-
-    // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    ctx.load_type = TLoadType::ROUTINE_LOAD;
-    ctx.load_src_type = TLoadSourceType::KAFKA;
-    ctx.label = "NaN";
+// Create a temp StreamLoadContext and set some kafka connection info in it.
+// So that we can use this ctx to get kafka data consumer instance.
+Status RoutineLoadTaskExecutor::_prepare_ctx(const PKafkaMetaProxyRequest& request,
+                                             StreamLoadContext* ctx) {
+    ctx->load_type = TLoadType::ROUTINE_LOAD;
+    ctx->load_src_type = TLoadSourceType::KAFKA;
+    ctx->label = "NaN";
 
     // convert PKafkaInfo to TKafkaLoadInfo
     TKafkaLoadInfo t_info;
@@ -84,14 +82,44 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
     }
     t_info.__set_properties(std::move(properties));
 
-    ctx.kafka_info.reset(new KafkaLoadInfo(t_info));
-    ctx.need_rollback = false;
+    ctx->kafka_info.reset(new KafkaLoadInfo(t_info));
+    ctx->need_rollback = false;
+    return Status::OK();
+}
+
+Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
+                                                         std::vector<int32_t>* partition_ids) {
+    CHECK(request.has_kafka_info());
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
 
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(
             partition_ids);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
+Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
+        std::vector<PIntegerPair>* partition_offsets) {
+    CHECK(request.has_kafka_info());
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
+            std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
+            partition_offsets);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }

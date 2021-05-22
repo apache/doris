@@ -187,19 +187,42 @@ void PInternalServiceImpl<T>::get_info(google::protobuf::RpcController* controll
                                        const PProxyRequest* request, PProxyResult* response,
                                        google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
+    // PProxyRequest is defined in gensrc/proto/internal_service.proto
+    // Currently it supports 2 kinds of requests:
+    // 1. get all kafka partition ids for given topic
+    // 2. get all kafka partition offsets for given topic and timestamp.
     if (request->has_kafka_meta_request()) {
-        std::vector<int32_t> partition_ids;
-        Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_meta(
-                request->kafka_meta_request(), &partition_ids);
-        if (st.ok()) {
-            PKafkaMetaProxyResult* kafka_result = response->mutable_kafka_meta_result();
-            for (int32_t id : partition_ids) {
-                kafka_result->add_partition_ids(id);
+        const PKafkaMetaProxyRequest& kafka_request = request->kafka_meta_request();
+        if (!kafka_request.offset_times().empty()) {
+            // if offset_times() has elements, which means this request is to get offset by timestamp.
+            std::vector<PIntegerPair> partition_offsets;
+            Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_offsets_for_times(
+                    request->kafka_meta_request(), &partition_offsets);
+            if (st.ok()) {
+                PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
+                for (const auto& entry : partition_offsets) {
+                    PIntegerPair* res = part_offsets->add_offset_times();
+                    res->set_key(entry.key());
+                    res->set_val(entry.val());
+                }
             }
+            st.to_protobuf(response->mutable_status());
+            return;
+        } else {
+            // get partition ids of topic
+            std::vector<int32_t> partition_ids;
+            Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_meta(
+                    request->kafka_meta_request(), &partition_ids);
+            if (st.ok()) {
+                PKafkaMetaProxyResult* kafka_result = response->mutable_kafka_meta_result();
+                for (int32_t id : partition_ids) {
+                    kafka_result->add_partition_ids(id);
+                }
+            }
+            st.to_protobuf(response->mutable_status());
+            return;
         }
-        st.to_protobuf(response->mutable_status());
-        return;
-    }
+    } 
     Status::OK().to_protobuf(response->mutable_status());
 }
 

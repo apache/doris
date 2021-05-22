@@ -803,7 +803,8 @@ opt_datasource_properties ::=
     :}
     | KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
     {:
-        RESULT = new RoutineLoadDataSourceProperties(type, customProperties);
+        // the 3rd parameter "true" means this is for AlterRoutineLoad operation.
+        RESULT = new RoutineLoadDataSourceProperties(type, customProperties, true);
     :}
     ;
 

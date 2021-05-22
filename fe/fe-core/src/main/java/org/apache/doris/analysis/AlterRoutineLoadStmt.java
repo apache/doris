@@ -17,11 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -42,7 +45,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
-    private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+    private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
             .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
@@ -110,7 +113,7 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity)).findFirst();
+                entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
@@ -194,7 +197,13 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
     }
 
-    private void checkDataSourceProperties() throws AnalysisException {
+    private void checkDataSourceProperties() throws UserException {
+        if (!FeConstants.runningUnitTest) {
+            RoutineLoadJob job = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(getDbName(), getLabel());
+            dataSourceProperties.setTimezone(job.getTimezone());
+        } else {
+            dataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
+        }
         dataSourceProperties.analyze();
     }
 }
