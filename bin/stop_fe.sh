@@ -40,7 +40,7 @@ if [ -f $pidfile ]; then
        echo "ERROR: pid process may not be fe. "
    fi
 
-   if kill -9 $pid > /dev/null 2>&1; then
+   if kill $pid > /dev/null 2>&1; then
         echo "stop $pidcomm, and remove pid file. "
         rm $pidfile
    fi
