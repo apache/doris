@@ -1364,6 +1364,27 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return sourceExpr.get(0).getSrcSlotRef();
     }
 
+    public boolean comeFrom(Expr srcExpr) {
+        SlotRef unwrapSloRef = this.unwrapSlotRef();
+        if (unwrapSloRef == null) {
+            return false;
+        }
+        SlotRef unwrapSrcSlotRef = srcExpr.unwrapSlotRef();
+        if (unwrapSrcSlotRef == null) {
+            return false;
+        }
+        if (unwrapSloRef.columnEqual(unwrapSrcSlotRef)) {
+            return true;
+        }
+        // check source expr
+        SlotDescriptor slotDescriptor = unwrapSloRef.getDesc();
+        if (slotDescriptor == null || slotDescriptor.getSourceExprs() == null
+                || slotDescriptor.getSourceExprs().size() != 1) {
+            return false;
+        }
+        return slotDescriptor.getSourceExprs().get(0).comeFrom(unwrapSrcSlotRef);
+    }
+
     /**
      * If 'this' is a SlotRef or a Cast that wraps a SlotRef, returns that SlotRef.
      * Otherwise returns null.
