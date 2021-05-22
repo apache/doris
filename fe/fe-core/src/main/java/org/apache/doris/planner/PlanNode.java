@@ -645,7 +645,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
         return sb.toString();
     }
-    
+
     public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {
         if (this instanceof ScanNode && tupleIds.contains(tupleId)) {
             return (ScanNode) this;
