@@ -233,14 +233,22 @@ public class TimeUtils {
         }
     }
 
-    public static long dateTransform(long time, Type type) {
-        return dateTransform(time, type.getPrimitiveType());
-    }
-
     public static long timeStringToLong(String timeStr) {
         Date d;
         try {
             d = DATETIME_FORMAT.parse(timeStr);
+        } catch (ParseException e) {
+            return -1;
+        }
+        return d.getTime();
+    }
+
+    public static long timeStringToLong(String timeStr, TimeZone timeZone) {
+        SimpleDateFormat dateFormatTimeZone = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        dateFormatTimeZone.setTimeZone(timeZone);
+        Date d;
+        try {
+            d = dateFormatTimeZone.parse(timeStr);
         } catch (ParseException e) {
             return -1;
         }
