@@ -180,6 +180,12 @@ FE 的配置项有两种方式进行配置：
 
 ### `bdbje_lock_timeout_second`
 
+### `bdbje_replica_ack_timeout_second`
+
+元数据会同步写入到多个 Follower FE，这个参数用于控制 Master FE 等待 Follower FE 发送 ack 的超时时间。当写入的数据较大时，可能 ack 时间较长，如果超时，会导致写元数据失败，FE 进程退出。此时可以适当调大这个参数。
+
+默认值：10 秒。
+
 ### `broker_load_default_timeout_second`
 
 ### `brpc_idle_wait_max_time`
