@@ -807,8 +807,16 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     @Override
-    protected String tupleDebugName() { return "agg-tuple"; }
+    protected String tupleDebugName() {
+        return "agg-tuple";
+    }
 
     @Override
-    public AggregateInfo clone() { return new AggregateInfo(this); }
+    public AggregateInfo clone() {
+        return new AggregateInfo(this);
+    }
+
+    public List<Expr> getInputPartitionExprs() {
+        return partitionExprs_ != null ? partitionExprs_ : groupingExprs_;
+    }
 }
