@@ -1315,12 +1315,12 @@ public class QueryPlanTest {
         sqls.add("explain select * from baseall join bigtable as b limit 0");
 
         sqls.add("explain select * from baseall where 1 = 2");
+        sqls.add("explain select * from baseall where null = null");
         sqls.add("explain select count(*) from baseall where 1 = 2;");
         sqls.add("explain select k3, dense_rank() OVER () AS rank FROM baseall where 1 =2;");
         sqls.add("explain select rank from (select k3, dense_rank() OVER () AS rank FROM baseall) a where 1 =2;");
         sqls.add("explain select * from baseall join bigtable as b where 1 = 2");
         sqls.add("explain select * from baseall join bigtable as b on null = 2");
-        sqls.add("explain select * from baseall join bigtable as b on null = null");
 
         for (String sql: sqls) {
             String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
@@ -1502,27 +1502,27 @@ public class QueryPlanTest {
         //invalid date
         sql = "select day from tbl_int_date where day = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = '20201032'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = 20201032";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
 
 
         //valid datetime
@@ -1556,30 +1556,30 @@ public class QueryPlanTest {
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 'hello'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 2020-10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 10-30";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-12 12:23:76'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //invalid datetime with timestamp
         sql = "select day from tbl_int_date where date = '1604031150'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
         //valid datetime with timestamp in micro second
         sql = "select day from tbl_int_date where date = '1604031150000'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("NULL"));
+        Assert.assertTrue(explainString.contains("EMPTYSET"));
     }
 }
