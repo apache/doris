@@ -41,12 +41,10 @@ S3Writer::S3Writer(const std::map<std::string, std::string>& properties, const s
           _path(path),
           _uri(path),
           _sync_needed(false),
-          _temp_file(Aws::MakeShared<Aws::Utils::TempFile>(
-                  "S3WRITER",
-                  // "/tmp/doris_tmp_", "s3tmp",
+          _client(ClientFactory::instance().create(_properties)),
+          _temp_file(std::make_shared<Aws::Utils::TempFile>(
                   std::ios_base::binary | std::ios_base::trunc | std::ios_base::in |
-                          std::ios_base::out)) {
-    _client = create_client(_properties);
+                  std::ios_base::out)) {
     DCHECK(_client) << "init aws s3 client error.";
 }
 
@@ -56,8 +54,8 @@ S3Writer::~S3Writer() {
 
 Status S3Writer::open() {
     CHECK_S3_CLIENT(_client);
-    if (!_uri.parse()) {                                             
-        return Status::InvalidArgument("s3 uri is invalid: " + _path); 
+    if (!_uri.parse()) {
+        return Status::InvalidArgument("s3 uri is invalid: " + _path);
     }
     Aws::S3::Model::HeadObjectRequest request;
     request.WithBucket(_uri.get_bucket()).WithKey(_uri.get_key());
