@@ -26,6 +26,8 @@
 #include "gutil/strings/substitute.h"
 #include "util/faststring.h"
 
+#include <limits>
+
 namespace doris {
 
 using strings::Substitute;
@@ -71,7 +73,12 @@ public:
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) const override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) const override { 
+        if (len > std::numeric_limits<int32_t>::max()) {
+            return 0;
+        }
+        return LZ4_compressBound(len); 
+    }
 };
 
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
@@ -120,6 +127,9 @@ public:
     }
 
     size_t max_compressed_len(size_t len) const override {
+        if (len > std::numeric_limits<int32_t>::max()) {
+            return 0;
+        }
         return std::max(LZ4F_compressBound(len, &_s_preferences),
                         LZ4F_compressFrameBound(len, &_s_preferences));
     }
