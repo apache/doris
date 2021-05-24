@@ -1251,6 +1251,14 @@ public class Analyzer {
                     }
                     markConjunctAssigned(conjunct);
                 }
+                if (newConjunct instanceof NullLiteral) {
+                    if (fromHavingClause) {
+                        hasEmptyResultSet_ = true;
+                    } else {
+                        hasEmptySpjResultSet_ = true;
+                    }
+                    markConjunctAssigned(conjunct);
+                }
             } catch (AnalysisException ex) {
                 throw new AnalysisException("Error evaluating \"" + conjunct.toSql() + "\"", ex);
             }
