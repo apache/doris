@@ -325,6 +325,9 @@ CONF_mInt32(finished_migration_tasks_size, "10000");
 CONF_Int32(webserver_port, "8040");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
+// Number of stream load workers
+CONF_Int32(min_stream_load_num_workers, "8");
+CONF_Int32(max_stream_load_num_workers, "32");
 // Period to update rate counters and sampling counters in ms.
 CONF_mInt32(periodic_counter_update_period_ms, "500");
 

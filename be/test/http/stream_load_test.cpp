@@ -70,6 +70,8 @@ public:
         k_stream_load_plan_status = Status::OK();
         k_response_str = "";
         config::streaming_load_max_mb = 1;
+        config::min_stream_load_num_workers = 1;
+        config::max_stream_load_num_workers = 1;
 
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
@@ -108,6 +110,10 @@ TEST_F(StreamLoadActionTest, no_auth) {
     request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
+
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
@@ -160,6 +166,10 @@ TEST_F(StreamLoadActionTest, normal) {
     action.on_header(&request);
     action.handle(&request);
 
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
     ASSERT_STREQ("Success", doc["Status"].GetString());
@@ -182,6 +192,10 @@ TEST_F(StreamLoadActionTest, put_fail) {
     action.on_header(&request);
     action.handle(&request);
 
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
     ASSERT_STREQ("Fail", doc["Status"].GetString());
@@ -202,6 +216,10 @@ TEST_F(StreamLoadActionTest, commit_fail) {
     action.on_header(&request);
     action.handle(&request);
 
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
     ASSERT_STREQ("Fail", doc["Status"].GetString());
@@ -221,6 +239,10 @@ TEST_F(StreamLoadActionTest, begin_fail) {
     request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
+
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());
@@ -257,6 +279,10 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
+
+    while (k_response_str.empty()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 
     rapidjson::Document doc;
     doc.Parse(k_response_str.c_str());

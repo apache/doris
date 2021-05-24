@@ -119,6 +119,10 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    ThreadPoolBuilder("StreamLoadThreadPool")
+            .set_min_threads(config::min_stream_load_num_workers)
+            .set_max_threads(config::max_stream_load_num_workers)
+            .build(&_stream_load_thread_pool);
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
@@ -128,10 +132,19 @@ StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
 }
 
 StreamLoadAction::~StreamLoadAction() {
+    _stream_load_thread_pool->shutdown();
     DorisMetrics::instance()->metric_registry()->deregister_entity(_stream_load_entity);
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
+    auto st = _stream_load_thread_pool->submit_func([=]() { _handle_stream_load(req); });
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to submit stream load task into thread pool. errmsg=" << st.get_error_msg();
+        HttpChannel::send_reply(req, "failed to submit stream load task into thread pool");
+    }
+}
+
+void StreamLoadAction::_handle_stream_load(HttpRequest* req) {
     StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
     if (ctx == nullptr) {
         return;

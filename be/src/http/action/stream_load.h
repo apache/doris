@@ -23,6 +23,7 @@
 #include "http/http_handler.h"
 #include "runtime/client_cache.h"
 #include "runtime/message_body_sink.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -45,6 +46,7 @@ public:
     void free_handler_ctx(void* ctx) override;
 
 private:
+    void _handle_stream_load(HttpRequest* req);
     Status _on_header(HttpRequest* http_req, StreamLoadContext* ctx);
     Status _handle(StreamLoadContext* ctx);
     Status _data_saved_path(HttpRequest* req, std::string* file_path);
@@ -54,6 +56,8 @@ private:
 
 private:
     ExecEnv* _exec_env;
+
+    std::unique_ptr<ThreadPool> _stream_load_thread_pool;
 
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;
