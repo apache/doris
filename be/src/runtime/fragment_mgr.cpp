@@ -170,7 +170,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
           _timeout_second(-1),
-          _fragments_ctx(fragments_ctx) {
+          _fragments_ctx(std::move(fragments_ctx)),
+          _set_rsc_info(false) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
@@ -436,7 +437,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.erase(exec_state->fragment_instance_id());
-        if (all_done) {
+        if (all_done && fragments_ctx) {
             _fragments_ctx_map.erase(fragments_ctx->query_id);
         }
     }

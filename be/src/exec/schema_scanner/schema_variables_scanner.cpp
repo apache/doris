@@ -51,7 +51,7 @@ Status SchemaVariablesScanner::start(RuntimeState* state) {
     }
     var_params.__set_threadId(_param->thread_id);
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::show_variables(*(_param->ip), _param->port, var_params,
                                                      &_var_result));
     } else {
@@ -68,7 +68,7 @@ Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_begin->first.c_str());
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _begin->first.c_str(), len + 1);
@@ -80,7 +80,7 @@ Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_begin->second.c_str());
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _begin->second.c_str(), len + 1);
@@ -94,12 +94,12 @@ Status SchemaVariablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* e
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
     if (_begin == _var_result.variables.end()) {
         *eos = true;
         return Status::OK();
-    }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("invalid parameter.");
     }
     *eos = false;
     return fill_one_row(tuple, pool);
