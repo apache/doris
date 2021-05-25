@@ -48,6 +48,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _dest_tuple_desc(nullptr),
           _pre_filter_ctxs(pre_filter_ctxs),
           _strict_mode(false),
+          _line_counter(0),
           _profile(profile),
           _rows_read_counter(nullptr),
           _read_timer(nullptr),
@@ -225,5 +226,12 @@ void BaseScanner::fill_slots_of_columns_from_path(
         str_slot->len = column_from_path.size();
     }
 }
+
+void BaseScanner::free_expr_local_allocations() {
+    if (++_line_counter % RELEASE_CONTEXT_COUNTER == 0) {
+        ExprContext::free_local_allocations(_dest_expr_ctx);
+    }
+}
+
 
 } // namespace doris
