@@ -107,7 +107,7 @@ class SortedRunMerger::ParallelBatchedRowSupplier : public SortedRunMerger::Batc
 public:
     // Construct an instance from a sorted input run.
     ParallelBatchedRowSupplier(SortedRunMerger* parent, const RunBatchSupplier& sorted_run)
-            : BatchedRowSupplier(parent, sorted_run) {}
+            : BatchedRowSupplier(parent, sorted_run), _input_row_batch_backup(nullptr) {}
 
     ~ParallelBatchedRowSupplier() {
         // when have the limit clause need to wait the _pull_task_thread join terminate
