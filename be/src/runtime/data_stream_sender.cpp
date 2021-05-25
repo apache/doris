@@ -82,6 +82,7 @@ public:
               _num_data_bytes_sent(0),
               _packet_seq(0),
               _need_close(false),
+              _be_number(0),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
               _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
@@ -468,8 +469,8 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "DataStreamSender", state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamSender",
+                                             state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.

@@ -487,7 +487,7 @@ void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
                 sparse_map = resolver.get_sparse_map();
         for (std::map<doris::HllSetResolver::SparseIndexType,
                       doris::HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin();
-             iter != sparse_map.end(); iter++) {
+             iter != sparse_map.end(); ++iter) {
             pdata[iter->first] = std::max(pdata[iter->first], (uint8_t)iter->second);
         }
     } else if (resolver.get_hll_data_type() == doris::HLL_DATA_FULL) {

@@ -666,7 +666,7 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row, ExprConte
         if (value->hash_set.size() > HLL_EXPLICIT_INT64_NUM) {
             value->type = HLL_DATA_SPARSE;
             for (std::set<uint64_t>::iterator iter = value->hash_set.begin();
-                 iter != value->hash_set.end(); iter++) {
+                 iter != value->hash_set.end(); ++iter) {
                 uint64_t hash = *iter;
                 int idx = hash % REGISTERS_SIZE;
                 uint8_t first_one_bit = __builtin_ctzl(hash >> HLL_COLUMN_PRECISION) + 1;

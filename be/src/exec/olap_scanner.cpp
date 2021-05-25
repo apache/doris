@@ -43,18 +43,17 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _tuple_desc(parent->_tuple_desc),
           _profile(parent->runtime_profile()),
           _string_slots(parent->_string_slots),
+          _id(-1),
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _tuple_idx(parent->_tuple_idx),
           _direct_conjunct_size(parent->_direct_conjunct_size),
-          _mem_tracker(MemTracker::CreateTracker(runtime_state->fragment_mem_tracker()->limit(),
-                                             "OlapScanner",
-                                             runtime_state->fragment_mem_tracker(),
-                                             true, true, MemTrackerLevel::DEBUG)) {
-    _reader.reset(new Reader());
-    DCHECK(_reader.get() != NULL);
-
+          _reader(new Reader()),
+          _version(-1),
+          _mem_tracker(MemTracker::CreateTracker(
+                  runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
+                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::DEBUG)) {
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
@@ -358,9 +357,10 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                             config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
                             VLOG_CRITICAL << "Stop Using PushDown Conjuncts. "
-                                    << "PushDownReturnRate: " << pushdown_return_rate << "%"
-                                    << " MaxPushDownReturnRate: "
-                                    << config::doris_max_pushdown_conjuncts_return_rate << "%";
+                                          << "PushDownReturnRate: " << pushdown_return_rate << "%"
+                                          << " MaxPushDownReturnRate: "
+                                          << config::doris_max_pushdown_conjuncts_return_rate
+                                          << "%";
                         }
                     }
                 }

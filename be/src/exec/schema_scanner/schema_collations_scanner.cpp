@@ -34,7 +34,7 @@ SchemaScanner::ColumnDesc SchemaCollationsScanner::_s_cols_columns[] = {
 
 SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[] = {
         {"utf8_general_ci", "utf8", 33, "Yes", "Yes", 1},
-        {NULL, NULL, 0, NULL, NULL, 0},
+        {nullptr, nullptr, 0, nullptr, nullptr, 0},
 };
 
 SchemaCollationsScanner::SchemaCollationsScanner()
@@ -51,7 +51,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_collations[_index].name);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].name, len + 1);
@@ -63,7 +63,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_collations[_index].charset);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].charset, len + 1);
@@ -80,7 +80,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_collations[_index].is_default);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].is_default, len + 1);
@@ -92,7 +92,7 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_collations[_index].is_compile);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_collations[_index].is_compile, len + 1);
@@ -111,13 +111,14 @@ Status SchemaCollationsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* 
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
-    if (NULL == _s_collations[_index].name) {
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+    if (nullptr == _s_collations[_index].name) {
         *eos = true;
         return Status::OK();
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("invalid parameter.");
-    }
+
     *eos = false;
     return fill_one_row(tuple, pool);
 }
