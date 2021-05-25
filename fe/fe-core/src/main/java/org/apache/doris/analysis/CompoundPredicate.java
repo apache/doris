@@ -75,8 +75,7 @@ public class CompoundPredicate extends Predicate {
             Preconditions.checkState(op == Operator.NOT);
             return "NOT " + getChild(0).toSql();
         } else {
-            return "(" + getChild(0).toSql() + ")" + " " + op.toString() + " " + "(" + getChild(
-              1).toSql() + ")";
+            return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
     }
 
