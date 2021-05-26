@@ -2306,6 +2306,11 @@ show_param ::=
     {:
         RESULT = new ShowTableStmt(db, parser.isVerbose, parser.wild, parser.where);
     :}
+    /* show table id */
+    | KW_TABLE INTEGER_LITERAL:tableId
+    {:
+        RESULT = new ShowTableIdStmt(tableId);
+    :}
     /* show processlist */
     | opt_full KW_PROCESSLIST
     {:
@@ -2382,6 +2387,11 @@ show_param ::=
     | KW_DATABASES opt_wild_where
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
+    :}
+    /* show database id */
+    | KW_DATABASE INTEGER_LITERAL:dbId
+    {:
+        RESULT = new ShowDbIdStmt(dbId);
     :}
     | KW_SCHEMAS opt_wild_where
     {:
@@ -2479,6 +2489,11 @@ show_param ::=
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
         RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause, tmp);
+    :}
+    /* show partition id */
+    | KW_PARTITION INTEGER_LITERAL:partitionId
+    {:
+        RESULT = new ShowPartitionIdStmt(partitionId);
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
