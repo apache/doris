@@ -55,6 +55,12 @@ TEST(TestParseMemSpec, Normal) {
     int64_t bytes = ParseUtil::parse_mem_spec("20%", &is_percent);
     ASSERT_GT(bytes, 0);
     ASSERT_TRUE(is_percent);
+
+    MemInfo::_s_physical_mem = 1000;
+    is_percent = true;
+    bytes = ParseUtil::parse_mem_spec("0.1%", &is_percent);
+    ASSERT_EQ(bytes, 1);
+    ASSERT_TRUE(is_percent);
 }
 
 TEST(TestParseMemSpec, Bad) {
