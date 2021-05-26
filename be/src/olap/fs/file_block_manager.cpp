@@ -169,7 +169,7 @@ Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
 
     // Calculate the amount of data written
     size_t bytes_written = accumulate(data, data + data_cnt, static_cast<size_t>(0),
-                                      [&](int sum, const Slice& curr) { return sum + curr.size; });
+                                      [](size_t sum, const Slice& curr) { return sum + curr.size; });
     _bytes_appended += bytes_written;
     return Status::OK();
 }
