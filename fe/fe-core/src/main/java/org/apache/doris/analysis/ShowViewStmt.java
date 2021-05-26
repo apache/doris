@@ -113,7 +113,7 @@ public class ShowViewStmt extends ShowStmt {
         for (Table table : database.getViews()) {
             View view = (View) table;
             List<TableRef> tblRefs = Lists.newArrayList();
-            // get table refs from view sql
+            // get table refs instead of get tables because it don't need to check table's validity
             getTableRefs(view, tblRefs);
             for (TableRef tblRef : tblRefs) {
                 if (tblRef.getName().equals(tbl)) {
