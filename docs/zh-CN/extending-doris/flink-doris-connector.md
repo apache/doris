@@ -45,7 +45,20 @@ Flink Doris Connector 可以支持通过 Flink 读取 Doris 中存储的数据�
 sh build.sh
 ```
 
-编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector`。例如，`Local` 模式运行的 `Flink`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Flink`，则将此文件放入预部署包中。
+编译成功后，会在 `output/` 目录下生成文件 `doris-flink-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector`。例如，`Local` 模式运行的 `Flink`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Flink`，则将此文件放入预部署包中。：
+
+**备注：**
+
+1. doris FE 要在配置中配置启用http v2
+2. Scala版本目前只支持2.12.x版本
+
+conf/fe.conf
+
+```
+enable_http_server_v2 = true
+```
+
+
 
 ## 使用示例
 此步骤的目的是在Flink上注册Doris数据源。
