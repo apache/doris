@@ -68,7 +68,7 @@ NULL_IF_COMPUTE_FUNCTION_WRAPPER(FloatVal, float_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(DoubleVal, double_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(StringVal, string_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(DateTimeVal, datetime_val);
-// NULL_IF_COMPUTE_FUNCTION(DecimalVal, decimal_val);
+NULL_IF_COMPUTE_FUNCTION_WRAPPER(DecimalV2Val, decimalv2_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(LargeIntVal, large_int_val);
 
 #define IF_COMPUTE_FUNCTION(type, type_name)                            \
