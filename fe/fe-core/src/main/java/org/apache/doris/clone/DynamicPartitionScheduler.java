@@ -42,8 +42,10 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.thrift.TStorageMedium;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -145,6 +147,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
         int idx = createHistoryPartition ? dynamicPartitionProperty.getStart() : 0;
+        int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
+        String timeUnit = dynamicPartitionProperty.getTimeUnit();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);
@@ -185,12 +189,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             // construct partition desc
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
-            HashMap<String, String> partitionProperties = new HashMap<>(1);
+            HashMap<String, String> partitionProperties = Maps.newHashMap();
             if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
                 partitionProperties.put("replication_num", String.valueOf(olapTable.getDefaultReplicationNum()));
             } else {
                 partitionProperties.put("replication_num", String.valueOf(dynamicPartitionProperty.getReplicationNum()));
             }
+
+            if (hotPartitionNum > 0) {
+                // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
+                setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
+            }
+
+
             String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(
                     dynamicPartitionProperty.getTimeZone(), prevBorder, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
@@ -208,6 +219,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));
         }
         return addPartitionClauses;
+    }
+
+    private void setStorageMediumProperty(HashMap<String, String> partitionProperties, DynamicPartitionProperty property,
+                                          ZonedDateTime now, int hotPartitionNum, int offset) {
+        if (offset + hotPartitionNum <= 0) {
+            return;
+        }
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
+        String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + hotPartitionNum,
+                DynamicPartitionUtil.DATETIME_FORMAT);
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, cooldownTime);
     }
 
     /**

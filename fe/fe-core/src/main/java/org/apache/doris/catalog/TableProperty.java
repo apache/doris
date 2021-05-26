@@ -92,6 +92,7 @@ public class TableProperty implements Writable {
         }
         return this;
     }
+
     public TableProperty buildDynamicProperty() throws DdlException {
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)
                 && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))

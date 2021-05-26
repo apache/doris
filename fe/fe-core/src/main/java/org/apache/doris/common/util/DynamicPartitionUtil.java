@@ -57,9 +57,9 @@ import java.util.TimeZone;
 public class DynamicPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
 
-    private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
-    private static final String DATE_FORMAT = "yyyy-MM-dd";
-    private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final String TIMESTAMP_FORMAT = "yyyyMMdd";
+    public static final String DATE_FORMAT = "yyyy-MM-dd";
+    public static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
 
     public static void checkTimeUnit(String timeUnit, PartitionInfo partitionInfo) throws DdlException {
         if (Strings.isNullOrEmpty(timeUnit)
@@ -195,6 +195,19 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkHotPartitionNum(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HOT_PARTITION_NUM);
+        }
+        try {
+            if (Integer.parseInt(val) < 0) {
+                throw new DdlException(DynamicPartitionProperty.HOT_PARTITION_NUM + " must larger than 0.");
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid " + DynamicPartitionProperty.HOT_PARTITION_NUM + " value");
+        }
+    }
+
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -208,7 +221,8 @@ public class DynamicPartitionUtil {
                 properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM) ||
                 properties.containsKey(DynamicPartitionProperty.ENABLE) ||
                 properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK) ||
-                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH);
+                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH) ||
+                properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM);
     }
 
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
@@ -369,6 +383,14 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_NUM, val);
         }
+
+        if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            checkHotPartitionNum(val);
+            properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
+        }
+
         return analyzedProperties;
     }
 
@@ -482,7 +504,7 @@ public class DynamicPartitionUtil {
      * Today is 2020-05-24 00, offset = 1
      * It will return 2020-05-24 01:00:00
      */
-    private static String getPartitionRangeOfHour(ZonedDateTime current, int offset, String format) {
+    public static String getPartitionRangeOfHour(ZonedDateTime current, int offset, String format) {
         return getFormattedTimeWithoutMinuteSecond(current.plusHours(offset), format);
     }
 

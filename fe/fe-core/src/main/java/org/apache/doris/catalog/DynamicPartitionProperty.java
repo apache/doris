@@ -37,6 +37,7 @@ public class DynamicPartitionProperty {
     public static final String TIME_ZONE = "dynamic_partition.time_zone";
     public static final String REPLICATION_NUM = "dynamic_partition.replication_num";
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
+    public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
@@ -55,6 +56,9 @@ public class DynamicPartitionProperty {
     private TimeZone tz = TimeUtils.getSystemTimeZone();
     private int replicationNum;
     private boolean createHistoryPartition = false;
+    // This property are used to describe the number of partitions that need to be reserved on the high-speed storage.
+    // If not set, default is 0
+    private int hotPartitionNum;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -69,6 +73,7 @@ public class DynamicPartitionProperty {
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
             this.replicationNum = Integer.parseInt(properties.getOrDefault(REPLICATION_NUM, String.valueOf(NOT_SET_REPLICATION_NUM)));
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
+            this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -131,6 +136,10 @@ public class DynamicPartitionProperty {
         return createHistoryPartition;
     }
 
+    public int getHotPartitionNum() {
+        return hotPartitionNum;
+    }
+
     public String getStartOfInfo() {
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return startOfWeek.toDisplayInfo();
@@ -165,7 +174,8 @@ public class DynamicPartitionProperty {
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + REPLICATION_NUM + "\" = \"" + useReplicationNum + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
-                ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"";
+                ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
+                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
