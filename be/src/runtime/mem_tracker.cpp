@@ -523,7 +523,8 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
         // dumping the process tracker to only two layers.
         ss << process_tracker->LogUsage(PROCESS_MEMTRACKER_LIMITED_DEPTH);
     }
-    if (state != nullptr) state->log_error(status.to_string());
+    if (state != nullptr) state->log_error(ss.str());
+    LOG(WARNING) << ss.str();
     return status;
 }
 
