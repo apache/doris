@@ -17,19 +17,18 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Representation of the WITH clause that may appear before a query statement or insert
@@ -111,6 +110,14 @@ public class WithClause implements ParseNode {
             QueryStmt stmt = view.getQueryStmt();
             parentViewNameSet.add(view.getName());
             stmt.getTables(analyzer, tableMap, parentViewNameSet);
+        }
+    }
+
+    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        for (View view : views_) {
+            QueryStmt stmt = view.getQueryStmt();
+            parentViewNameSet.add(view.getName());
+            stmt.getTableRefs(tblRefs, parentViewNameSet);
         }
     }
 
