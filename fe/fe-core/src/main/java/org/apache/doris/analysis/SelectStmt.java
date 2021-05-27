@@ -687,9 +687,13 @@ public class SelectStmt extends QueryStmt {
         } else {
             // rebuild CompoundPredicate if found duplicate predicate will build （predicate) and (.. or ..)  predicate in
             // step 1: will build (.. or ..)
-            result = CollectionUtils.isNotEmpty(cloneExprs) ? new CompoundPredicate(CompoundPredicate.Operator.AND,
-                    temp.get(0), makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR))
-                    : makeCompound(temp, CompoundPredicate.Operator.OR);
+            if (CollectionUtils.isNotEmpty(cloneExprs)) {
+                result = new CompoundPredicate(CompoundPredicate.Operator.AND, temp.get(0),
+                        makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR));
+                result.setPrintSqlInParens(true);
+            } else {
+                result = makeCompound(temp, CompoundPredicate.Operator.OR);
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("equal ors: " + result.toSql());
@@ -711,6 +715,7 @@ public class SelectStmt extends QueryStmt {
         for (int i = 2; i < exprs.size(); ++i) {
             result = new CompoundPredicate(op, result.clone(), exprs.get(i));
         }
+        result.setPrintSqlInParens(true);
         return result;
     }
 

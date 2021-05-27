@@ -53,6 +53,7 @@ public class SelectStmtTest {
     @BeforeClass
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
+        Config.enable_http_server_v2 = false;
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
@@ -186,7 +187,7 @@ public class SelectStmtTest {
                 "k1 > (select min(k1) from db1.tbl1) then \"empty\" else \"p_test\" end a from db1.tbl1";
         SelectStmt stmt4 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql4, ctx);
         stmt4.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt4.toSql().contains(" (`k1` < `$a$1`.`$c$1`) AND (`k1` > `$a$2`.`$c$2`) "));
+        Assert.assertTrue(stmt4.toSql().contains("`k1` < `$a$1`.`$c$1` AND `k1` > `$a$2`.`$c$2`"));
 
         String sql5 = "select case when k1 < (select max(k1) from db1.tbl1) is null " +
                 "then \"empty\" else \"p_test\" end a from db1.tbl1";
@@ -264,16 +265,16 @@ public class SelectStmtTest {
                 "   );";
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        String rewritedFragment1 = "(((`t1`.`k2` = `t4`.`k2`) AND (`t3`.`k3` = `t1`.`k3`)) AND ((((((`t3`.`k1` = 'D')" +
-                " AND (`t4`.`k3` = '2 yr Degree')) AND ((`t1`.`k4` >= 100.00) AND (`t1`.`k4` <= 150.00))) AND" +
-                " (`t4`.`k4` = 3)) OR ((((`t3`.`k1` = 'S') AND (`t4`.`k3` = 'Secondary')) AND ((`t1`.`k4` >= 50.00)" +
-                " AND (`t1`.`k4` <= 100.00))) AND (`t4`.`k4` = 1))) OR ((((`t3`.`k1` = 'W') AND " +
-                "(`t4`.`k3` = 'Advanced Degree')) AND ((`t1`.`k4` >= 150.00) AND (`t1`.`k4` <= 200.00)))" +
-                " AND (`t4`.`k4` = 1))))";
-        String rewritedFragment2 = "(((`t1`.`k1` = `t5`.`k1`) AND (`t5`.`k2` = 'United States')) AND" +
-                " ((((`t5`.`k3` IN ('CO', 'IL', 'MN')) AND ((`t1`.`k4` >= 100) AND (`t1`.`k4` <= 200)))" +
-                " OR ((`t5`.`k3` IN ('OH', 'MT', 'NM')) AND ((`t1`.`k4` >= 150) AND (`t1`.`k4` <= 300))))" +
-                " OR ((`t5`.`k3` IN ('TX', 'MO', 'MI')) AND ((`t1`.`k4` >= 50) AND (`t1`.`k4` <= 250)))))";
+        String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3`) " +
+                "AND ((`t3`.`k1` = 'D' AND `t4`.`k3` = '2 yr Degree' " +
+                "AND `t1`.`k4` >= 100.00 AND `t1`.`k4` <= 150.00 AND `t4`.`k4` = 3) " +
+                "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50.00 " +
+                "AND `t1`.`k4` <= 100.00 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
+                "AND `t1`.`k4` >= 150.00 AND `t1`.`k4` <= 200.00 AND `t4`.`k4` = 1)))";
+        String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States') " +
+                "AND ((`t5`.`k3` IN ('CO', 'IL', 'MN') AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200) " +
+                "OR (`t5`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300) OR (`t5`.`k3` IN " +
+                "('TX', 'MO', 'MI') AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250)))";
         Assert.assertTrue(stmt.toSql().contains(rewritedFragment1));
         Assert.assertTrue(stmt.toSql().contains(rewritedFragment2));
 
@@ -305,12 +306,11 @@ public class SelectStmtTest {
                 ")";
         SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
         stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        String fragment3 = "(((((`t1`.`k1` = `t2`.`k3`) AND (`t2`.`k2` = 'United States')) AND " +
-                "(`t2`.`k3` IN ('CO', 'IL', 'MN'))) AND ((`t1`.`k4` >= 100) AND (`t1`.`k4` <= 200))) OR" +
-                " ((((`t1`.`k1` = `t2`.`k1`) AND (`t2`.`k2` = 'United States1')) AND (`t2`.`k3` IN ('OH', 'MT', 'NM')))" +
-                " AND ((`t1`.`k4` >= 150) AND (`t1`.`k4` <= 300)))) OR ((((`t1`.`k1` = `t2`.`k1`) AND " +
-                "(`t2`.`k2` = 'United States')) AND (`t2`.`k3` IN ('TX', 'MO', 'MI'))) AND ((`t1`.`k4` >= 50)" +
-                " AND (`t1`.`k4` <= 250)))";
+        String fragment3 = "((`t1`.`k1` = `t2`.`k3` AND `t2`.`k2` = 'United States' AND `t2`.`k3` IN ('CO', 'IL', 'MN') " +
+                "AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200) OR (`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States1' " +
+                "AND `t2`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300) " +
+                "OR (`t1`.`k1` = `t2`.`k1` AND `t2`.`k2` = 'United States' AND `t2`.`k3` IN ('TX', 'MO', 'MI') " +
+                "AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250))";
         Assert.assertTrue(stmt2.toSql().contains(fragment3));
 
         String sql3 = "select\n" +
@@ -322,8 +322,8 @@ public class SelectStmtTest {
                 "   t1.k1 = t2.k3 or t1.k1 = t2.k3 or t1.k1 = t2.k3";
         SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
         stmt3.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertFalse(stmt3.toSql().contains("((`t1`.`k1` = `t2`.`k3`) OR (`t1`.`k1` = `t2`.`k3`)) OR" +
-                " (`t1`.`k1` = `t2`.`k3`)"));
+        Assert.assertFalse(stmt3.toSql().contains("`t1`.`k1` = `t2`.`k3` OR `t1`.`k1` = `t2`.`k3` OR" +
+                " `t1`.`k1` = `t2`.`k3`"));
 
         String sql4 = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -334,7 +334,7 @@ public class SelectStmtTest {
                 "   t1.k1 = t2.k2 or t1.k1 = t2.k3 or t1.k1 = t2.k3";
         SelectStmt stmt4 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql4, ctx);
         stmt4.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt4.toSql().contains("(`t1`.`k1` = `t2`.`k2`) OR (`t1`.`k1` = `t2`.`k3`)"));
+        Assert.assertTrue(stmt4.toSql().contains("`t1`.`k1` = `t2`.`k2` OR `t1`.`k1` = `t2`.`k3`"));
 
         String sql5 = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -345,7 +345,7 @@ public class SelectStmtTest {
                 "   t2.k1 is not null or t1.k1 is not null or t1.k1 is not null";
         SelectStmt stmt5 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql5, ctx);
         stmt5.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt5.toSql().contains("(`t2`.`k1` IS NOT NULL) OR (`t1`.`k1` IS NOT NULL)"));
+        Assert.assertTrue(stmt5.toSql().contains("`t2`.`k1` IS NOT NULL OR `t1`.`k1` IS NOT NULL"));
         Assert.assertEquals(2, stmt5.toSql().split(" OR ").length);
 
         String sql6 = "select\n" +
@@ -357,7 +357,7 @@ public class SelectStmtTest {
                 "   t2.k1 is not null or t1.k1 is not null and t1.k1 is not null";
         SelectStmt stmt6 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql6, ctx);
         stmt6.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt6.toSql().contains("(`t2`.`k1` IS NOT NULL) OR (`t1`.`k1` IS NOT NULL)"));
+        Assert.assertTrue(stmt6.toSql().contains("`t2`.`k1` IS NOT NULL OR `t1`.`k1` IS NOT NULL"));
         Assert.assertEquals(2, stmt6.toSql().split(" OR ").length);
 
         String sql7 = "select\n" +
@@ -369,8 +369,8 @@ public class SelectStmtTest {
                 "   t2.k1 is not null or t1.k1 is not null and t1.k2 is not null";
         SelectStmt stmt7 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql7, ctx);
         stmt7.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt7.toSql().contains("(`t2`.`k1` IS NOT NULL) OR ((`t1`.`k1` IS NOT NULL) " +
-                "AND (`t1`.`k2` IS NOT NULL))"));
+        Assert.assertTrue(stmt7.toSql().contains("`t2`.`k1` IS NOT NULL OR (`t1`.`k1` IS NOT NULL " +
+                "AND `t1`.`k2` IS NOT NULL)"));
 
         String sql8 = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -381,14 +381,14 @@ public class SelectStmtTest {
                 "   t2.k1 is not null and t1.k1 is not null and t1.k1 is not null";
         SelectStmt stmt8 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql8, ctx);
         stmt8.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt8.toSql().contains("((`t2`.`k1` IS NOT NULL) AND (`t1`.`k1` IS NOT NULL))" +
-                " AND (`t1`.`k1` IS NOT NULL)"));
+        Assert.assertTrue(stmt8.toSql().contains("`t2`.`k1` IS NOT NULL AND `t1`.`k1` IS NOT NULL" +
+                " AND `t1`.`k1` IS NOT NULL"));
 
         String sql9 = "select * from db1.tbl1 where (k1='shutdown' and k4<1) or (k1='switchOff' and k4>=1)";
         SelectStmt stmt9 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql9, ctx);
         stmt9.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt9.toSql().contains("((`k1` = 'shutdown') AND (`k4` < 1))" +
-                " OR ((`k1` = 'switchOff') AND (`k4` >= 1))"));
+        Assert.assertTrue(stmt9.toSql().contains("(`k1` = 'shutdown' AND `k4` < 1)" +
+                " OR (`k1` = 'switchOff' AND `k4` >= 1)"));
     }
 
     @Test
