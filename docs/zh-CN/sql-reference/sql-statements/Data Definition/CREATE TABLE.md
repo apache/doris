@@ -387,7 +387,7 @@ under the License.
     v2 SMALLINT SUM DEFAULT "10"
     )
     ENGINE=olap
-    UNIQUE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
@@ -754,7 +754,7 @@ under the License.
     r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
-    
+```
 14. 创建一个内存表
 
 ```
