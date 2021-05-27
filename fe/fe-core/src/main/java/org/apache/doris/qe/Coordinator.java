@@ -828,7 +828,11 @@ public class Coordinator {
                         params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
             }
 
-            if (bucketShuffleJoinController.isBucketShuffleJoin(destFragment.getFragmentId().asInt())) {
+            if (sink.getOutputPartition().isBucketShuffleHashPartition()) {
+                // the destFragment must be bucket shuffle
+                Preconditions.checkState(bucketShuffleJoinController.
+                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()));
+
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
                 TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
@@ -1544,7 +1548,6 @@ public class Coordinator {
                 return true;
             }
 
-            // One fragment could only have one HashJoinNode
             if (node instanceof HashJoinNode) {
                 HashJoinNode joinNode = (HashJoinNode) node;
                 if (joinNode.isBucketShuffle()) {
