@@ -643,9 +643,13 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
 2. Doris Official Website Download Page
 
+The download page is a markdown file, the address is as follows.
 ```
-http://doris.apache.org /downloads.html
+docs/zh-CN/downloads/downloads.md
+docs/en/downloads/downloads.md
 ```
+1. You need to change the download package address of the last released version to the apache archive address (see below).
+2. Add the download information of the new version.
 
 #### clean up the old release package from svn
 
@@ -667,7 +671,7 @@ Download page: http://doris.apache.org/downloads.html
 Archive page: http://archive.apache.org/dist/incubator/doris
 ```
 
-Apache will have a synchronization mechanism to archive historical release versions. For details, see: (how to archive)[https://www.apache.org/legal/release-policy.html#how-to-archive]
+Apache will have a synchronization mechanism to archive historical release versions. For details, see: [how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
 So even if the old package is removed from svn, it can still be found on the archive page.
 
 ### Send Announce e-mail to general@incubator.apache.org
