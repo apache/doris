@@ -25,6 +25,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -33,8 +35,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
-
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -561,5 +564,20 @@ public class SelectStmtTest {
     public void testWithInNestedQueryStmt() throws Exception {
         String sql = "select 1 from (with w as (select 1 from db1.table1) select 1 from w) as tt";
         dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testGetTableRefs() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        dorisAssert.query(sql).explainQuery();
+        QueryStmt stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        List<TableRef> tblRefs = Lists.newArrayList();
+        Set<String> parentViewNameSet = Sets.newHashSet();
+        stmt.getTableRefs(tblRefs, parentViewNameSet);
+
+        Assert.assertEquals(2, tblRefs.size());
+        Assert.assertEquals("table1", tblRefs.get(0).getName().getTbl());
+        Assert.assertEquals("table2", tblRefs.get(1).getName().getTbl());
     }
 }
