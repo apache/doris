@@ -628,9 +628,13 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
 2、Doris 官网下载页面
 
+下载页面是一个 markdown 文件，地址如下。
 ```
-http://doris.apache.org/downloads.html
+docs/zh-CN/downloads/downloads.md
+docs/en/downloads/downloads.md
 ```
+1. 需要将上一次发布版本的下载包地址改为 apache 的归档地址（见后）。
+2. 增加新版本的下载信息。
 
 #### svn 上清理旧版本的包
 
@@ -651,7 +655,7 @@ https://dist.apache.org/repos/dist/dev/incubator/doris/
 归档页面: http://archive.apache.org/dist/incubator/doris
 ```
 
-Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：(how to archive)[https://www.apache.org/legal/release-policy.html#how-to-archive]
+Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：[how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
 所以即使旧的包从 svn 上清除，还是可以在归档页面中找到。
 
 ### 发 Announce 邮件到 general@incubator.apache.org
