@@ -42,7 +42,7 @@ public:
             : _aws_properties({{"AWS_ACCESS_KEY", AK},
                                {"AWS_SECRET_KEY", SK},
                                {"AWS_ENDPOINT", ENDPOINT},
-                               {"AWS_REGION", "bj"}}) {
+                               {"AWS_REGION", REGION}}) {
         _s3_base_path = BUCKET + "s3/" + gen_uuid();
     }
 
@@ -101,6 +101,8 @@ TEST_F(S3ReaderTest, normal) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(_content, verification_contents);
     ASSERT_EQ(_content.length(), total_read);
+    ASSERT_FALSE(eof);
+    st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
     ASSERT_TRUE(eof);
     int64_t t = 0;
     st = reader->tell(&t);
@@ -114,20 +116,9 @@ TEST_F(S3ReaderTest, normal) {
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // doris::init_glog("be-test");
-    // doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     int ret = 0;
-    Aws::SDKOptions options;
-    options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
-    Aws::InitAPI(options);
     // ak sk is secret
     // ret = RUN_ALL_TESTS();
-    Aws::ShutdownAPI(options);
     return ret;
 }
