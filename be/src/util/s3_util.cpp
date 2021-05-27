@@ -17,12 +17,12 @@
 
 #include "util/s3_util.h"
 
-#include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentials.h>
 #include <aws/s3/S3Client.h>
 #include <util/string_util.h>
 
-#include "common/logging.h"
+#include "common/config.h"
+#include "util/logging.h"
 
 namespace doris {
 
@@ -31,23 +31,43 @@ const static std::string S3_SK = "AWS_SECRET_KEY";
 const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
 const static std::string S3_REGION = "AWS_REGION";
 
-std::unique_ptr<Aws::S3::S3Client> create_client(const std::map<std::string, std::string>& prop) {
-    StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    Aws::Auth::AWSCredentials aws_cred;
-    Aws::Client::ClientConfiguration aws_config;
-    std::unique_ptr<Aws::S3::S3Client> client;
-    if (properties.find(S3_AK) != properties.end() && properties.find(S3_SK) != properties.end() &&
-        properties.find(S3_ENDPOINT) != properties.end() &&
-        properties.find(S3_REGION) != properties.end()) {
-        aws_cred.SetAWSAccessKeyId(properties.find(S3_AK)->second);
-        aws_cred.SetAWSSecretKey(properties.find(S3_SK)->second);
-        DCHECK(!aws_cred.IsExpiredOrEmpty());
-        aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;
-        aws_config.region = properties.find(S3_REGION)->second;
-        client.reset(new Aws::S3::S3Client(aws_cred, aws_config));
-    } else {
-        client.reset(nullptr);
-    }
-    return client;
+ClientFactory::ClientFactory() {
+    _aws_options = Aws::SDKOptions{};
+    Aws::Utils::Logging::LogLevel logLevel =
+            static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+    _aws_options.loggingOptions.logLevel = logLevel;
+    _aws_options.loggingOptions.logger_create_fn = [logLevel] {
+        return std::make_shared<DorisAWSLogger>(logLevel);
+    };
+    Aws::InitAPI(_aws_options);
 }
+
+ClientFactory::~ClientFactory() {
+    Aws::ShutdownAPI(_aws_options);
+}
+
+ClientFactory& ClientFactory::instance() {
+    static ClientFactory ret;
+    return ret;
+}
+
+std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
+        const std::map<std::string, std::string>& prop) {
+    StringCaseMap<std::string> properties(prop.begin(), prop.end());
+    if (properties.find(S3_AK) == properties.end() || properties.find(S3_SK) == properties.end() ||
+        properties.find(S3_ENDPOINT) == properties.end() ||
+        properties.find(S3_REGION) == properties.end()) {
+        DCHECK(false) << "aws properties is incorrect.";
+        LOG(ERROR) << "aws properties is incorrect.";
+    }
+    Aws::Auth::AWSCredentials aws_cred(properties.find(S3_AK)->second,
+                                       properties.find(S3_SK)->second);
+    DCHECK(!aws_cred.IsExpiredOrEmpty());
+
+    Aws::Client::ClientConfiguration aws_config;
+    aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;
+    aws_config.region = properties.find(S3_REGION)->second;
+    return std::make_shared<Aws::S3::S3Client>(std::move(aws_cred), std::move(aws_config));
+}
+
 } // end namespace doris
