@@ -404,7 +404,7 @@ public class PropertyAnalyzer {
             storageFormat = properties.get(PROPERTIES_STORAGE_FORMAT);
             properties.remove(PROPERTIES_STORAGE_FORMAT);
         } else {
-            return TStorageFormat.V2;
+            return TStorageFormat.DEFAULT;
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
@@ -416,7 +416,7 @@ public class PropertyAnalyzer {
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
-            return TStorageFormat.V2;
+            return TStorageFormat.DEFAULT;
         } else {
             throw new AnalysisException("unknown storage format: " + storageFormat);
         }
