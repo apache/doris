@@ -499,8 +499,9 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
     const int64_t process_capacity = process_tracker->SpareCapacity(MemLimit::HARD);
     ss << "Memory left in process limit: " << PrettyPrinter::print(process_capacity, TUnit::BYTES)
        << std::endl;
+    Status status = Status::MemoryLimitExceeded(ss.str());
 
-    // Always log the query tracker (if available).
+    // only print the query tracker in be log(if available).
     MemTracker* query_tracker = nullptr;
     if (mtracker != nullptr) {
         query_tracker = mtracker->GetQueryMemTracker();
@@ -522,9 +523,8 @@ Status MemTracker::MemLimitExceeded(MemTracker* mtracker, RuntimeState* state,
         // dumping the process tracker to only two layers.
         ss << process_tracker->LogUsage(PROCESS_MEMTRACKER_LIMITED_DEPTH);
     }
-
-    Status status = Status::MemoryLimitExceeded(ss.str());
-    if (state != nullptr) state->log_error(status.to_string());
+    if (state != nullptr) state->log_error(ss.str());
+    LOG(WARNING) << ss.str();
     return status;
 }
 
