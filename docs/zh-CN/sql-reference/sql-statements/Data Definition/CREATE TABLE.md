@@ -736,9 +736,9 @@ under the License.
      );
 ```
 
-13. Create a table with rollup index
+13. 创建一个带有rollup索引的表
 ```
-    CREATE TABLE example_db.rolup_index_table
+    CREATE TABLE example_db.rollup_index_table
     (
         event_day DATE,
         siteid INT DEFAULT '10',
