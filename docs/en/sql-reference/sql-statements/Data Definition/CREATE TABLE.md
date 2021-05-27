@@ -357,7 +357,7 @@ Syntax:
     v2 SMALLINT SUM DEFAULT "10"
     )
     ENGINE=olap
-    UNIQUE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
@@ -404,6 +404,7 @@ Syntax:
     Data outside these ranges will not be loaded.
 
 2) Fixed Range
+    ```
     CREATE TABLE table_range
     (
     k1 DATE,
@@ -423,7 +424,7 @@ Syntax:
     PROPERTIES(
     "storage_medium" = "SSD"
     );
-   
+    ```
 4. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
     1) Single column partition
