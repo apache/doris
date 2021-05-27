@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW PARTITION
+# SHOW PARTITION ID
 ## description
     该语句用于根据 partition id 查找对应的 database name, table name, partition name（仅管理员使用）
     语法：

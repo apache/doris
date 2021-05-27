@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW TABLE
+# SHOW TABLE ID
 ## Description
 This statement is used to display database name, table name according to table id (for administrators only)
 Grammar:

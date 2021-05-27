@@ -1,7 +1,7 @@
 ---
 {
     "title": "SHOW DATABASE",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -24,16 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATABASE
-## description
-    该语句用于根据 database id 查找对应的 database name（仅管理员使用）
-    语法：
-        SHOW DATABASE [database_id]
+# SHOW DATABASE ID
+## Description
+This statement is used to display database name according to database id (for administrators only)
+Grammar:
+SHOW DATABASE [database_id]
 
 ## example
-    1. 根据 database id 查找对应的 database name
-        SHOW DATABASE 1001;
+1. Display database name according to database id
+SHOW DATABASE 1001;
 
 ## keyword
-    SHOW,DATABASE
-
+SHOW,DATABASE

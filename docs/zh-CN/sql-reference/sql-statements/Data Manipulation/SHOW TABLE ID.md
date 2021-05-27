@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW PARTITION",
-    "language": "en"
+    "title": "SHOW TABLE",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,15 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW PARTITION
-## Description
-This statement is used to display database name, table name, partition name according to partition id (for administrators only)
-Grammar:
-SHOW PARTITION [partition_id]
+# SHOW TABLE ID
+## description
+    该语句用于根据 table id 查找对应的 database name, table name（仅管理员使用）
+    语法：
+        SHOW TABLE [table_id]
 
 ## example
-1. Display database name, table name, partition name according to partition id
-SHOW PARTITION 10002;
+    1. 根据 table id 查找对应的 database name, table name
+        SHOW TABLE 10001;
 
 ## keyword
-SHOW,PARTITION
+    SHOW,TABLE
+
