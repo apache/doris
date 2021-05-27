@@ -116,6 +116,7 @@ public class ShowViewStmt extends ShowStmt {
             // get table refs instead of get tables because it don't need to check table's validity
             getTableRefs(view, tblRefs);
             for (TableRef tblRef : tblRefs) {
+                tblRef.analyze(analyzer);
                 if (tblRef.getName().equals(tbl)) {
                     matchViews.add(view);
                 }
@@ -123,7 +124,7 @@ public class ShowViewStmt extends ShowStmt {
         }
     }
 
-    private void getTableRefs(View view, List<TableRef> tblRefs) throws UserException {
+    private void getTableRefs(View view, List<TableRef> tblRefs) {
         Set<String> parentViewNameSet = Sets.newHashSet();
         QueryStmt queryStmt = view.getQueryStmt();
         queryStmt.getTableRefs(tblRefs, parentViewNameSet);
