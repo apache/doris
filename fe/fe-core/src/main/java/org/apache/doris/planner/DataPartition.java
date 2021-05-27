@@ -95,6 +95,10 @@ public class DataPartition {
         return type != TPartitionType.UNPARTITIONED;
     }
 
+    public boolean isBucketShuffleHashPartition() {
+        return type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
+    }
+
     public TPartitionType getType() {
         return type;
     }
