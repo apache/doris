@@ -313,6 +313,7 @@ private:
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t charge, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
+    void _prune_one(LRUHandle* old);
 
     // Initialized before use.
     size_t _capacity = 0;
@@ -322,9 +323,11 @@ private:
     size_t _usage = 0;
 
     // Dummy head of LRU list.
-    // lru.prev is newest entry, lru.next is oldest entry.
     // Entries have refs==1 and in_cache==true.
-    LRUHandle _lru;
+    // _lru_normal.prev is newest entry, _lru_normal.next is oldest entry.
+    LRUHandle _lru_normal;
+    // _lru_durable.prev is newest entry, _lru_durable.next is oldest entry.
+    LRUHandle _lru_durable;
 
     HandleTable _table;
 
