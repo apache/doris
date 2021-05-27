@@ -41,8 +41,8 @@ S3Reader::S3Reader(const std::map<std::string, std::string>& properties, const s
           _uri(path),
           _cur_offset(start_offset),
           _file_size(0),
-          _closed(false) {
-    _client = create_client(_properties);
+          _closed(false),
+          _client(ClientFactory::instance().create(_properties)) {
     DCHECK(_client) << "init aws s3 client error.";
 }
 

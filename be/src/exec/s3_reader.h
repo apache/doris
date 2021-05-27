@@ -64,6 +64,6 @@ private:
     int64_t _cur_offset;
     int64_t _file_size;
     bool _closed;
-    std::unique_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<Aws::S3::S3Client> _client;
 };
 } // end namespace doris
