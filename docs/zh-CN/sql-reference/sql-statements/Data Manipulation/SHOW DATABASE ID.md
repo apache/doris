@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATABASE
+# SHOW DATABASE ID
 ## description
     该语句用于根据 database id 查找对应的 database name（仅管理员使用）
     语法：
