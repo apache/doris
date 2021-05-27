@@ -96,7 +96,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // specification of the partition of the input of this fragment;
     // an UNPARTITIONED fragment is executed on only a single node
     // TODO: improve this comment, "input" is a bit misleading
-    private final DataPartition dataPartition;
+    private DataPartition dataPartition;
 
     // specification of the actually input partition of this fragment when transmitting to be.
     // By default, the value of the data partition in planner and the data partition transmitted to be are the same.
@@ -265,6 +265,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      */
     public boolean isPartitioned() {
         return (dataPartition.getType() != TPartitionType.UNPARTITIONED);
+    }
+
+    public void updateDataPartition(DataPartition dataPartition) {
+        if (this.dataPartition == DataPartition.UNPARTITIONED) {
+            return;
+        }
+        this.dataPartition = dataPartition;
     }
 
     public PlanFragmentId getId() { return fragmentId; }

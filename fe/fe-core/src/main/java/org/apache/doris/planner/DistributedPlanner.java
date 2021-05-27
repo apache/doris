@@ -1043,6 +1043,37 @@ public class DistributedPlanner {
             throws UserException {
         repeatNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.addPlanRoot(repeatNode);
+        /*
+        The Repeat Node will change the data partition of fragment
+          when the origin data partition of fragment is HashPartition.
+        For example,
+        Query: SELECT k1, k2, sum(v1)
+               FROM table
+               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ))
+        Table schema: table distributed by k1
+        The Child Fragment:
+               Fragment 0
+                   Data partition: k1
+                   Repeat Node: repeat 3 lines [[0, 1], [0], [1], []]
+                   OlapScanNode: table
+        Data before Repeat Node is partitioned by k1 such as:
+          | Node 1 |  | Node 2 |
+          | 1, 1   |  | 2, 1   |
+          | 1, 2   |  | 2, 2   |
+        Data after Repeat Node is partitioned by RANDOM such as:
+          | Node 1 |  | Node 2 |
+          | 1, 1   |  | 2, 1   |
+          | 1, 2   |  | 2, 2   |
+          | null,1 |  | null,1 |
+          | null,2 |  | null,2 |
+          ...
+        The Repeat Node will generate some new rows.
+        The distribution of these new rows is completely inconsistent with the original data distribution,
+          their distribution is RANDOM.
+        Therefore, the data distribution method of the fragment needs to be modified here.
+        Only the correct data distribution can make the correct result when judging **colocate**.
+         */
+        childFragment.updateDataPartition(DataPartition.RANDOM);
         return childFragment;
     }
 
