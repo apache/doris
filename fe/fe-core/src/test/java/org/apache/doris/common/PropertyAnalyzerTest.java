@@ -161,9 +161,9 @@ public class PropertyAnalyzerTest {
         propertiesV1.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v1");
         propertiesV2.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "v2");
         propertiesDefault.put(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "default");
-        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(null));
+        Assert.assertEquals(TStorageFormat.DEFAULT, PropertyAnalyzer.analyzeStorageFormat(null));
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
-        Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
+        Assert.assertEquals(TStorageFormat.DEFAULT, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14," +
                 " please use V2 instead");
