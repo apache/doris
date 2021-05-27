@@ -199,31 +199,31 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
 
     if (document.HasMember("NumberTotalRows")) {
         const rapidjson::Value& total_rows = document["NumberTotalRows"];
-        stream_load_item.__set_total_rows(total_rows.GetInt());
-        ss << ", NumberTotalRows: " << total_rows.GetInt();
+        stream_load_item.__set_total_rows(total_rows.GetInt64());
+        ss << ", NumberTotalRows: " << total_rows.GetInt64();
     }
 
     if (document.HasMember("NumberLoadedRows")) {
         const rapidjson::Value& loaded_rows = document["NumberLoadedRows"];
-        stream_load_item.__set_loaded_rows(loaded_rows.GetInt());
-        ss << ", NumberLoadedRows: " << loaded_rows.GetInt();
+        stream_load_item.__set_loaded_rows(loaded_rows.GetInt64());
+        ss << ", NumberLoadedRows: " << loaded_rows.GetInt64();
     }
 
     if (document.HasMember("NumberFilteredRows")) {
         const rapidjson::Value& filtered_rows = document["NumberFilteredRows"];
-        stream_load_item.__set_filtered_rows(filtered_rows.GetInt());
+        stream_load_item.__set_filtered_rows(filtered_rows.GetInt64());
         ss << ", NumberFilteredRows: " << filtered_rows.GetInt64();
     }
 
     if (document.HasMember("NumberUnselectedRows")) {
         const rapidjson::Value& unselected_rows = document["NumberUnselectedRows"];
-        stream_load_item.__set_unselected_rows(unselected_rows.GetInt());
+        stream_load_item.__set_unselected_rows(unselected_rows.GetInt64());
         ss << ", NumberUnselectedRows: " << unselected_rows.GetInt64();
     }
 
     if (document.HasMember("LoadBytes")) {
         const rapidjson::Value& load_bytes = document["LoadBytes"];
-        stream_load_item.__set_load_bytes(load_bytes.GetInt());
+        stream_load_item.__set_load_bytes(load_bytes.GetInt64());
         ss << ", LoadBytes: " << load_bytes.GetInt64();
     }
 
