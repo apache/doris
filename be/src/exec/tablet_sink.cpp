@@ -185,7 +185,7 @@ Status NodeChannel::open_wait() {
                     std::stringstream ss;
 					// FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
 					//             But I don't know why. so here I print node_info()->id instead of node_info()->host
-					//             to avoid BE crash. It needs further observer.
+					//             to avoid BE crash. It needs further observation.
                     ss << name() << " add batch req success but status isn't ok, "
                                  << print_load_info() << ", backend id=" << node_info()->id << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();

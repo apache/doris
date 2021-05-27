@@ -205,37 +205,40 @@ public class TabletChecker extends MasterDaemon {
         // 1. Traverse partitions in "prios" first,
         // To prevent the partitions in the "prios" from being unscheduled
         // because the queue in the tablet scheduler is full
+        com.google.common.collect.Table<Long, Long, Set<PrioPart>> copiedPrios;
         synchronized (prios) {
-            OUT:
-            for (long dbId : prios.rowKeySet()) {
-                Database db = catalog.getDb(dbId);
-                if (db == null) {
+            copiedPrios = HashBasedTable.create(prios);
+        }
+
+        OUT:
+        for (long dbId : copiedPrios.rowKeySet()) {
+            Database db = catalog.getDb(dbId);
+            if (db == null) {
+                continue;
+            }
+            List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
+            Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
+            for (long tblId : tblPartMap.keySet()) {
+                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                if (tbl == null) {
                     continue;
                 }
-                List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-                Map<Long, Set<PrioPart>> tblPartMap = prios.row(dbId);
-                for (long tblId : tblPartMap.keySet()) {
-                    OlapTable tbl = (OlapTable) db.getTable(tblId);
-                    if (tbl == null) {
+                tbl.readLock();
+                try {
+                    if (!tbl.needSchedule()) {
                         continue;
                     }
-                    tbl.readLock();
-                    try {
-                        if (!tbl.needSchedule()) {
+                    for (Partition partition : tbl.getAllPartitions()) {
+                        LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true,
+                                aliveBeIdsInCluster, start, counter);
+                        if (st == LoopControlStatus.BREAK_OUT) {
+                            break OUT;
+                        } else {
                             continue;
                         }
-                        for (Partition partition : tbl.getAllPartitions()) {
-                            LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true,
-                                    aliveBeIdsInCluster, start, counter);
-                            if (st == LoopControlStatus.BREAK_OUT) {
-                                break OUT;
-                            } else {
-                                continue;
-                            }
-                        }
-                    } finally {
-                        tbl.readUnlock();
                     }
+                } finally {
+                    tbl.readUnlock();
                 }
             }
         }
@@ -265,8 +268,8 @@ public class TabletChecker extends MasterDaemon {
 
                     OlapTable tbl = (OlapTable) table;
                     for (Partition partition : tbl.getAllPartitions()) {
-                        boolean isInPrios = isInPrios(db.getId(), tbl.getId(), partition.getId());
-                        if (isInPrios) {
+                        // skip partitions in prios, because it has been checked before.
+                        if (isInPrios(db.getId(), tbl.getId(), partition.getId())) {
                             continue;
                         }
                         LoopControlStatus st = handlePartitionTablet(db, tbl, partition, false,
@@ -284,7 +287,6 @@ public class TabletChecker extends MasterDaemon {
         } // end for dbs
 
         long cost = System.currentTimeMillis() - start;
-
         stat.counterTabletCheckCostMs.addAndGet(cost);
         stat.counterTabletChecked.addAndGet(counter.totalTabletNum);
         stat.counterUnhealthyTabletNum.addAndGet(counter.unhealthyTabletNum);
