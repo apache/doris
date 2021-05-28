@@ -580,7 +580,7 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
         for (const auto& it : _version_graph[cur_idx].edges) {
             // Only consider incremental versions
             if (_version_graph[it].value < _version_graph[cur_idx].value) {
-                continue;
+                break;
             }
 
             if (_version_graph[it].value > end_value) {
