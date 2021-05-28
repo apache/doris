@@ -51,10 +51,10 @@ under the License.
 |---|---|---|
 | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.10.x, 0.11.x |
-| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x, 0.13 |
-| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 0.14.x 或更新版本 |
+| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
+| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 后续的发布版本 |
 
-注意: doris 0.14.0 版本仍然使用apachedoris/doris-dev:build-env-1.2 编译，之后的代码将使用apachedoris/doris-dev:build-env-1.3。**在build-env-1.3的docker镜像中，默认的JDK的版本升级到了11，所以FE将会使用OpenJDK 11进行编译。如果使用build-env-1.3之后的docker镜像进行FE编译的话，后续运行FE的Java版本也需要同时升级到JDK11以上，否则可能导致非预期的运行错误。**
+注意: doris 0.14.0 版本仍然使用apachedoris/doris-dev:build-env-1.2 编译，之后的代码将使用apachedoris/doris-dev:build-env-1.3。**在build-env-1.3的docker镜像中，默认的JDK的版本升级到了11，所以FE将会使用OpenJDK 11进行编译。如果使用build-env-1.3之后的docker镜像进行FE编译的话，后续运行FE的Java版本也需要同时升级到JDK11，否则可能导致非预期的运行错误。**
 
 2. 运行镜像
 
