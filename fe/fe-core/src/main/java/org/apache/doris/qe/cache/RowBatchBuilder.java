@@ -102,7 +102,9 @@ public class RowBatchBuilder {
 
     public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {
-            updateRequest = InternalService.PUpdateCacheRequest.newBuilder().setSqlKey(CacheProxy.getMd5(sql)).build();
+            updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
+                    .setSqlKey(CacheProxy.getMd5(sql))
+                    .setCacheType(InternalService.CacheType.SQL_CACHE).build();
         }
         updateRequest = updateRequest.toBuilder()
                 .addValues(InternalService.PCacheValue.newBuilder()
@@ -139,7 +141,9 @@ public class RowBatchBuilder {
      */
     public InternalService.PUpdateCacheRequest buildPartitionUpdateRequest(String sql) {
         if (updateRequest == null) {
-            updateRequest = InternalService.PUpdateCacheRequest.newBuilder().setSqlKey(CacheProxy.getMd5(sql)).build();
+            updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
+                    .setSqlKey(CacheProxy.getMd5(sql))
+                    .setCacheType(InternalService.CacheType.PARTITION_CACHE).build();
         }
         HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
         List<byte[]> partitionRowList;

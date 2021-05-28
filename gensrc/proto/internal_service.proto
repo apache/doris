@@ -164,6 +164,11 @@ enum PCacheStatus {
     EMPTY_DATA = 8;
 };
 
+enum CacheType {
+    SQL_CACHE = 1;
+    PARTITION_CACHE = 2;
+};
+
 message PCacheParam {
     required int64 partition_key = 1;
     optional int64 last_version = 2;
@@ -184,6 +189,7 @@ message PCacheResponse {
 message PUpdateCacheRequest{
     required PUniqueId sql_key = 1;
     repeated PCacheValue values = 2;
+    optional CacheType cache_type = 3;
 };
 
 message PFetchCacheRequest {
