@@ -70,7 +70,7 @@ Doris支持的常规分布式Join方式包括了shuffle join 和broadcast join�
 set enable_bucket_shuffle_join = true;
 ```
 
-在FE进行分布式查询规划时，优先选择的顺序为 Colocate Join -> Bucket Shuffle Join -> Brocast Join -> Shuffle Join。但是如果用户显式hint了Join的类型，如：    
+在FE进行分布式查询规划时，优先选择的顺序为 Colocate Join -> Bucket Shuffle Join -> Broadcast Join -> Shuffle Join。但是如果用户显式hint了Join的类型，如：    
 
 ```
 select * from test join [shuffle] baseall on test.k1 = baseall.k1;

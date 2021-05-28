@@ -51,10 +51,10 @@ Note: For different versions of Oris, you need to download the corresponding mir
 |---|---|---|
 | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
-| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x or later |
-| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
+| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
+| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
 
-Warning: Doris 0.14.0 still used apachedoris/doris-dev:build-env-1.2 to compile.  After thie version, the code will use apachedoris/doris-dev:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11 or above. Otherwise unexpected running errors may be caused. **
+Warning: Doris 0.14.0 still used apachedoris/doris-dev:build-env-1.2 to compile.  After thie version, the code will use apachedoris/doris-dev:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11, Otherwise unexpected running errors may be caused. **
 
 2. Running Mirror
 

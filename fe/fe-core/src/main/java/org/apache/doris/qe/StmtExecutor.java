@@ -294,7 +294,10 @@ public class StmtExecutor implements ProfileWriter {
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
-                        writeProfile(true);
+                        // explain query stmt do not have profile
+                        if (!((QueryStmt) parsedStmt).isExplain()) {
+                            writeProfile(true);
+                        }
                         break;
                     } catch (RpcException e) {
                         if (i == retryTime - 1) {
@@ -320,7 +323,9 @@ public class StmtExecutor implements ProfileWriter {
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
-                    writeProfile(true);
+                    if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
+                        writeProfile(true);
+                    }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
                     // the transaction of this insert may already begun, we will abort it at outer finally block.
