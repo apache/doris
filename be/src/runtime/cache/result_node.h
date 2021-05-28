@@ -128,6 +128,8 @@ public:
     PCacheStatus update_partition(const PUpdateCacheRequest* request, bool& is_update_firstkey);
     PCacheStatus fetch_partition(const PFetchCacheRequest* request,
                                  PartitionRowBatchList& rowBatchList, bool& is_hit_firstkey);
+    PCacheStatus update_sql_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
+    PCacheStatus update_partition_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
 
     size_t prune_first();
     void clear();
