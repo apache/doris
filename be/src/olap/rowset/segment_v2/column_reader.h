@@ -269,6 +269,8 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
+    Status seek_to_page_start();
+
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
@@ -318,8 +320,10 @@ private:
 
 class ArrayFileColumnIterator final : public ColumnIterator {
 public:
-    explicit ArrayFileColumnIterator(FileColumnIterator* offset_iterator,
-                                     ColumnIterator* item_iterator);
+    explicit ArrayFileColumnIterator(ColumnReader* reader,
+                                     FileColumnIterator* offset_reader,
+                                     ColumnIterator* item_iterator,
+                                     ColumnIterator* null_iterator);
 
     ~ArrayFileColumnIterator() override = default;
 
@@ -327,18 +331,53 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
-    Status seek_to_first() override { return _offset_iterator->seek_to_first(); };
+    Status seek_to_first() override {
+        RETURN_IF_ERROR(_offset_iterator->seek_to_first());
+        RETURN_IF_ERROR(_item_iterator->seek_to_first()); // lazy???
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_first());
+        }
+        return Status::OK();
+    }
 
     Status seek_to_ordinal(ordinal_t ord) override {
-        return _offset_iterator->seek_to_ordinal(ord);
-    };
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(ord));
+        if (_array_reader->is_nullable()) {
+            RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+        }
+
+        RETURN_IF_ERROR(_offset_iterator->seek_to_page_start());
+        if (_offset_iterator->get_current_ordinal() == ord) {
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(_offset_iterator->get_current_page()->next_array_item_ordinal));
+        } else {
+            ordinal_t start_offset_in_this_page = _offset_iterator->get_current_page()->next_array_item_ordinal;
+            ColumnBlock ordinal_block(_offset_batch.get(), nullptr);
+            ordinal_t size_to_read = ord - start_offset_in_this_page;
+            bool has_null = false;
+            ordinal_t item_ordinal = start_offset_in_this_page;
+            while (size_to_read > 0) {
+                size_t this_read = _offset_batch->capacity() < size_to_read ? _offset_batch->capacity() : size_to_read;
+                ColumnBlockView ordinal_view(&ordinal_block);
+                RETURN_IF_ERROR(_offset_iterator->next_batch(&this_read, &ordinal_view, &has_null));
+                auto* ordinals = reinterpret_cast<ordinal_t*>(_offset_batch->data());
+                for (int i = 0; i < this_read; ++i) {
+                    item_ordinal += ordinals[i];
+                }
+                size_to_read -= this_read;
+            }
+            RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(item_ordinal));
+        }
+        return Status::OK();
+    }
 
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
 
 private:
+    ColumnReader* _array_reader;
     std::unique_ptr<FileColumnIterator> _offset_iterator;
+    std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
     std::unique_ptr<ColumnVectorBatch> _offset_batch;
 };
