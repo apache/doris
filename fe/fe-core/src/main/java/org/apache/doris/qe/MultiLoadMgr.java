@@ -29,16 +29,16 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TMiniLoadRequest;
@@ -53,6 +53,7 @@ import com.google.common.collect.Streams;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.awaitility.Awaitility;
 
 import java.io.StringReader;
 import java.util.Iterator;
@@ -63,11 +64,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-
-import static org.apache.doris.load.loadv2.JobState.FINISHED;
-import static org.apache.doris.load.loadv2.JobState.LOADING;
-import static org.apache.doris.load.loadv2.JobState.PENDING;
-import static org.awaitility.Awaitility.await;
 
 // Class used to record state of multi-load operation
 public class MultiLoadMgr {
@@ -159,42 +155,33 @@ public class MultiLoadMgr {
     // user can pass commitLabel which use this string commit to jobmgr
     public void commit(String fullDbName, String label) throws DdlException {
         LabelName multiLabel = new LabelName(fullDbName, label);
+        List<Long> jobIds = Lists.newArrayList();
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
             if (multiLoadDesc == null) {
                 throw new DdlException("Unknown label(" + multiLabel + ")");
             }
-            Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt());
+            jobIds.add(Catalog.getCurrentCatalog().getLoadManager().createLoadJobFromStmt(multiLoadDesc.toLoadStmt()));
             infoMap.remove(multiLabel);
         } finally {
             lock.writeLock().unlock();
         }
+        final long jobId = jobIds.isEmpty() ? -1 : jobIds.get(0);
         Catalog.getCurrentCatalog().getLoadInstance().deregisterMiniLabel(fullDbName, label);
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("db: " + fullDbName + "not found!");
-        }
-        long dbId = db.getId();
         ConnectContext ctx = ConnectContext.get();
-        await().atMost(Config.broker_load_default_timeout_second, TimeUnit.SECONDS).until(() -> {
+        Awaitility.await().atMost(Config.broker_load_default_timeout_second, TimeUnit.SECONDS).until(() -> {
             ConnectContext.threadLocalInfo.set(ctx);
-            List<List<Comparable>> loadInfos = catalog.getLoadManager().getLoadJobInfosByDb(dbId, label, true,
-                    null);
-            if (loadInfos.size() != 1) {
-                throw new DdlException("label(" + label + ") can be only used once.");
-            }
-            List<Comparable> loadInfo = loadInfos.get(0);
-            String jobState = loadInfo.get(LoadProcDir.STATE_INDEX).toString();
-            if (jobState.equals(FINISHED.name())) {
+            LoadJob loadJob = catalog.getLoadManager().getLoadJob(jobId);
+            if (loadJob.getState() == JobState.FINISHED) {
                 return true;
-            } else if (jobState.equals(PENDING.name()) || jobState.equals(LOADING.name())) {
+            } else if (loadJob.getState() == JobState.PENDING || loadJob.getState() == JobState.LOADING) {
                 return false;
             } else {
-                throw new DdlException("job failed. ErrorMsg: " + loadInfo.get(LoadProcDir.ERR_MSG_INDEX).toString()
-                        + ", URL: " + loadInfo.get(LoadProcDir.URL_INDEX).toString()
-                        + ", JobDetails: " + loadInfo.get(LoadProcDir.JOB_DETAILS_INDEX).toString());
+                throw new DdlException("job failed. ErrorMsg: " + loadJob.getFailMsg().getMsg()
+                        + ", URL: " + loadJob.getLoadingStatus().getTrackingUrl()
+                        + ", JobDetails: " + loadJob.getLoadStatistic().toJson());
             }
         });
     }

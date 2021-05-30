@@ -1206,4 +1206,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
     }
 
+    public FailMsg getFailMsg() {
+        return failMsg;
+    }
+
+    public EtlStatus getLoadingStatus() {
+        return loadingStatus;
+    }
+
+    public LoadStatistic getLoadStatistic() {
+        return loadStatistic;
+    }
 }
