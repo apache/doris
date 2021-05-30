@@ -20,7 +20,6 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.rest.RestBaseResult;
-import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -41,63 +40,71 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-// List all labels of one multi-load
+
+// In order to ensure compatibility with http v1, the return format of all our interfaces here remains the same as v1,
+// that is, instead of using ResponseEntityBuilder to return, use the same format as v1 alone.
+// v1 response:
+// { "status" : "OK", "msg" : "some msg" }
 @RestController
 public class MultiAction extends RestBaseController {
     private ExecuteEnv execEnv;
     private static final String SUB_LABEL_KEY = "sub_label";
 
-
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_desc", method = RequestMethod.POST)
     public Object multi_desc(
             @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
-        executeCheckPassword(request, response);
+            HttpServletRequest request, HttpServletResponse response) {
+        try {
+            executeCheckPassword(request, response);
 
-        execEnv = ExecuteEnv.getInstance();
-        String label = request.getParameter(LABEL_KEY);
-        if (Strings.isNullOrEmpty(label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
+            execEnv = ExecuteEnv.getInstance();
+            String label = request.getParameter(LABEL_KEY);
+            if (Strings.isNullOrEmpty(label)) {
+                return new RestBaseResult("No label selected");
+            }
+
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+
+            // only Master has these load info
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+
+            execEnv = ExecuteEnv.getInstance();
+            final List<String> labels = Lists.newArrayList();
+            execEnv.getMultiLoadMgr().desc(fullDbName, label, labels);
+            return new MultiLabelResult(labels);
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
-
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
-
-        // only Master has these load info
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
-        }
-
-        execEnv = ExecuteEnv.getInstance();
-        final List<String> labels = Lists.newArrayList();
-        execEnv.getMultiLoadMgr().desc(fullDbName, label, labels);
-        return ResponseEntityBuilder.ok(labels);
     }
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_list", method = RequestMethod.POST)
     public Object multi_list(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request, response);
-        execEnv = ExecuteEnv.getInstance();
+        try {
+            executeCheckPassword(request, response);
+            execEnv = ExecuteEnv.getInstance();
 
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
 
-        // only Master has these load info
+            // only Master has these load info
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
 
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+            final List<String> labels = Lists.newArrayList();
+            execEnv.getMultiLoadMgr().list(fullDbName, labels);
+            return new MultiLabelResult(labels);
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
-
-        final List<String> labels = Lists.newArrayList();
-        execEnv.getMultiLoadMgr().list(fullDbName, labels);
-        return ResponseEntityBuilder.ok(labels);
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_start", method = RequestMethod.POST)
@@ -105,103 +112,111 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request, response);
-        execEnv = ExecuteEnv.getInstance();
+        try {
+            executeCheckPassword(request, response);
+            execEnv = ExecuteEnv.getInstance();
 
-        String label = request.getParameter(LABEL_KEY);
-        if (Strings.isNullOrEmpty(label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
-        }
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
-
-        // Multi start request must redirect to master, because all following sub requests will be handled
-        // on Master
-
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
-        }
-
-        Map<String, String> properties = Maps.newHashMap();
-        String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY};
-        for (String key : keys) {
-            String value = request.getParameter(key);
-            if (!Strings.isNullOrEmpty(value)) {
-                properties.put(key, value);
+            String label = request.getParameter(LABEL_KEY);
+            if (Strings.isNullOrEmpty(label)) {
+                return new RestBaseResult("No label selected");
             }
-        }
-        for (String key : keys) {
-            String value = request.getHeader(key);
-            if (!Strings.isNullOrEmpty(value)) {
-                properties.put(key, value);
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+
+            // Multi start request must redirect to master, because all following sub requests will be handled
+            // on Master
+
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
             }
+
+            Map<String, String> properties = Maps.newHashMap();
+            String[] keys = {LoadStmt.TIMEOUT_PROPERTY, LoadStmt.MAX_FILTER_RATIO_PROPERTY};
+            for (String key : keys) {
+                String value = request.getParameter(key);
+                if (!Strings.isNullOrEmpty(value)) {
+                    properties.put(key, value);
+                }
+            }
+            for (String key : keys) {
+                String value = request.getHeader(key);
+                if (!Strings.isNullOrEmpty(value)) {
+                    properties.put(key, value);
+                }
+            }
+            execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
+            return RestBaseResult.getOk();
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
-        execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
-        return ResponseEntityBuilder.ok();
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_unload", method = RequestMethod.POST)
     public Object multi_unload(
             @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
-        executeCheckPassword(request, response);
-        execEnv = ExecuteEnv.getInstance();
+            HttpServletRequest request, HttpServletResponse response) {
+        try {
+            executeCheckPassword(request, response);
+            execEnv = ExecuteEnv.getInstance();
 
-        String label = request.getParameter(LABEL_KEY);
-        if (Strings.isNullOrEmpty(label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
+            String label = request.getParameter(LABEL_KEY);
+            if (Strings.isNullOrEmpty(label)) {
+                return new RestBaseResult("No label selected");
+            }
+
+            String subLabel = request.getParameter(SUB_LABEL_KEY);
+            if (Strings.isNullOrEmpty(subLabel)) {
+                return new RestBaseResult("No sub label selected");
+            }
+
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+
+            execEnv.getMultiLoadMgr().unload(fullDbName, label, subLabel);
+            return RestBaseResult.getOk();
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
-
-        String subLabel = request.getParameter(SUB_LABEL_KEY);
-        if (Strings.isNullOrEmpty(subLabel)) {
-            return ResponseEntityBuilder.badRequest("No sub label selected");
-        }
-
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
-
-
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
-        }
-
-        execEnv.getMultiLoadMgr().unload(fullDbName, label, subLabel);
-        return ResponseEntityBuilder.ok();
     }
-
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_commit", method = RequestMethod.POST)
     public Object multi_commit(
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request, response);
-        execEnv = ExecuteEnv.getInstance();
-
-        String label = request.getParameter(LABEL_KEY);
-        if (Strings.isNullOrEmpty(label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
-        }
-
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
-
-        // only Master has these load info
-
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
-        }
-        RestBaseResult result =  new RestBaseResult();
         try {
-            execEnv.getMultiLoadMgr().commit(fullDbName, label);
+            executeCheckPassword(request, response);
+            execEnv = ExecuteEnv.getInstance();
+
+            String label = request.getParameter(LABEL_KEY);
+            if (Strings.isNullOrEmpty(label)) {
+                return new RestBaseResult("No label selected");
+            }
+
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+
+            // only Master has these load info
+
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+            try {
+                execEnv.getMultiLoadMgr().commit(fullDbName, label);
+            } catch (Exception e) {
+                return new RestBaseResult(e.getMessage());
+            }
+            return RestBaseResult.getOk();
         } catch (Exception e) {
-            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
+            return new RestBaseResult(e.getMessage());
         }
-        return ResponseEntityBuilder.ok();
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_abort", method = RequestMethod.POST)
@@ -209,26 +224,37 @@ public class MultiAction extends RestBaseController {
             @PathVariable(value = DB_KEY) final String dbName,
             HttpServletRequest request, HttpServletResponse response)
             throws DdlException {
-        executeCheckPassword(request, response);
-        execEnv = ExecuteEnv.getInstance();
+        try {
+            executeCheckPassword(request, response);
+            execEnv = ExecuteEnv.getInstance();
 
-        String label = request.getParameter(LABEL_KEY);
-        if (Strings.isNullOrEmpty(label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
+            String label = request.getParameter(LABEL_KEY);
+            if (Strings.isNullOrEmpty(label)) {
+                return new RestBaseResult("No label selected");
+            }
+
+            String fullDbName = getFullDbName(dbName);
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+
+            // only Master has these load info
+            RedirectView redirectView = redirectToMaster(request, response);
+            if (redirectView != null) {
+                return redirectView;
+            }
+
+            execEnv.getMultiLoadMgr().abort(fullDbName, label);
+            return RestBaseResult.getOk();
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
         }
+    }
 
-        String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.LOAD);
+    private static class MultiLabelResult extends RestBaseResult {
+        private List<String> labels;
 
-        // only Master has these load info
-
-        RedirectView redirectView = redirectToMaster(request, response);
-        if (redirectView != null) {
-            return redirectView;
+        public MultiLabelResult(List<String> labels) {
+            this.labels = labels;
         }
-
-        execEnv.getMultiLoadMgr().abort(fullDbName, label);
-        return ResponseEntityBuilder.ok();
     }
 }
 
