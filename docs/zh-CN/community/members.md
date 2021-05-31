@@ -30,9 +30,9 @@ under the License.
 
 | Apache ID                                                    | Github 用户名 | 公开名          |
 | ------------------------------------------------------------ | --------------- | --------------------- |
-| **[wenming](https://people.apache.org/committer-index.html#wenming)** | moonming        | **Ming Wen**          |
-| **[shaofengshi](https://people.apache.org/committer-index.html#shaofengshi)** | shaofengshi     | **Shao Feng Shi**     |
-| **[ningjiang](https://people.apache.org/committer-index.html#ningjiang)** | WillemJiang     | **Willem Ning Jiang** |
+| [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
+| [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
+| [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
 
 我们要感谢以下提交者，他们帮助Apache Doris (incubating) 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
@@ -54,7 +54,7 @@ under the License.
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
 | [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
-| **[sijie](https://people.apache.org/committer-index.html#sijie)** | sijie               | **Sijie Guo** |
+| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo |
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao               | Zheng Shao    |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 

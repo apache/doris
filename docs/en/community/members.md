@@ -30,9 +30,9 @@ under the License.
 
 | Apache ID                                                    | Github Username | Public Name           |
 | ------------------------------------------------------------ | --------------- | --------------------- |
-| **[wenming](https://people.apache.org/committer-index.html#wenming)** | moonming        | **Ming Wen**          |
-| **[shaofengshi](https://people.apache.org/committer-index.html#shaofengshi)** | shaofengshi     | **Shao Feng Shi**     |
-| **[ningjiang](https://people.apache.org/committer-index.html#ningjiang)** | WillemJiang     | **Willem Ning Jiang** |
+| [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
+| [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
+| [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
 
 
 
@@ -56,7 +56,7 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
 | [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
-| **[sijie](https://people.apache.org/committer-index.html#sijie)** | sijie               | **Sijie Guo** |
+| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo |
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao               | Zheng Shao    |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 
