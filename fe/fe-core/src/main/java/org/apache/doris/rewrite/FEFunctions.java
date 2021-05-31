@@ -238,14 +238,11 @@ public class FEFunctions {
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
     public static FloatLiteral curTime() throws AnalysisException {
         DateLiteral now = now();
-        long firstTimestamp = now.unixTimestamp(TimeUtils.getTimeZone());
-        now.castToDate();
-        long secondTimestamp = now.unixTimestamp(TimeUtils.getTimeZone());
-        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000, Type.TIME);
+        return new FloatLiteral((double) (now.getHour() * 3600 + now.getMinute() * 60 + now.getSecond()), Type.TIME);
     }
 
     @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
-    public static FloatLiteral curentTime() throws AnalysisException {
+    public static FloatLiteral currentTime() throws AnalysisException {
         return curTime();
     }
 
