@@ -143,7 +143,7 @@ module.exports = [
         title: "Maintainence Operation",
         directoryPath: "operation/",
         children: [
-		  "doris_error_code"
+          "doris-error-code",
           "metadata-operation",
           "monitor-alert",
           "multi-tenant",
