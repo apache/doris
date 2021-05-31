@@ -28,41 +28,44 @@ under the License.
 
 ## Mentors (3)
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|wave	|dave2wave	|Dave Fisher	|
-|shaofengshi	|shaofengshi|	Shao Feng Shi	|
-|ningjiang	|WillemJiang	|Willem Ning Jiang|
+| Apache ID                                                    | Github 用户名 | 公开名          |
+| ------------------------------------------------------------ | --------------- | --------------------- |
+| **[wenming](https://whimsy.apache.org/roster/committer/wenming)** | moonming        | **Ming Wen**          |
+| **[shaofengshi](https://whimsy.apache.org/roster/committer/shaofengshi)** | shaofengshi     | **Shao Feng Shi**     |
+| **[ningjiang](https://whimsy.apache.org/roster/committer/ningjiang)** | WillemJiang     | **Willem Ning Jiang** |
 
-## PPMC (9)
-(the listing below excludes mentors)
+我们要感谢以下提交者，他们帮助Apache Doris (incubating) 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|lingbin|	lingbin	|Bin Ling	|
-|lichaoyong	|chaoyli	|Chaoyong Li	|
-|zhaoc	|imay	|Chun Zhao	|
-|lide	|lide-reed, doris-ci	|De Li	|
-|chenhao	|chenhao7253886	|Hao Chen	|
-|morningman	|morningman	|Mingyu Chen|
-|maruyue	|maruyue|	Ruyue Ma	|
-|sijie	|sijie	|Sijie Guo	|
-|zshao	|zshao	|Zheng Shao|
+## PPMC (18)
 
-## Committers (13)
+(如下列表不包含 mentors)
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|lingbin|	lingbin	|Bin Ling	|
-|lichaoyong	|chaoyli	|Chaoyong Li	|
-|zhaoc	|imay	|Chun Zhao	|
-|lide	|lide-reed, doris-ci	|De Li	|
-|chenhao	|chenhao7253886	|Hao Chen	|
-|morningman	|morningman	|Mingyu Chen|
-|maruyue	|maruyue|	Ruyue Ma	|
-|sijie	|sijie	|Sijie Guo	|
-|zshao	|zshao	|Zheng Shao|
-|kangkaisen|kangkaisen|Kaisen Kang|
-|lingmiao|EmmyMiao87|Ling Miao|
-|gaodayue|gaodayue|Dayue Gao|
-|liuhangyuan|HangyuanLiu|Hangyuan Liu|
+| Apache ID                                                    | Github 用户名     | 公开名   |
+| :----------------------------------------------------------- | :------------------ | :------------ |
+| [lingbin](https://whimsy.apache.org/roster/committer/lingbin) | lingbin             | Bin Ling      |
+| [lichaoyong](https://whimsy.apache.org/roster/committer/lichaoyong) | chaoyli             | Chaoyong Li   |
+| [zhaoc](https://whimsy.apache.org/roster/committer/zhaoc)    | imay                | Chun Zhao     |
+| [caiconghui](https://whimsy.apache.org/roster/committer/caiconghui) | caiconghui          | Conghui Cai   |
+| [gaodayue](https://whimsy.apache.org/roster/committer/gaodayue) | gaodayue            | Dayue Gao     |
+| [lide](https://whimsy.apache.org/roster/committer/lide)      | lide-reed, doris-ci | De Li         |
+| [liuhangyuan](https://whimsy.apache.org/roster/committer/liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
+| [chenhao](https://whimsy.apache.org/roster/committer/chenhao) | chenhao7253886      | Hao Chen      |
+| [kangkaisen](https://whimsy.apache.org/roster/committer/kangkaisen) | kangkaisen          | Kaisen Kang   |
+| [lingmiao](https://whimsy.apache.org/roster/committer/lingmiao) | EmmyMiao87          | Ling Miao     |
+| [morningman](https://whimsy.apache.org/roster/committer/morningman) | morningman          | Mingyu Chen   |
+| [maruyue](https://whimsy.apache.org/roster/committer/maruyue) |                     | Ruyue Ma      |
+| **[sijie](https://whimsy.apache.org/roster/committer/sijie)** | sijie               | **Sijie Guo** |
+| [zshao](https://whimsy.apache.org/roster/committer/zshao)    | zshao               | Zheng Shao    |
+| [yangzhg](https://whimsy.apache.org/roster/committer/yangzhg) | yangzhg             | Zhengguo Yang |
+
+
+## Committers (22)
+
+(如下列表不包含上述 PPMC 成员)
+
+| Apache ID                                                    | Github 用户名  | 公开名    |
+| :----------------------------------------------------------- | :--------------- | :------------- |
+| [wangbo](https://whimsy.apache.org/roster/committer/wangbo)  | wangbo           | Bo Wang        |
+| [huangwei](https://whimsy.apache.org/roster/committer/huangwei) | vagetablechicken | Huang Wei      |
+| [kangpinghuang](https://whimsy.apache.org/roster/committer/kangpinghuang) | kangpinghuang    | Kangping Huang |
+| [wyf](https://whimsy.apache.org/roster/committer/wyf)        | wuyunfeng        | Yunfeng Wu     |
