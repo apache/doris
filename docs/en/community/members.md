@@ -1,7 +1,7 @@
 ---
 {
-"title": "PMC Members & Committer",
-"language": "en"
+    "title": "PMC Members & Committer",
+    "language": "en"
 }
 
 ---
