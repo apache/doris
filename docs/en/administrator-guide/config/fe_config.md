@@ -490,6 +490,10 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 
 ### `max_running_rollup_job_num_per_table`
 
+### `max_backup_job_num_per_db`
+
+This configuration is mainly used to control the number of backup/restore tasks recorded in each database.
+
 ### `max_running_txn_num_per_db`
 
 This configuration is mainly used to control the number of concurrent load jobs of the same database.
