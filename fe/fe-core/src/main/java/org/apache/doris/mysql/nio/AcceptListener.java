@@ -78,7 +78,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     // do not need to print log for this kind of exception.
                     // just clean up the context;
                     context.cleanup();
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     // should be unexpected exception, so print warn log
                     if (context.getCurrentUserIdentity() != null) {
                         LOG.warn("connect processor exception because ", e);
