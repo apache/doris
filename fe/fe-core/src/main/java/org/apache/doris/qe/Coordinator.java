@@ -831,7 +831,8 @@ public class Coordinator {
             if (sink.getOutputPartition().isBucketShuffleHashPartition()) {
                 // the destFragment must be bucket shuffle
                 Preconditions.checkState(bucketShuffleJoinController.
-                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()));
+                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is" +
+                        "Bucket Shffulle Partition, The destFragment must have bucket shuffle join node ");
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
@@ -1134,7 +1135,9 @@ public class Coordinator {
         }
 
         for (PlanNode childNode : node.getChildren()) {
-            return isColocateJoin(childNode);
+            if (isColocateJoin(childNode)) {
+                return true;
+            }
         }
 
         return false;
@@ -1557,7 +1560,9 @@ public class Coordinator {
             }
 
             for (PlanNode childNode : node.getChildren()) {
-                return isBucketShuffleJoin(fragmentId, childNode);
+                if (isBucketShuffleJoin(fragmentId, childNode)) {
+                    return true;
+                }
             }
 
             return false;
