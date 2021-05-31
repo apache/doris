@@ -120,6 +120,44 @@ TEST_F(TimestampFunctionsTest, day_of_month_test) {
     delete context;
 }
 
+TEST_F(TimestampFunctionsTest, last_day_test) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    // 2004-02-01 00:00:00
+    DateTimeValue dtv1(20040201000000);
+    dtv1.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv1;
+    dtv1.to_datetime_val(&tv1);
+    StringVal res_val = TimestampFunctions::date_format(context,TimestampFunctions::last_day(context, tv1),"%Y-%m-%d");
+    ASSERT_EQ("2004-02-29", std::string((char*)res_val.ptr, res_val.len));
+
+    // 2021-05-12 00:00:00
+    DateTimeValue dtv2(20210512000000);
+    dtv2.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv2;
+    dtv2.to_datetime_val(&tv2);
+    StringVal res_val_2 = TimestampFunctions::date_format(context,TimestampFunctions::last_day(context, tv2),"%Y-%m-%d");
+    ASSERT_EQ("2021-05-31", std::string((char*)res_val_2.ptr, res_val_2.len));
+
+    // 2021-04-29 00:00:00
+    DateTimeValue dtv3(20210429000000);
+    dtv3.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv3;
+    dtv3.to_datetime_val(&tv3);
+    StringVal res_val_3 = TimestampFunctions::date_format(context,TimestampFunctions::last_day(context, tv3),"%Y-%m-%d");
+    ASSERT_EQ("2021-04-30", std::string((char*)res_val_3.ptr, res_val_3.len));
+
+    // 2021-02-12 00:00:00
+    DateTimeValue dtv4(20210212000000);
+    dtv3.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv4;
+    dtv3.to_datetime_val(&tv4);
+    StringVal res_val_4 = TimestampFunctions::date_format(context,TimestampFunctions::last_day(context, tv4),"%Y-%m-%d");
+    ASSERT_EQ("2021-02-28", std::string((char*)res_val_4.ptr, res_val_4.len));
+
+    delete context;
+}
+
 TEST_F(TimestampFunctionsTest, day_of_year_test) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
