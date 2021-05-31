@@ -225,9 +225,28 @@ public class FEFunctions {
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATETIME);
     }
 
+    @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")
+    public static DateLiteral currentTimestamp() throws AnalysisException {
+        return now();
+    }
+
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static DateLiteral curDate() throws AnalysisException {
         return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
+    }
+
+    @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
+    public static FloatLiteral curTime() throws AnalysisException {
+        DateLiteral now = now();
+        long firstTimestamp = now.unixTimestamp(TimeUtils.getTimeZone());
+        now.castToDate();
+        long secondTimestamp = now.unixTimestamp(TimeUtils.getTimeZone());
+        return new FloatLiteral((double) (firstTimestamp - secondTimestamp) / 1000, Type.TIME);
+    }
+
+    @FEFunction(name = "current_time", argTypes = {}, returnType = "TIME")
+    public static FloatLiteral curentTime() throws AnalysisException {
+        return curTime();
     }
 
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
