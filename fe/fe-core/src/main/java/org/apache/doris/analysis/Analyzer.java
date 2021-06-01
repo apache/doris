@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -75,6 +76,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Repository of analysis state for single select block.
@@ -1884,5 +1886,22 @@ public class Analyzer {
             }
         }
         return false;
+    public List<EncryptKey> getEncryptKeysFromDb(String dbName) throws AnalysisException {
+        List<EncryptKey> retEncryptKeys = new ArrayList<>();
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = getDefaultDb();
+        }
+        if ("".equals(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        } else {
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+            ConcurrentHashMap<String, Database> fullName2Db = getCatalog().getFullNameToDb();
+            Database database = fullName2Db.get(dbName);
+            if (null == database) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
+            retEncryptKeys.addAll(database.getEncryptKeys());
+        }
+        return retEncryptKeys;
     }
 }

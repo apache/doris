@@ -31,6 +31,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -661,6 +663,16 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayDropFunction(function);
                     break;
                 }
+                case OperationType.OP_CREATE_ENCRYPTKEY: {
+                    final EncryptKey encryptKey = (EncryptKey) journal.getData();
+                    Catalog.getCurrentCatalog().replayCreateEncryptKey(encryptKey);
+                    break;
+                }
+                case OperationType.OP_DROP_ENCRYPTKEY: {
+                    EncryptKeySearchDesc encryptKeySearchDesc = (EncryptKeySearchDesc) journal.getData();
+                    Catalog.getCurrentCatalog().replayDropEncryptKey(encryptKeySearchDesc);
+                    break;
+                }
                 case OperationType.OP_BACKEND_TABLETS_INFO: {
                     BackendTabletsInfo backendTabletsInfo = (BackendTabletsInfo) journal.getData();
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
@@ -1275,6 +1287,14 @@ public class EditLog {
 
     public void logDropFunction(FunctionSearchDesc function) {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
+    }
+
+    public void logAddEncryptKey(EncryptKey encryptKey) {
+        logEdit(OperationType.OP_CREATE_ENCRYPTKEY, encryptKey);
+    }
+
+    public void logDropEncryptKey(EncryptKeySearchDesc desc) {
+        logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
     }
 
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {

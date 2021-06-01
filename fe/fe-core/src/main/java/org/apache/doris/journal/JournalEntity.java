@@ -28,6 +28,8 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -481,6 +483,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_FUNCTION: {
                 data = FunctionSearchDesc.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_ENCRYPTKEY: {
+                data = EncryptKey.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_ENCRYPTKEY: {
+                data = EncryptKeySearchDesc.read(in);
                 isRead = true;
                 break;
             }
