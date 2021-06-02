@@ -60,6 +60,7 @@ private:
     // vertex's value is version.start_version, the other is
     // version.end_version + 1.
     // Use adjacency list to describe version graph.
+    // In order to speed up the version capture, vertex's edges are sorted by version in descending order.
     std::vector<Vertex> _version_graph;
 
     // vertex value --> vertex_index of _version_graph
