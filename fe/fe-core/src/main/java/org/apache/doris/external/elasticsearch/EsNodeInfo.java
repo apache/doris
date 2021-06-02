@@ -70,6 +70,9 @@ public class EsNodeInfo {
         if (httpMap != null) {
             String address = (String) httpMap.get("publish_address");
             if (address != null) {
+                if (address.contains("/")) {
+                    address = address.split("/")[1];
+                }
                 String[] scratch = address.split(":");
                 this.publishAddress = new TNetworkAddress((httpSslEnabled ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
                 this.hasHttp = true;
