@@ -142,6 +142,7 @@ module.exports = [
         title: "运维操作",
         directoryPath: "operation/",
         children: [
+          "doris-error-code",
           "disk-capacity",
           "metadata-operation",
           "monitor-alert",
