@@ -140,6 +140,9 @@ public:
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
+    // The root tracker should be set before calling ExecEnv::init();
+    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();

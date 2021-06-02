@@ -53,7 +53,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _version(-1),
           _mem_tracker(MemTracker::CreateTracker(
                   runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
-                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::DEBUG)) {
+                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }

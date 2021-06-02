@@ -42,7 +42,7 @@ public:
     CompactionAction(CompactionActionType type)
             : _type(type) {
               _compaction_mem_tracker = type == RUN_COMPACTION ?
-                  MemTracker::CreateTracker(-1, "ManualCompaction") : nullptr;
+                  MemTracker::CreateTracker(-1, "ManualCompaction", nullptr, false, false, MemTrackerLevel::TASK) : nullptr;
     }
 
     virtual ~CompactionAction() {}

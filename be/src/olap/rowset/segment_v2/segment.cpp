@@ -27,6 +27,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
 #include "util/slice.h" // Slice
@@ -37,16 +38,22 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status Segment::open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
-                     std::shared_ptr<MemTracker> parent, std::shared_ptr<Segment>* output) {
-    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema, std::move(parent)));
+                     std::shared_ptr<Segment>* output) {
+    std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema));
     RETURN_IF_ERROR(segment->_open());
     output->swap(segment);
     return Status::OK();
 }
 
-Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema, std::shared_ptr<MemTracker> parent)
+Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema)
         : _fname(std::move(fname)), _segment_id(segment_id),
-          _tablet_schema(tablet_schema), _mem_tracker(MemTracker::CreateTracker(-1, "Segment", std::move(parent), false, true)) {}
+          _tablet_schema(tablet_schema) {
+#ifndef BE_TEST
+    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", StorageEngine::instance()->tablet_mem_tracker(), false);
+#else
+    _mem_tracker = MemTracker::CreateTracker(-1, "Segment", nullptr, false);
+#endif
+}
 
 Segment::~Segment() {
     _mem_tracker->Release(_mem_tracker->consumption());
@@ -59,6 +66,7 @@ Status Segment::_open() {
 }
 
 Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
+                             std::shared_ptr<MemTracker> parent,
                              std::unique_ptr<RowwiseIterator>* iter) {
     DCHECK_NOTNULL(read_options.stats);
     read_options.stats->total_segment_number++;
@@ -80,7 +88,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     }
 
     RETURN_IF_ERROR(_load_index());
-    iter->reset(new SegmentIterator(this->shared_from_this(), schema, _mem_tracker));
+    iter->reset(new SegmentIterator(this->shared_from_this(), schema, parent));
     iter->get()->init(read_options);
     return Status::OK();
 }
@@ -188,7 +196,7 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
+Status Segment::new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
@@ -200,7 +208,7 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
                         tablet_column.has_default_value(), tablet_column.default_value(),
                         tablet_column.is_nullable(), type_info, tablet_column.length()));
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", _mem_tracker, false);
+        iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "DefaultColumnIterator", parent, false);
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();

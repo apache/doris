@@ -42,7 +42,7 @@ enum class MemLimit { HARD, SOFT };
 
 /// The Level use to decide whether to show it in web page
 /// each MemTracker have a Level equals to parent, only be set explicit
-enum class MemTrackerLevel {RELEASE = 0, DEBUG};
+enum class MemTrackerLevel {OVERVIEW = 0, TASK, VERBOSE};
 
 class ObjectPool;
 class MemTracker;
@@ -92,11 +92,11 @@ public:
     static std::shared_ptr<MemTracker> CreateTracker(
             int64_t byte_limit = -1, const std::string& label = std::string(),
             std::shared_ptr<MemTracker> parent = std::shared_ptr<MemTracker>(),
-            bool log_usage_if_zero = true, bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::RELEASE);
+            bool log_usage_if_zero = true, bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     static std::shared_ptr<MemTracker> CreateTracker(
             RuntimeProfile* profile, int64_t byte_limit, const std::string& label = std::string(),
-            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(), bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::RELEASE);
+            const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(), bool reset_label_name = true, MemTrackerLevel level = MemTrackerLevel::VERBOSE);
 
     // this is used for creating an orphan mem tracker, or for unit test.
     // If a mem tracker has parent, it should be created by `CreateTracker()`
