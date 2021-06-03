@@ -256,10 +256,10 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-        context.setStartTime();
 
         context.setQueryId(queryId);
 
