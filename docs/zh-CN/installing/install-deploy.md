@@ -159,7 +159,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 修改所有 BE 的配置
 
-    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用 `;` 分隔（最后一个目录后不要加 `;`）。
+    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用 `;` 分隔（最后一个目录后不要加 `;`）。如果be部署在hadoop集群中，注意调整be.conf中的`webserver_port = 8040`,以免造成断开冲突
 
 * 在 FE 中添加所有 BE 节点
 
