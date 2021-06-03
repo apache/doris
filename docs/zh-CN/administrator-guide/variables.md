@@ -312,7 +312,10 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `resource_group`
 
     暂不使用。
-    
+* `send_batch_parallelism`                                                                                                                                                   
+
+   用于设置执行 InsertStmt 操作时发送批处理数据的默认并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism` 的值。 
+                                                                                                 
 * `sql_mode`
 
     用于指定 SQL 模式，以适应某些 SQL 方言。关于 SQL 模式，可参阅 [这里](./sql-mode.md)。

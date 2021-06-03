@@ -237,8 +237,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
-        str = ctx->prepare_stream_load_record(str);
-        _sava_stream_load_record(ctx, str);
+        if (config::enable_stream_load_record) {
+            str = ctx->prepare_stream_load_record(str);
+            _sava_stream_load_record(ctx, str);
+        }
 #endif
         return -1;
     }
@@ -483,6 +485,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
+    }
+
+    if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
+        try {
+            request.__set_send_batch_parallelism(std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid send_batch_parallelism format");
+        }
     }
 
     if (ctx->timeout_second != -1) {
