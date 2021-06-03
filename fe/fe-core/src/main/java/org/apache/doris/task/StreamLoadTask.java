@@ -73,6 +73,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     private Expr deleteCondition;
     private String sequenceCol;
+    private int sendBatchParallelism = 1;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -121,6 +122,11 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public Separator getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    @Override
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
     }
 
     public PartitionNames getPartitions() {
@@ -287,6 +293,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetSequenceCol()) {
             sequenceCol = request.getSequenceCol();
+        }
+        if (request.isSetSendBatchParallelism()) {
+            sendBatchParallelism = request.getSendBatchParallelism();
         }
     }
 

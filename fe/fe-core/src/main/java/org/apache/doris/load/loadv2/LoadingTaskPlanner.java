@@ -67,6 +67,7 @@ public class LoadingTaskPlanner {
     private final boolean strictMode;
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
+    private final int sendBatchParallelism;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
@@ -82,7 +83,7 @@ public class LoadingTaskPlanner {
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
                               boolean strictMode, String timezone, long timeoutS, int loadParallelism,
-                              UserIdentity userInfo) {
+                              int sendBatchParallelism, UserIdentity userInfo) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -93,6 +94,7 @@ public class LoadingTaskPlanner {
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
+        this.sendBatchParallelism = sendBatchParallelism;
         this.userInfo = userInfo;
         if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
                 Catalog.getCurrentCatalog().getDb(dbId).getFullName(), PrivPredicate.SELECT)) {
@@ -131,7 +133,7 @@ public class LoadingTaskPlanner {
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds);
-        olapTableSink.init(loadId, txnId, dbId, timeoutS);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism);
         olapTableSink.complete();
 
         // 3. Plan fragment

@@ -32,6 +32,7 @@
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
 #include "util/time.h"
+#include "util/threadpool.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -194,11 +195,10 @@ Status NodeChannel::open_wait() {
 
         if (result.has_execution_time_us()) {
             _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
-            _add_batch_counter.add_batch_wait_lock_time_us += result.wait_lock_time_us();
+            _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
             _add_batch_counter.add_batch_num++;
         }
     });
-
     return status;
 }
 
@@ -342,68 +342,75 @@ void NodeChannel::cancel() {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status() {
+int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPool>& thread_pool) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
     }
 
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
-        SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
-        AddBatchReq send_batch;
-        {
-            debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-            std::lock_guard<std::mutex> l(_pending_batches_lock);
-            DCHECK(!_pending_batches.empty());
-            send_batch = std::move(_pending_batches.front());
-            _pending_batches.pop();
-            _pending_batches_num--;
+        if (!thread_pool || !thread_pool->submit_func([this]() {
+            this->try_send_batch();
+        }).ok()) {
+            try_send_batch();
         }
-
-        auto row_batch = std::move(send_batch.first);
-        auto request = std::move(send_batch.second); // doesn't need to be saved in heap
-
-        // tablet_ids has already set when add row
-        request.set_packet_seq(_next_packet_seq);
-        if (row_batch->num_rows() > 0) {
-            SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
-            row_batch->serialize(request.mutable_row_batch());
-        }
-
-        _add_batch_closure->reset();
-        int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
-        if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
-            if (remain_ms <= 0 && !request.eos()) {
-                cancel();
-                return 0;
-            } else {
-                remain_ms = _min_rpc_timeout_ms;
-            }
-        }
-        _add_batch_closure->cntl.set_timeout_ms(remain_ms);
-        if (config::tablet_writer_ignore_eovercrowded) {
-            _add_batch_closure->cntl.ignore_eovercrowded();
-        }
-
-        if (request.eos()) {
-            for (auto pid : _parent->_partition_ids) {
-                request.add_partition_ids(pid);
-            }
-
-            // eos request must be the last request
-            _add_batch_closure->end_mark();
-            _send_finished = true;
-            DCHECK(_pending_batches_num == 0);
-        }
-
-        _add_batch_closure->set_in_flight();
-        _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
-                                       &_add_batch_closure->result, _add_batch_closure);
-
-        _next_packet_seq++;
     }
 
     return _send_finished ? 0 : 1;
+}
+
+void NodeChannel::try_send_batch() {
+    SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    AddBatchReq send_batch;
+    {
+        debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
+        std::lock_guard<std::mutex> l(_pending_batches_lock);
+        DCHECK(!_pending_batches.empty());
+        send_batch = std::move(_pending_batches.front());
+        _pending_batches.pop();
+        _pending_batches_num--;
+    }
+
+    auto row_batch = std::move(send_batch.first);
+    auto request = std::move(send_batch.second); // doesn't need to be saved in heap
+
+    // tablet_ids has already set when add row
+    request.set_packet_seq(_next_packet_seq);
+    if (row_batch->num_rows() > 0) {
+        SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
+        row_batch->serialize(request.mutable_row_batch());
+    }
+
+    _add_batch_closure->reset();
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
+        if (remain_ms <= 0 && !request.eos()) {
+            cancel();
+        } else {
+            remain_ms = _min_rpc_timeout_ms;
+        }
+    }
+    _add_batch_closure->cntl.set_timeout_ms(remain_ms);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        _add_batch_closure->cntl.ignore_eovercrowded();
+    }
+
+    if (request.eos()) {
+        for (auto pid : _parent->_partition_ids) {
+            request.add_partition_ids(pid);
+        }
+
+        // eos request must be the last request
+        _add_batch_closure->end_mark();
+        _send_finished = true;
+        DCHECK(_pending_batches_num == 0);
+    }
+
+    _add_batch_closure->set_in_flight();
+    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
+                                   &_add_batch_closure->result, _add_batch_closure);
+
+    _next_packet_seq++;
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
@@ -527,6 +534,9 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
         _load_channel_timeout_s = table_sink.load_channel_timeout_s;
     } else {
         _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
+    }
+    if (table_sink.__isset.send_batch_parallelism && table_sink.send_batch_parallelism > 1) {
+        _send_batch_parallelism = table_sink.send_batch_parallelism;
     }
 
     return Status::OK();
@@ -815,10 +825,11 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-           << ", txn_id=" << _txn_id << ", node add batch time(ms)/num: ";
+           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait execution time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
-               << ")(" << pair.second.add_batch_num << ")} ";
+               << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
+               << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {
@@ -1003,11 +1014,28 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
 void OlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
+    std::unique_ptr<ThreadPool> thread_pool = nullptr;
+    if (_send_batch_parallelism > 1) {
+        int send_batch_pool_queue_size = 0;
+        for (auto index_channel : _channels) {
+            send_batch_pool_queue_size += index_channel->num_node_channels();
+        }
+        int32_t send_batch_parallelism = _send_batch_parallelism <= config::max_send_batch_parallelism ?
+                _send_batch_parallelism : config::max_send_batch_parallelism;
+        auto s = ThreadPoolBuilder("SendBatchThreadPool")
+                .set_min_threads(send_batch_parallelism)
+                .set_max_threads(send_batch_parallelism)
+                .set_max_queue_size(send_batch_pool_queue_size)
+                .build(&thread_pool);
+        if (!s.ok()) {
+            thread_pool.reset();
+        }
+    }
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num](NodeChannel* ch) {
-                running_channels_num += ch->try_send_and_fetch_status();
+            index_channel->for_each_node_channel([&running_channels_num, &thread_pool](NodeChannel* ch) {
+                running_channels_num += ch->try_send_and_fetch_status(thread_pool);
             });
         }
 

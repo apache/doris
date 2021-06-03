@@ -345,6 +345,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     Not used.
     
+* `send_batch_parallelism`
+
+    Used to set the default parallelism for sending batch when execute InsertStmt operation, if the value for parallelism exceed `max_send_batch_parallelism` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism`.
+
 * `sql_mode`
 
     Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
