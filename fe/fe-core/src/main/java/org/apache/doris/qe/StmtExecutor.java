@@ -259,6 +259,7 @@ public class StmtExecutor implements ProfileWriter {
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
+        context.setStartTime();
 
         context.setQueryId(queryId);
 

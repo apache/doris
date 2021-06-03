@@ -324,7 +324,6 @@ public class ConnectProcessor {
             return;
         }
         ctx.setCommand(command);
-        ctx.setStartTime();
 
         switch (command) {
             case COM_INIT_DB:
@@ -335,7 +334,6 @@ public class ConnectProcessor {
                 break;
             case COM_QUERY:
                 handleQuery();
-                ctx.setStartTime();
                 break;
             case COM_FIELD_LIST:
                 handleFieldList();
