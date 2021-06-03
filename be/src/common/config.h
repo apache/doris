@@ -604,6 +604,16 @@ CONF_mInt32(remote_storage_read_buffer_mb, "256");
 //      DEBUG: 1
 // the level equal or lower than mem_tracker_level will show in web page
 CONF_Int16(mem_tracker_level, "0");
+
+// The version information of the tablet will be stored in the memory
+// in an adjacency graph data structure.
+// And as the new version is written and the old version is deleted,
+// the data structure will begin to have empty vertex with no edge associations(orphan vertex).
+// This config is used to control that when the proportion of orphan vertex is greater than the threshold,
+// the adjacency graph will be rebuilt to ensure that the data structure will not expand indefinitely.
+// This config usually only needs to be modified during testing.
+// In most cases, it does not need to be modified.
+CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 } // namespace config
 
 } // namespace doris

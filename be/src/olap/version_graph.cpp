@@ -397,6 +397,10 @@ std::string TimestampedVersionTracker::get_current_path_map_str() {
     return tracker_info.str();
 }
 
+double TimestampedVersionTracker::get_orphan_vertex_ratio() {
+    return _version_graph.get_orphan_vertex_ratio();
+}
+
 void TimestampedVersionPathContainer::add_timestamped_version(TimestampedVersionSharedPtr version) {
     // compare and refresh _max_create_time
     if (version->get_create_time() > _max_create_time) {
@@ -538,6 +542,9 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
         end_edges_iter++;
     }
 
+    // Here we do not delete vertex in _version_graph even if its edges are empty.
+    // the _version_graph will be rebuilt when doing trash sweep.
+
     return OLAP_SUCCESS;
 }
 
@@ -615,6 +622,17 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
     }
 
     return OLAP_SUCCESS;
+}
+
+double VersionGraph::get_orphan_vertex_ratio() {
+    int64_t vertex_num = _version_graph.size();
+    int64_t orphan_vertex_num = 0;
+    for (auto& iter : _version_graph) {
+        if (iter.edges.empty()) {
+            ++orphan_vertex_num;
+        }
+    }
+    return orphan_vertex_num / (double) vertex_num;
 }
 
 } // namespace doris
