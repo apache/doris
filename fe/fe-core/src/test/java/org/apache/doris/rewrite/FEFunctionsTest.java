@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
 
+import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -508,6 +509,17 @@ public class FEFunctionsTest {
         Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
         Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
         Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
+    }
+
+    @Test
+    public void timeNowTest() throws AnalysisException {
+        String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
+        String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
+
+        String nowTimestampString = new DateTime().toString("yyyy-MM-dd HH:mm:ss");
+        Assert.assertTrue(nowTimestampString.compareTo(currentTimestampString) >= 0);
+        String nowTimeString = nowTimestampString.substring(nowTimestampString.indexOf(" ") + 1);
+        Assert.assertTrue(nowTimeString.compareTo(curTimeString) >= 0);
     }
 
     @Test
