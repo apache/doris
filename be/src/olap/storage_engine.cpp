@@ -531,9 +531,11 @@ void StorageEngine::stop() {
     // trigger the waiting threads
     notify_listeners();
 
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& store_pair : _store_map) {
-        store_pair.second->stop_bg_worker();
+    {
+        std::lock_guard<std::mutex> l(_store_lock);
+        for (auto& store_pair : _store_map) {
+            store_pair.second->stop_bg_worker();
+        }
     }
 
     _stop_background_threads_latch.count_down();

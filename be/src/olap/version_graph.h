@@ -51,6 +51,9 @@ public:
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
 
+    // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
+    double get_orphan_vertex_ratio();
+
 private:
     /// Private method add a version to graph.
     void _add_vertex_to_graph(int64_t vertex_value);
@@ -177,6 +180,10 @@ public:
     /// Get json document of _stale_version_path_map. Fill the path_id and version_path
     /// list in the document. The parameter path arr is used as return variable.
     void get_stale_version_path_json_doc(rapidjson::Document& path_arr);
+
+    // Return proportion of orphan vertex in VersionGraph's _version_graph.
+    // If a vertex is no longer the starting point of any edge, then this vertex is defined as orphan vertex
+    double get_orphan_vertex_ratio();
 
 private:
     /// Construct rowsets version tracker with main path rowset meta.
