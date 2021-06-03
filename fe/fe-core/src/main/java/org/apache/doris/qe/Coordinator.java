@@ -837,7 +837,12 @@ public class Coordinator {
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
                 TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
-
+		        // when left table is empty, it's bucketset is empty.
+		        // set right table destination address to the address of left table
+                if (destParams.instanceExecParams.size() == 1 && destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty()) {
+                    bucketNum = 1;
+                    destParams.instanceExecParams.get(0).bucketSeqSet.add(0);
+                }
                 while (bucketSeq < bucketNum) {
                     TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
