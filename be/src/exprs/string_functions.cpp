@@ -69,7 +69,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
     if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
         return StringVal::null();
     }
-    if (len.val <= 0 || str.len == 0) {
+    if (len.val <= 0 || str.len == 0 || pos.val == 0) {
         return StringVal();
     }
 

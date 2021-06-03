@@ -291,6 +291,9 @@ TEST_F(StringFunctionsTest, null_or_empty) {
 
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+              StringFunctions::substring(context, StringVal("hello word"), 0, 5));
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("hello")),
               StringFunctions::substring(context, StringVal("hello word"), 1, 5));
