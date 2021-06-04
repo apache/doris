@@ -108,6 +108,7 @@ public class CoordinatorTest extends Coordinator {
         Deencapsulation.setField(coordinator, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
 
         // 2. set bucketSeqToScanRange in coordinator
+        Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
         Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
         List<TScanRangeParams> scanRangeParamsList = new ArrayList<>();
@@ -117,7 +118,8 @@ public class CoordinatorTest extends Coordinator {
         for (int i = 0; i < 3; i++) {
             bucketSeqToScanRange.put(i, ScanRangeMap);
         }
-        Deencapsulation.setField(coordinator, "bucketSeqToScanRange", bucketSeqToScanRange);
+        fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
+        Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
 
         FragmentExecParams params = new FragmentExecParams(null);
         Deencapsulation.invoke(coordinator, "computeColocateJoinInstanceParam", planFragmentId, 1, params);
@@ -293,13 +295,16 @@ public class CoordinatorTest extends Coordinator {
         Deencapsulation.setField(coordinator, "fragmentIdToSeqToAddressMap", fragmentToBucketSeqToAddress);
 
         // 2. set bucketSeqToScanRange in coordinator
+        Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
         Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
         ScanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
             bucketSeqToScanRange.put(i, ScanRangeMap);
         }
-        Deencapsulation.setField(coordinator, "bucketSeqToScanRange", bucketSeqToScanRange);
+        fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
+        Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
+
         TupleDescriptor tupleDescriptor = new TupleDescriptor(new TupleId(-1));
         OlapScanNode olapScanNode = new OlapScanNode(new PlanNodeId(scanNodeId), tupleDescriptor, "test");
         PlanFragment fragment = new PlanFragment(planFragmentId, olapScanNode,
