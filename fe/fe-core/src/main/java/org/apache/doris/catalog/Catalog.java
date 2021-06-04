@@ -4482,6 +4482,13 @@ public class Catalog {
         Table table = db.getTable(tableId);
         // delete from db meta
         db.writeLock();
+        if (table == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the drop table log is replayed, tableId: {}", tableId);
+            return;
+        }
         table.writeLock();
         try {
             unprotectDropTable(db, table, isForceDrop, true);
