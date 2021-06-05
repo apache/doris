@@ -1398,7 +1398,7 @@ public class Config extends ConfigBase {
     public static int max_dynamic_partition_num = 500;
 
     /*
-     * Control the max num of backup job per db
+     * Control the max num of backup/restore job per db
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backup_restore_job_num_per_db = 10;
