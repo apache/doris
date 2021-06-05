@@ -120,7 +120,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
-    public static final String REPORT_QUERY_TIME_THRESHOLD = "report_query_time_threshold";
+    public static final String REPORT_QUERY_TIME_THRESHOLD_MS = "report_query_time_threshold_ms";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
@@ -308,8 +308,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
 
-    @VariableMgr.VarAttr(name = REPORT_QUERY_TIME_THRESHOLD)
-    private int reportQueryTimeThreshold = -1;
+    @VariableMgr.VarAttr(name = REPORT_QUERY_TIME_THRESHOLD_MS)
+    private int reportQueryTimeThresholdMs = -1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -625,12 +625,12 @@ public class SessionVariable implements Serializable, Writable {
         return deleteWithoutPartition;
     }
     
-    public int getReportQueryTimeThreshold() {
-        return reportQueryTimeThreshold;
+    public int getReportQueryTimeThresholdMs() {
+        return reportQueryTimeThresholdMs;
     }
 
-    public void setReportQueryTimeThreshold(int reportQueryTimeThreshold) {
-        this.reportQueryTimeThreshold = reportQueryTimeThreshold;
+    public void setReportQueryTimeThresholdMs(int reportQueryTimeThresholdMs) {
+        this.reportQueryTimeThresholdMs = reportQueryTimeThresholdMs;
     }
 
     // Serialize to thrift object

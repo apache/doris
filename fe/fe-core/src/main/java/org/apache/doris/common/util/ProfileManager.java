@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
@@ -138,7 +139,7 @@ public class ProfileManager {
         // filter profile that take more time than threshold
         ProfileElement element = createElement(profile);
         if (ConnectContext.get() != null) {
-            long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThreshold();
+            long timeThreshold = ConnectContext.get().getSessionVariable().getReportQueryTimeThresholdMs();
             if (element.totalTimeMs < timeThreshold) {
                 return;
             }
@@ -157,7 +158,7 @@ public class ProfileManager {
         writeLock.lock();
         try {
             if (!queryIdDeque.contains(queryId)) {
-                if (queryIdDeque.size() >= GlobalVariable.reportQueryArraySize) {
+                if (queryIdDeque.size() >= Config.report_query_array_size) {
                     queryIdToProfileMap.remove(queryIdDeque.getFirst());
                     queryIdDeque.removeFirst();
                 }

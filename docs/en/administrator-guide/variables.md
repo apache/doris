@@ -68,7 +68,7 @@ Variables that support both session-level and global-level setting include:
 * `wait_timeout`
 * `sql_mode`
 * `is_report_success`
-* `report_query_time_threshold`
+* `report_query_time_threshold_ms`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -239,13 +239,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
     `fe_host:fe_http:port/query`
     
-    It will display the most recent 100 (use `report_query_array_size` to set a custom quantity) queries which `is_report_success` is set to true.
+    It will display the most recent 100 (use fe config `report_query_array_size` to set a custom quantity) queries which `is_report_success` is set to true.
     
-* `report_query_time_threshold`
+* `report_query_time_threshold_ms`
     Used to set the time threshold for displaying query profile. The unit is ms and the default is -1.
-
-* `report_query_array_size`
-    Used to set the maximum number of display query profile. The defaule is 100.
 
 * `language`
 

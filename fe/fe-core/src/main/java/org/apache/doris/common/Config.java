@@ -1086,6 +1086,10 @@ public class Config extends ConfigBase {
     public static int report_queue_size = 100;
 
     /**
+     * The number of query profile that fe will save.
+     */
+    @ConfField public  static  int report_query_array_size = 100;
+    /**
      * If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
      */
     @ConfField public static boolean enable_metric_calculator = true;
