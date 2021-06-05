@@ -90,7 +90,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     // this lock is used for updating dbIdToBackupOrRestoreJobs
     private final ReentrantLock jobLock = new ReentrantLock();
 
-    // db id ->  last 100(max_backup_job_num_per_db) backup/restore jobs
+    // db id ->  last 10(max_backup_restore_job_num_per_db) backup/restore jobs
     // Newly submitted job will replace the current job, only if current job is finished or cancelled.
     // If the last job is finished, user can get the job info from repository. If the last job is cancelled,
     // user can get the error message before submitting the next one.
@@ -419,11 +419,13 @@ public class BackupHandler extends MasterDaemon implements Writable {
         jobLock.lock();
         try {
             Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.computeIfAbsent(dbId, k -> Lists.newLinkedList());
-            if (jobs.size() == Config.max_backup_job_num_per_db) {
+            while (jobs.size() >= Config.max_backup_restore_job_num_per_db) {
                 jobs.removeFirst();
             }
             AbstractJob lastJob = jobs.peekLast();
-            // only save the latest job
+
+            // Remove duplicate jobs and keep only the latest status
+            // Otherwise, the tasks that have been successfully executed will be repeated when replaying edit log.
             if (lastJob != null && (lastJob.isPending() || lastJob.getJobId() == job.getJobId())) {
                 jobs.removeLast();
             }

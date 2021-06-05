@@ -1401,5 +1401,5 @@ public class Config extends ConfigBase {
      * Control the max num of backup job per db
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_backup_job_num_per_db = 100;
+    public static int max_backup_restore_job_num_per_db = 10;
 }
