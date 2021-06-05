@@ -66,6 +66,23 @@ public class AlterJobV2Test {
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
+
+        createTable("CREATE TABLE test.tbl1\n" +
+                "(\n" +
+                "    k1 DATE,\n" +
+                "    k2 int\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1) ()\n" +
+                "DISTRIBUTED BY HASH(k1)\n" +
+                "PROPERTIES\n" +
+                "(\n" +
+                "    \"dynamic_partition.enable\" = \"true\",\n" +
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+                "    \"dynamic_partition.start\" = \"-7\",\n" +
+                "    \"dynamic_partition.end\" = \"3\",\n" +
+                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+                "    \"dynamic_partition.buckets\" = \"32\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -201,6 +218,28 @@ public class AlterJobV2Test {
         }
 
         alterStmtStr = "alter table test.schema_change_test set (\"default.replication_num\" = \"3\")";
+        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
+        try {
+            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        } catch (Exception e) {
+            Assert.fail();
+        }
+    }
+
+    @Test
+    public void testPartitionReplicaNumLimit() throws Exception {
+        Config.min_replica_num = 3;
+        Config.max_replica_num = 3;
+        // 1. process a schema change job
+        String alterStmtStr = "alter table test.tbl1 set (\"dynamic_partition.replication_num\" = \"1\")";
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
+        try {
+            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Dynamic partition replication num out of [3,3]"));
+        }
+
+        alterStmtStr = "alter table test.tbl1 set (\"dynamic_partition.replication_num\" = \"3\")";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         try {
             Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);

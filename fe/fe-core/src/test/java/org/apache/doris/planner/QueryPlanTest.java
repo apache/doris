@@ -1616,4 +1616,57 @@ public class QueryPlanTest {
             Assert.assertTrue(e.getMessage().contains("Failed to find enough host in all backends"));
         }
     }
+
+    @Test
+    public void testPartitionReplicaLimit() throws Exception {
+        Config.min_replica_num = 3;
+        Config.max_replica_num = 3;
+        String sql = "CREATE TABLE test.tbl1\n" +
+                "(\n" +
+                "    k1 DATE,\n" +
+                "    k2 int\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1) ()\n" +
+                "DISTRIBUTED BY HASH(k1)\n" +
+                "PROPERTIES\n" +
+                "(\n" +
+                "    \"dynamic_partition.enable\" = \"true\",\n" +
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+                "    \"dynamic_partition.start\" = \"-7\",\n" +
+                "    \"dynamic_partition.end\" = \"3\",\n" +
+                "    \"dynamic_partition.replication_num\"=\"1\",\n" +
+                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+                "    \"dynamic_partition.buckets\" = \"32\"\n" +
+                ");";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        try {
+            Catalog.getCurrentCatalog().createTable(createTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Dynamic partition replication num out of [3,3]"));
+        }
+
+        sql = "CREATE TABLE test.tbl1\n" +
+                "(\n" +
+                "    k1 DATE,\n" +
+                "    k2 int\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1) ()\n" +
+                "DISTRIBUTED BY HASH(k1)\n" +
+                "PROPERTIES\n" +
+                "(\n" +
+                "    \"dynamic_partition.enable\" = \"true\",\n" +
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+                "    \"dynamic_partition.start\" = \"-7\",\n" +
+                "    \"dynamic_partition.end\" = \"3\",\n" +
+                "    \"dynamic_partition.replication_num\"=\"3\",\n" +
+                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+                "    \"dynamic_partition.buckets\" = \"32\"\n" +
+                ");";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        try {
+            Catalog.getCurrentCatalog().createTable(createTableStmt);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to find enough host in all backends"));
+        }
+    }
 }

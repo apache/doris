@@ -187,8 +187,9 @@ public class DynamicPartitionUtil {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.REPLICATION_NUM);
         }
         try {
-            if (Integer.parseInt(val) <= 0) {
-                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
+            if (Integer.parseInt(val) < Config.min_replica_num || Integer.parseInt(val) > Config.max_replica_num) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_LIMIT,
+                        Config.min_replica_num, Config.max_replica_num);
             }
         } catch (NumberFormatException e) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_FORMAT, val);
