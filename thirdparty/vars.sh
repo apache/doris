@@ -390,6 +390,13 @@ PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort
 PDQSORT_NAME="pdqsort.tar.gz"
 PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
 PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
+
+# lua
+LUA_DOWNLOAD="http://www.lua.org/ftp/lua-5.4.3.tar.gz"
+LUA_NAME="lua-5.4.3.tar.gz"
+LUA_SOURCE="lua-5.4.3"
+LUA_MD5SM="ef63ed2ecfb713646a7fcc583cf5f352"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -447,5 +454,5 @@ XML2
 GSASL
 HDFS3
 LIBDIVIDE
-PDQSORT"
-
+PDQSORT
+LUA"

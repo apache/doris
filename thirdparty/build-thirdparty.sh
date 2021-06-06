@@ -914,6 +914,15 @@ build_hdfs3() {
     make -j $PARALLEL && make install
 }
 
+# lua
+build_lua() {
+    check_if_source_exist $LUA_SOURCE
+    cd $TP_SOURCE_DIR/$LUA_SOURCE
+    sed -i "s|INSTALL_TOP= /usr/local|INSTALL_TOP= $TP_INSTALL_DIR|g" Makefile
+    sed -i "s|CC= gcc -std=gnu99|CC= $DORIS_GCC_HOME/bin/gcc -std=gnu99|g" Makefile
+    make -j $PARALLEL && make install
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -968,5 +977,6 @@ build_lzma
 build_xml2
 build_gsasl
 build_hdfs3
+build_lua
 
 echo "Finished to build all thirdparties"
