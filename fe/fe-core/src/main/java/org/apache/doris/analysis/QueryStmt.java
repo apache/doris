@@ -433,6 +433,12 @@ public abstract class QueryStmt extends StatementBase {
         }
     }
 
+    public void getWithClauseTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        if (withClause_ != null) {
+            withClause_.getTableRefs(tblRefs, parentViewNameSet);
+        }
+    }
+
     // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
@@ -441,6 +447,10 @@ public abstract class QueryStmt extends StatementBase {
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
     public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
+
+    // get TableRefs in this query, including physical TableRefs of this statement and
+    // nested statements of inline views and with_Clause.
+    public abstract void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet);
 
     /**
      * UnionStmt and SelectStmt have different implementations.

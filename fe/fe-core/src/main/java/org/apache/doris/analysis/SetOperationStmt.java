@@ -179,6 +179,14 @@ public class SetOperationStmt extends QueryStmt {
         }
     }
 
+    @Override
+    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+        for (SetOperand op : operands) {
+            op.getQueryStmt().getTableRefs(tblRefs, parentViewNameSet);
+        }
+    }
+
     /**
      * Propagates DISTINCT from left to right, and checks that all
      * set operands are set compatible, adding implicit casts if necessary.
