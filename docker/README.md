@@ -94,5 +94,14 @@ $ cd /root/incubator-doris/
 $ sh build.sh
 ```
 
+The default JDK version is openjdk 11, if you want to use openjdk 8, you can run the command:
+
+```console
+$ alternatives --set java java-1.8.0-openjdk.x86_64
+$ alternatives --set javac java-1.8.0-openjdk.x86_64
+$ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+
+```
+
 [1]: https://www.oracle.com/technetwork/java/javase/downloads/index.html
 [2]: https://nodejs.org/dist/v14.8.0/
