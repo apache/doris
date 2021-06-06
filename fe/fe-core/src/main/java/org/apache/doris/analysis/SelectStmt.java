@@ -40,7 +40,6 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
@@ -320,6 +319,22 @@ public class SelectStmt extends QueryStmt {
                             tblRef.getName().getTbl());
                 }
                 tableMap.put(table.getId(), table);
+            }
+        }
+    }
+
+    @Override
+    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+        for (TableRef tblRef : fromClause_) {
+            if (tblRef instanceof InlineViewRef) {
+                QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
+                inlineStmt.getTableRefs(tblRefs, parentViewNameSet);
+            } else {
+                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
+                    continue;
+                }
+                tblRefs.add(tblRef);
             }
         }
     }
