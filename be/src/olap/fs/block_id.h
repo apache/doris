@@ -66,20 +66,7 @@ private:
 
 std::ostream& operator<<(std::ostream& o, const BlockId& block_id);
 
-struct BlockIdHash {
-    // size_t is same as uint64_t
-    size_t operator()(const BlockId& block_id) const { return block_id.id(); }
-};
-
-struct BlockIdCompare {
-    bool operator()(const BlockId& first, const BlockId& second) const { return first < second; }
-};
-
-struct BlockIdEqual {
-    bool operator()(const BlockId& first, const BlockId& second) const { return first == second; }
-};
-
-typedef std::unordered_set<BlockId, BlockIdHash, BlockIdEqual> BlockIdSet;
+typedef std::unordered_set<BlockId> BlockIdSet;
 typedef std::vector<BlockId> BlockIdContainer;
 
 } // end namespace doris
