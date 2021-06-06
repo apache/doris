@@ -35,37 +35,37 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-	`$ docker pull apachedoris/doris-dev:build-env`
+	`$ docker pull apache/incubator-doris:build-env-1.3`
 
 	Check mirror download completed:
 
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
+    apache/incubator-doris   build-env-1.3           ca207367c09f        21 hours ago        3.28GB
     ```
 
 Note: For different versions of Oris, you need to download the corresponding mirror version.
 
 | image version | commit id | release version |
 |---|---|---|
-| apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-| apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
-| apachedoris/doris-dev:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
-| apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
+| apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+| apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+| apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
+| apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
 
-Warning: Doris 0.14.0 still used apachedoris/doris-dev:build-env-1.2 to compile.  After thie version, the code will use apachedoris/doris-dev:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11, Otherwise unexpected running errors may be caused. **
+Warning: Doris 0.14.0 still used apache/incubator-doris:build-env-1.2 to compile.  After thie version, the code will use apache/incubator-doris:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11, Otherwise unexpected running errors may be caused. **
 
 2. Running Mirror
 
-	`$ docker run -it apachedoris/doris-dev:build-env`
+	`$ docker run -it apache/incubator-doris:build-env-1.3`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3
     ```
 
 3. Download source code
