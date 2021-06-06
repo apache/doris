@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.monitor.jvm.JvmInfo;
 import org.apache.doris.monitor.jvm.JvmService;
@@ -54,8 +55,8 @@ public class JvmProcDir implements ProcNodeInterface {
                                                                      jvmInfo.getVmVendor(),
                                                                      jvmInfo.getVmVersion())));
 
-        result.addRow(genRow("configured init heap size", jvmInfo.getConfiguredInitialHeapSize()));
-        result.addRow(genRow("configured max heap size", jvmInfo.getConfiguredMaxHeapSize()));
+        result.addRow(genRow("configured init heap size", DebugUtil.printByteWithUnit(jvmInfo.getConfiguredInitialHeapSize())));
+        result.addRow(genRow("configured max heap size", DebugUtil.printByteWithUnit(jvmInfo.getConfiguredMaxHeapSize())));
         result.addRow(genRow("frontend pid", jvmInfo.getPid()));
 
         // 2. jvm stats
@@ -64,24 +65,24 @@ public class JvmProcDir implements ProcNodeInterface {
         result.addRow(genRow("classes total loaded", jvmStats.getClasses().getTotalLoadedClassCount()));
         result.addRow(genRow("classes unloaded", jvmStats.getClasses().getUnloadedClassCount()));
 
-        result.addRow(genRow("mem heap committed", jvmStats.getMem().getHeapCommitted().getBytes()));
-        result.addRow(genRow("mem heap used", jvmStats.getMem().getHeapUsed().getBytes()));
-        result.addRow(genRow("mem non heap committed", jvmStats.getMem().getNonHeapCommitted().getBytes()));
-        result.addRow(genRow("mem non heap used", jvmStats.getMem().getNonHeapUsed().getBytes()));
+        result.addRow(genRow("mem heap committed", DebugUtil.printByteWithUnit(jvmStats.getMem().getHeapCommitted().getBytes())));
+        result.addRow(genRow("mem heap used", DebugUtil.printByteWithUnit(jvmStats.getMem().getHeapUsed().getBytes())));
+        result.addRow(genRow("mem non heap committed", DebugUtil.printByteWithUnit(jvmStats.getMem().getNonHeapCommitted().getBytes())));
+        result.addRow(genRow("mem non heap used", DebugUtil.printByteWithUnit(jvmStats.getMem().getNonHeapUsed().getBytes())));
 
         Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
         while (memIter.hasNext()) {
             MemoryPool memPool = memIter.next();
-            result.addRow(genRow("mem pool " + memPool.getName() + " used", memPool.getUsed().getBytes()));
-            result.addRow(genRow("mem pool " + memPool.getName() + " max", memPool.getMax().getBytes()));
-            result.addRow(genRow("mem pool " + memPool.getName() + " peak used", memPool.getPeakUsed().getBytes()));
-            result.addRow(genRow("mem pool " + memPool.getName() + " peak max", memPool.getPeakMax().getBytes()));
+            result.addRow(genRow("mem pool " + memPool.getName() + " used", DebugUtil.printByteWithUnit(memPool.getUsed().getBytes())));
+            result.addRow(genRow("mem pool " + memPool.getName() + " max", DebugUtil.printByteWithUnit(memPool.getMax().getBytes())));
+            result.addRow(genRow("mem pool " + memPool.getName() + " peak used", DebugUtil.printByteWithUnit(memPool.getPeakUsed().getBytes())));
+            result.addRow(genRow("mem pool " + memPool.getName() + " peak max", DebugUtil.printByteWithUnit(memPool.getPeakMax().getBytes())));
         }
 
         for (BufferPool bp : jvmStats.getBufferPools()) {
             result.addRow(genRow("buffer pool " + bp.getName() + " count", bp.getCount()));
-            result.addRow(genRow("buffer pool " + bp.getName() + " used", bp.getUsed().getBytes()));
-            result.addRow(genRow("buffer pool " + bp.getName() + " capacity", bp.getTotalCapacity().getBytes()));
+            result.addRow(genRow("buffer pool " + bp.getName() + " used", DebugUtil.printByteWithUnit(bp.getUsed().getBytes())));
+            result.addRow(genRow("buffer pool " + bp.getName() + " capacity", DebugUtil.printByteWithUnit(bp.getTotalCapacity().getBytes())));
         }
 
         Iterator<GarbageCollector> gcIter = jvmStats.getGc().iterator();
