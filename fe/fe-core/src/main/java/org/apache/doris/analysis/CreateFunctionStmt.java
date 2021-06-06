@@ -31,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +60,7 @@ public class CreateFunctionStmt extends DdlStmt {
     public static final String FINALIZE_KEY = "finalize_fn";
     public static final String GET_VALUE_KEY = "get_value_fn";
     public static final String REMOVE_KEY = "remove_fn";
+    public static final String BINARY_TYPE = "type";
 
     private final FunctionName functionName;
     private final boolean isAggregate;
@@ -225,9 +227,14 @@ public class CreateFunctionStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
         }
+        String type = properties.getOrDefault(BINARY_TYPE, "NATIVE");
+        TFunctionBinaryType binaryType = getFunctionBinaryType(type);
+        if (binaryType == null) {
+            throw new AnalysisException("unknown function type");
+        }
         String prepareFnSymbol = properties.get(PREPARE_SYMBOL_KEY);
         String closeFnSymbol = properties.get(CLOSE_SYMBOL_KEY);
-        function = ScalarFunction.createUdf(
+        function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
                 returnType.getType(), argsDef.isVariadic(),
                 objectFile, symbol, prepareFnSymbol, closeFnSymbol);
@@ -238,6 +245,11 @@ public class CreateFunctionStmt extends DdlStmt {
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
                 Type.VARCHAR, argsDef.isVariadic(), parameters, originFunction);
         ((AliasFunction) function).analyze();
+    }
+    
+    private TFunctionBinaryType getFunctionBinaryType(String type) {
+        TFunctionBinaryType binaryType = TFunctionBinaryType.valueOf(type);
+        return binaryType;
     }
 
     @Override

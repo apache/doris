@@ -262,6 +262,7 @@ enum TFunctionBinaryType {
 
   // Native-interface, precompiled to IR; loaded from *.ll
   IR,
+  LUA,
 }
 
 // Represents a fully qualified function name.

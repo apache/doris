@@ -17,9 +17,9 @@
 
 #include "runtime/user_function_cache.h"
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
-#include <atomic>
 #include <regex>
 #include <vector>
 
@@ -38,7 +38,12 @@ static const int kLibShardNum = 128;
 // function cache entry, store information for
 struct UserFunctionCacheEntry {
     UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_)
-            : function_id(fid_), checksum(checksum_), lib_file(lib_file_) {}
+            : function_id(fid_), checksum(checksum_), lib_file(lib_file_) {
+        if (boost::algorithm::ends_with(lib_file, ".lua")) {
+            type = Type::LUA;
+        }
+    }
+
     ~UserFunctionCacheEntry();
 
     void ref() { _refs.fetch_add(1); }
@@ -74,6 +79,9 @@ struct UserFunctionCacheEntry {
     SpinLock map_lock;
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
+
+    enum class Type { NATIVE, LUA };
+    Type type = Type::NATIVE;
 
 private:
     std::atomic<int> _refs{0};
@@ -234,6 +242,14 @@ Status UserFunctionCache::get_function_ptr(int64_t fid, const std::string& orig_
 
     return status;
 }
+Status UserFunctionCache::acquire_lua_function(int64_t fid, const std::string& url,
+                                               const std::string& checksum,
+                                               UserFunctionCacheEntry** entry,
+                                               std::string* lua_path) {
+    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry));
+    *lua_path = (*entry)->lib_file;
+    return Status::OK();
+}
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
@@ -245,7 +261,7 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
-            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum));
+            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(url, fid, checksum));
 
             entry->ref();
             _entry_map.emplace(fid, entry);
@@ -351,15 +367,22 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
 
 // entry's lock must be held
 Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* entry) {
-    RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
+    if (entry->type == UserFunctionCacheEntry::Type::NATIVE) {
+        RETURN_IF_ERROR(dynamic_open(entry->lib_file.c_str(), &entry->lib_handle));
+    }
     entry->is_loaded.store(true);
     return Status::OK();
 }
 
-std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum) {
+std::string UserFunctionCache::_make_lib_file(const std::string& url, int64_t function_id,
+                                              const std::string& checksum) {
     int shard = function_id % kLibShardNum;
     std::stringstream ss;
-    ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum << ".so";
+    if (boost::algorithm::ends_with(url, ".lua")) {
+        ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum << ".lua";
+    } else {
+        ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum << ".so";
+    }
     return ss.str();
 }
 

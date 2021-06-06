@@ -63,6 +63,8 @@ public:
     Status get_function_ptr(int64_t fid, const std::string& symbol, const std::string& url,
                             const std::string& checksum, void** fn_ptr,
                             UserFunctionCacheEntry** entry);
+    Status acquire_lua_function(int64_t fid, const std::string& url, const std::string& checksum,
+                                UserFunctionCacheEntry** entry, std::string* lua_path);
     void release_entry(UserFunctionCacheEntry* entry);
 
 private:
@@ -74,7 +76,8 @@ private:
     Status _download_lib(const std::string& url, UserFunctionCacheEntry* entry);
     Status _load_cache_entry_internal(UserFunctionCacheEntry* entry);
 
-    std::string _make_lib_file(int64_t function_id, const std::string& checksum);
+    std::string _make_lib_file(const std::string& url, int64_t function_id,
+                               const std::string& checksum);
     void _destroy_cache_entry(UserFunctionCacheEntry* entry);
 
 private:

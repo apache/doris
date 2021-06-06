@@ -309,6 +309,9 @@ if (ARCH_AMD64)
     set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
 endif()
 
+add_library(lua STATIC IMPORTED)
+set_target_properties(lua PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblua.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -512,6 +515,7 @@ set(COMMON_THIRDPARTY
     odbc
     cctz
     minzip
+    lua
     ${AWS_LIBS}
 )
 

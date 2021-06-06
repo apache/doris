@@ -310,12 +310,13 @@ public class ScalarFunction extends Function {
         return fn;
     }
 
-    public static ScalarFunction createUdf(
+    public static ScalarFunction createUdf(TFunctionBinaryType binaryType,
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
             String objectFile, String symbol, String prepareFnSymbol, String closeFnSymbol) {
-        ScalarFunction fn = new ScalarFunction(name, Arrays.asList(args), returnType, isVariadic,
-                TFunctionBinaryType.NATIVE, true, false);
+        ScalarFunction fn = new ScalarFunction(name, Arrays.asList(args), returnType, isVariadic, true, false);
+        fn.setBinaryType(binaryType);
+        fn.setUserVisible(true);
         fn.symbolName = symbol;
         fn.prepareFnSymbol = prepareFnSymbol;
         fn.closeFnSymbol = closeFnSymbol;

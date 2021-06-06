@@ -37,6 +37,7 @@
 #include "exprs/info_func.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/literal.h"
+#include "exprs/lua_fn_call.h"
 #include "exprs/null_literal.h"
 #include "exprs/scalar_fn_call.h"
 #include "exprs/slot_ref.h"
@@ -355,6 +356,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));
+        } else if (texpr_node.fn.binary_type == TFunctionBinaryType::LUA) {
+            *expr = pool->add(new LUAFnCall(texpr_node));
         } else {
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }
