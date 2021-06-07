@@ -919,7 +919,7 @@ build_lua() {
     check_if_source_exist $LUA_SOURCE
     cd $TP_SOURCE_DIR/$LUA_SOURCE
     sed -i "s|INSTALL_TOP= /usr/local|INSTALL_TOP= $TP_INSTALL_DIR|g" Makefile
-    sed -i "s|CC= gcc -std=gnu99|CC= $DORIS_GCC_HOME/bin/gcc -std=gnu99|g" Makefile
+    sed -i "s|CC= gcc -std=gnu99|CC= $DORIS_GCC_HOME/bin/gcc -std=gnu99|g" src/Makefile
     make -j $PARALLEL && make install
 }
 
