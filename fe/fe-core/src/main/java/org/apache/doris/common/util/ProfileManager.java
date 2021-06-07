@@ -17,22 +17,9 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.profile.ProfileTreeBuilder;
-import org.apache.doris.common.profile.ProfileTreeNode;
-import org.apache.doris.common.profile.ProfileTreePrinter;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.commons.lang3.tuple.Triple;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
@@ -44,6 +31,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.ProfileTreeBuilder;
+import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /*
  * if you want to visit the attribute(such as queryID,defaultDb)
