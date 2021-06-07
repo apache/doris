@@ -122,11 +122,20 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 pushMinCount++;
-                if (filter.lowerBoundInclusive && columnIdx != lastColumnId) {
-                    Column column = partitionColumns.get(columnIdx + 1);
-                    Type type = Type.fromPrimitiveType(column.getDataType());
-                    minKey.pushColumn(LiteralExpr.createInfinity(type, false), column.getDataType());
-                    pushMinCount++;
+                if (filter.lowerBoundInclusive) {
+                    for (int i = columnIdx + 1; i <= lastColumnId; i++) {
+                        Column column = partitionColumns.get(i);
+                        Type type = Type.fromPrimitiveType(column.getDataType());
+                        minKey.pushColumn(LiteralExpr.createInfinity(type, false), column.getDataType());
+                        pushMinCount++;
+                    }
+                } else {
+                    for (int i = columnIdx + 1; i <= lastColumnId; i++) {
+                        Column column = partitionColumns.get(i);
+                        Type type = Type.fromPrimitiveType(column.getDataType());
+                        minKey.pushColumn(LiteralExpr.createInfinity(type, true), column.getDataType());
+                        pushMinCount++;
+                    }
                 }
             } else {
                 Type type = Type.fromPrimitiveType(keyColumn.getDataType());
@@ -136,11 +145,20 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
                 pushMaxCount++;
-                if (filter.upperBoundInclusive && columnIdx != lastColumnId) {
-                    Column column = partitionColumns.get(columnIdx + 1);
-                    maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), true),
-                            column.getDataType());
-                    pushMaxCount++;
+                if (filter.upperBoundInclusive) {
+                    for (int i = columnIdx + 1; i <= lastColumnId; i++) {
+                        Column column = partitionColumns.get(i);
+                        maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), true),
+                          column.getDataType());
+                        pushMaxCount++;
+                    }
+                } else {
+                    for (int i = columnIdx + 1; i <= lastColumnId; i++) {
+                        Column column = partitionColumns.get(i);
+                        maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), false),
+                          column.getDataType());
+                        pushMaxCount++;
+                    }
                 }
             } else {
                 maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
