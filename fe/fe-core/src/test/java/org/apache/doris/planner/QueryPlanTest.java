@@ -1581,5 +1581,13 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where date = '1604031150000'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("EMPTYSET"));
+
+        String queryStr = "explain select count(*) from test.baseall where k11 > to_date(now())";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k11` > to_date"));
+
+        queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
     }
 }

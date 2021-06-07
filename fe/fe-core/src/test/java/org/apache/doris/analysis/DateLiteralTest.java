@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,6 +52,39 @@ public class DateLiteralTest {
             DateLiteral literal7 = new DateLiteral("00-10-07", Type.DATE);
             Assert.assertEquals(2000, literal7.getYear());
 
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testDateFormat() {
+        boolean hasException = false;
+        try {
+            DateLiteral literal = new DateLiteral("1997-10-7", Type.DATE);
+            Assert.assertEquals(1997, literal.getYear());
+
+            literal = new DateLiteral("2021-06-1", Type.DATE);
+            Assert.assertEquals(2021, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2022-6-01", Type.DATE);
+            Assert.assertEquals(2022, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2023-6-1", Type.DATE);
+            Assert.assertEquals(2023, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("20230601", Type.DATE);
+            Assert.assertEquals(2023, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
         } catch (AnalysisException e) {
             e.printStackTrace();
             hasException = true;
