@@ -36,9 +36,15 @@ import com.google.common.collect.Lists;
 public class ExprRewriter {
     private int numChanges_ = 0;
     private final List<ExprRewriteRule> rules_;
+    private List<ExprRewriteRule> onceRules_ = Lists.newArrayList();
 
     public ExprRewriter(List<ExprRewriteRule> rules) {
         rules_ = rules;
+    }
+
+    public ExprRewriter(List<ExprRewriteRule> rules, List<ExprRewriteRule> onceRules) {
+        rules_ = rules;
+        onceRules_ = onceRules;
     }
 
     public ExprRewriter(ExprRewriteRule rule) {
@@ -55,6 +61,15 @@ public class ExprRewriter {
                 rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer);
             }
         } while (oldNumChanges != numChanges_);
+
+        for (ExprRewriteRule rule: onceRules_) {
+            rewrittenExpr = applyRuleOnce(rewrittenExpr, rule, analyzer);
+        }
+        return rewrittenExpr;
+    }
+
+    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer) throws AnalysisException {
+        Expr rewrittenExpr = rule.apply(expr, analyzer);
         return rewrittenExpr;
     }
 
