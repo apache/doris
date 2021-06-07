@@ -248,7 +248,12 @@ public class CreateFunctionStmt extends DdlStmt {
     }
     
     private TFunctionBinaryType getFunctionBinaryType(String type) {
-        TFunctionBinaryType binaryType = TFunctionBinaryType.valueOf(type);
+        TFunctionBinaryType binaryType = null;
+        try {
+            binaryType = TFunctionBinaryType.valueOf(type);
+        } catch (IllegalArgumentException e) {
+            // ignore enum Exception
+        }
         return binaryType;
     }
 

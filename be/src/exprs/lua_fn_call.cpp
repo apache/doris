@@ -2,6 +2,7 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
+#include "fmt/format.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 #include "util/defer_op.h"
@@ -52,7 +53,8 @@ Status LUAFnCall::open(RuntimeState* state, ExprContext* ctx,
     }
     st = lua_pcall(_state, 0, 0, 0);
     if (st != 0) {
-        return Status::InternalError("execute lua script fail");
+        const char* errmsg = lua_tostring(_state, -1);
+        return Status::InternalError(fmt::format("execute lua script fail {}", errmsg));
     }
     st = lua_getglobal(_state, _lua_function_symbol.c_str());
     if (!lua_isfunction(_state, -1)) {
