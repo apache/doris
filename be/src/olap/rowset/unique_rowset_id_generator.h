@@ -25,7 +25,6 @@
 
 namespace doris {
 
-// TODO(yingchun): why use two classes?
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
 public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);

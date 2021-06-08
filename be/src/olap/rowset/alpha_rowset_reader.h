@@ -121,14 +121,13 @@ private:
 
     // Current AlphaMergeContext to read data, just valid in '_union_block' mode.
     AlphaMergeContext* _cur_ctx = nullptr;
+    // A priority queue for merging rowsets, just valid in '_merge_block' mode.
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
+            _merge_heap;
 
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
-
-    // a priority queue for merging rowsets
-    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
-            _merge_heap;
 };
 
 } // namespace doris
