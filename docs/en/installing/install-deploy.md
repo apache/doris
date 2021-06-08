@@ -163,7 +163,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Modify all BE configurations
 
-	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).
+	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
 
 * Add all BE nodes to FE
 
