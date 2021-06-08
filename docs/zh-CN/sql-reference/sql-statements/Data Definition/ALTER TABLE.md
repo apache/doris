@@ -149,7 +149,7 @@ under the License.
             1) 聚合模型如果修改 value 列，需要指定 agg_type
             2) 非聚合类型如果修改key列，需要指定KEY关键字
             3) 只能修改列的类型，列的其他属性维持原样（即其他属性需在语句中按照原属性显式的写出，参见 example 8）
-            4) 分区列不能做任何修改
+            4) 分区列和分桶列不能做任何修改
             5) 目前支持以下类型的转换（精度损失由用户保证）
                 TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE 类型向范围更大的数字类型转换
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
