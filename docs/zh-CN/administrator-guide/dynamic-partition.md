@@ -129,6 +129,10 @@ under the License.
 
     当不指定 `start` 属性时，该参数不生效。
 
+* `dynamic_partition.history_partition_num`
+   
+   当 `create_history_partition` 为 `true` 时，该参数用于指定创建历史分区数量。
+
 * `dynamic_partition.hot_partition_num`
 
     指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。

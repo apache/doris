@@ -587,6 +587,33 @@ public class DynamicPartitionTableTest {
     }
 
     @Test
+    public void testFillHistoryDynamicPartitionWithHistoryPartitionNum() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`history_dynamic_partition_day` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"10\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("history_dynamic_partition_day");
+        Map<String, String> tableProperties = emptyDynamicTable.getTableProperty().getProperties();
+        Assert.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
+        // never delete the old partitions
+        Assert.assertEquals(Integer.parseInt(tableProperties.get("dynamic_partition.start")), Integer.MIN_VALUE);
+    }
+
+    @Test
     public void testAllTypeDynamicPartition() throws Exception {
         String createOlapTblStmt = "CREATE TABLE test.`hour_dynamic_partition` (\n" +
                 "  `k1` datetime NULL COMMENT \"\",\n" +
