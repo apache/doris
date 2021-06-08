@@ -373,7 +373,7 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
         FileColumnIterator* offset_reader,
         ColumnIterator* item_iterator,
         ColumnIterator* null_iterator) : _array_reader(reader) {
-    _offset_iterator.reset(offset_reader);
+    _length_iterator.reset(offset_reader);
     _item_iterator.reset(item_iterator);
     if (_array_reader->is_nullable()) {
         _null_iterator.reset(null_iterator);
@@ -381,13 +381,13 @@ ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
 }
 
 Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_offset_iterator->init(opts));
+    RETURN_IF_ERROR(_length_iterator->init(opts));
     RETURN_IF_ERROR(_item_iterator->init(opts));
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
     TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
-    RETURN_IF_ERROR(ColumnVectorBatch::create(1024, false, bigint_type_info, nullptr, &_offset_batch));
+    RETURN_IF_ERROR(ColumnVectorBatch::create(1024, false, bigint_type_info, nullptr, &_length_batch));
     return Status::OK();
 }
 
@@ -399,7 +399,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
     ColumnBlockView offset_view(&offset_block, dst->current_offset() + 1); // offset应该比collection的游标多1
     bool offset_has_null = false;
-    RETURN_IF_ERROR(_offset_iterator->next_batch(n, &offset_view, &offset_has_null));
+    RETURN_IF_ERROR(_length_iterator->next_batch(n, &offset_view, &offset_has_null));
     DCHECK(!offset_has_null);
 
     if (*n == 0) {

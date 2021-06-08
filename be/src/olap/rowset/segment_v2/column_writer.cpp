@@ -109,30 +109,30 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             RETURN_IF_ERROR(
                     ColumnWriter::create(item_options, &item_column, _wblock, &item_writer));
 
-            // create offset writer
-            FieldType offset_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
+            // create length writer
+            FieldType length_type = FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
 
-            ColumnWriterOptions offset_options;
-            offset_options.meta = opts.meta->add_children_columns();
-            offset_options.meta->set_column_id(2);
-            offset_options.meta->set_unique_id(2);
-            offset_options.meta->set_type(offset_type);
-            offset_options.meta->set_is_nullable(false);
-            offset_options.meta->set_length(get_scalar_type_info(offset_type)->size());
-            offset_options.meta->set_encoding(DEFAULT_ENCODING);
-            offset_options.meta->set_compression(LZ4F);
+            ColumnWriterOptions length_options;
+            length_options.meta = opts.meta->add_children_columns();
+            length_options.meta->set_column_id(2);
+            length_options.meta->set_unique_id(2);
+            length_options.meta->set_type(length_type);
+            length_options.meta->set_is_nullable(false);
+            length_options.meta->set_length(get_scalar_type_info(length_type)->size());
+            length_options.meta->set_encoding(DEFAULT_ENCODING);
+            length_options.meta->set_compression(LZ4F);
 
-            offset_options.need_zone_map = false;
-            offset_options.need_bloom_filter = false;
-            offset_options.need_bitmap_index = false;
+            length_options.need_zone_map = false;
+            length_options.need_bloom_filter = false;
+            length_options.need_bitmap_index = false;
 
-            TabletColumn offset_column = TabletColumn(OLAP_FIELD_AGGREGATION_NONE, offset_type, offset_options.meta->is_nullable(),
-                                                      offset_options.meta->unique_id(), offset_options.meta->length());
-            offset_column.set_name("offset");
-            offset_column.set_index_length(-1); // no short key index
+            TabletColumn length_column = TabletColumn(OLAP_FIELD_AGGREGATION_NONE, length_type, length_options.meta->is_nullable(),
+                                                      length_options.meta->unique_id(), length_options.meta->length());
+            length_column.set_name("length");
+            length_column.set_index_length(-1); // no short key index
             std::unique_ptr<Field> bigint_field(
-                    FieldFactory::create(offset_column));
-            auto* offset_writer = new ScalarColumnWriter(offset_options, std::move(bigint_field), _wblock);
+                    FieldFactory::create(length_column));
+            auto* length_writer = new ScalarColumnWriter(length_options, std::move(bigint_field), _wblock);
 
             // if nullable, create null writer
             ScalarColumnWriter* null_writer = nullptr;
@@ -152,7 +152,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bloom_filter = false;
                 null_options.need_bitmap_index = false;
 
-                TabletColumn null_column = TabletColumn(OLAP_FIELD_AGGREGATION_NONE, null_type, offset_options.meta->is_nullable(),
+                TabletColumn null_column = TabletColumn(OLAP_FIELD_AGGREGATION_NONE, null_type, length_options.meta->is_nullable(),
                                                           null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
@@ -163,7 +163,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
 
             std::unique_ptr<ColumnWriter> writer_local =
                     std::unique_ptr<ColumnWriter>(new ArrayColumnWriter(
-                            opts, std::move(field), offset_writer, null_writer, std::move(item_writer)));
+                            opts, std::move(field), length_writer, null_writer, std::move(item_writer)));
             *writer = std::move(writer_local);
             return Status::OK();
         }
@@ -465,29 +465,29 @@ Status ScalarColumnWriter::finish_current_page() {
 ////////////////////////////////////////////////////////////////////////////////
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                     ScalarColumnWriter* offset_writer,
+                                     ScalarColumnWriter* length_writer,
                                      ScalarColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
           _item_writer(std::move(item_writer)) {
-    _offset_writer.reset(offset_writer);
+    _length_writer.reset(length_writer);
     if (is_nullable()) {
         _null_writer.reset(null_writer);
     }
 }
 
 Status ArrayColumnWriter::init() {
-    RETURN_IF_ERROR(_offset_writer->init());
+    RETURN_IF_ERROR(_length_writer->init());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->init());
     }
     RETURN_IF_ERROR(_item_writer->init());
-    _offset_writer->register_flush_page_callback(this);
+    _length_writer->register_flush_page_callback(this);
     return Status::OK();
 }
 
 Status ArrayColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
-    footer->set_next_array_item_ordinal(_current_offset_page_start_ordinal);
+    footer->set_first_array_item_ordinal(_current_length_page_first_ordinal);
     return Status::OK();
 }
 
@@ -500,11 +500,11 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         // TODO llj: bulk write
         size_t num_written = 1;
         auto size_ptr = &(col_cursor->length);
-        RETURN_IF_ERROR(_offset_writer->append_data_in_current_page((const uint8_t**)&size_ptr, &num_written));
-        if (num_written < 1) { // page is full, write offset and update current offset page's start ordinal
-            RETURN_IF_ERROR(_offset_writer->finish_current_page());
-            _current_offset_page_start_ordinal += _current_offset_page_ordinal_sum;
-            _current_offset_page_ordinal_sum = 0;
+        RETURN_IF_ERROR(_length_writer->append_data_in_current_page((const uint8_t**)&size_ptr, &num_written));
+        if (num_written < 1) { // page is full, write first item offset and update current length page's start ordinal
+            RETURN_IF_ERROR(_length_writer->finish_current_page());
+            _current_length_page_first_ordinal += _lengh_sum_in_cur_page;
+            _lengh_sum_in_cur_page = 0;
         } else {
             // write child item.
             if (_item_writer->is_nullable()) {
@@ -516,7 +516,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
             } else {
                 RETURN_IF_ERROR(_item_writer->append_data((const uint8_t**)&(col_cursor->data), col_cursor->length));
             }
-            _current_offset_page_ordinal_sum += col_cursor->length;
+            _lengh_sum_in_cur_page += col_cursor->length;
         }
         remaining -= num_written;
         col_cursor += num_written;
@@ -528,13 +528,13 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
 }
 
 uint64_t ArrayColumnWriter::estimate_buffer_size() {
-    return _offset_writer->estimate_buffer_size() +
+    return _length_writer->estimate_buffer_size() +
     (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
     _item_writer->estimate_buffer_size();
 }
 
 Status ArrayColumnWriter::finish() {
-    RETURN_IF_ERROR(_offset_writer->finish());
+    RETURN_IF_ERROR(_length_writer->finish());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->finish());
     }
@@ -543,7 +543,7 @@ Status ArrayColumnWriter::finish() {
 }
 
 Status ArrayColumnWriter::write_data() {
-    RETURN_IF_ERROR(_offset_writer->write_data());
+    RETURN_IF_ERROR(_length_writer->write_data());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_data());
     }
@@ -552,7 +552,7 @@ Status ArrayColumnWriter::write_data() {
 }
 
 Status ArrayColumnWriter::write_ordinal_index() {
-    RETURN_IF_ERROR(_offset_writer->write_ordinal_index());
+    RETURN_IF_ERROR(_length_writer->write_ordinal_index());
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_ordinal_index());
     }
@@ -561,13 +561,13 @@ Status ArrayColumnWriter::write_ordinal_index() {
 }
 
 Status ArrayColumnWriter::append_nulls(size_t num_rows) {
-    size_t num_offsets = num_rows;
+    size_t num_lengths = num_rows;
     const ordinal_t zero = 0;
-    while(num_offsets > 0) {
+    while(num_lengths > 0) {
         // TODO llj bulk write
         const auto* zero_ptr = reinterpret_cast<const uint8_t *>(&zero);
-        RETURN_IF_ERROR(_offset_writer->append_data(&zero_ptr, 1));
-        --num_offsets;
+        RETURN_IF_ERROR(_length_writer->append_data(&zero_ptr, 1));
+        --num_lengths;
     }
     return write_null_column(num_rows, true);
 }

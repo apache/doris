@@ -280,18 +280,18 @@ public:
 
     Status write_bloom_filter_index() override { return Status::OK(); }
 
-    ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+    ordinal_t get_next_rowid() const override { return _length_writer->get_next_rowid(); }
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
     inline Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
 
 private:
-    std::unique_ptr<ScalarColumnWriter> _offset_writer;
+    std::unique_ptr<ScalarColumnWriter> _length_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
-    ordinal_t _current_offset_page_start_ordinal = 0;
-    ordinal_t _current_offset_page_ordinal_sum = 0;
+    ordinal_t _current_length_page_first_ordinal = 0;
+    ordinal_t _lengh_sum_in_cur_page = 0;
 };
 
 } // namespace segment_v2
