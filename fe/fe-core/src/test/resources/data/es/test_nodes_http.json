@@ -24,6 +24,25 @@
         "publish_address": "10.0.0.1:8200",
         "max_content_length_in_bytes": 104857600
       }
+    },
+    "node-B": {
+      "name": "node-B",
+      "transport_address": "10.0.0.2:9200",
+      "host": "node-B",
+      "ip": "10.0.4.2",
+      "version": "6.5.3",
+      "roles": [
+        "master",
+        "data",
+        "ingest"
+      ],
+      "http": {
+        "bound_address": [
+          "10.0.0.2:8200"
+        ],
+        "publish_address": "node-B/10.0.0.2:8200",
+        "max_content_length_in_bytes": 104857600
+      }
     }
   }
 }
