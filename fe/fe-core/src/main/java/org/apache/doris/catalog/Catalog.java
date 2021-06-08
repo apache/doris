@@ -4479,14 +4479,21 @@ public class Catalog {
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop) {
-        Table table = db.getTable(tableId);
         // delete from db meta
         db.writeLock();
-        table.writeLock();
         try {
-            unprotectDropTable(db, table, isForceDrop, true);
+            Table table = db.getTable(tableId);
+            if (null != table) {
+                table.writeLock();
+                try {
+                    unprotectDropTable(db, table, isForceDrop, true);
+                } finally {
+                    table.writeUnlock();
+                }
+            } else {
+                LOG.warn("replay drop {} from {} is null.", tableId, db.getId());
+            }
         } finally {
-            table.writeUnlock();
             db.writeUnlock();
         }
     }
