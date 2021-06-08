@@ -20,7 +20,7 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
+#include <parallel_hashmap/phmap.h>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
@@ -86,7 +86,7 @@ private:
         }
     };
     // query for dict item -> dict id
-    std::unordered_map<Slice, uint32_t, HashOfSlice> _dictionary;
+    phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this mem pool

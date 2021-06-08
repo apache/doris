@@ -729,6 +729,13 @@ build_fmt() {
     ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
 }
 
+# parallel_hashmap
+build_parallel_hashmap() {
+    check_if_source_exist $PARALLEL_HASHMAP_SOURCE
+    cd $TP_SOURCE_DIR/$PARALLEL_HASHMAP_SOURCE
+    cp -r parallel_hashmap ../../../installed/include/
+}
+
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
@@ -928,6 +935,7 @@ build_s2
 build_bitshuffle
 build_croaringbitmap
 build_fmt
+build_parallel_hashmap
 build_orc
 build_cctz
 build_tsan_header

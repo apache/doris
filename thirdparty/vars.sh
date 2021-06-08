@@ -262,6 +262,12 @@ FMT_NAME="fmt-7.1.3.tar.gz"
 FMT_SOURCE="fmt-7.1.3"
 FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
 
+# parallel-hashmap
+PARALLEL_HASHMAP_DOWNLOAD="https://github.com/greg7mdp/parallel-hashmap/archive/refs/tags/1.33.tar.gz"
+PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
+PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
+PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
+
 # ORC
 ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.5.8/orc-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
@@ -406,6 +412,7 @@ S2
 BITSHUFFLE
 CROARINGBITMAP
 FMT
+PARALLEL_HASHMAP
 ORC
 JEMALLOC
 CCTZ
