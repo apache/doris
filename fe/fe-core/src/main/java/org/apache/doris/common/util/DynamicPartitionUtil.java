@@ -152,6 +152,22 @@ public class DynamicPartitionUtil {
         return Boolean.valueOf(create);
     }
 
+    private static int checkHistoryPartitionNum(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+        }
+        try {
+            int historyPartitionNum = Integer.parseInt(val);
+            if (historyPartitionNum <= 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_HISTORY_PARTITION_NUM_ZERO);
+            }
+            return historyPartitionNum;
+        } catch (NumberFormatException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_HISTORY_PARTITION_NUM_FORMAT, val);
+        }
+        return DynamicPartitionProperty.DEFAULT_HISTORY_PARTITION_NUM;
+    }
+
     private static void checkStartDayOfMonth(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -348,10 +364,20 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, val);
         }
 
+        int historyPartitionNum = 0;
+        if (properties.containsKey(DynamicPartitionProperty.HISTORY_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+            historyPartitionNum = checkHistoryPartitionNum(val);
+            properties.remove(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.HISTORY_PARTITION_NUM, val);
+        }
+
         // Check the number of dynamic partitions that need to be created to avoid creating too many partitions at once.
         // If create_history_partition is false, history partition is not considered.
         if (!createHistoryPartition) {
             start = 0;
+        } else {
+            start = -historyPartitionNum;
         }
         if (hasEnd && (end - start > Config.max_dynamic_partition_num)) {
             throw new DdlException("Too many dynamic partitions: " + (end - start) + ". Limit: " + Config.max_dynamic_partition_num);

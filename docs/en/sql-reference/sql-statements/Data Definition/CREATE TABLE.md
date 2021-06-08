@@ -312,6 +312,10 @@ Syntax:
        Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
        
        Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
+
+       Dynamic_partition. Create_history_partition: specifies whether create history partitions, default value is false
+   
+       Dynamic_partition. History_partition_num: used to specify the number of history partitions when enable create_history_partition, default value is 10
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:

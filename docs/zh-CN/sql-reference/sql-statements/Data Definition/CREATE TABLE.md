@@ -331,6 +331,8 @@ under the License.
     dynamic_partition.end: 用于指定提前创建的分区数量。值必须大于0。
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
+    dynamic_partition.create_history_partition: 用于创建历史分区功能是否开启。默认为 false。
+    dynamic_partition.history_partition_num: 当开启创建历史分区功能时，用于指定创建历史分区数量。默认为10。
     
     5) 建表时可以批量创建多个 Rollup
     语法：
