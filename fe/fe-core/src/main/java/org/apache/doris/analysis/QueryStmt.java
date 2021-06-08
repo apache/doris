@@ -23,14 +23,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ListIterator;
@@ -161,7 +158,6 @@ public abstract class QueryStmt extends StatementBase {
         super.analyze(analyzer);
         analyzeLimit(analyzer);
         if (hasWithClause()) withClause_.analyze(analyzer);
-        if (hasOutFileClause()) outFileClause.analyze(analyzer);
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {

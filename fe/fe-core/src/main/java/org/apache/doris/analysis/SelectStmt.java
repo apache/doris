@@ -529,6 +529,9 @@ public class SelectStmt extends QueryStmt {
                 LOG.debug("post-analysis " + aggInfo.debugString());
             }
         }
+        if (hasOutFileClause()) {
+            outFileClause.analyze(analyzer, this);
+        }
     }
 
     public List<TupleId> getTableRefIds() {

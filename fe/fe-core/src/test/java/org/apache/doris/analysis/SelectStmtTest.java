@@ -57,8 +57,8 @@ public class SelectStmtTest {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createMinDorisCluster(runningDir);
-        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
+                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
                 + "buckets 3 properties('replication_num' = '1');";
         String createPratitionTableStr = "CREATE TABLE db1.partition_table (\n" +
@@ -619,7 +619,6 @@ public class SelectStmtTest {
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         } catch (Exception e) {
-            System.out.println("wangxixu-data:"+e.getMessage());
             Assert.assertTrue(e.getMessage().contains("data type is not supported"));
         }
         // contains parquet properties
@@ -627,5 +626,21 @@ public class SelectStmtTest {
         dorisAssert.query(sql).explainQuery();
         // support parquet for broker
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+
+        // do not support large int type
+        try {
+            sql = "SELECT k5 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("currently parquet do not support largeint type"));
+        }
+
+        // do not support large int type, contains function
+        try {
+            sql = "SELECT sum(k5) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("currently parquet do not support largeint type"));
+        }
     }
 }

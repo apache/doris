@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -152,7 +153,7 @@ public class OutFileClause {
                 fileFormatType = TFileFormatType.FORMAT_PARQUET;
                 break;
             default:
-                throw new AnalysisException("format:"+this.format+" not be supported.");
+                throw new AnalysisException("format:" + this.format + " is not supported.");
         }
 
         analyzeProperties();
@@ -161,6 +162,16 @@ public class OutFileClause {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
+        }
+    }
+
+    public void analyze(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        analyze(analyzer);
+        List<SelectListItem> items = stmt.getSelectList().getItems();
+        for (SelectListItem item:items) {
+            if (item.getExpr().getType() == Type.LARGEINT && isParquetFormat()) {
+                throw new AnalysisException("currently parquet do not support largeint type");
+            }
         }
     }
 
@@ -250,6 +261,17 @@ public class OutFileClause {
         brokerDesc = new BrokerDesc(brokerName, brokerProps);
     }
 
+    /**
+     * example:
+     * SELECT citycode FROM table1 INTO OUTFILE "file:///root/doris/"
+     * FORMAT AS PARQUET PROPERTIES ("schema"="required,int32,siteid;", "parquet.compression"="snappy");
+     *
+     * schema: it defined the schema of parquet file, it consists of 3 field: competition type, data type, column name
+     * multiple columns is split by `;`
+     *
+     * prefix with 'parquet.' defines the properties of parquet file,
+     * currently only supports: compression, disable_dictionary, version
+     */
     private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
         String schema = properties.get(SCHEMA);
         if (schema == null || schema.length() <= 0) {

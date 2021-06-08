@@ -88,9 +88,9 @@ public:
 
     Status parse_schema(const std::vector<std::vector<std::string>>& schema);
 
-    parquet::RowGroupWriter* getRGWriter();
+    parquet::RowGroupWriter* get_rg_writer();
 
-    int64_t getWritedLen();
+    int64_t get_writed_len();
 
 private:
     std::shared_ptr<ParquetOutputStream> _outstream;

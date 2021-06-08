@@ -207,7 +207,7 @@ Status ParquetWriterWrapper::init_parquet_writer() {
     return Status::OK();
 }
 
-parquet::RowGroupWriter* ParquetWriterWrapper::getRGWriter() {
+parquet::RowGroupWriter* ParquetWriterWrapper::get_rg_writer() {
     if (_rg_writer == nullptr) {
         _rg_writer = _writer->AppendBufferedRowGroup();
     }
@@ -235,8 +235,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    LOG(WARNING) << "wangxixu-write-one-data:";
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::BoolWriter *col_writer = static_cast<parquet::BoolWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         col_writer->WriteBatch(1, nullptr, nullptr, static_cast<bool*> (item));
@@ -244,7 +243,6 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                         bool default_bool = false;
                         col_writer->WriteBatch(1, nullptr, nullptr, &default_bool);
                     }
-                    LOG(WARNING) << "wangxixu-write-finished0.";
                     break;
                 }
                 case TYPE_TINYINT:
@@ -257,7 +255,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                         return Status::InvalidArgument(ss.str());
                     }
 
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::Int32Writer *col_writer = static_cast<parquet::Int32Writer *>(rgWriter->column(index));
                     if (item != nullptr) {
                         col_writer->WriteBatch(1, nullptr, nullptr, static_cast<int32_t *>(item));
@@ -274,7 +272,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
                     if (item != nullptr) {
                         col_writer->WriteBatch(1, nullptr, nullptr, (int64_t * )(item));
@@ -287,7 +285,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 case TYPE_LARGEINT: {
                     // TODO: not support int_128
                     // It is better write a default value, because rg_writer need all columns has value before flush to disk.
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
                     int64_t default_int64 = 0;
                     col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
@@ -300,7 +298,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::FloatWriter *col_writer = static_cast<parquet::FloatWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         col_writer->WriteBatch(1, nullptr, nullptr, (float_t *) (item));
@@ -317,7 +315,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::DoubleWriter *col_writer = static_cast<parquet::DoubleWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         col_writer->WriteBatch(1, nullptr, nullptr, (double_t *) (item));
@@ -335,7 +333,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
                     if (item != nullptr) {
                         const DateTimeValue *time_val = (const DateTimeValue *) (item);
@@ -355,7 +353,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         const StringValue *string_val = (const StringValue *) (item);
@@ -376,7 +374,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         const DecimalValue *decimal_val = reinterpret_cast<const DecimalValue *>(item);
@@ -404,7 +402,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                             << _str_schema[index][2] << " is " << _str_schema[index][1];
                         return Status::InvalidArgument(ss.str());
                     }
-                    parquet::RowGroupWriter* rgWriter = getRGWriter();
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
                     if (item != nullptr) {
                         const DecimalV2Value decimal_val(
@@ -434,13 +432,13 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
         }
     } catch (const std::exception& e) {
-        LOG(WARNING) <<"Parquet write error: " << e.what();
+        LOG(WARNING) << "Parquet write error: " << e.what();
         return Status::InternalError(e.what());
     }
     return Status::OK();
 }
 
-int64_t ParquetWriterWrapper::getWritedLen() {
+int64_t ParquetWriterWrapper::get_writed_len() {
     return _outstream->get_current_written_len();
 }
 void ParquetWriterWrapper::close() {
