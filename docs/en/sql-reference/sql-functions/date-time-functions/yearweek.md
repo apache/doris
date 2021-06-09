@@ -36,10 +36,8 @@ When the week of the date belongs to the previous year, the year and week of the
 when the week of the date belongs to the next year, the year of the next year is returned and the week is 1.
 
 The following table describes how the mode argument works.
-```
-+----------------------------------------------------------------+
 |Mode |First day of week |Range   |Week 1 is the first week …    |
-+----------------------------------------------------------------+
+|:----|:-----------------|:-------|:-----------------------------|
 |0    |Sunday            |1-53    |with a Sunday in this year    |
 |1    |Monday            |1-53    |with 4 or more days this year |
 |2    |Sunday            |1-53    |with a Sunday in this year    |
@@ -48,8 +46,6 @@ The following table describes how the mode argument works.
 |5    |Monday            |1-53    |with a Monday in this year    |
 |6    |Sunday            |1-53    |with 4 or more days this year |
 |7    |Monday            |1-53    |with a Monday in this year    |
-+----------------------------------------------------------------+
-```
 
 The parameter is Date or Datetime type
 
