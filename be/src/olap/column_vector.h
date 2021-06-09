@@ -220,18 +220,36 @@ public:
         return *(_offsets->scalar_cell_ptr(idx));
     }
 
-    // From `start_idx`, change `size` size to offset
-    // Ex:
-    // start_idx = 3, size = 2
-    //
-    // before change:
-    //                    start_idx
-    //                     |
-    // _offsets: 0    3    5     2     1
-    //
-    // after change:
-    // _offsets: 0    3    5     7     8
-    void change_sizes_to_offsets(size_t start_idx, size_t size);
+    /**
+     * Change array size to offset in this batch
+     *
+     * We should ensure that _offset[start_idx] is the sum of the lengths of the arrays from 0 to start_idx - 1
+     * and that the lengths of the arrays from start_idx to start_idx + size - 1 has been written correctly
+     * to _offset[start_idx + 1 ... start_idx + size] before exec this method
+     *
+     * Ex:
+     * get_offset_by_length(2, 3)
+     *
+     * before exec:
+     *
+     * _offsets: [ 0      3      5      2      1      3 ]
+     *
+     * 1)
+     *
+     * _offsets: [ 0      3      5     (7)     1      3 ]
+     *
+     * 2)
+     *
+     * _offsets: [ 0      3      5      7     (8)     3 ]
+     *
+     * 3)
+     *
+     * _offsets: [ 0      3      5      7      8     (11) ]
+     *
+     * @param start_idx the starting position of the first array that we want to change
+     * @param size the number of array that we want to change
+     */
+    void get_offset_by_length(size_t start_idx, size_t size);
 
     size_t get_item_size(size_t start_idx, size_t size) {
         return *(_offsets->scalar_cell_ptr(start_idx + size)) - *(_offsets->scalar_cell_ptr(start_idx));

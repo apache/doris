@@ -94,10 +94,9 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
     // first write
     for (size_t i = 0; i < array_init_size; ++i) {
         memcpy(offset_cvb->mutable_cell_ptr(1 + i), &(result[i].length), sizeof(segment_v2::ordinal_t));
-        std::cout << array_cvb->item_offset(1 + i) << " ++++++++" << 1 + i << std::endl;
     }
     array_cvb->set_null_bits(0, array_init_size, false);
-    array_cvb->change_sizes_to_offsets(0, array_init_size);
+    array_cvb->get_offset_by_length(0, array_init_size);
 
     size_t first_write_item = array_cvb->item_offset(array_init_size) - array_cvb->item_offset(0);
     ASSERT_TRUE(item_cvb->resize(first_write_item).ok());
@@ -114,7 +113,7 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
         memcpy(offset_cvb->mutable_cell_ptr(i + 1), &(result[i].length), sizeof(segment_v2::ordinal_t));
     }
     array_cvb->set_null_bits(array_init_size, array_size - array_init_size, false);
-    array_cvb->change_sizes_to_offsets(array_init_size, array_size - array_init_size);
+    array_cvb->get_offset_by_length(array_init_size, array_size - array_init_size);
 
     size_t total_item_size = array_cvb->item_offset(array_size);
     ASSERT_TRUE(item_cvb->resize(total_item_size).ok());

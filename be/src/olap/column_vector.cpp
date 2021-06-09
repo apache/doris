@@ -191,12 +191,13 @@ Status ArrayColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
-void ArrayColumnVectorBatch::change_sizes_to_offsets(size_t start_idx, size_t size) {
+void ArrayColumnVectorBatch::get_offset_by_length(size_t start_idx, size_t size) {
     DCHECK(start_idx >= 0);
     DCHECK(start_idx + size < _offsets->capacity());
-    for (int i = 0; i < size; ++i) {
-        *(_offsets->scalar_cell_ptr(start_idx + i + 1)) = *(_offsets->scalar_cell_ptr(start_idx + i)) +
-                *(_offsets->scalar_cell_ptr(start_idx + i + 1));
+
+    for (size_t i = start_idx; i < start_idx + size; ++i) {
+        *(_offsets->scalar_cell_ptr(i + 1)) =
+                *(_offsets->scalar_cell_ptr(i)) + *(_offsets->scalar_cell_ptr(i + 1));
     }
 }
 

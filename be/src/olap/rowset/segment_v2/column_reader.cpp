@@ -405,7 +405,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     if (*n == 0) {
         return Status::OK();
     }
-    array_batch->change_sizes_to_offsets(dst->current_offset(), *n);
+    array_batch->get_offset_by_length(dst->current_offset(), *n);
 
     // 2. read null
     if (dst->is_nullable()) {
