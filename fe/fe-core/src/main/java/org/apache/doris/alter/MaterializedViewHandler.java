@@ -1214,7 +1214,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         olapTable.writeLock();
         try {
-            if (olapTable.getState() != OlapTableState.ROLLUP) {
+            if (olapTable.getState() != OlapTableState.ROLLUP && olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
                         + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
             }
@@ -1232,7 +1232,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             if (rollupJobV2List.size() == 0) {
                 rollupJob = getAlterJob(olapTable.getId());
-                Preconditions.checkNotNull(rollupJob, olapTable.getId());
+                Preconditions.checkNotNull(rollupJob, "Table[" + tableName + "] is not under ROLLUP. ");
                 if (rollupJob.getState() == JobState.FINISHED
                         || rollupJob.getState() == JobState.FINISHING
                         || rollupJob.getState() == JobState.CANCELLED) {
@@ -1244,7 +1244,7 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
 
-        // alter job v2's cancel must be called outside the database lock
+        // alter job v2's cancel must be called outside the table lock
         if (rollupJobV2List.size() != 0) {
             for (AlterJobV2 alterJobV2 : rollupJobV2List) {
                 alterJobV2.cancel("user cancelled");
