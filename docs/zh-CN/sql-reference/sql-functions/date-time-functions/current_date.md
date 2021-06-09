@@ -1,6 +1,6 @@
 ---
 {
-    "title": "curdate",
+    "title": "current_date",
     "language": "en"
 }
 ---
@@ -24,32 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate
+# current_date
 ## Description
 ### Syntax
 
-'DATE CURDATE()'
+'DATE CURRENT_DATE()'
 
-Get the current date and return it in Date type.
+获取当前的日期，以DATE类型返回。
 
-**Note**: `CURDATE() + 0` returns a numerical datetime with format `yyyyMMddHHmmss`.
-
-## example
+## Examples
 
 ```
-mysql> select CURDATE();
-+------------+
-| curdate()  |
-+------------+
-| 2021-06-09 |
-+------------+
+mysql> select CURRENT_DATE();
++----------------+
+| CURRENT_DATE() |
++----------------+
+| 2021-06-09     |
++----------------+
 
-mysql> select CURDATE() + 0;
-+-----------------+
-| curdate() + 0.0 |
-+-----------------+
-|  20210609144151 |
-+-----------------+
+mysql> select CURRENT_DATE() + 0;
++--------------------+
+| CURRENT_DATE() + 0 |
++--------------------+
+|           20210609 |
++--------------------+
 ```
+
 ## keyword
-CURDATE
+
+    CURRENT_DATE

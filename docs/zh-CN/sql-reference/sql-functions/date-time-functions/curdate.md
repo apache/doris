@@ -30,25 +30,27 @@ under the License.
 
 `DATE CURDATE()`
 
-获取当前的日期，以DATE类型返回
+获取当前的日期，以DATE类型返回。
+
+**注意**：`CURDATE() + 0` 返回格式为`yyyyMMddHHmmss`的日期时间数值。
 
 ## Examples
 
 ```
-mysql> SELECT CURDATE();
+mysql> select CURDATE();
 +------------+
-| CURDATE()  |
+| curdate()  |
 +------------+
-| 2019-12-20 |
+| 2021-06-09 |
 +------------+
 
-mysql> SELECT CURDATE() + 0;
-+---------------+
-| CURDATE() + 0 |
-+---------------+
-|      20191220 |
-+---------------+
-```
+mysql> select CURDATE() + 0;
++-----------------+
+| curdate() + 0.0 |
++-----------------+
+|  20210609144151 |
++-----------------+
+````
 
 ## keyword
 
