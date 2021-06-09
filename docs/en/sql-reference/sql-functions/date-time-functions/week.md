@@ -33,6 +33,7 @@ under the License.
 
 Returns the week number for date.The value of the mode argument defaults to 0.
 The following table describes how the mode argument works.
+```
 +---------------------------------------------------------------+
 |Mode |First day of week |Range  |Week 1 is the first week …    |
 +---------------------------------------------------------------+
@@ -45,6 +46,7 @@ The following table describes how the mode argument works.
 |6    |Sunday            |1-53   |with 4 or more days this year |
 |7    |Monday            |1-53   |with a Monday in this year    |
 +---------------------------------------------------------------+
+```
 
 The parameter is Date or Datetime type
 
