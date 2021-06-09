@@ -57,7 +57,7 @@ public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteR
         // We have to handle the following cases:
         // A. k1 is datetime, sql with "k1 > to_date(now())" will be converted to k1 > cast(to_date("xxxx-xx-xx"))
         // B. k1 is datetime, sql with "k1 > '2021-10-32 10:00:00.100010'" will be converted to k1 > cast('2021-10-32 10:00:00.100010' as datetime)
-        // C. k1 is datetime, sql with "k1 > '2021-10-32'" will be converted to k1 > cast('2021-10-32' as datetime)
+        // C. k1 is datetime, sql with "k1 > '2021-10-32'" will be converted to k1 > cast('2021-10-32' as datetime), and finally to converted to NullLiteral.
         if (valueExpr instanceof CastExpr) {
             valueExpr = valueExpr.getChild(0);
             if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
