@@ -75,6 +75,7 @@ public class RangePartitionPruner implements PartitionPruner {
         Column keyColumn = partitionColumns.get(columnIdx);
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
+            // todo
             minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
                     keyColumn.getDataType());
             maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
@@ -118,17 +119,12 @@ public class RangePartitionPruner implements PartitionPruner {
             BoundType upperType = filter.upperBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
             int pushMinCount = 0;
             int pushMaxCount = 0;
-            int lastColumnId = partitionColumns.size() - 1;
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 pushMinCount++;
-                for (int i = columnIdx + 1; i <= lastColumnId; i++) {
-                    Column column = partitionColumns.get(i);
-                    Type type = Type.fromPrimitiveType(column.getDataType());
-                    minKey.pushColumn(LiteralExpr.createInfinity(type, !filter.lowerBoundInclusive), column.getDataType());
-                    pushMinCount++;
-                }
+                pushMinCount += minKey.fillWithInfinity(partitionColumns, !filter.lowerBoundInclusive);
             } else {
+                // todo
                 Type type = Type.fromPrimitiveType(keyColumn.getDataType());
                 minKey.pushColumn(LiteralExpr.createInfinity(type, false), keyColumn.getDataType());
                 pushMinCount++;
@@ -136,13 +132,9 @@ public class RangePartitionPruner implements PartitionPruner {
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
                 pushMaxCount++;
-                for (int i = columnIdx + 1; i <= lastColumnId; i++) {
-                    Column column = partitionColumns.get(i);
-                    maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), filter.upperBoundInclusive),
-                      column.getDataType());
-                    pushMaxCount++;
-                }
+                pushMaxCount += maxKey.fillWithInfinity(partitionColumns, filter.upperBoundInclusive);
             } else {
+                // todo
                 maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
                         keyColumn.getDataType());
                 pushMaxCount++;

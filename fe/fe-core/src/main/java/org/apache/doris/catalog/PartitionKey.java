@@ -131,6 +131,19 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         types.remove(types.size() - 1);
     }
 
+    public int fillWithInfinity(List<Column> columns, boolean isMax)
+            throws AnalysisException {
+        int count = 0;
+        int startIndex = keys.size();
+        for (int index = startIndex; index < columns.size(); index++) {
+            Column column = columns.get(index);
+            Type type = Type.fromPrimitiveType(column.getDataType());
+            pushColumn(LiteralExpr.createInfinity(type, isMax), column.getDataType());
+            count++;
+        }
+        return count;
+    }
+
     public List<LiteralExpr> getKeys() {
         return keys;
     }
