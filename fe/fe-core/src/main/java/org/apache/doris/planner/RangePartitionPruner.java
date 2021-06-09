@@ -75,11 +75,8 @@ public class RangePartitionPruner implements PartitionPruner {
         Column keyColumn = partitionColumns.get(columnIdx);
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
-            // todo
-            minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
-                    keyColumn.getDataType());
-            maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                    keyColumn.getDataType());
+            int pushMinCount = minKey.fillWithInfinity(partitionColumns, false);
+            int pushMaxCount = maxKey.fillWithInfinity(partitionColumns, true);
             Collection<Long> result = null;
             try {
                 result = Lists.newArrayList(
@@ -87,8 +84,12 @@ public class RangePartitionPruner implements PartitionPruner {
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }
-            minKey.popColumn();
-            maxKey.popColumn();
+            for (; pushMinCount > 0; pushMinCount--) {
+                minKey.popColumn();
+            }
+            for (; pushMaxCount > 0; pushMaxCount--) {
+                maxKey.popColumn();
+            }
             return result;
         }
         InPredicate inPredicate = filter.getInPredicate();
@@ -117,27 +118,19 @@ public class RangePartitionPruner implements PartitionPruner {
             // no in predicate
             BoundType lowerType = filter.lowerBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
             BoundType upperType = filter.upperBoundInclusive ? BoundType.CLOSED : BoundType.OPEN;
-            int pushMinCount = 0;
-            int pushMaxCount = 0;
+            int pushMinCount;
+            int pushMaxCount;
             if (filter.lowerBound != null) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
-                pushMinCount++;
-                pushMinCount += minKey.fillWithInfinity(partitionColumns, !filter.lowerBoundInclusive);
+                pushMinCount = 1 + minKey.fillWithInfinity(partitionColumns, !filter.lowerBoundInclusive);
             } else {
-                // todo
-                Type type = Type.fromPrimitiveType(keyColumn.getDataType());
-                minKey.pushColumn(LiteralExpr.createInfinity(type, false), keyColumn.getDataType());
-                pushMinCount++;
+                pushMinCount = minKey.fillWithInfinity(partitionColumns, false);
             }
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
-                pushMaxCount++;
-                pushMaxCount += maxKey.fillWithInfinity(partitionColumns, filter.upperBoundInclusive);
+                pushMaxCount = 1 + maxKey.fillWithInfinity(partitionColumns, filter.upperBoundInclusive);
             } else {
-                // todo
-                maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                        keyColumn.getDataType());
-                pushMaxCount++;
+                pushMaxCount = maxKey.fillWithInfinity(partitionColumns, true);
             }
 
             Collection<Long> result = null;
