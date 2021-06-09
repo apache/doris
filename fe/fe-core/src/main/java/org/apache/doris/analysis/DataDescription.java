@@ -81,14 +81,6 @@ import java.util.TreeSet;
  */
 public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
-
-    private static final String LINE_DELIMITER = "line_delimiter";
-    private static final String FUZZY_PARSE = "fuzzy_parse";
-    private static final String STRIP_OUTER_ARRAY = "strip_outer_array";
-    private static final String JSON_PATHS = "jsonpaths";
-    private static final String JSON_ROOT = "json_root";
-    private static final String NUM_AS_STRING = "num_as_string";
-
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
             "strftime",
@@ -773,29 +765,29 @@ public class DataDescription {
         Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         analysisMap.putAll(properties);
 
-        if (analysisMap.containsKey(LINE_DELIMITER)) {
-            lineDelimiter = new Separator(analysisMap.get(LINE_DELIMITER));
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
+            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
             lineDelimiter.analyze();
         }
 
-        if (analysisMap.containsKey(FUZZY_PARSE)) {
-            fuzzyParse = Boolean.parseBoolean(analysisMap.get(FUZZY_PARSE));
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
+            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
         }
 
-        if (analysisMap.containsKey(STRIP_OUTER_ARRAY)) {
-            stripOuterArray = Boolean.parseBoolean(analysisMap.get(STRIP_OUTER_ARRAY));
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
+            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
         }
 
-        if (analysisMap.containsKey(JSON_PATHS)) {
-            jsonPaths = analysisMap.get(JSON_PATHS);
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
+            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
         }
 
-        if (analysisMap.containsKey(JSON_ROOT)) {
-            jsonRoot = analysisMap.get(JSON_ROOT);
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
+            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
         }
 
-        if (analysisMap.containsKey(NUM_AS_STRING)) {
-            numAsString = Boolean.parseBoolean(analysisMap.get(NUM_AS_STRING));
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
+            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
         }
     }
 

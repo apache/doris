@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -31,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
