@@ -37,74 +37,74 @@ import java.util.UUID;
 public class RangePartitionPrunerTest {
 
 
-  private static final String runningDir = "fe/mocked/RangePartitionPrunerTest/" + UUID.randomUUID() + "/";
+    private static final String runningDir = "fe/mocked/RangePartitionPrunerTest/" + UUID.randomUUID() + "/";
 
-  private static ConnectContext connectContext;
+    private static ConnectContext connectContext;
 
-  @BeforeClass
-  public static void beforeClass() throws Exception {
-    UtFrameUtils.createMinDorisCluster(runningDir);
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+        UtFrameUtils.createMinDorisCluster(runningDir);
 
-    // create connect context
-    connectContext = UtFrameUtils.createDefaultCtx();
-    // create database
-    String createDbStmtStr = "create database test;";
-    CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-    Catalog.getCurrentCatalog().createDb(createDbStmt);
+        // create connect context
+        connectContext = UtFrameUtils.createDefaultCtx();
+        // create database
+        String createDbStmtStr = "create database test;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-    String sql = "CREATE TABLE test.`prune1` (\n" +
-      "  `a` int(11) NULL COMMENT \"\",\n" +
-      "  `b` int(11) NULL COMMENT \"\",\n" +
-      "  `c` int(11) NULL COMMENT \"\",\n" +
-      "  `d` int(11) NULL COMMENT \"\"\n" +
-      ")\n" +
-      "UNIQUE KEY(`a`,`b`,`c`)\n" +
-      "COMMENT \"OLAP\"\n" +
-      "PARTITION BY RANGE(`a`,`b`,`c`)(\n" +
-      "  PARTITION p VALUES LESS THAN ('0')\n" +
-      ")\n" +
-      "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
-      "PROPERTIES(\"replication_num\" = \"1\");" ;
-    createTable(sql);
+        String sql = "CREATE TABLE test.`prune1` (\n" +
+            "  `a` int(11) NULL COMMENT \"\",\n" +
+            "  `b` int(11) NULL COMMENT \"\",\n" +
+            "  `c` int(11) NULL COMMENT \"\",\n" +
+            "  `d` int(11) NULL COMMENT \"\"\n" +
+            ")\n" +
+            "UNIQUE KEY(`a`,`b`,`c`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "PARTITION BY RANGE(`a`,`b`,`c`)(\n" +
+            "  PARTITION p VALUES LESS THAN ('0')\n" +
+            ")\n" +
+            "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
+            "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(sql);
 
-  }
+    }
 
-  @AfterClass
-  public static void tearDown() {
-    File file = new File(runningDir);
-    file.delete();
-  }
+    @AfterClass
+    public static void tearDown() {
+        File file = new File(runningDir);
+        file.delete();
+    }
 
-  private static void createTable(String sql) throws Exception {
-    CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-    Catalog.getCurrentCatalog().createTable(createTableStmt);
-  }
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
 
-  @Before
-  public void before() {
-    FeConstants.runningUnitTest = true;
-  }
+    @Before
+    public void before() {
+        FeConstants.runningUnitTest = true;
+    }
 
-  @After
-  public void after() {
-    FeConstants.runningUnitTest = false;
-  }
+    @After
+    public void after() {
+        FeConstants.runningUnitTest = false;
+    }
 
-  @Test
-  public void testGe() throws Exception {
-    String queryStr = "explain select * from test.`prune1` where a >= 0;";
-    String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    Assert.assertTrue(explainString.contains("partitions=0/1"));
-    Assert.assertFalse(explainString.contains("partitions=1/1"));
-  }
+    @Test
+    public void testGe() throws Exception {
+        String queryStr = "explain select * from test.`prune1` where a >= 0;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("partitions=0/1"));
+        Assert.assertFalse(explainString.contains("partitions=1/1"));
+    }
 
-  @Test
-  public void testGt() throws Exception {
-    String queryStr = "explain select * from test.`prune1` where a > 0;";
-    String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    Assert.assertTrue(explainString.contains("partitions=0/1"));
-    Assert.assertFalse(explainString.contains("partitions=1/1"));
-  }
+    @Test
+    public void testGt() throws Exception {
+        String queryStr = "explain select * from test.`prune1` where a > 0;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("partitions=0/1"));
+        Assert.assertFalse(explainString.contains("partitions=1/1"));
+    }
 
 
 }
