@@ -1905,7 +1905,8 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         olapTable.writeLock();
         try {
-            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {
+            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
+                    olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
 
@@ -1915,7 +1916,7 @@ public class SchemaChangeHandler extends AlterHandler {
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
                 schemaChangeJob = getAlterJob(olapTable.getId());
-                Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());
+                Preconditions.checkNotNull(schemaChangeJob, "Table[" + tableName + "] is not under SCHEMA_CHANGE.");
                 if (schemaChangeJob.getState() == JobState.FINISHING
                         || schemaChangeJob.getState() == JobState.FINISHED
                         || schemaChangeJob.getState() == JobState.CANCELLED) {
