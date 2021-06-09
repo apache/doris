@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -32,6 +30,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 
 import java.util.function.Predicate;
 
