@@ -23,7 +23,6 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
 
