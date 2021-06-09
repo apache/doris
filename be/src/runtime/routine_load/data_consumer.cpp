@@ -221,6 +221,23 @@ bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
     if (_brokers != ctx->kafka_info->brokers || _topic != ctx->kafka_info->topic) {
         return false;
     }
+
+    // check properties
+    if (_custom_properties.size() != ctx->kafka_info->properties.size()) {
+        return false;
+    }
+
+    for (auto& item : ctx->kafka_info->properties) {
+        std::unordered_map<std::string, std::string>::const_iterator itr =_custom_properties.find(item.first);
+        if (itr == _custom_properties.end()) {
+            return false;
+        }
+
+        if (itr->second != item.second) {
+            return false;
+        }
+    }
+
     return true;
 }
 
