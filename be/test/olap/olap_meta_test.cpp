@@ -15,22 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
 #include "olap/olap_meta.h"
+
+#include <gtest/gtest.h>
+
+#include <filesystem>
+#include <sstream>
+#include <string>
+
 #include "olap/olap_define.h"
-#include "boost/filesystem.hpp"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
 #endif
 
-using ::testing::_;
-using ::testing::Return;
-using ::testing::SetArgPointee;
 using std::string;
 
 namespace doris {
@@ -38,25 +37,29 @@ namespace doris {
 class OlapMetaTest : public testing::Test {
 public:
     virtual void SetUp() {
-        std::string root_path = "./";
-        _meta = new OlapMeta(root_path);
+        _root_path = "./ut_dir/olap_meta_test";
+        FileUtils::remove_all(_root_path);
+        FileUtils::create_dir(_root_path);
+
+        _meta = new OlapMeta(_root_path);
         OLAPStatus s = _meta->init();
         ASSERT_EQ(OLAP_SUCCESS, s);
-        ASSERT_TRUE(boost::filesystem::exists("./meta"));
+        ASSERT_TRUE(std::filesystem::exists(_root_path + "/meta"));
     }
 
     virtual void TearDown() {
         delete _meta;
-        ASSERT_TRUE(boost::filesystem::remove_all("./meta"));
+        FileUtils::remove_all(_root_path);
     }
 
 private:
+    std::string _root_path;
     OlapMeta* _meta;
 };
 
 TEST_F(OlapMetaTest, TestGetRootPath) {
     std::string root_path = _meta->get_root_path();
-    ASSERT_EQ("./", root_path);
+    ASSERT_EQ("./ut_dir/olap_meta_test", root_path);
 }
 
 TEST_F(OlapMetaTest, TestPutAndGet) {
@@ -66,12 +69,12 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(value, value_get);
 
     // abnormal cases
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
     ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 
@@ -82,7 +85,7 @@ TEST_F(OlapMetaTest, TestRemove) {
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, value_get);
+    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(value, value_get);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -104,20 +107,20 @@ TEST_F(OlapMetaTest, TestIterate) {
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
-        [&error_flag](const std::string& key, const std::string& value) -> bool {
-            size_t pos = key.find_first_of("hdr_");
-            if (pos != 0) {
-                error_flag = true;
-            }
-            return true;
-        });
+                       [&error_flag](const std::string& key, const std::string& value) -> bool {
+                           size_t pos = key.find_first_of("hdr_");
+                           if (pos != 0) {
+                               error_flag = true;
+                           }
+                           return true;
+                       });
     ASSERT_EQ(false, error_flag);
     ASSERT_EQ(OLAP_SUCCESS, s);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

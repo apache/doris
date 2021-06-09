@@ -30,7 +30,7 @@ class FileSystemUtil {
 public:
     // Create the specified directory and any ancestor directories that do not exist yet.
     // The directory and its contents are destroyed if it already exists.
-    // Returns Status::OK if successful, or a runtime error with a message otherwise.
+    // Returns Status::OK() if successful, or a runtime error with a message otherwise.
     static Status create_directory(const std::string& directory);
 
     // Create a file at the specified path.
@@ -43,13 +43,12 @@ public:
     static Status remove_paths(const std::vector<std::string>& directories);
 
     // Verify that the specified path is an existing directory.
-    // Returns Status::OK if it is, or a runtime error with a message otherwise.
+    // Returns Status::OK() if it is, or a runtime error with a message otherwise.
     static Status verify_is_directory(const std::string& directory_path);
 
     // Returns the space available on the file system containing 'directory_path'
     // in 'available_bytes'
-    static Status get_space_available(
-            const std::string& directory_path, uint64_t* available_bytes);
+    static Status get_space_available(const std::string& directory_path, uint64_t* available_bytes);
 
     // Returns the currently allowed maximum of possible file descriptors. In case of an
     // error returns 0.
@@ -58,6 +57,6 @@ public:
     static bool contain_path(const std::string& parent_path, const std::string& sub_path);
 };
 
-}
+} // namespace doris
 
 #endif

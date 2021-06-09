@@ -21,8 +21,10 @@
 #include <map>
 #include <mutex>
 
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "util/thread_pool.hpp"
+#include "util/doris_metrics.h"
+#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -38,38 +40,35 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
+    typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
 
-    RoutineLoadTaskExecutor(ExecEnv* exec_env):
-        _exec_env(exec_env),
-        _thread_pool(10, 100),
-        _data_consumer_pool(10) {
+    RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
-        _data_consumer_pool.start_bg_worker();
-    }
+    ~RoutineLoadTaskExecutor();
 
-    ~RoutineLoadTaskExecutor() {
-
-    }
-    
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
+
+    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
+                                    std::vector<int32_t>* partition_ids);
+
+    Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
+        std::vector<PIntegerPair>* partition_offsets);
 
 private:
     // execute the task
     void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
-    
-    void err_handler(
-            StreamLoadContext* ctx,
-            const Status& st,
-            const std::string& err_msg);
+
+    void err_handler(StreamLoadContext* ctx, const Status& st, const std::string& err_msg);
 
     // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
+    // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
+    Status _prepare_ctx(const PKafkaMetaProxyRequest& request, StreamLoadContext* ctx);
 
 private:
     ExecEnv* _exec_env;
-    ThreadPool _thread_pool;
+    PriorityThreadPool _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;
@@ -77,4 +76,4 @@ private:
     std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
 };
 
-} // end namespace
+} // namespace doris

@@ -16,19 +16,23 @@
 // under the License.
 
 #include "agent/heartbeat_server.h"
+
+#include <thrift/TProcessor.h>
+
+#include <filesystem>
 #include <ctime>
 #include <fstream>
-
-#include <boost/filesystem.hpp>
-#include <thrift/TProcessor.h>
 
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
+#include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
+#include "util/debug_util.h"
 #include "util/thrift_server.h"
+#include "util/time.h"
 
 using std::fstream;
 using std::nothrow;
@@ -38,26 +42,24 @@ using apache::thrift::transport::TProcessor;
 
 namespace doris {
 
-HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
-        _master_info(master_info),
-        _epoch(0) {
-    _olap_engine = OLAPEngine::get_instance();
+HeartbeatServer::HeartbeatServer(TMasterInfo* master_info)
+        : _master_info(master_info), _fe_epoch(0) {
+    _olap_engine = StorageEngine::instance();
+    _be_epoch = GetCurrentTimeMicros() / 1000;
 }
 
 void HeartbeatServer::init_cluster_id() {
     _master_info->cluster_id = _olap_engine->effective_cluster_id();
 }
 
-void HeartbeatServer::heartbeat(
-        THeartbeatResult& heartbeat_result,
-        const TMasterInfo& master_info) {
-
+void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
+                                const TMasterInfo& master_info) {
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
-        << "host:" << master_info.network_address.hostname
-        << ", port:" << master_info.network_address.port
-        << ", cluster id:" << master_info.cluster_id
-        << ", counter:" << google::COUNTER;
+                          << "host:" << master_info.network_address.hostname
+                          << ", port:" << master_info.network_address.port
+                          << ", cluster id:" << master_info.cluster_id
+                          << ", counter:" << google::COUNTER;
 
     // do heartbeat
     Status st = _heartbeat(master_info);
@@ -68,21 +70,21 @@ void HeartbeatServer::heartbeat(
         heartbeat_result.backend_info.__set_http_port(config::webserver_port);
         heartbeat_result.backend_info.__set_be_rpc_port(-1);
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
+        heartbeat_result.backend_info.__set_version(get_short_version());
+        heartbeat_result.backend_info.__set_be_start_time(_be_epoch);
     }
 }
 
-Status HeartbeatServer::_heartbeat(
-        const TMasterInfo& master_info) {
-    
+Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     std::lock_guard<std::mutex> lk(_hb_mtx);
 
     if (master_info.__isset.backend_ip) {
         if (master_info.backend_ip != BackendOptions::get_localhost()) {
             LOG(WARNING) << "backend ip saved in master does not equal to backend local ip"
-                    << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
+                         << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
             std::stringstream ss;
             ss << "actual backend local ip: " << BackendOptions::get_localhost();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
     }
 
@@ -93,70 +95,84 @@ Status HeartbeatServer::_heartbeat(
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
             LOG(WARNING) << "fail to set cluster id. status=" << st.get_error_msg();
-            return Status("fail to set cluster id.");
+            return Status::InternalError("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;
             LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
-                      << ". port: " << master_info.network_address.port << ". cluster id: " << master_info.cluster_id;
+                      << ". port: " << master_info.network_address.port
+                      << ". cluster id: " << master_info.cluster_id;
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
             OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
-            return Status("invalid cluster id. ignore.");
+            return Status::InternalError("invalid cluster id. ignore.");
         }
     }
 
     bool need_report = false;
-    if (_master_info->network_address.hostname != master_info.network_address.hostname
-            || _master_info->network_address.port != master_info.network_address.port) {
-        if (master_info.epoch > _epoch) {
+    if (_master_info->network_address.hostname != master_info.network_address.hostname ||
+        _master_info->network_address.port != master_info.network_address.port) {
+        if (master_info.epoch > _fe_epoch) {
             _master_info->network_address.hostname = master_info.network_address.hostname;
             _master_info->network_address.port = master_info.network_address.port;
-            _epoch = master_info.epoch;
+            _fe_epoch = master_info.epoch;
             need_report = true;
-            LOG(INFO) << "master change. new master host: " << _master_info->network_address.hostname
-                      << ". port: " << _master_info->network_address.port << ". epoch: " << _epoch;
+            LOG(INFO) << "master change. new master host: "
+                      << _master_info->network_address.hostname
+                      << ". port: " << _master_info->network_address.port
+                      << ". epoch: " << _fe_epoch;
         } else {
             LOG(WARNING) << "epoch is not greater than local. ignore heartbeat. host: "
                          << _master_info->network_address.hostname
-                         << " port: " <<  _master_info->network_address.port
-                         << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
-            return Status("epoch is not greater than local. ignore heartbeat.");
+                         << " port: " << _master_info->network_address.port
+                         << " local epoch: " << _fe_epoch
+                         << " received epoch: " << master_info.epoch;
+            return Status::InternalError("epoch is not greater than local. ignore heartbeat.");
         }
     } else {
         // when Master FE restarted, host and port remains the same, but epoch will be increased.
-        if (master_info.epoch > _epoch) {
-            _epoch = master_info.epoch;
+        if (master_info.epoch > _fe_epoch) {
+            _fe_epoch = master_info.epoch;
             need_report = true;
-            LOG(INFO) << "master restarted. epoch: " << _epoch;
+            LOG(INFO) << "master restarted. epoch: " << _fe_epoch;
         }
     }
 
     if (master_info.__isset.token) {
         if (!_master_info->__isset.token) {
             _master_info->__set_token(master_info.token);
-            LOG(INFO) << "get token.  token: " << _master_info->token;
+            LOG(INFO) << "get token. token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
             LOG(WARNING) << "invalid token. local_token:" << _master_info->token
                          << ". token:" << master_info.token;
-            return Status("invalid token.");
+            return Status::InternalError("invalid token.");
         }
+    }
+
+    if (master_info.__isset.http_port) {
+        _master_info->__set_http_port(master_info.http_port);
+    }
+
+    if (master_info.__isset.heartbeat_flags) {
+        HeartbeatFlags* heartbeat_flags = ExecEnv::GetInstance()->heartbeat_flags();
+        heartbeat_flags->update(master_info.heartbeat_flags);
+    }
+
+    if (master_info.__isset.backend_id) {
+        _master_info->__set_backend_id(master_info.backend_id);
     }
 
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _olap_engine->report_notify(true);
+        _olap_engine->notify_listeners();
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
-AgentStatus create_heartbeat_server(
-        ExecEnv* exec_env,
-        uint32_t server_port,
-        ThriftServer** thrift_server,
-        uint32_t worker_thread_num,
-        TMasterInfo* local_master_info) {
+AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
+                                    ThriftServer** thrift_server, uint32_t worker_thread_num,
+                                    TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
     if (heartbeat_server == NULL) {
         return DORIS_ERROR;
@@ -167,12 +183,8 @@ AgentStatus create_heartbeat_server(
     boost::shared_ptr<HeartbeatServer> handler(heartbeat_server);
     boost::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
     string server_name("heartbeat");
-    *thrift_server = new ThriftServer(
-            server_name,
-            server_processor,
-            server_port,
-            exec_env->metrics(),
-            worker_thread_num);
+    *thrift_server =
+            new ThriftServer(server_name, server_processor, server_port, worker_thread_num);
     return DORIS_SUCCESS;
 }
-}  // namesapce doris
+} // namespace doris

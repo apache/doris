@@ -32,7 +32,7 @@ while true; do
     case "$1" in
         --daemon) RUN_DAEMON=1 ; shift ;;
         --) shift ;  break ;;
-        *) ehco "Internal error" ; exit 1 ;;
+        *) echo "Internal error" ; exit 1 ;;
     esac
 done
 
@@ -46,6 +46,12 @@ export DORIS_HOME=`cd "$curdir/.."; pwd`
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
 export PID_DIR=`cd "$curdir"; pwd`
+
+# set odbc conf path
+export ODBCSYSINI=$DORIS_HOME/conf
+
+# support utf8 for oracle database
+export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
 while read line; do
     envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`

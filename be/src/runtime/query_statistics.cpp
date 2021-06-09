@@ -45,4 +45,4 @@ QueryStatisticsRecvr::~QueryStatisticsRecvr() {
     _query_statistics.clear();
 }
 
-}
+} // namespace doris

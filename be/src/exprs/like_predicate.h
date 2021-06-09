@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
 
-#include <string>
-#include <memory>
 #include <re2/re2.h>
+
+#include <memory>
+#include <string>
 
 #include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
@@ -33,8 +34,9 @@ public:
     static void init();
 
 private:
-    typedef doris_udf::BooleanVal (*LikePredicateFunction) (
-        doris_udf::FunctionContext*, const doris_udf::StringVal&, const doris_udf::StringVal&);
+    typedef doris_udf::BooleanVal (*LikePredicateFunction)(doris_udf::FunctionContext*,
+                                                           const doris_udf::StringVal&,
+                                                           const doris_udf::StringVal&);
 
     struct LikePredicateState {
         char escape_char;
@@ -45,7 +47,7 @@ private:
         /// and whether the pattern has any constant substrings. If the pattern is not a
         /// constant argument, none of the following fields can be set because we cannot know
         /// the format of the pattern in the prepare function and must deal with each pattern
-        /// seperately.
+        /// separately.
         LikePredicateFunction function;
 
         /// Holds the string the StringValue points to and is set any time StringValue is
@@ -66,8 +68,7 @@ private:
         /// Used for RLIKE and REGEXP predicates if the pattern is a constant argument.
         std::unique_ptr<re2::RE2> regex;
 
-        LikePredicateState() : escape_char('\\') {
-        }
+        LikePredicateState() : escape_char('\\') {}
 
         void set_search_string(const std::string& search_string_arg) {
             search_string = search_string_arg;
@@ -78,101 +79,85 @@ private:
 
     friend class OpcodeRegistry;
 
-    static void like_prepare(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope);
+    static void like_prepare(doris_udf::FunctionContext* context,
+                             doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static doris_udf::BooleanVal like(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val, 
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal like(doris_udf::FunctionContext* context,
+                                      const doris_udf::StringVal& val,
+                                      const doris_udf::StringVal& pattern);
 
-    static void like_close(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope);
+    static void like_close(doris_udf::FunctionContext* context,
+                           doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static void regex_prepare(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope);
+    static void regex_prepare(doris_udf::FunctionContext* context,
+                              doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static doris_udf::BooleanVal regex(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal regex(doris_udf::FunctionContext* context,
+                                       const doris_udf::StringVal& val,
+                                       const doris_udf::StringVal& pattern);
 
     /// Prepare function for regexp_like() when a third optional parameter is used
-    static void regexp_like_prepare(
-        doris_udf::FunctionContext* context,
-        doris_udf::FunctionContext::FunctionStateScope scope);
+    static void regexp_like_prepare(doris_udf::FunctionContext* context,
+                                    doris_udf::FunctionContext::FunctionStateScope scope);
 
     /// Handles regexp_like() when 3 parameters are passed to it
-    static doris_udf::BooleanVal regexp_like(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val, 
-        const doris_udf::StringVal& pattern,
-        const doris_udf::StringVal& match_parameter);
+    static doris_udf::BooleanVal regexp_like(doris_udf::FunctionContext* context,
+                                             const doris_udf::StringVal& val,
+                                             const doris_udf::StringVal& pattern,
+                                             const doris_udf::StringVal& match_parameter);
 
-    static void regex_close(
-        doris_udf::FunctionContext*,
-        doris_udf::FunctionContext::FunctionStateScope scope);
+    static void regex_close(doris_udf::FunctionContext*,
+                            doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static doris_udf::BooleanVal regex_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal regex_fn(doris_udf::FunctionContext* context,
+                                          const doris_udf::StringVal& val,
+                                          const doris_udf::StringVal& pattern);
 
-    static doris_udf::BooleanVal like_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal like_fn(doris_udf::FunctionContext* context,
+                                         const doris_udf::StringVal& val,
+                                         const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that map to strstr
-    static doris_udf::BooleanVal constant_substring_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val, 
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_substring_fn(doris_udf::FunctionContext* context,
+                                                       const doris_udf::StringVal& val,
+                                                       const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strncmp
-    static doris_udf::BooleanVal constant_starts_with_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_starts_with_fn(doris_udf::FunctionContext* context,
+                                                         const doris_udf::StringVal& val,
+                                                         const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strncmp
-    static doris_udf::BooleanVal constant_ends_with_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_ends_with_fn(doris_udf::FunctionContext* context,
+                                                       const doris_udf::StringVal& val,
+                                                       const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strcmp
-    static doris_udf::BooleanVal constant_equals_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_equals_fn(doris_udf::FunctionContext* context,
+                                                    const doris_udf::StringVal& val,
+                                                    const doris_udf::StringVal& pattern);
 
-    static doris_udf::BooleanVal constant_regex_fn_partial(
-        doris_udf::FunctionContext* context, const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_regex_fn_partial(doris_udf::FunctionContext* context,
+                                                           const doris_udf::StringVal& val,
+                                                           const doris_udf::StringVal& pattern);
 
-    static doris_udf::BooleanVal constant_regex_fn(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& val, 
-        const doris_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_regex_fn(doris_udf::FunctionContext* context,
+                                                   const doris_udf::StringVal& val,
+                                                   const doris_udf::StringVal& pattern);
 
-    static doris_udf::BooleanVal regex_match(
-        doris_udf::FunctionContext* context, const doris_udf::StringVal& val,
-        const doris_udf::StringVal& pattern, bool is_like_pattern);
+    static doris_udf::BooleanVal regex_match(doris_udf::FunctionContext* context,
+                                             const doris_udf::StringVal& val,
+                                             const doris_udf::StringVal& pattern,
+                                             bool is_like_pattern);
 
     /// Convert a LIKE pattern (with embedded % and _) into the corresponding
     /// regular expression pattern. Escaped chars are copied verbatim.
-    static void convert_like_pattern(
-        doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& pattern,
-        std::string* re_pattern);
+    static void convert_like_pattern(doris_udf::FunctionContext* context,
+                                     const doris_udf::StringVal& pattern, std::string* re_pattern);
 
     static void remove_escape_character(std::string* search_string);
 };
 
-}
+} // namespace doris
 
 #endif

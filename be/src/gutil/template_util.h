@@ -36,7 +36,7 @@
 // any changes here, make sure that you're not breaking any platforms.
 //
 //
-// The names choosen here reflect those used in tr1 and the boost::mpl
+// The names chosen here reflect those used in tr1 and the boost::mpl
 // library, there are similar operations used in the Loki library as
 // well.  I prefer the boost names for 2 reasons:
 // 1.  I think that portions of the Boost libraries are more likely to
@@ -56,7 +56,7 @@ namespace base {
 typedef char small_;
 
 struct big_ {
-  char dummy[2];
+    char dummy[2];
 };
 
 // Types YesType and NoType are guaranteed such that sizeof(YesType) <
@@ -67,7 +67,7 @@ typedef big_ NoType;
 // Identity metafunction.
 template <class T>
 struct identity_ {
-  typedef T type;
+    typedef T type;
 };
 
 // integral_constant, defined in tr1, is a wrapper for an integer
@@ -75,90 +75,88 @@ struct identity_ {
 // with hardcoding the integer type to bool. We use the fully
 // general integer_constant for compatibility with tr1.
 
-template<class T, T v>
+template <class T, T v>
 struct integral_constant {
-  static const T value = v;
-  typedef T value_type;
-  typedef integral_constant<T, v> type;
+    static const T value = v;
+    typedef T value_type;
+    typedef integral_constant<T, v> type;
 };
 
-template <class T, T v> const T integral_constant<T, v>::value;
-
+template <class T, T v>
+const T integral_constant<T, v>::value;
 
 // Abbreviations: true_type and false_type are structs that represent boolean
 // true and false values. Also define the boost::mpl versions of those names,
 // true_ and false_.
-typedef integral_constant<bool, true>  true_type;
+typedef integral_constant<bool, true> true_type;
 typedef integral_constant<bool, false> false_type;
-typedef true_type  true_;
+typedef true_type true_;
 typedef false_type false_;
 
-template <class T> struct is_non_const_reference : false_type {};
-template <class T> struct is_non_const_reference<T&> : true_type {};
-template <class T> struct is_non_const_reference<const T&> : false_type {};
+template <class T>
+struct is_non_const_reference : false_type {};
+template <class T>
+struct is_non_const_reference<T&> : true_type {};
+template <class T>
+struct is_non_const_reference<const T&> : false_type {};
 
-template <class T> struct is_const : false_type {};
-template <class T> struct is_const<const T> : true_type {};
+template <class T>
+struct is_const : false_type {};
+template <class T>
+struct is_const<const T> : true_type {};
 
-template <class T> struct is_void : false_type {};
-template <> struct is_void<void> : true_type {};
+template <class T>
+struct is_void : false_type {};
+template <>
+struct is_void<void> : true_type {};
 
-// if_ is a templatized conditional statement.
+// if_ is a templatize conditional statement.
 // if_<cond, A, B> is a compile time evaluation of cond.
 // if_<>::type contains A if cond is true, B otherwise.
-template<bool cond, typename A, typename B>
-struct if_{
-  typedef A type;
+template <bool cond, typename A, typename B>
+struct if_ {
+    typedef A type;
 };
 
-template<typename A, typename B>
+template <typename A, typename B>
 struct if_<false, A, B> {
-  typedef B type;
+    typedef B type;
 };
-
 
 // type_equals_ is a template type comparator, similar to Loki IsSameType.
 // type_equals_<A, B>::value is true iff "A" is the same type as "B".
 //
 // New code should prefer base::is_same, defined in base/type_traits.h.
 // It is functionally identical, but is_same is the standard spelling.
-template<typename A, typename B>
-struct type_equals_ : public false_ {
-};
+template <typename A, typename B>
+struct type_equals_ : public false_ {};
 
-template<typename A>
-struct type_equals_<A, A> : public true_ {
-};
+template <typename A>
+struct type_equals_<A, A> : public true_ {};
 
 // and_ is a template && operator.
 // and_<A, B>::value evaluates "A::value && B::value".
-template<typename A, typename B>
-struct and_ : public integral_constant<bool, (A::value && B::value)> {
-};
+template <typename A, typename B>
+struct and_ : public integral_constant<bool, (A::value && B::value)> {};
 
 // or_ is a template || operator.
 // or_<A, B>::value evaluates "A::value || B::value".
-template<typename A, typename B>
-struct or_ : public integral_constant<bool, (A::value || B::value)> {
-};
+template <typename A, typename B>
+struct or_ : public integral_constant<bool, (A::value || B::value)> {};
 
 // Used to determine if a type is a struct/union/class. Inspired by Boost's
 // is_class type_trait implementation.
 struct IsClassHelper {
-  template <typename C>
-  static YesType Test(void(C::*)(void));
+    template <typename C>
+    static YesType Test(void (C::*)(void));
 
-  template <typename C>
-  static NoType Test(...);
+    template <typename C>
+    static NoType Test(...);
 };
 
 template <typename T>
-struct is_class
-    : integral_constant<bool,
-                        sizeof(IsClassHelper::Test<T>(0)) ==
-                            sizeof(YesType)> {
-};
+struct is_class : integral_constant<bool, sizeof(IsClassHelper::Test<T>(0)) == sizeof(YesType)> {};
 
-}
+} // namespace base
 
-#endif  // BASE_TEMPLATE_UTIL_H_
+#endif // BASE_TEMPLATE_UTIL_H_

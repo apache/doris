@@ -18,26 +18,24 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
 
-#include <list>
-#include <vector>
-
-#include <boost/foreach.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_set.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/condition_variable.hpp>
 #include <boost/thread/thread.hpp>
+#include <condition_variable>
+#include <list>
+#include <mutex>
+#include <unordered_set>
+#include <vector>
 
 #include "common/atomic.h"
 #include "common/config.h"
 #include "common/hdfs.h"
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "runtime/mem_tracker.h"
 #include "util/error_util.h"
 #include "util/internal_queue.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -204,27 +202,27 @@ public:
     // additionally encapsulates the last modified time of the associated file when it was
     // last opened.
     class HdfsCachedFileHandle {
-        public:
-            // Constructor will open the file
-            HdfsCachedFileHandle(const hdfsFS& fs, const char* fname, int64_t mtime);
+    public:
+        // Constructor will open the file
+        HdfsCachedFileHandle(const hdfsFS& fs, const char* fname, int64_t mtime);
 
-            // Destructor will close the file handle
-            ~HdfsCachedFileHandle();
+        // Destructor will close the file handle
+        ~HdfsCachedFileHandle();
 
-            hdfsFile file() const { return _hdfs_file;  }
+        hdfsFile file() const { return _hdfs_file; }
 
-            int64_t mtime() const { return _mtime; }
+        int64_t mtime() const { return _mtime; }
 
-            // This method is called to release acquired resources by the cached handle when it
-            // is evicted.
-            static void release(HdfsCachedFileHandle** h);
+        // This method is called to release acquired resources by the cached handle when it
+        // is evicted.
+        static void release(HdfsCachedFileHandle** h);
 
-            bool ok() const { return _hdfs_file != NULL; }
+        bool ok() const { return _hdfs_file != NULL; }
 
-        private:
-            hdfsFS _fs;
-            hdfsFile _hdfs_file;
-            int64_t _mtime;
+    private:
+        hdfsFS _fs;
+        hdfsFile _hdfs_file;
+        int64_t _mtime;
     };
 
     // Buffer struct that is used by the caller and IoMgr to pass read buffers.
@@ -244,10 +242,9 @@ public:
         // Returns the offset within the scan range that this buffer starts at
         int64_t scan_range_offset() const { return _scan_range_offset; }
 
-        // Updates this buffer buffer to be owned by the new tracker. Consumption is
+        // Updates this buffer to be owned by the new tracker. Consumption is
         // release from the current tracker and added to the new one.
-        // void SetMemTracker(MemTracker* tracker);
-        void set_mem_tracker(MemTracker* mem_tracker);
+        void set_mem_tracker(std::shared_ptr<MemTracker> tracker);
 
         // Returns the buffer to the IoMgr. This must be called for every buffer
         // returned by get_next()/read() that did not return an error. This is non-blocking.
@@ -259,8 +256,7 @@ public:
         BufferDescriptor(DiskIoMgr* io_mgr);
 
         // Resets the buffer descriptor state for a new reader, range and data buffer.
-        void reset(RequestContext* reader, ScanRange* range, char* buffer,
-                int64_t buffer_len);
+        void reset(RequestContext* reader, ScanRange* range, char* buffer, int64_t buffer_len);
 
         DiskIoMgr* _io_mgr;
 
@@ -268,8 +264,7 @@ public:
         RequestContext* _reader;
 
         // The current tracker this buffer is associated with.
-        // MemTracker* _mem_tracker;
-        MemTracker* _mem_tracker;
+        std::shared_ptr<MemTracker> _mem_tracker;
 
         // Scan range that this buffer is for.
         ScanRange* _scan_range;
@@ -350,7 +345,7 @@ public:
         // must fall within the file bounds (offset >= 0 and offset + len <= file_length).
         // Resets this scan range object with the scan range description.
         void reset(hdfsFS fs, const char* file, int64_t len, int64_t offset, int disk_id,
-                bool try_cache, bool expected_local, int64_t mtime, void* metadata = NULL);
+                   bool try_cache, bool expected_local, int64_t mtime, void* metadata = NULL);
 
         void* meta_data() const { return _meta_data; }
         // bool try_cache() const { return _try_cache; }
@@ -359,7 +354,7 @@ public:
 
         // Returns the next buffer for this scan range. buffer is an output parameter.
         // This function blocks until a buffer is ready or an error occurred. If this is
-        // called when all buffers have been returned, *buffer is set to NULL and Status::OK
+        // called when all buffers have been returned, *buffer is set to NULL and Status::OK()
         // is returned.
         // Only one thread can be in get_next() at any time.
         Status get_next(BufferDescriptor** buffer);
@@ -450,7 +445,7 @@ public:
 
         // Lock protecting fields below.
         // This lock should not be taken during Open/Read/Close.
-        boost::mutex _lock;
+        std::mutex _lock;
 
         // Number of bytes read so far for this scan range
         int _bytes_read;
@@ -472,12 +467,12 @@ public:
 
         // IO buffers that are queued for this scan range.
         // Condition variable for get_next
-        boost::condition_variable _buffer_ready_cv;
+        std::condition_variable _buffer_ready_cv;
         std::list<BufferDescriptor*> _ready_buffers;
 
         // The soft capacity limit for _ready_buffers. _ready_buffers can exceed
         // the limit temporarily as the capacity is adjusted dynamically.
-        // In that case, the capcity is only realized when the caller removes buffers
+        // In that case, the capacity is only realized when the caller removes buffers
         // from _ready_buffers.
         int _ready_buffers_capacity;
 
@@ -487,7 +482,7 @@ public:
         // that the disk threads are finished with HDFS calls before _is_cancelled is set
         // to true and cleanup starts.
         // If this lock and _lock need to be taken, _lock must be taken first.
-        boost::mutex _hdfs_lock;
+        std::mutex _hdfs_lock;
 
         // If true, this scan range has been cancelled.
         bool _is_cancelled;
@@ -507,14 +502,14 @@ public:
 
         // This callback is invoked on each WriteRange after the write is complete or the
         // context is cancelled. The status returned by the callback parameter indicates
-        // if the write was successful (i.e. Status::OK), if there was an error
+        // if the write was successful (i.e. Status::OK()), if there was an error
         // TStatusCode::RUNTIME_ERROR) or if the context was cancelled
         // (TStatusCode::CANCELLED). The callback is only invoked if this WriteRange was
         // successfully added (i.e. add_write_range() succeeded). No locks are held while
         // the callback is invoked.
-        typedef boost::function<void (const Status&)> WriteDoneCallback;
+        typedef std::function<void(const Status&)> WriteDoneCallback;
         WriteRange(const std::string& file, int64_t file_offset, int disk_id,
-                WriteDoneCallback callback);
+                   WriteDoneCallback callback);
 
         // Set the data and number of bytes to be written for this WriteRange.
         // File data can be over-written by calling set_data() and add_write_range().
@@ -548,8 +543,7 @@ public:
     ~DiskIoMgr();
 
     // Initialize the IoMgr. Must be called once before any of the other APIs.
-    // Status init(MemTracker* process_mem_tracker);
-    Status init(MemTracker* process_mem_tracker);
+    Status init(const std::shared_ptr<MemTracker>& process_mem_tracker);
 
     // Allocates tracking structure for a request context.
     // Register a new request context which is returned in *request_context.
@@ -559,10 +553,9 @@ public:
     //    used for this reader will be tracked by this. If the limit is exceeded
     //    the reader will be cancelled and MEM_LIMIT_EXCEEDED will be returned via
     //    get_next().
-    // Status register_context(RequestContext** request_context,
-    //         MemTracker* reader_mem_tracker = NULL);
-    Status register_context(RequestContext** request_context,
-            MemTracker* reader_mem_tracker = NULL);
+    Status register_context(
+            RequestContext** request_context,
+            std::shared_ptr<MemTracker> reader_mem_tracker = std::shared_ptr<MemTracker>());
 
     // Unregisters context from the disk IoMgr. This must be called for every
     // register_context() regardless of cancellation and must be called in the
@@ -572,7 +565,7 @@ public:
     // unregister_context also cancels the reader/writer from the disk IoMgr.
     void unregister_context(RequestContext* context);
 
-    // This function cancels the context asychronously. All outstanding requests
+    // This function cancels the context asynchronously. All outstanding requests
     // are aborted and tracking structures cleaned up. This does not need to be
     // called if the context finishes normally.
     // This will also fail any outstanding get_next()/Read requests.
@@ -589,7 +582,7 @@ public:
     // This can be used to do synchronous reads as well as schedule dependent ranges,
     // as in the case for columnar formats.
     Status add_scan_ranges(RequestContext* reader, const std::vector<ScanRange*>& ranges,
-            bool schedule_immediately = false);
+                           bool schedule_immediately = false);
 
     // Add a WriteRange for the writer. This is non-blocking and schedules the context
     // on the IoMgr disk queue. Does not create any files.
@@ -653,11 +646,11 @@ public:
     // Returns the number of local disks attached to the system.
     int num_local_disks() const { return num_total_disks() - num_remote_disks(); }
 
-  // The disk ID (and therefore _disk_queues index) used for DFS accesses.
-  // int RemoteDfsDiskId() const { return num_local_disks() + REMOTE_DFS_DISK_OFFSET; }
+    // The disk ID (and therefore _disk_queues index) used for DFS accesses.
+    // int RemoteDfsDiskId() const { return num_local_disks() + REMOTE_DFS_DISK_OFFSET; }
 
-  // The disk ID (and therefore _disk_queues index) used for S3 accesses.
-  // int RemoteS3DiskId() const { return num_local_disks() + REMOTE_S3_DISK_OFFSET; }
+    // The disk ID (and therefore _disk_queues index) used for S3 accesses.
+    // int RemoteS3DiskId() const { return num_local_disks() + REMOTE_S3_DISK_OFFSET; }
 
     // Returns the number of allocated buffers.
     int num_allocated_buffers() const { return _num_allocated_buffers; }
@@ -689,11 +682,7 @@ public:
 
     // "Disk" queue offsets for remote accesses.  Offset 0 corresponds to
     // disk ID (i.e. _disk_queue index) of num_local_disks().
-    enum {
-        REMOTE_DFS_DISK_OFFSET = 0,
-        REMOTE_S3_DISK_OFFSET,
-        REMOTE_NUM_DISKS
-    };
+    enum { REMOTE_DFS_DISK_OFFSET = 0, REMOTE_S3_DISK_OFFSET, REMOTE_NUM_DISKS };
 
 private:
     friend class BufferDescriptor;
@@ -704,8 +693,7 @@ private:
     ObjectPool _pool;
 
     // Process memory tracker; needed to account for io buffers.
-    // MemTracker* _process_mem_tracker;
-    MemTracker* _process_mem_tracker;
+    std::shared_ptr<MemTracker> _process_mem_tracker;
 
     // Number of worker(read) threads per disk. Also the max depth of queued
     // work to the disk.
@@ -726,7 +714,7 @@ private:
 
     // True if the IoMgr should be torn down. Worker threads watch for this to
     // know to terminate. This variable is read/written to by different threads.
-    volatile bool _shut_down;
+    std::atomic<bool> _shut_down;
 
     // Total bytes read by the IoMgr.
     RuntimeProfile::Counter _total_bytes_read_counter;
@@ -741,7 +729,7 @@ private:
     boost::scoped_ptr<RequestContextCache> _request_context_cache;
 
     // Protects _free_buffers and _free_buffer_descs
-    boost::mutex _free_buffers_lock;
+    std::mutex _free_buffers_lock;
 
     // Free buffers that can be handed out to clients. There is one list for each buffer
     // size, indexed by the Log2 of the buffer size in units of _min_buffer_size. The
@@ -754,7 +742,7 @@ private:
     //  _free_buffers[10] => list of free buffers with size 1 MB
     //  _free_buffers[13] => list of free buffers with size 8 MB
     //  _free_buffers[n]  => list of free buffers with size 2^n * 1024 B
-    std::vector<std::list<char*> > _free_buffers;
+    std::vector<std::list<char*>> _free_buffers;
 
     // List of free buffer desc objects that can be handed out to clients
     std::list<BufferDescriptor*> _free_buffer_descs;
@@ -783,8 +771,8 @@ private:
     // necessary. buffer_size / _min_buffer_size should be a power of 2, and buffer_size
     // should be <= _max_buffer_size. These constraints will be met if buffer was acquired
     // via get_free_buffer() (which it should have been).
-    BufferDescriptor* get_buffer_desc(
-            RequestContext* reader, ScanRange* range, char* buffer, int64_t buffer_size);
+    BufferDescriptor* get_buffer_desc(RequestContext* reader, ScanRange* range, char* buffer,
+                                      int64_t buffer_size);
 
     // Returns a buffer desc object which can now be used for another reader.
     void return_buffer_desc(BufferDescriptor* desc);
@@ -825,7 +813,7 @@ private:
     // Only returns false if the disk thread should be shut down.
     // No locks should be taken before this function call and none are left taken after.
     bool get_next_request_range(DiskQueue* disk_queue, RequestRange** range,
-            RequestContext** request_context);
+                                RequestContext** request_context);
 
     // Updates disk queue and reader state after a read is complete. The read result
     // is captured in the buffer descriptor.
@@ -838,7 +826,7 @@ private:
     // not cancel the writer context - that decision is left to the callback handler.
     // TODO: On the read path, consider not canceling the reader context on error.
     void handle_write_finished(RequestContext* writer, WriteRange* write_range,
-            const Status& write_status);
+                               const Status& write_status);
 
     // Validates that range is correctly initialized
     Status validate_scan_range(ScanRange* range);
@@ -853,11 +841,9 @@ private:
     Status write_range_helper(FILE* file_handle, WriteRange* write_range);
 
     // Reads the specified scan range and calls handle_read_finished when done.
-    void read_range(DiskQueue* disk_queue, RequestContext* reader,
-            ScanRange* range);
+    void read_range(DiskQueue* disk_queue, RequestContext* reader, ScanRange* range);
 };
 
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
-

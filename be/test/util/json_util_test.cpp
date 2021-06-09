@@ -25,8 +25,8 @@ namespace doris {
 
 class JsonUtilTest : public testing::Test {
 public:
-    JsonUtilTest() { }
-    virtual ~JsonUtilTest() { }
+    JsonUtilTest() {}
+    virtual ~JsonUtilTest() {}
 };
 
 TEST_F(JsonUtilTest, success) {
@@ -34,37 +34,40 @@ TEST_F(JsonUtilTest, success) {
 
     auto str = to_json(status);
 
-    const char* result = "{\n"
-        "    \"status\": \"Success\",\n"
-        "    \"msg\": \"OK\"\n}";
+    const char* result =
+            "{\n"
+            "    \"status\": \"Success\",\n"
+            "    \"msg\": \"OK\"\n}";
     ASSERT_STREQ(result, str.c_str());
 }
 
 TEST_F(JsonUtilTest, normal_fail) {
-    Status status("so bad");
+    Status status = Status::InternalError("so bad");
 
     auto str = to_json(status);
 
-    const char* result = "{\n"
-        "    \"status\": \"Fail\",\n"
-        "    \"msg\": \"so bad\"\n}";
+    const char* result =
+            "{\n"
+            "    \"status\": \"Fail\",\n"
+            "    \"msg\": \"so bad\"\n}";
     ASSERT_STREQ(result, str.c_str());
 }
 
 TEST_F(JsonUtilTest, normal_fail_str) {
-    Status status("\"so bad\"");
+    Status status = Status::InternalError("\"so bad\"");
 
     auto str = to_json(status);
 
     // "msg": "\"so bad\""
-    const char* result = "{\n"
-        "    \"status\": \"Fail\",\n"
-        "    \"msg\": \"\\\"so bad\\\"\"\n}";
+    const char* result =
+            "{\n"
+            "    \"status\": \"Fail\",\n"
+            "    \"msg\": \"\\\"so bad\\\"\"\n}";
     LOG(INFO) << "str: " << str;
     ASSERT_STREQ(result, str.c_str());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

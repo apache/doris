@@ -17,40 +17,45 @@
 
 #include "http/action/pprof_actions.h"
 
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <mutex>
-
-#include <gperftools/profiler.h>
 #include <gperftools/heap-profiler.h>
 #include <gperftools/malloc_extension.h>
+#include <gperftools/profiler.h>
 
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <sstream>
+
+#include "agent/utils.h"
 #include "common/config.h"
+#include "common/object_pool.h"
+#include "gutil/strings/substitute.h"
+#include "http/ev_http_server.h"
+#include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/ev_http_server.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
+#include "util/file_utils.h"
+#include "util/pprof_utils.h"
 
 namespace doris {
 
 // pprof default sample time in seconds.
 static const std::string SECOND_KEY = "seconds";
-static const int kPprofDefaultSampleSecs = 30; 
+static const int kPprofDefaultSampleSecs = 30;
 
 // Protect, only one thread can work
 static std::mutex kPprofActionMutex;
 
 class HeapAction : public HttpHandler {
 public:
-    HeapAction() { }
-    virtual ~HeapAction() { }
+    HeapAction() {}
+    virtual ~HeapAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
 void HeapAction::handle(HttpRequest* req) {
@@ -71,8 +76,8 @@ void HeapAction::handle(HttpRequest* req) {
 
     std::stringstream tmp_prof_file_name;
     // Build a temporary file name that is hopefully unique.
-    tmp_prof_file_name << config::pprof_profile_dir << "/heap_profile."
-        << getpid() << "." << rand();
+    tmp_prof_file_name << config::pprof_profile_dir << "/heap_profile." << getpid() << "."
+                       << rand();
 
     HeapProfilerStart(tmp_prof_file_name.str().c_str());
     // Sleep to allow for some samples to be collected.
@@ -82,16 +87,27 @@ void HeapAction::handle(HttpRequest* req) {
     std::string str = profile;
     delete profile;
 
-    HttpChannel::send_reply(req, str);
+    const std::string& readable_str = req->param("readable");
+    if (!readable_str.empty()) {
+        std::stringstream readable_res;
+        Status st = PprofUtils::get_readable_profile(str, false, &readable_res);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, st.to_string());
+        } else {
+            HttpChannel::send_reply(req, readable_res.str());
+        }
+    } else {
+        HttpChannel::send_reply(req, str);
+    }
 #endif
 }
 
 class GrowthAction : public HttpHandler {
 public:
-    GrowthAction() { }
-    virtual ~GrowthAction() { }
+    GrowthAction() {}
+    virtual ~GrowthAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
 void GrowthAction::handle(HttpRequest* req) {
@@ -110,13 +126,13 @@ void GrowthAction::handle(HttpRequest* req) {
 
 class ProfileAction : public HttpHandler {
 public:
-    ProfileAction() { }
-    virtual ~ProfileAction() { }
+    ProfileAction() {}
+    virtual ~ProfileAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
-void ProfileAction::handle(HttpRequest *req) {
+void ProfileAction::handle(HttpRequest* req) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer builds.";
     HttpChannel::send_reply(req, str);
@@ -129,58 +145,82 @@ void ProfileAction::handle(HttpRequest *req) {
         seconds = std::atoi(seconds_str.c_str());
     }
 
-    std::ostringstream tmp_prof_file_name;
-    // Build a temporary file name that is hopefully unique.
-    tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." 
-        << getpid() << "." << rand();
-    ProfilerStart(tmp_prof_file_name.str().c_str());
-    sleep(seconds);
-    ProfilerStop();
-    std::ifstream prof_file(tmp_prof_file_name.str().c_str(), std::ios::in);
-    std::stringstream ss;
-    if (!prof_file.is_open()) {
-        ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
-        std::string str = ss.str();
-        HttpChannel::send_reply(req, str);
-        return;
-    }
-    ss << prof_file.rdbuf();
-    prof_file.close();
-    std::string str = ss.str();
+    const std::string& type_str = req->param("type");
+    if (type_str != "flamegraph") {
+        // use pprof the sample the CPU
+        std::ostringstream tmp_prof_file_name;
+        tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "."
+                           << rand();
+        ProfilerStart(tmp_prof_file_name.str().c_str());
+        sleep(seconds);
+        ProfilerStop();
 
-    HttpChannel::send_reply(req, str);
+        if (type_str != "text") {
+            // return raw content via http response directly
+            std::ifstream prof_file(tmp_prof_file_name.str().c_str(), std::ios::in);
+            std::stringstream ss;
+            if (!prof_file.is_open()) {
+                ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
+                std::string str = ss.str();
+                HttpChannel::send_reply(req, str);
+                return;
+            }
+            ss << prof_file.rdbuf();
+            prof_file.close();
+            std::string str = ss.str();
+            HttpChannel::send_reply(req, str);
+        }
+
+        // text type. we will return readable content via http response
+        std::stringstream readable_res;
+        Status st = PprofUtils::get_readable_profile(tmp_prof_file_name.str(), true, &readable_res);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, st.to_string());
+        } else {
+            HttpChannel::send_reply(req, readable_res.str());
+        }
+    } else {
+        // generate flamegraph
+        std::string svg_file_content;
+        std::string flamegraph_install_dir =
+                std::string(std::getenv("DORIS_HOME")) + "/tools/FlameGraph/";
+        Status st = PprofUtils::generate_flamegraph(30, flamegraph_install_dir, false,
+                                                    &svg_file_content);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, st.to_string());
+        } else {
+            HttpChannel::send_reply(req, svg_file_content);
+        }
+    }
 #endif
 }
 
 class PmuProfileAction : public HttpHandler {
 public:
-    PmuProfileAction() { }
-    virtual ~PmuProfileAction() { }
-    virtual void handle(HttpRequest *req) override {
-    }
+    PmuProfileAction() {}
+    virtual ~PmuProfileAction() {}
+    virtual void handle(HttpRequest* req) override {}
 };
 
 class ContentionAction : public HttpHandler {
 public:
-    ContentionAction() { }
-    virtual ~ContentionAction() { }
+    ContentionAction() {}
+    virtual ~ContentionAction() {}
 
-    virtual void handle(HttpRequest *req) override {
-    }
+    virtual void handle(HttpRequest* req) override {}
 };
 
 class CmdlineAction : public HttpHandler {
 public:
-    CmdlineAction() { }
-    virtual ~CmdlineAction() { }
-    virtual void handle(HttpRequest *req) override;
+    CmdlineAction() {}
+    virtual ~CmdlineAction() {}
+    virtual void handle(HttpRequest* req) override;
 };
 
 void CmdlineAction::handle(HttpRequest* req) {
     FILE* fp = fopen("/proc/self/cmdline", "r");
     if (fp == nullptr) {
         std::string str = "Unable to open file: /proc/self/cmdline";
-
         HttpChannel::send_reply(req, str);
         return;
     }
@@ -194,10 +234,10 @@ void CmdlineAction::handle(HttpRequest* req) {
 
 class SymbolAction : public HttpHandler {
 public:
-    SymbolAction(BfdParser* parser) : _parser(parser) { }
-    virtual ~SymbolAction() { }
+    SymbolAction(BfdParser* parser) : _parser(parser) {}
+    virtual ~SymbolAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 
 private:
     BfdParser* _parser;
@@ -242,24 +282,22 @@ void SymbolAction::handle(HttpRequest* req) {
     }
 }
 
-Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
-    http_server->register_handler(HttpMethod::GET, "/pprof/heap",
-                                  new HeapAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/growth",
-                                  new GrowthAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/profile",
-                                  new ProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile",
-                                  new PmuProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/contention",
-                                  new ContentionAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline",
-                                  new CmdlineAction());
-    auto action = new SymbolAction(exec_env->bfd_parser());
+Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool) {
+    if (!config::pprof_profile_dir.empty()) {
+        FileUtils::create_dir(config::pprof_profile_dir);
+    }
+
+    http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/growth", pool.add(new GrowthAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/profile", pool.add(new ProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", pool.add(new PmuProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/contention", pool.add(new ContentionAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", pool.add(new CmdlineAction()));
+    auto action = pool.add(new SymbolAction(exec_env->bfd_parser()));
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::HEAD, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::POST, "/pprof/symbol", action);
-    return Status::OK;
+    return Status::OK();
 }
 
-}
+} // namespace doris

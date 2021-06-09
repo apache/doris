@@ -21,20 +21,14 @@
 #include <string>
 #include <vector>
 
-#include "gen_cpp/Types_types.h"  // for TPrimitiveType
-#include "gen_cpp/types.pb.h" // for PTypeDesc
+#include "common/config.h"
+#include "gen_cpp/Types_types.h" // for TPrimitiveType
+#include "gen_cpp/types.pb.h"    // for PTypeDesc
+#include "olap/hll.h"
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
-#include "common/config.h"
-#include "olap/hll.h"
-
-namespace llvm {
-class ConstantStruct;
-}
 
 namespace doris {
-
-class LlvmCodeGen;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -66,13 +60,10 @@ struct TypeDescriptor {
     /// Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
 
-    TypeDescriptor() :
-            type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {
-    }
+    TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type) :
-            type(type), len(-1), precision(-1), scale(-1) {
+    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
 #if 0
         DCHECK_NE(type, TYPE_CHAR);
         DCHECK_NE(type, TYPE_VARCHAR);
@@ -162,9 +153,7 @@ struct TypeDescriptor {
         return true;
     }
 
-    bool operator!=(const TypeDescriptor& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }
 
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
@@ -175,28 +164,22 @@ struct TypeDescriptor {
     void to_protobuf(PTypeDesc* ptype) const;
 
     inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL;
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT;
     }
 
-    inline bool is_date_type() const {
-        return type == TYPE_DATE || type == TYPE_DATETIME;
-    }
+    inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const {
-        return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2);
-    }
+    inline bool is_decimal_type() const { return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2); }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR;
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
     }
 
     inline bool is_complex_type() const {
         return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
-    inline bool is_collection_type() const {
-        return type == TYPE_ARRAY || type == TYPE_MAP;
-    }
+    inline bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
     /// Returns the byte size of this type.  Returns 0 for variable length types.
     inline int get_byte_size() const {
@@ -205,6 +188,7 @@ struct TypeDescriptor {
         case TYPE_MAP:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             return 0;
 
         case TYPE_NULL:
@@ -245,6 +229,7 @@ struct TypeDescriptor {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT:
             return sizeof(StringValue);
 
         case TYPE_NULL:
@@ -261,6 +246,7 @@ struct TypeDescriptor {
 
         case TYPE_BIGINT:
         case TYPE_DOUBLE:
+        case TYPE_TIME:
             return 8;
 
         case TYPE_LARGEINT:
@@ -296,10 +282,6 @@ struct TypeDescriptor {
         return 16;
     }
 
-    /// Returns the IR version of this ColumnType. Only implemented for scalar types. LLVM
-    /// optimizer can pull out fields of the returned ConstantStruct for constant folding.
-    llvm::ConstantStruct* to_ir(LlvmCodeGen* codegen) const;
-
     std::string debug_string() const;
 
 private:
@@ -314,12 +296,10 @@ private:
     /// Recursive implementation of ToThrift() that populates 'thrift_type' with the
     /// TTypeNodes for this type and its children.
     void to_thrift(TTypeDesc* thrift_type) const;
-
-    static const char* s_llvm_class_name;
 };
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
-}
+} // namespace doris
 
 #endif

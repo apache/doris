@@ -17,17 +17,18 @@
 
 #include "http/http_client.h"
 
+#include "common/config.h"
+
 namespace doris {
 
-HttpClient::HttpClient() {
-}
+HttpClient::HttpClient() {}
 
 HttpClient::~HttpClient() {
     if (_curl != nullptr) {
         curl_easy_cleanup(_curl);
         _curl = nullptr;
     }
-    if(_header_list != nullptr) {
+    if (_header_list != nullptr) {
         curl_slist_free_all(_header_list);
         _header_list = nullptr;
     }
@@ -37,13 +38,13 @@ Status HttpClient::init(const std::string& url) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
-            return Status("fail to initalize curl");
+            return Status::InternalError("fail to initialize curl");
         }
     } else {
         curl_easy_reset(_curl);
     }
 
-    if(_header_list != nullptr) {
+    if (_header_list != nullptr) {
         curl_slist_free_all(_header_list);
         _header_list = nullptr;
     }
@@ -52,33 +53,33 @@ Status HttpClient::init(const std::string& url) {
     auto code = curl_easy_setopt(_curl, CURLOPT_ERRORBUFFER, _error_buf);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_ERRORBUFFER, msg=" << _to_errmsg(code);
-        return Status("fail to set error buffer");
+        return Status::InternalError("fail to set error buffer");
     }
     // forbid signals
     code = curl_easy_setopt(_curl, CURLOPT_NOSIGNAL, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_NOSIGNAL, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_NOSIGNAL");
+        return Status::InternalError("fail to set CURLOPT_NOSIGNAL");
     }
     // set fail on error
     code = curl_easy_setopt(_curl, CURLOPT_FAILONERROR, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_FAILONERROR, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_FAILONERROR");
+        return Status::InternalError("fail to set CURLOPT_FAILONERROR");
     }
-    // set redirect 
+    // set redirect
     code = curl_easy_setopt(_curl, CURLOPT_FOLLOWLOCATION, 1L);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_FOLLOWLOCATION, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_FOLLOWLOCATION");
+        return Status::InternalError("fail to set CURLOPT_FOLLOWLOCATION");
     }
     code = curl_easy_setopt(_curl, CURLOPT_MAXREDIRS, 20);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_MAXREDIRS, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_MAXREDIRS");
+        return Status::InternalError("fail to set CURLOPT_MAXREDIRS");
     }
 
-    curl_write_callback callback = [] (char* buffer, size_t size, size_t nmemb, void* param) {
+    curl_write_callback callback = [](char* buffer, size_t size, size_t nmemb, void* param) {
         HttpClient* client = (HttpClient*)param;
         return client->on_response_data(buffer, size * nmemb);
     };
@@ -87,21 +88,21 @@ Status HttpClient::init(const std::string& url) {
     code = curl_easy_setopt(_curl, CURLOPT_WRITEFUNCTION, callback);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_WRITEFUNCTION, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_WRITEFUNCTION");
+        return Status::InternalError("fail to set CURLOPT_WRITEFUNCTION");
     }
-    code = curl_easy_setopt(_curl, CURLOPT_WRITEDATA, (void*) this);
+    code = curl_easy_setopt(_curl, CURLOPT_WRITEDATA, (void*)this);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to set CURLOPT_WRITEDATA, msg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_WRITEDATA");
+        return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
     // set url
     code = curl_easy_setopt(_curl, CURLOPT_URL, url.c_str());
     if (code != CURLE_OK) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
-        return Status("fail to set CURLOPT_URL");
+        return Status::InternalError("fail to set CURLOPT_URL");
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void HttpClient::set_method(HttpMethod method) {
@@ -152,9 +153,9 @@ Status HttpClient::execute_post_request(const std::string& payload, std::string*
 }
 
 Status HttpClient::execute_delete_request(const std::string& payload, std::string* response) {
-   set_method(DELETE);
-   set_payload(payload);
-   return execute(response);
+    set_method(DELETE);
+    set_payload(payload);
+    return execute(response);
 }
 
 Status HttpClient::execute(const std::function<bool(const void* data, size_t length)>& callback) {
@@ -162,9 +163,9 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code);
-        return Status(_to_errmsg(code));
+        return Status::InternalError(_to_errmsg(code));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status HttpClient::download(const std::string& local_path) {
@@ -173,25 +174,23 @@ Status HttpClient::download(const std::string& local_path) {
 
     // TODO(zc) Move this download speed limit outside to limit download speed
     // at system level
-    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_LIMIT,
-                     config::download_low_speed_limit_kbps * 1024);
+    curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_LIMIT, config::download_low_speed_limit_kbps * 1024);
     curl_easy_setopt(_curl, CURLOPT_LOW_SPEED_TIME, config::download_low_speed_time);
-    curl_easy_setopt(_curl, CURLOPT_MAX_RECV_SPEED_LARGE,
-                     config::max_download_speed_kbps * 1024);
+    curl_easy_setopt(_curl, CURLOPT_MAX_RECV_SPEED_LARGE, config::max_download_speed_kbps * 1024);
 
-    auto fp_closer = [] (FILE*fp) { fclose(fp); };
+    auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(local_path.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
         LOG(WARNING) << "open file failed, file=" << local_path;
-        return Status("open file failed");
+        return Status::InternalError("open file failed");
     }
     Status status;
-    auto callback = [&status, &fp, &local_path] (const void* data, size_t length) {
+    auto callback = [&status, &fp, &local_path](const void* data, size_t length) {
         auto res = fwrite(data, length, 1, fp.get());
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << local_path
-                << ", error=" << ferror(fp.get());
-            status = Status("fail to write data when download");
+                         << ", error=" << ferror(fp.get());
+            status = Status::InternalError("fail to write data when download");
             return false;
         }
         return true;
@@ -201,7 +200,7 @@ Status HttpClient::download(const std::string& local_path) {
 }
 
 Status HttpClient::execute(std::string* response) {
-    auto callback = [response] (const void* data, size_t length) {
+    auto callback = [response](const void* data, size_t length) {
         response->append((char*)data, length);
         return true;
     };
@@ -227,7 +226,6 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
         sleep(sleep_time);
     }
     return status;
-    
 }
 
-}
+} // namespace doris

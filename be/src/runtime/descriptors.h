@@ -18,35 +18,25 @@
 #ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
 #define DORIS_BE_RUNTIME_DESCRIPTORS_H
 
-#include <vector>
-#include <tr1/unordered_map>
-#include <vector>
-#include <boost/scoped_ptr.hpp>
-#include <ostream>
-
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
 
-#include "common/status.h"
+#include <ostream>
+#include <unordered_map>
+#include <vector>
+
 #include "common/global_types.h"
-#include "gen_cpp/Descriptors_types.h"  // for TTupleId
-#include "gen_cpp/FrontendService_types.h"  // for TTupleId
+#include "common/status.h"
+#include "gen_cpp/Descriptors_types.h"     // for TTupleId
+#include "gen_cpp/FrontendService_types.h" // for TTupleId
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
 
-namespace llvm {
-class Function;
-class PointerType;
-class StructType;
-};
-
 namespace doris {
 
-class LlvmCodeGen;
 class ObjectPool;
 class TDescriptorTable;
 class TSlotDescriptor;
-class TTable;
 class TTupleDescriptor;
 class Expr;
 class RuntimeState;
@@ -55,12 +45,6 @@ class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
 
-struct LlvmTupleStruct {
-    llvm::StructType* tuple_struct;
-    llvm::PointerType* tuple_ptr;
-    std::vector<int> indices;
-};
-
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
 // This allows us to do the NullIndicatorOffset operations (tuple + byte_offset &/|
@@ -68,15 +52,14 @@ struct LlvmTupleStruct {
 // This is more efficient than branching to check if the slot is non-nullable.
 struct NullIndicatorOffset {
     int byte_offset;
-    uint8_t bit_mask;  // to extract null indicator
+    uint8_t bit_mask;   // to extract null indicator
     uint8_t bit_offset; // only used to serialize, from 1 to 8
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
-        : byte_offset(byte_offset),
-        bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
-        bit_offset(bit_offset_) {
-    }
- 
+            : byte_offset(byte_offset),
+              bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
+              bit_offset(bit_offset_) {}
+
     bool equals(const NullIndicatorOffset& o) const {
         return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
     }
@@ -89,44 +72,22 @@ std::ostream& operator<<(std::ostream& os, const NullIndicatorOffset& null_indic
 class SlotDescriptor {
 public:
     // virtual ~SlotDescriptor() {};
-    SlotId id() const {
-        return _id;
-    }
-    const TypeDescriptor& type() const {
-        return _type;
-    }
-    TupleId parent() const {
-        return _parent;
-    }
+    SlotId id() const { return _id; }
+    const TypeDescriptor& type() const { return _type; }
+    TupleId parent() const { return _parent; }
     // Returns the column index of this slot, including partition keys.
     // (e.g., col_pos - num_partition_keys = the table column this slot corresponds to)
-    int col_pos() const {
-        return _col_pos;
-    }
+    int col_pos() const { return _col_pos; }
     // Returns the field index in the generated llvm struct for this slot's tuple
-    int field_idx() const {
-        return _field_idx;
-    }
-    int tuple_offset() const {
-        return _tuple_offset;
-    }
-    const NullIndicatorOffset& null_indicator_offset() const {
-        return _null_indicator_offset;
-    }
-    bool is_materialized() const {
-        return _is_materialized;
-    }
-    bool is_nullable() const {
-        return _null_indicator_offset.bit_mask != 0;
-    }
+    int field_idx() const { return _field_idx; }
+    int tuple_offset() const { return _tuple_offset; }
+    const NullIndicatorOffset& null_indicator_offset() const { return _null_indicator_offset; }
+    bool is_materialized() const { return _is_materialized; }
+    bool is_nullable() const { return _null_indicator_offset.bit_mask != 0; }
 
-    int slot_size() const {
-        return _slot_size;
-    }
+    int slot_size() const { return _slot_size; }
 
-    const std::string& col_name() const {
-        return _col_name;
-    }
+    const std::string& col_name() const { return _col_name; }
 
     /// Return true if the physical layout of this descriptor matches the physical layout
     /// of other_desc, but not necessarily ids.
@@ -135,14 +96,6 @@ public:
     void to_protobuf(PSlotDescriptor* pslot) const;
 
     std::string debug_string() const;
-
-    // Codegen for: bool IsNull(Tuple* tuple)
-    // The codegen function is cached.
-    llvm::Function* codegen_is_null(LlvmCodeGen*, llvm::StructType* tuple);
-
-    // Codegen for: void SetNull(Tuple* tuple) / SetNotNull
-    // The codegen function is cached.
-    llvm::Function* codegen_update_null(LlvmCodeGen*, llvm::StructType* tuple, bool set_null);
 
 private:
     friend class DescriptorTbl;
@@ -161,7 +114,7 @@ private:
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
     const int _slot_idx;
-    
+
     // the byte size of this slot.
     const int _slot_size;
 
@@ -172,11 +125,6 @@ private:
 
     const bool _is_materialized;
 
-    // Cached codegen'd functions
-    llvm::Function* _is_null_fn;
-    llvm::Function* _set_not_null_fn;
-    llvm::Function* _set_null_fn;
-
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
 };
@@ -186,12 +134,8 @@ class TableDescriptor {
 public:
     TableDescriptor(const TTableDescriptor& tdesc);
     virtual ~TableDescriptor() {}
-    int num_cols() const {
-        return _num_cols;
-    }
-    int num_clustering_cols() const {
-        return _num_clustering_cols;
-    }
+    int num_cols() const { return _num_cols; }
+    int num_clustering_cols() const { return _num_clustering_cols; }
     virtual std::string debug_string() const;
 
     // The first _num_clustering_cols columns by position are clustering
@@ -200,12 +144,8 @@ public:
         return slot_desc->col_pos() < _num_clustering_cols;
     }
 
-    const std::string& name() const {
-        return _name;
-    }
-    const std::string& database() const {
-        return _database;
-    }
+    const std::string& name() const { return _name; }
+    const std::string& database() const { return _database; }
 
 private:
     std::string _name;
@@ -216,79 +156,51 @@ private:
 };
 
 class OlapTableDescriptor : public TableDescriptor {
-public :
+public:
     OlapTableDescriptor(const TTableDescriptor& tdesc);
     virtual std::string debug_string() const;
 };
 
 class SchemaTableDescriptor : public TableDescriptor {
-public :
+public:
     SchemaTableDescriptor(const TTableDescriptor& tdesc);
     virtual ~SchemaTableDescriptor();
     virtual std::string debug_string() const;
-    TSchemaTableType::type schema_table_type() const {
-        return _schema_table_type;
-    }
-private :
+    TSchemaTableType::type schema_table_type() const { return _schema_table_type; }
+
+private:
     TSchemaTableType::type _schema_table_type;
 };
 
 class BrokerTableDescriptor : public TableDescriptor {
-public :
+public:
     BrokerTableDescriptor(const TTableDescriptor& tdesc);
     virtual ~BrokerTableDescriptor();
     virtual std::string debug_string() const;
-private :
+
+private:
 };
 
 class EsTableDescriptor : public TableDescriptor {
-public :
+public:
     EsTableDescriptor(const TTableDescriptor& tdesc);
     virtual ~EsTableDescriptor();
     virtual std::string debug_string() const;
-private :
-};
 
-// Descriptor for a KuduTable
-class KuduTableDescriptor : public TableDescriptor {
- public:
-  explicit KuduTableDescriptor(const TTableDescriptor& tdesc);
-  virtual std::string DebugString() const;
-  const std::string table_name() const { return table_name_; }
-  const std::vector<std::string>& key_columns() const { return key_columns_; }
-  const std::vector<std::string>& kudu_master_addresses() const {
-    return master_addresses_;
-  }
-
- private:
-  // native name of Kudu table
-  std::string table_name_;
-  std::vector<std::string> key_columns_;
-  std::vector<std::string> master_addresses_;
+private:
 };
 
 class MySQLTableDescriptor : public TableDescriptor {
 public:
     MySQLTableDescriptor(const TTableDescriptor& tdesc);
     virtual std::string debug_string() const;
-    const std::string mysql_db() const {
-        return _mysql_db;
-    }
-    const std::string mysql_table() const {
-        return _mysql_table;
-    }
-    const std::string host() const {
-        return _host;
-    }
-    const std::string port() const {
-        return _port;
-    }
-    const std::string user() const {
-        return _user;
-    }
-    const std::string passwd() const {
-        return _passwd;
-    }
+    const std::string mysql_db() const { return _mysql_db; }
+    const std::string mysql_table() const { return _mysql_table; }
+    const std::string host() const { return _host; }
+    const std::string port() const { return _port; }
+    const std::string user() const { return _user; }
+    const std::string passwd() const { return _passwd; }
+
 private:
     std::string _mysql_db;
     std::string _mysql_table;
@@ -298,33 +210,43 @@ private:
     std::string _passwd;
 };
 
+class ODBCTableDescriptor : public TableDescriptor {
+public:
+    ODBCTableDescriptor(const TTableDescriptor& tdesc);
+    virtual std::string debug_string() const;
+    const std::string db() const { return _db; }
+    const std::string table() const { return _table; }
+    const std::string host() const { return _host; }
+    const std::string port() const { return _port; }
+    const std::string user() const { return _user; }
+    const std::string passwd() const { return _passwd; }
+    const std::string driver() const { return _driver; }
+    const TOdbcTableType::type type() const { return _type; }
+
+private:
+    std::string _db;
+    std::string _table;
+    std::string _host;
+    std::string _port;
+    std::string _user;
+    std::string _passwd;
+    std::string _driver;
+    TOdbcTableType::type _type;
+};
+
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
-    int byte_size() const {
-        return _byte_size;
+    int byte_size() const { return _byte_size; }
+    int num_null_slots() const { return _num_null_slots; }
+    int num_null_bytes() const { return _num_null_bytes; }
+    const std::vector<SlotDescriptor*>& slots() const { return _slots; }
+    const std::vector<SlotDescriptor*>& string_slots() const { return _string_slots; }
+    const std::vector<SlotDescriptor*>& no_string_slots() const { return _no_string_slots; }
+    bool has_varlen_slots() const {
+        { return _has_varlen_slots; }
     }
-    int num_null_slots() const {
-        return _num_null_slots;
-    }
-    int num_null_bytes() const {
-        return _num_null_bytes;
-    }
-    const std::vector<SlotDescriptor*>& slots() const {
-        return _slots;
-    }
-    const std::vector<SlotDescriptor*>& string_slots() const {
-        return _string_slots;
-    }
-    const std::vector<SlotDescriptor*>& no_string_slots() const {
-        return _no_string_slots;
-    }
-    bool has_varlen_slots() const { {
-        return _has_varlen_slots; }
-    }
-    const TableDescriptor* table_desc() const {
-        return _table_desc;
-    }
+    const TableDescriptor* table_desc() const { return _table_desc; }
 
     static bool is_var_length(const std::vector<TupleDescriptor*>& descs) {
         for (auto desc : descs) {
@@ -335,9 +257,7 @@ public:
         return false;
     }
 
-    TupleId id() const {
-        return _id;
-    }
+    TupleId id() const { return _id; }
 
     /// Return true if the physical layout of this descriptor matches that of other_desc,
     /// but not necessarily the id.
@@ -346,19 +266,6 @@ public:
     std::string debug_string() const;
 
     void to_protobuf(PTupleDescriptor* ptuple) const;
-
-    // Creates a typed struct description for llvm.  The layout of the struct is computed
-    // by the FE which includes the order of the fields in the resulting struct.
-    // Returns the struct type or NULL if the type could not be created.
-    // For example, the aggregation tuple for this query: select count(*), min(int_col_a)
-    // would map to:
-    // struct Tuple {
-    //   int8_t   null_byte;
-    //   int32_t  min_a;
-    //   int64_t  count_val;
-    // };
-    // The resulting struct definition is cached.
-    llvm::StructType* generate_llvm_struct(LlvmCodeGen* codegen);
 
 private:
     friend class DescriptorTbl;
@@ -371,16 +278,14 @@ private:
     int _num_null_slots;
     int _num_null_bytes;
     int _num_materialized_slots;
-    std::vector<SlotDescriptor*> _slots;  // contains all slots
-    std::vector<SlotDescriptor*> _string_slots;  // contains only materialized string slots
+    std::vector<SlotDescriptor*> _slots;        // contains all slots
+    std::vector<SlotDescriptor*> _string_slots; // contains only materialized string slots
     // contains only materialized slots except string slots
     std::vector<SlotDescriptor*> _no_string_slots;
 
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
     bool _has_varlen_slots;
-
-    llvm::StructType* _llvm_struct; // cache for the llvm struct type for this tuple desc
 
     TupleDescriptor(const TTupleDescriptor& tdesc);
     TupleDescriptor(const PTupleDescriptor& tdesc);
@@ -394,8 +299,7 @@ class DescriptorTbl {
 public:
     // Creates a descriptor tbl within 'pool' from thrift_tbl and returns it via 'tbl'.
     // Returns OK on success, otherwise error (in which case 'tbl' will be unset).
-    static Status create(ObjectPool* pool, const TDescriptorTable& thrift_tbl,
-                         DescriptorTbl** tbl);
+    static Status create(ObjectPool* pool, const TDescriptorTable& thrift_tbl, DescriptorTbl** tbl);
 
     TableDescriptor* get_table_descriptor(TableId id) const;
     TupleDescriptor* get_tuple_descriptor(TupleId id) const;
@@ -407,15 +311,15 @@ public:
     std::string debug_string() const;
 
 private:
-    typedef std::tr1::unordered_map<TableId, TableDescriptor*> TableDescriptorMap;
-    typedef std::tr1::unordered_map<TupleId, TupleDescriptor*> TupleDescriptorMap;
-    typedef std::tr1::unordered_map<SlotId, SlotDescriptor*> SlotDescriptorMap;
+    typedef std::unordered_map<TableId, TableDescriptor*> TableDescriptorMap;
+    typedef std::unordered_map<TupleId, TupleDescriptor*> TupleDescriptorMap;
+    typedef std::unordered_map<SlotId, SlotDescriptor*> SlotDescriptorMap;
 
     TableDescriptorMap _tbl_desc_map;
     TupleDescriptorMap _tuple_desc_map;
     SlotDescriptorMap _slot_desc_map;
 
-    DescriptorTbl(): _tbl_desc_map(), _tuple_desc_map(), _slot_desc_map() {}
+    DescriptorTbl() : _tbl_desc_map(), _tuple_desc_map(), _slot_desc_map() {}
 };
 
 // Records positions of tuples within row produced by ExecNode.
@@ -431,19 +335,22 @@ public:
                   const std::vector<bool>& nullable_tuples);
 
     // standard copy c'tor, made explicit here
-    RowDescriptor(const RowDescriptor& desc) :
-            _tuple_desc_map(desc._tuple_desc_map),
-            _tuple_idx_map(desc._tuple_idx_map),
-            _has_varlen_slots(desc._has_varlen_slots) {
+    RowDescriptor(const RowDescriptor& desc)
+            : _tuple_desc_map(desc._tuple_desc_map),
+              _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
+              _tuple_idx_map(desc._tuple_idx_map),
+              _has_varlen_slots(desc._has_varlen_slots) {
         _num_null_slots = 0;
         std::vector<TupleDescriptor*>::const_iterator it = desc._tuple_desc_map.begin();
-        for (; it != desc._tuple_desc_map.end(); ++it)  {
+        for (; it != desc._tuple_desc_map.end(); ++it) {
             _num_null_slots += (*it)->num_null_slots();
         }
         _num_null_bytes = (_num_null_slots + 7) / 8;
     }
 
     RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable);
+
+    RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc);
 
     // dummy descriptor, needed for the JNI EvalPredicate() function
     RowDescriptor() {}
@@ -453,13 +360,9 @@ public:
     // to GetAvgRowSize()
     int get_row_size() const;
 
-    int num_null_slots() const {
-        return _num_null_slots;
-    }
+    int num_null_slots() const { return _num_null_slots; }
 
-    int num_null_bytes() const {
-        return _num_null_bytes;
-    }
+    int num_null_bytes() const { return _num_null_bytes; }
 
     static const int INVALID_IDX;
 
@@ -473,19 +376,14 @@ public:
     bool is_any_tuple_nullable() const;
 
     // Return true if any Tuple has variable length slots.
-    bool has_varlen_slots() const {
-        return _has_varlen_slots;
-    }
+    bool has_varlen_slots() const { return _has_varlen_slots; }
 
     // Return descriptors for all tuples in this row, in order of appearance.
-    const std::vector<TupleDescriptor*>& tuple_descriptors() const {
-        return _tuple_desc_map;
-    }
+    const std::vector<TupleDescriptor*>& tuple_descriptors() const { return _tuple_desc_map; }
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
-    void to_protobuf(
-        google::protobuf::RepeatedField<google::protobuf::int32 >* row_tuple_ids);
+    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids);
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.
@@ -527,6 +425,6 @@ private:
     int _num_null_bytes;
 };
 
-}
+} // namespace doris
 
 #endif

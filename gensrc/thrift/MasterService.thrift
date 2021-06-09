@@ -36,6 +36,8 @@ struct TTabletInfo {
     10: optional i64 path_hash
     11: optional bool version_miss
     12: optional bool used
+    13: optional Types.TPartitionId partition_id
+    14: optional bool is_in_memory
 }
 
 struct TFinishTaskRequest {
@@ -71,6 +73,11 @@ struct TDisk {
     7: optional Types.TStorageMedium storage_medium
 }
 
+struct TPluginInfo {
+    1: required string plugin_name
+    2: required i32 type
+}
+
 struct TReportRequest {
     1: required Types.TBackend backend
     2: optional i64 report_version
@@ -79,6 +86,9 @@ struct TReportRequest {
     5: optional map<string, TDisk> disks // string root_path
     6: optional bool force_recovery
     7: optional list<TTablet> tablet_list
+    // the max compaction score of all tablets on a backend,
+    // this field should be set along with tablet report
+    8: optional i64 tablet_max_compaction_score
 }
 
 struct TMasterResult {

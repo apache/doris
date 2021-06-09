@@ -22,6 +22,7 @@ include "Exprs.thrift"
 include "Types.thrift"
 include "Descriptors.thrift"
 include "Partitions.thrift"
+include "PlanNodes.thrift"
 
 enum TDataSinkType {
     DATA_STREAM_SINK,
@@ -29,7 +30,29 @@ enum TDataSinkType {
     DATA_SPLIT_SINK,
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
-    OLAP_TABLE_SINK
+    OLAP_TABLE_SINK,
+    MEMORY_SCRATCH_SINK,
+    ODBC_TABLE_SINK
+}
+
+enum TResultSinkType {
+    MYSQL_PROTOCAL,
+    FILE
+}
+
+struct TResultFileSinkOptions {
+    1: required string file_path
+    2: required PlanNodes.TFileFormatType file_format
+    3: optional string column_separator    // only for csv
+    4: optional string line_delimiter  // only for csv
+    5: optional i64 max_file_size_bytes
+    6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
+    7: optional map<string, string> broker_properties // only for remote file
+    8: optional string success_file_name
+}
+
+struct TMemoryScratchSink {
+
 }
 
 // Sink which forwards data to a remote plan fragment,
@@ -47,8 +70,9 @@ struct TDataStreamSink {
   3: optional bool ignore_not_found
 }
 
-// Reserved for 
 struct TResultSink {
+    1: optional TResultSinkType type;
+    2: optional TResultFileSinkOptions file_options;
 }
 
 struct TMysqlTableSink {
@@ -58,6 +82,12 @@ struct TMysqlTableSink {
     4: required string passwd
     5: required string db
     6: required string table
+}
+
+struct TOdbcTableSink {
+    1: optional string connect_string
+    2: optional string table
+    3: optional bool use_transaction
 }
 
 // Following is used to split data read from 
@@ -99,6 +129,7 @@ struct TOlapTableSink {
     11: required Descriptors.TOlapTablePartitionParam partition
     12: required Descriptors.TOlapTableLocationParam location
     13: required Descriptors.TPaloNodesInfo nodes_info
+    14: optional i64 load_channel_timeout_s // the timeout of load channels in second
 }
 
 struct TDataSink {
@@ -109,5 +140,7 @@ struct TDataSink {
   5: optional TMysqlTableSink mysql_table_sink
   6: optional TExportSink export_sink
   7: optional TOlapTableSink olap_table_sink
+  8: optional TMemoryScratchSink memory_scratch_sink
+  9: optional TOdbcTableSink odbc_table_sink
 }
 

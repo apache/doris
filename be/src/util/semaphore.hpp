@@ -31,13 +31,13 @@ class Semaphore {
 
         void signal() {
             std::unique_lock<std::mutex> lock(_mutex);
-            ++count_;
-            cv_.notify_one();
+            ++_count;
+            _cv.notify_one();
         }
 
         void wait() {
             std::unique_lock<std::mutex> lock(_mutex);
-            cv_.wait(lock, [=] { return _count > 0; });
+            _cv.wait(lock, [=] { return _count > 0; });
             --_count;
         }
 

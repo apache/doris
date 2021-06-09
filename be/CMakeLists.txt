@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 2.8.10)
+cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -28,16 +28,46 @@ endif()
 
 project(doris CXX C)
 
+# set platforms
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
+    set (ARCH_AMD64 1)
+endif ()
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*)")
+    set (ARCH_AARCH64 1)
+endif ()
+if (ARCH_AARCH64 OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm")
+    set (ARCH_ARM 1)
+endif ()
+if (CMAKE_LIBRARY_ARCHITECTURE MATCHES "i386")
+    set (ARCH_I386 1)
+endif ()
+if ((ARCH_ARM AND NOT ARCH_AARCH64) OR ARCH_I386)
+    message (FATAL_ERROR "32bit platforms are not supported")
+endif ()
+
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(ppc64le.*|PPC64LE.*)")
+    set (ARCH_PPC64LE 1)
+endif ()
+
+option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
+message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")
+
 # set CMAKE_BUILD_TYPE
-if (DEFINED ENV{BUILD_TYPE})
-    set(CMAKE_BUILD_TYPE $ENV{BUILD_TYPE})
-endif()
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
 endif()
 
 string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
+
+# set CMAKE_BUILD_TARGET_ARCH
+# use `lscpu | grep 'Architecture' | awk '{print $2}'` only support system which language is en_US.UTF-8
+execute_process(COMMAND bash "-c" "uname -m"
+                OUTPUT_VARIABLE
+                CMAKE_BUILD_TARGET_ARCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -49,22 +79,21 @@ set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 
-# LLVM
-if (DEFINED ENV{DORIS_LLVM_HOME})
-    set(LLVM_HOME "$ENV{DORIS_LLVM_HOME}")
+if (APPLE)
+    set(MAKE_TEST "ON")
 else()
-    set(LLVM_HOME "${THIRDPARTY_DIR}/llvm")
+    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 endif()
-set(LLVM_BIN "${LLVM_HOME}/bin")
-
-option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
+message(STATUS "make test: ${MAKE_TEST}")
+option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
-        message(FATAL_ERROR "Need GCC version at least 4.8.2")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "7.3.0")
+        message(FATAL_ERROR "Need GCC version at least 7.3.0")
     endif()
-else()
+    message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
+elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
 endif()
 
@@ -77,6 +106,7 @@ if(PIC_LIB_PATH)
     set(LIBBZ2 ${PIC_LIB_PATH}/lib/libbz2.a)
     set(LIBZ ${PIC_LIB_PATH}/lib/libz.a)
     set(LIBEVENT ${PIC_LIB_PATH}/lib/libevent.a)
+    set(LIBEVENT_PTHREADS ${PIC_LIB_PATH}/lib/libevent_pthreads.a)
 else()
     message(STATUS "undefined PIC_LIB_PATH")
     set(Boost_USE_STATIC_LIBS ON)
@@ -84,6 +114,7 @@ else()
     set(LIBBZ2 -lbz2)
     set(LIBZ -lz)
     set(LIBEVENT event)
+    set(LIBEVENT_PTHREADS libevent_pthreads)
 endif()
 
 
@@ -91,7 +122,7 @@ endif()
 message(STATUS "build gensrc if necessary")
 execute_process(COMMAND make -C ${BASE_DIR}/../gensrc/
                 RESULT_VARIABLE MAKE_GENSRC_RESULT)
-if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0)
+if(NOT ${MAKE_GENSRC_RESULT} EQUAL 0 AND NOT APPLE)
     message(FATAL_ERROR "Failed to build ${BASE_DIR}/../gensrc/")
 endif()
 
@@ -99,10 +130,13 @@ endif()
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_NO_BOOST_CMAKE OFF)
 
-find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
-include_directories(${Boost_INCLUDE_DIRS})
-message(STATUS ${Boost_LIBRARIES})
+if (NOT APPLE)
+    find_package(Boost 1.73.0 REQUIRED COMPONENTS regex system filesystem thread date_time program_options)
+else()
+    find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
+endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -115,6 +149,9 @@ set_target_properties(glog PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/li
 
 add_library(re2 STATIC IMPORTED)
 set_target_properties(re2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libre2.a)
+
+add_library(odbc STATIC IMPORTED)
+set_target_properties(odbc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libodbc.a)
 
 add_library(pprof STATIC IMPORTED)
 set_target_properties(pprof PROPERTIES IMPORTED_LOCATION
@@ -151,17 +188,21 @@ set_target_properties(thrift PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(thriftnb STATIC IMPORTED)
 set_target_properties(thriftnb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libthriftnb.a)
 
-add_library(lzo STATIC IMPORTED)
-set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+if(WITH_LZO)
+    add_library(lzo STATIC IMPORTED)
+    set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
+endif()
 
-add_library(mysql STATIC IMPORTED)
-set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+if (WITH_MYSQL)
+    add_library(mysql STATIC IMPORTED)
+    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
+endif()
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
 
-add_library(LLVMSupport STATIC IMPORTED)
-set_target_properties(LLVMSupport PROPERTIES IMPORTED_LOCATION ${LLVM_HOME}/lib/libLLVMSupport.a)
+add_library(libevent_pthreads STATIC IMPORTED)
+set_target_properties(libevent_pthreads PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent_pthreads.a)
 
 add_library(crypto STATIC IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
@@ -171,6 +212,30 @@ set_target_properties(openssl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 
 add_library(leveldb STATIC IMPORTED)
 set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libleveldb.a)
+
+add_library(jemalloc STATIC IMPORTED)
+set_target_properties(jemalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libjemalloc.a)
+
+add_library(brotlicommon STATIC IMPORTED)
+set_target_properties(brotlicommon PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlicommon.a)
+
+add_library(brotlidec STATIC IMPORTED)
+set_target_properties(brotlidec PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlidec.a)
+
+add_library(brotlienc STATIC IMPORTED)
+set_target_properties(brotlienc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrotlienc.a)
+
+add_library(zstd STATIC IMPORTED)
+set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libzstd.a)
+
+add_library(arrow STATIC IMPORTED)
+set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
+
+add_library(double-conversion STATIC IMPORTED)
+set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
+
+add_library(parquet STATIC IMPORTED)
+set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
 
 add_library(brpc STATIC IMPORTED)
 set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
@@ -184,71 +249,72 @@ set_target_properties(librdkafka_cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_D
 add_library(librdkafka STATIC IMPORTED)
 set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
 
+add_library(libs2 STATIC IMPORTED)
+set_target_properties(libs2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libs2.a)
+
+add_library(bitshuffle STATIC IMPORTED)
+set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbitshuffle.a)
+
+add_library(roaring STATIC IMPORTED)
+set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
+
+add_library(fmt STATIC IMPORTED)
+set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
+
+add_library(orc STATIC IMPORTED)
+set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
+
+add_library(cctz STATIC IMPORTED)
+set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
+
+add_library(aws-sdk-core STATIC IMPORTED)
+set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-core.a)
+
+add_library(aws-sdk-s3 STATIC IMPORTED)
+set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
+
+add_library(aws-c-cal STATIC IMPORTED)
+set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
+
+add_library(aws-c-common STATIC IMPORTED)
+set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
+
+add_library(aws-c-event-stream STATIC IMPORTED)
+set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-event-stream.a)
+
+add_library(aws-c-io STATIC IMPORTED)
+set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
+
+add_library(aws-checksums STATIC IMPORTED)
+set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
+
+add_library(aws-s2n STATIC IMPORTED)
+set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
+
+add_library(minzip STATIC IMPORTED)
+set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
+
+add_library(hdfs3 STATIC IMPORTED)
+set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
+
+add_library(gsasl STATIC IMPORTED)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
+add_library(xml2 STATIC IMPORTED)
+set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+
+add_library(lzma STATIC IMPORTED)
+set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
-# llvm-config
-find_program(LLVM_CONFIG_EXECUTABLE llvm-config
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
+# Check if functions are supported in this platform. All flags will generated
+# in gensrc/build/common/env_config.h.
+# You can check funcion here which depends on platform. Don't forget add this
+# to be/src/common/env_config.h.in
+include(CheckFunctionExists)
+check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 
-if (NOT LLVM_CONFIG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm-config")
-endif (NOT LLVM_CONFIG_EXECUTABLE)
-
-# clang++
-find_program(LLVM_CLANG_EXECUTABLE clang++
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
-
-if (NOT LLVM_CLANG_EXECUTABLE)
-  message(FATAL_ERROR "Could not find clang++")
-endif (NOT LLVM_CLANG_EXECUTABLE)
-
-# opt
-find_program(LLVM_OPT_EXECUTABLE opt
-  PATHS
-  ${LLVM_BIN}
-  NO_DEFAULT_PATH
-)
-
-if (NOT LLVM_OPT_EXECUTABLE)
-  message(FATAL_ERROR "Could not find llvm opt")
-endif (NOT LLVM_OPT_EXECUTABLE)
-
-message(STATUS "LLVM llvm-config found at: ${LLVM_CONFIG_EXECUTABLE}")
-message(STATUS "LLVM clang++ found at: ${LLVM_CLANG_EXECUTABLE}")
-message(STATUS "LLVM opt found at: ${LLVM_OPT_EXECUTABLE}")
-
-# Get all llvm depends
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --includedir
-  OUTPUT_VARIABLE LLVM_INCLUDE_DIR
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --libdir
-  OUTPUT_VARIABLE LLVM_LIBRARY_DIR
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --ldflags
-  OUTPUT_VARIABLE LLVM_LFLAGS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-# Get the link libs we need.  llvm has many and we don't want to link all of the libs
-# if we don't need them.   
-execute_process(
-  COMMAND ${LLVM_CONFIG_EXECUTABLE} --libnames core mcjit native ipo bitreader target
-  OUTPUT_VARIABLE LLVM_MODULE_LIBS
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
 # compiler flags that are common across debug/release builds
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
@@ -263,12 +329,27 @@ execute_process(
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
+# Enable the cpu and heap profile of brpc
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
+# https://github.com/boostorg/uuid/issues/92
+# We need to avoid using SYS_getrandom system calls
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+endif()
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
+
+if (WITH_MYSQL)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
+endif()
+
+if (WITH_LZO)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
+endif()
 
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
@@ -277,14 +358,14 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "-g -Wno-unused-local-typedefs")
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
 #   -ggdb: Enable gdb debugging
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -292,24 +373,21 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb")
 #   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
 
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -fsanitize=undefined")
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
 # Ignore a number of noisy errors with too many false positives:
-# TODO(zc): 
+# TODO(zc):
 # SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
 # Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
-# undefined wrapping:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-wrapv")
-# To ease debugging, turn off all optimizations:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -O0")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
+# Use -Wno-builtin-declaration-mismatch to mute warnings like "new declaration ‘__tsan_atomic16 __tsan_atomic16_fetch_nand(..."
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER -Wno-builtin-declaration-mismatch")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -333,78 +411,17 @@ SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS}")
 
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
+if (CMAKE_GENERATOR STREQUAL "Ninja" AND NOT DISABLE_COLORED_BUILD)
+    # Turn on colored output. https://github.com/ninja-build/ninja/wiki/FAQ
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
+endif ()
+
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
-# TODO: this does not work well.  the config file will output -I/<include path> and
-# also -DNDEBUG.  I've hard coded the #define that are necessary but we should make
-# this better.  The necesesary flags are only #defines so maybe just def/undef those
-# around #include to llvm headers?
-#execute_process(
-#  COMMAND ${LLVM_CONFIG_EXECUTABLE} --cppflags
-#  OUTPUT_VARIABLE LLVM_CFLAGS
-#  OUTPUT_STRIP_TRAILING_WHITESPACE
-#)
-set(LLVM_CFLAGS 
-    "-D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS")
-if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "5.0.0")
-    message(STATUS "GCC version is less than 5.0.0, no need to set -D__GLIBCXX_BITSIZE_INT_N_0=128 and -D__GLIBCXX_TYPE_INT_N_0=__int128")
-else()
-    SET(LLVM_CFLAGS "${LLVM_LFLAGS} -D__GLIBCXX_BITSIZE_INT_N_0=128 -D__GLIBCXX_TYPE_INT_N_0=__int128")
-endif()
-
-# Set clang flags for cross-compiling to IR.
-# IR_COMPILE is #defined for the cross compile to remove code that bloats the IR.
-# Note that we don't enable any optimization. We want unoptimized IR since we will be
-# modifying it at runtime, then re-compiling (and optimizing) the modified code. The final
-# optimizations will be less effective if the initial code is also optimized.
-set(CLANG_IR_CXX_FLAGS "-gcc-toolchain" ${GCC_HOME})
-set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-std=c++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128" "-DLLVM_ON_UNIX")
-
-message(STATUS "CLANG_IR_CXX_FLAGS: ${CLANG_IR_CXX_FLAGS}")
-
-# CMake really doesn't like adding link directories and wants absolute paths
-# Reconstruct it with LLVM_MODULE_LIBS and LLVM_LIBRARY_DIR
-string(REPLACE " " ";" LLVM_LIBS_LIST ${LLVM_MODULE_LIBS})
-set (LLVM_MODULE_LIBS "")
-foreach (LIB ${LLVM_LIBS_LIST})
-  set(LLVM_MODULE_LIBS ${LLVM_MODULE_LIBS} "${LLVM_LIBRARY_DIR}/${LIB}")
-endforeach(LIB)
-
-message(STATUS "LLVM include dir: ${LLVM_INCLUDE_DIR}")
-message(STATUS "LLVM lib dir: ${LLVM_LIBRARY_DIR}")
-message(STATUS "LLVM libs: ${LLVM_MODULE_LIBS}")
-message(STATUS "LLVM compile flags: ${LLVM_CFLAGS}")
-
-# When the Toolchain is used we use LLVM 3.3 that was built in a different path that it
-# is invoked from, and a GCC that resides in a different location. LVVM 3.3 relies on
-# hard-coded path information about where to find the system headers and does not support
-# specifying the -gcc-toolchain flag to dynamically provide this information. Because of
-# these reasons we need to manually add the system c++ headers to the path when we
-# compile the IR code with clang.
-
-if(DEFINED ENV{CLANG_COMPATIBLE_FLAGS})
-    set(CLANG_COMPATIBLE_FLAGS $ENV{CLANG_COMPATIBLE_FLAGS})
-endif()
-
-message(STATUS "CLANG_BASE_FLAGS: ${CLANG_BASE_FLAGS}")
-message(STATUS "CLANG_COMPATIBLE_FLAGS: ${CLANG_COMPATIBLE_FLAGS}")
-
-set(CLANG_INCLUDE_FLAGS
-    "-I${LLVM_HOME}/include"
-    "-I${BASE_DIR}/src"
-    "-I${GENSRC_DIR}"
-    "-I${THIRDPARTY_DIR}/include"
-    "-I${THIRDPARTY_DIR}/include/thrift/"
-    "-I${THIRDPARTY_DIR}/include/event/"
-    "-I${GPERFTOOLS_HOME}/include"
-    ${CLANG_BASE_FLAGS}
-    ${CLANG_COMPATIBLE_FLAGS}
-)
-
 # Set include dirs
-include_directories(${LLVM_INCLUDE_DIR})
-include_directories( 
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
     ${GENSRC_DIR}/
@@ -414,20 +431,24 @@ include_directories(
     ${THIRDPARTY_DIR}/include/event/
 )
 
-
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
+
+set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
 
 # Set Palo libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
-    CodeGen
     Common
+    Env
     Exec
     Exprs
     Gutil
+    Memory
     Olap
+    Rowset
+    OlapFs
     Runtime
     Service
     Udf
@@ -435,19 +456,26 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     TestUtil
+    Geo
+    Plugin
     ${WL_END_GROUP}
 )
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
     ${WL_START_GROUP}
     rocksdb
     librdkafka_cpp
     librdkafka
-    lzo
+    libs2
     snappy
-    ${Boost_LIBRARIES}
-    ${LLVM_MODULE_LIBS}
+    Boost::regex
+    Boost::system
+    Boost::filesystem
+    Boost::thread
+    Boost::date_time
+    Boost::program_options
     thrift
     thriftnb
     glog
@@ -455,7 +483,7 @@ set(DORIS_DEPENDENCIES
     pprof
     lz4
     libevent
-    mysql
+    libevent_pthreads
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -465,8 +493,40 @@ set(DORIS_DEPENDENCIES
     openssl
     crypto
     leveldb
+    bitshuffle
+    roaring
+    fmt
+    double-conversion
+    jemalloc
+    brotlicommon
+    brotlidec
+    brotlienc
+    zstd
+    arrow
+    parquet
+    orc
+    odbc
+    cctz
+    minzip
+    hdfs3
+    gsasl
+    xml2
+    lzma
+    ${AWS_LIBS}
     ${WL_END_GROUP}
 )
+
+if(WITH_LZO)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        lzo
+    )
+endif()
+
+if (WITH_MYSQL)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+        mysql
+        )
+endif()
 
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
@@ -493,20 +553,26 @@ elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libubsan tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libtsan)
+    add_definitions("-DTHREAD_SANITIZER")
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
 )
 
+if (GLIBC_COMPATIBILITY)
+    add_subdirectory(${SRC_DIR}/glibc-compatibility)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} glibc-compatibility)
+endif()
+
 # Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS} 
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
+    Test_util
     gmock
     gtest
-    LLVMSupport
     ${WL_END_GROUP}
 )
 
@@ -519,50 +585,77 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_definitions(-DBE_TEST)
 endif ()
 
-add_subdirectory(${SRC_DIR}/codegen)
-add_subdirectory(${SRC_DIR}/common)
-add_subdirectory(${SRC_DIR}/util)
-add_subdirectory(${SRC_DIR}/gen_cpp)
-add_subdirectory(${SRC_DIR}/gutil)
-add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/http)
-add_subdirectory(${SRC_DIR}/service)
+add_subdirectory(${SRC_DIR}/common)
+add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
-add_subdirectory(${SRC_DIR}/udf)
+add_subdirectory(${SRC_DIR}/gen_cpp)
+add_subdirectory(${SRC_DIR}/geo)
+add_subdirectory(${SRC_DIR}/gutil)
+add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
+add_subdirectory(${SRC_DIR}/service)
 add_subdirectory(${SRC_DIR}/testutil)
+#add_subdirectory(${SRC_DIR}/tools)
+add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
-add_subdirectory(${SRC_DIR}/udf_samples)
+add_subdirectory(${SRC_DIR}/util)
+add_subdirectory(${SRC_DIR}/plugin)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
+    # use argn to add additional files
+    set(ADDITIONAL_FILES ${ARGN})
     set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
     # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
     get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
     get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
 
-    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp)
+    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp ${ADDITIONAL_FILES})
     TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
     if (NOT "${TEST_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${DIR_NAME}/${TEST_DIR_NAME}")
+        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
     endif()
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
 ENDFUNCTION()
 
+FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
+    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
+
+    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
+    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
+
+    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
+
+    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
+    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
+        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
+    endif ()
+
+ENDFUNCTION()
+
 if (${MAKE_TEST} STREQUAL "ON")
+    add_subdirectory(${TEST_DIR}/test_util)
     add_subdirectory(${TEST_DIR}/agent)
-    add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/common)
-    add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/env)
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
-    add_subdirectory(${TEST_DIR}/runtime)
+    add_subdirectory(${TEST_DIR}/geo)
     add_subdirectory(${TEST_DIR}/http)
+    add_subdirectory(${TEST_DIR}/olap)
+    add_subdirectory(${TEST_DIR}/runtime)
+    add_subdirectory(${TEST_DIR}/udf)
+    add_subdirectory(${TEST_DIR}/util)
+    add_subdirectory(${TEST_DIR}/plugin)
+    add_subdirectory(${TEST_DIR}/plugin/example)
 endif ()
 
 # Install be
@@ -580,5 +673,6 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/../conf/be.conf
+    ${BASE_DIR}/../conf/odbcinst.ini
     DESTINATION ${OUTPUT_DIR}/conf)
 

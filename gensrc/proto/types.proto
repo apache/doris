@@ -18,6 +18,7 @@
 syntax="proto2";
 
 package doris;
+option java_package = "org.apache.doris.proto";
 
 message PScalarType {
     // TPrimitiveType, use int32 to avoid redefine Enum

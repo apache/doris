@@ -17,10 +17,10 @@
 
 package org.apache.doris.broker.hdfs;
 
+import junit.framework.TestCase;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
-
 import org.junit.Test;
 
 import java.io.IOException;
@@ -28,8 +28,6 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import junit.framework.TestCase;
 
 public class TestFileSystemManager extends TestCase {
 
@@ -201,5 +199,16 @@ public class TestFileSystemManager extends TestCase {
         fileSystemManager.deletePath(tempFile2, properties);
         isPathExist = fileSystemManager.checkPathExist(tempFile2, properties);
         assertFalse(isPathExist);
+    }
+
+    @Test
+    public void testGetFileSystemForS3aScheme() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("fs.s3a.access.key", "accessKey");
+        properties.put("fs.s3a.secret.key", "secretKey");
+        properties.put("fs.s3a.endpoint", "s3.test.com");
+        BrokerFileSystem fs = fileSystemManager.getFileSystem("s3a://testbucket/data/abc/logs", properties);
+        assertNotNull(fs);
+        fs.getDFSFileSystem().close();
     }
 }

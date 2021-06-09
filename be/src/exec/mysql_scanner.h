@@ -15,15 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
-#define  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
 
 #include <stdlib.h>
+
 #include <string>
 #include <vector>
-#include <mysql/mysql.h>
 
 #include "common/status.h"
+
+#ifndef __DorisMysql
+#define __DorisMysql void
+#endif
+
+#ifndef __DorisMysqlRes
+#define __DorisMysqlRes void
+#endif
 
 namespace doris {
 
@@ -34,7 +42,7 @@ struct MysqlScannerParam {
     std::string passwd;
     std::string db;
     unsigned long client_flag;
-    MysqlScannerParam(): client_flag(0) { }
+    MysqlScannerParam() : client_flag(0) {}
 };
 
 // Mysql Scanner for scan data from mysql
@@ -48,28 +56,22 @@ public:
 
     // query for DORIS
     Status query(const std::string& table, const std::vector<std::string>& fields,
-                 const std::vector<std::string>& filters);
-    Status get_next_row(char** *buf, unsigned long** lengths, bool* eos);
+                 const std::vector<std::string>& filters, const uint64_t limit);
+    Status get_next_row(char*** buf, unsigned long** lengths, bool* eos);
 
-    int field_num() const {
-        return _field_num;
-    }
+    int field_num() const { return _field_num; }
+
 private:
-    Status _error_status(const std::string& prefix) {
-        std::stringstream msg;
-        msg << prefix << " Err: " << mysql_error(_my_conn);
-        LOG(WARNING) << msg.str();
-        return Status(msg.str());
-    }
+    Status _error_status(const std::string& prefix);
 
     const MysqlScannerParam& _my_param;
-    MYSQL* _my_conn;
-    MYSQL_RES* _my_result;
+    __DorisMysql* _my_conn;
+    __DorisMysqlRes* _my_result;
     std::string _sql_str;
     bool _is_open;
     int _field_num;
 };
 
-}
+} // namespace doris
 
 #endif

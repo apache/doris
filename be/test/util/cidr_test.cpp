@@ -17,12 +17,13 @@
 
 #include "util/cidr.h"
 
-#include <stdlib.h>
+#include <gtest/gtest.h>
 #include <stdio.h>
+#include <stdlib.h>
+
 #include <iostream>
 
-#include <gtest/gtest.h>
-
+#include "common/configbase.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
@@ -57,14 +58,7 @@ TEST(CIDR, contains) {
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
-

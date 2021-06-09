@@ -15,34 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/plain_text_line_reader.h"
-
 #include <gtest/gtest.h>
 
-#include "exec/local_file_reader.h"
 #include "exec/decompressor.h"
+#include "exec/local_file_reader.h"
+#include "exec/plain_text_line_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 class PlainTextLineReaderTest : public testing::Test {
 public:
-    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {
-    }
+    PlainTextLineReaderTest() : _profile("TestProfile") {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
-    ObjectPool _obj_pool;
     RuntimeProfile _profile;
 };
 
 TEST_F(PlainTextLineReaderTest, bzip2_normal_use) {
-    LocalFileReader file_reader(
-            "./be/test/exec/test_data/plain_text_line_reader/test_file.csv.bz2", 0);
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/test_file.csv.bz2",
+                                0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
 
@@ -50,7 +46,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_normal_use) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -89,6 +85,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_normal_use) {
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, bzip2_test_limit) {
@@ -100,7 +97,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -125,6 +122,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit) {
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, bzip2_test_limit2) {
@@ -136,7 +134,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit2) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -148,6 +146,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit2) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, bzip2_test_limit3) {
@@ -159,7 +158,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit3) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -177,6 +176,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit3) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, bzip2_test_limit4) {
@@ -188,7 +188,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit4) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -206,6 +206,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit4) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, bzip2_test_limit5) {
@@ -217,7 +218,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit5) {
     st = Decompressor::create_decompressor(CompressType::BZIP2, &decompressor);
     ASSERT_TRUE(st.ok());
 
-    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, '\n');
+    PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
@@ -225,6 +226,7 @@ TEST_F(PlainTextLineReaderTest, bzip2_test_limit5) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 } // end namespace doris

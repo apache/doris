@@ -42,6 +42,7 @@ const i64 DEFAULT_PARTITION_ID = -1;
 enum TQueryType {
     SELECT,
     LOAD,
+    EXTERNAL
 }
 
 enum TErrorHubType {
@@ -96,7 +97,7 @@ struct TQueryOptions {
   15: optional bool is_report_success = 0
   16: optional i32 codegen_level = 0
   // INT64::MAX
-  17: optional i64 kudu_latest_observed_ts = 9223372036854775807
+  17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
   19: optional i64 min_reservation = 0
   20: optional i64 max_reservation = 107374182400
@@ -126,7 +127,21 @@ struct TQueryOptions {
 
   // multithreaded degree of intra-node parallelism
   27: optional i32 mt_dop = 0;
+  // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
+  // of load channel.
+  28: optional i64 load_mem_limit = 0;
+  // see BE config `doris_max_scan_key_num` for details
+  // if set, this will overwrite the BE config.
+  29: optional i32 max_scan_key_num;
+  // see BE config `max_pushdown_conditions_per_column` for details
+  // if set, this will overwrite the BE config.
+  30: optional i32 max_pushdown_conditions_per_column
+  // whether enable spilling to disk
+  31: optional bool enable_spilling = false;
+  // whether enable parallel merge in exchange node
+  32: optional bool enable_enable_exchange_node_parallel_merge = false;
 }
+    
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -181,7 +196,16 @@ struct TPlanFragmentExecParams {
 // Global query parameters assigned by the coordinator.
 struct TQueryGlobals {
   // String containing a timestamp set as the current time.
+  // Format is yyyy-MM-dd HH:mm:ss
   1: required string now_string
+
+  // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
+  // this query to calculate time zone relative function 
+  2: optional i64 timestamp_ms
+
+  // time_zone is the timezone this query used.
+  // If this value is set, BE will ignore now_string
+  3: optional string time_zone
 }
 
 
@@ -201,6 +225,7 @@ struct TExecPlanFragmentParams {
   2: optional Planner.TPlanFragment fragment
 
   // required in V1
+  // @Common components
   3: optional Descriptors.TDescriptorTable desc_tbl
 
   // required in V1
@@ -209,6 +234,7 @@ struct TExecPlanFragmentParams {
   // Initiating coordinator.
   // TODO: determine whether we can get this somehow via the Thrift rpc mechanism.
   // required in V1
+  // @Common components
   5: optional Types.TNetworkAddress coord
 
   // backend number assigned by coord to identify backend
@@ -217,6 +243,7 @@ struct TExecPlanFragmentParams {
 
   // Global query parameters assigned by coordinator.
   // required in V1
+  // @Common components
   7: optional TQueryGlobals query_globals
 
   // options for the query
@@ -228,6 +255,7 @@ struct TExecPlanFragmentParams {
   9: optional bool is_report_success
 
   // required in V1
+  // @Common components
   10: optional Types.TResourceInfo resource_info
 
   // load job related
@@ -235,6 +263,13 @@ struct TExecPlanFragmentParams {
   12: optional string db_name
   13: optional i64 load_job_id
   14: optional TLoadErrorHubInfo load_error_hub_info
+
+  // The total number of fragments on same BE host
+  15: optional i32 fragment_num_on_host;
+
+  // If true, all @Common components is unset and should be got from BE's cache
+  // If this field is unset or it set to false, all @Common components is set.
+  16: optional bool is_simplified_param
 }
 
 struct TExecPlanFragmentResult {

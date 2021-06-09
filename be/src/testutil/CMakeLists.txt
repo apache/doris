@@ -23,5 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/testutil")
 
 add_library(TestUtil
     desc_tbl_builder.cc
+    function_utils.cpp
 )
 

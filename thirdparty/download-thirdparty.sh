@@ -174,6 +174,7 @@ UNZIP_CMD="unzip"
 SUFFIX_TGZ="\.(tar\.gz|tgz)$"
 SUFFIX_XZ="\.tar\.xz$"
 SUFFIX_ZIP="\.zip$"
+SUFFIX_BZ2="\.tar\.bz2$"
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
     NAME=$TP_ARCH"_NAME"
@@ -199,8 +200,13 @@ do
                 exit 1
             fi
         elif [[ "${!NAME}" =~ $SUFFIX_ZIP ]]; then
-            if ! $UNZIP_CMD "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
+            if ! $UNZIP_CMD -qq "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
                 echo "Failed to unzip ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ $SUFFIX_BZ2 ]]; then
+            if ! $TAR_CMD xf "$TP_SOURCE_DIR/${!NAME}" -C "$TP_SOURCE_DIR/"; then
+                echo "Failed to untar ${!NAME}"
                 exit 1
             fi
         fi
@@ -225,6 +231,8 @@ if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-vlog-double-lock-bug.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-for-palo2.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-remove-unwind-dependency.patch
+    # patch Makefile.am to make autoreconf work
+    patch -p0 < $TP_PATCH_DIR/glog-0.3.3-makefile.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -243,6 +251,7 @@ echo "Finished patching $RE2_SOURCE"
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p0 < $TP_PATCH_DIR/mysql-5.7.18.patch
+    patch -Rp0 < $TP_PATCH_DIR/mysql-5.7.18-boost.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -277,6 +286,15 @@ if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     echo "Finished patching $COMPILER_RT_SOURCE"
 fi
 
+# patch to llvm to support aarch64 platform
+cd $TP_SOURCE_DIR/$LLVM_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/llvm-3.4.2.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LLVM_SOURCE"
+
 # lz4 patch to disable shared library
 cd $TP_SOURCE_DIR/$LZ4_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
@@ -286,13 +304,22 @@ fi
 cd -
 echo "Finished patching $LZ4_SOURCE"
 
-# brpc patch to disable shared library
-cd $TP_SOURCE_DIR/$BRPC_SOURCE
+# s2 patch to disable shared library
+cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/brpc-0.9.0.patch
+    patch -p1 < $TP_PATCH_DIR/s2geometry-0.9.0.patch
+    # replace uint64 with uint64_t to make compiler happy
+    patch -p0 < $TP_PATCH_DIR/s2geometry-0.9.0-uint64.patch
     touch $PATCHED_MARK
 fi
 cd -
-echo "Finished patching $BRPC_SOURCE"
+echo "Finished patching $S2_SOURCE"
 
-
+# hdfs3 patch to fix compile error
+cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libhdfs3-master.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $HDFS3_SOURCE"

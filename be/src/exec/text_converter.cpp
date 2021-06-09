@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "text_converter.h"
+
 #include <boost/algorithm/string.hpp>
 
 #include "runtime/descriptors.h"
@@ -22,14 +24,11 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
-#include "text_converter.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
 
-TextConverter::TextConverter(char escape_char)
-    : _escape_char(escape_char) {
-}
+TextConverter::TextConverter(char escape_char) : _escape_char(escape_char) {}
 
 void TextConverter::unescape_string(StringValue* value, MemPool* pool) {
     char* new_data = reinterpret_cast<char*>(pool->allocate(value->len));
@@ -37,7 +36,7 @@ void TextConverter::unescape_string(StringValue* value, MemPool* pool) {
     value->ptr = new_data;
 }
 
-void TextConverter::unescape_string(const char* src, char* dest, int* len) {
+void TextConverter::unescape_string(const char* src, char* dest, size_t* len) {
     char* dest_ptr = dest;
     const char* end = src + *len;
     bool escape_next_char = false;
@@ -60,4 +59,4 @@ void TextConverter::unescape_string(const char* src, char* dest, int* len) {
     *len = dest_ptr - dest_start;
 }
 
-}
+} // namespace doris

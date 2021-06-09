@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
 
 #include "runtime/runtime_state.h"
-
 #include "runtime/types.h"
 
 namespace doris {
@@ -53,22 +52,21 @@ private:
 
     std::vector<TupleDescBuilder*> _tuples_descs;
 
-    TTupleDescriptor build_tuple(
-            const std::vector<TypeDescriptor>& slot_types, TDescriptorTable* thrift_desc_tbl,
-            int* tuple_id, int* slot_id);
+    TTupleDescriptor build_tuple(const std::vector<TypeDescriptor>& slot_types,
+                                 TDescriptorTable* thrift_desc_tbl, int* tuple_id, int* slot_id);
 };
 
 class TupleDescBuilder {
-    public:
-        TupleDescBuilder& operator<< (const TypeDescriptor& slot_type) {
-            _slot_types.push_back(slot_type);
-            return *this;
-        }
+public:
+    TupleDescBuilder& operator<<(const TypeDescriptor& slot_type) {
+        _slot_types.push_back(slot_type);
+        return *this;
+    }
 
-        std::vector<TypeDescriptor> slot_types() const { return _slot_types; }
+    std::vector<TypeDescriptor> slot_types() const { return _slot_types; }
 
-    private:
-        std::vector<TypeDescriptor> _slot_types;
+private:
+    std::vector<TypeDescriptor> _slot_types;
 };
 
 } // end namespace doris

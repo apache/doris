@@ -17,9 +17,10 @@
 
 #include "runtime/message_body_sink.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+
 #include <algorithm>
 
 #include "util/runtime_profile.h"
@@ -33,25 +34,24 @@ MessageBodyFileSink::~MessageBodyFileSink() {
 }
 
 Status MessageBodyFileSink::open() {
-    _fd = ::open(_path.data(), O_RDWR|O_CREAT|O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    _fd = ::open(_path.data(), O_RDWR | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
     if (_fd < 0) {
         char errmsg[64];
         LOG(WARNING) << "fail to open file, file=" << _path
-            << ", errmsg=" << strerror_r(errno, errmsg, 64);
-        return Status("fail to open file");
+                     << ", errmsg=" << strerror_r(errno, errmsg, 64);
+        return Status::InternalError("fail to open file");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status MessageBodyFileSink::append(const char* data, size_t size) {
     auto written = ::write(_fd, data, size);
     if (written == size) {
-        return Status::OK;
+        return Status::OK();
     }
     char errmsg[64];
-    LOG(WARNING) << "fail to write, file=" << _path
-        << ", error=" << strerror_r(errno, errmsg, 64);
-    return Status("fail to write file");
+    LOG(WARNING) << "fail to write, file=" << _path << ", error=" << strerror_r(errno, errmsg, 64);
+    return Status::InternalError("fail to write file");
 }
 
 Status MessageBodyFileSink::finish() {
@@ -59,16 +59,16 @@ Status MessageBodyFileSink::finish() {
         std::stringstream ss;
         char errmsg[64];
         LOG(WARNING) << "fail to write, file=" << _path
-            << ", error=" << strerror_r(errno, errmsg, 64);
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         _fd = -1;
-        return Status("fail to close file");
+        return Status::InternalError("fail to close file");
     }
     _fd = -1;
-    return Status::OK;
+    return Status::OK();
 }
 
 void MessageBodyFileSink::cancel() {
     unlink(_path.data());
 }
 
-}
+} // namespace doris

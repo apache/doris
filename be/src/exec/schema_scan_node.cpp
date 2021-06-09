@@ -18,34 +18,32 @@
 #include "schema_scan_node.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/foreach.hpp>
 
-#include "exec/text_converter.hpp"
 #include "exec/schema_scanner/schema_helper.h"
+#include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-SchemaScanNode::SchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                               const DescriptorTbl& descs)
-    : ScanNode(pool, tnode, descs),
-      _is_init(false),
-      _table_name(tnode.schema_scan_node.table_name),
-      _tuple_id(tnode.schema_scan_node.tuple_id),
-      _src_tuple_desc(NULL),
-      _dest_tuple_desc(NULL),
-      _tuple_idx(0),
-      _slot_num(0),
-      _tuple_pool(NULL),
-      _schema_scanner(NULL),
-      _src_tuple(NULL),
-      _dest_tuple(NULL) {
-}
+SchemaScanNode::SchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.schema_scan_node.table_name),
+          _tuple_id(tnode.schema_scan_node.tuple_id),
+          _src_tuple_desc(NULL),
+          _dest_tuple_desc(NULL),
+          _tuple_idx(0),
+          _slot_num(0),
+          _tuple_pool(NULL),
+          _schema_scanner(NULL),
+          _src_tuple(NULL),
+          _dest_tuple(NULL) {}
 
 SchemaScanNode::~SchemaScanNode() {
     delete[] reinterpret_cast<char*>(_src_tuple);
@@ -66,18 +64,21 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.wild = _pool->add(new std::string(tnode.schema_scan_node.wild));
     }
 
-    if (tnode.schema_scan_node.__isset.user) {
-        _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
+    if (tnode.schema_scan_node.__isset.current_user_ident) {
+        _scanner_param.current_user_ident =
+                _pool->add(new TUserIdentity(tnode.schema_scan_node.current_user_ident));
+    } else {
+        if (tnode.schema_scan_node.__isset.user) {
+            _scanner_param.user = _pool->add(new std::string(tnode.schema_scan_node.user));
+        }
+        if (tnode.schema_scan_node.__isset.user_ip) {
+            _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
+        }
     }
 
     if (tnode.schema_scan_node.__isset.ip) {
         _scanner_param.ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
     }
-
-    if (tnode.schema_scan_node.__isset.user_ip) {
-        _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
-    }
-
     if (tnode.schema_scan_node.__isset.port) {
         _scanner_param.port = tnode.schema_scan_node.port;
     }
@@ -85,48 +86,48 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.schema_scan_node.__isset.thread_id) {
         _scanner_param.thread_id = tnode.schema_scan_node.thread_id;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaScanNode::prepare(RuntimeState* state) {
     if (_is_init) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (NULL == state) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // new one mem pool
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker()));
+    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
 
     if (NULL == _tuple_pool.get()) {
-        return Status("Allocate MemPool failed.");
+        return Status::InternalError("Allocate MemPool failed.");
     }
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
     if (NULL == _dest_tuple_desc) {
-        return Status("Failed to get tuple descriptor.");
+        return Status::InternalError("Failed to get tuple descriptor.");
     }
 
     _slot_num = _dest_tuple_desc->slots().size();
     // get src tuple desc
     const SchemaTableDescriptor* schema_table =
-        static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
+            static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
 
     if (NULL == schema_table) {
-        return Status("Failed to get schema table descriptor.");
+        return Status::InternalError("Failed to get schema table descriptor.");
     }
 
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
 
     if (NULL == _schema_scanner.get()) {
-        return Status("schema scanner get NULL pointer.");
+        return Status::InternalError("schema scanner get NULL pointer.");
     }
 
     RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
@@ -134,13 +135,13 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     _src_tuple_desc = _schema_scanner->tuple_desc();
 
     if (NULL == _src_tuple_desc) {
-        return Status("failed to get src schema tuple desc.");
+        return Status::InternalError("failed to get src schema tuple desc.");
     }
 
-    _src_tuple = reinterpret_cast<Tuple*>(new(std::nothrow) char[_src_tuple_desc->byte_size()]);
+    _src_tuple = reinterpret_cast<Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
 
     if (NULL == _src_tuple) {
-        return Status("new src tuple failed.");
+        return Status::InternalError("new src tuple failed.");
     }
 
     // if src tuple desc slots is zero, it's the dummy slots.
@@ -157,21 +158,21 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         int j = 0;
         for (; j < _src_tuple_desc->slots().size(); ++j) {
             if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(),
-                    _src_tuple_desc->slots()[j]->col_name())) {
+                               _src_tuple_desc->slots()[j]->col_name())) {
                 break;
             }
         }
 
         if (j >= _src_tuple_desc->slots().size()) {
             LOG(WARNING) << "no match column for this column("
-                << _dest_tuple_desc->slots()[i]->col_name() << ")";
-            return Status("no match column for this column.");
+                         << _dest_tuple_desc->slots()[i]->col_name() << ")";
+            return Status::InternalError("no match column for this column.");
         }
 
         if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
             LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->type()
                          << " and output is " << _dest_tuple_desc->slots()[i]->type();
-            return Status("schema not match.");
+            return Status::InternalError("schema not match.");
         }
         _index_map[i] = j;
     }
@@ -180,16 +181,16 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     _tuple_idx = 0;
     _is_init = true;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaScanNode::open(RuntimeState* state) {
     if (!_is_init) {
-        return Status("Open before Init.");
+        return Status::InternalError("Open before Init.");
     }
 
     if (NULL == state) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -228,23 +229,21 @@ void SchemaScanNode::copy_one_row() {
     }
 }
 
-Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
-                               bool* eos) {
+Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     if (!_is_init) {
-        return Status("GetNext before Init.");
+        return Status::InternalError("GetNext before Init.");
     }
 
     if (NULL == state || NULL == row_batch || NULL == eos) {
-        return Status("input pointer is NULL.");
+        return Status::InternalError("input pointer is NULL.");
     }
 
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(materialize_tuple_timer());
 
     if (reached_limit()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // create new tuple buffer for row_batch
@@ -252,7 +251,7 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     void* tuple_buffer = _tuple_pool->allocate(tuple_buffer_size);
 
     if (NULL == tuple_buffer) {
-        return Status("Allocate tuple buffer failed.");
+        return Status::InternalError("Allocate tuple buffer failed.");
     }
 
     // no use to clear, because CopyOneRow can clear
@@ -268,16 +267,15 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
             // next get_next() call
             row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), !reached_limit());
             *eos = reached_limit();
-            return Status::OK;
+            return Status::OK();
         }
 
-        RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_tuple,
-                        _tuple_pool.get(), &scanner_eos));
+        RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_tuple, _tuple_pool.get(), &scanner_eos));
 
         if (scanner_eos) {
             row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
             *eos = true;
-            return Status::OK;
+            return Status::OK();
         }
 
         int row_idx = row_batch->add_row();
@@ -297,25 +295,21 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status SchemaScanNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    if (memory_used_counter() != NULL) {
-        COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
-    }
 
     _tuple_pool.reset();
     return ExecNode::close(state);
 }
 
-void SchemaScanNode::debug_string(int indentation_level, stringstream* out) const {
+void SchemaScanNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "SchemaScanNode(tupleid=" << _tuple_id << " table=" << _table_name;
     *out << ")" << std::endl;
@@ -325,10 +319,10 @@ void SchemaScanNode::debug_string(int indentation_level, stringstream* out) cons
     }
 }
 
-Status SchemaScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) {
-    return Status::OK;
+Status SchemaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+    return Status::OK();
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 : */

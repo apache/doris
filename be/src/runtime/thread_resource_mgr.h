@@ -20,13 +20,12 @@
 
 #include <stdlib.h>
 
-#include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
-
+#include <functional>
 #include <list>
+#include <mutex>
 
 #include "common/status.h"
 
@@ -77,7 +76,7 @@ public:
     // variable semantics).
     // TODO: this is manageable now since it just needs to call into the io
     // mgr.  What's the best model for something more general.
-    typedef boost::function<void (ResourcePool*)> thread_available_cb;
+    typedef std::function<void(ResourcePool*)> thread_available_cb;
 
     // Pool abstraction for a single resource pool.
     // TODO: this is not quite sufficient going forward.  We need a hierarchy of pools,
@@ -87,7 +86,7 @@ public:
     // that have 1+ thread usage).
     class ResourcePool {
     public:
-        virtual ~ResourcePool() {};
+        virtual ~ResourcePool(){};
         // Acquire a thread for the pool.  This will always succeed; the
         // pool will go over the quota.
         // Pools should use this API to reserve threads they need in order
@@ -118,30 +117,16 @@ public:
         // Must not be called from from thread_available_cb.
         void release_thread_token(bool required);
 
-        // Add a callback to be notified when a thread is available.
-        // 'arg' is opaque and passed directly to the callback.
-        // The previous callback is no longer notified.
-        // TODO: rethink this.  How we do coordinate when we have multiple places in
-        // the execution that all need threads (e.g. do we use that thread for
-        // the scanner or for the join).
-        void set_thread_available_cb(thread_available_cb fn);
-
         // Returns the number of threads that are from acquire_thread_token.
-        int num_required_threads() const {
-            return _num_threads & 0xFFFFFFFF;
-        }
+        int num_required_threads() const { return _num_threads & 0xFFFFFFFF; }
 
         // Returns the number of thread resources returned by successful calls
         // to try_acquire_thread_token.
-        int num_optional_threads() const {
-            return _num_threads >> 32;
-        }
+        int num_optional_threads() const { return _num_threads >> 32; }
 
         // Returns the total number of thread resources for this pool
         // (i.e. num_optional_threads + num_required_threads).
-        int64_t num_threads() const {
-            return num_required_threads() + num_optional_threads();
-        }
+        int64_t num_threads() const { return num_required_threads() + num_optional_threads(); }
 
         // Returns the number of optional threads that can still be used.
         int num_available_threads() const {
@@ -152,16 +137,12 @@ public:
 
         // Returns the quota for this pool.  Note this changes dynamically
         // based on system load.
-        int quota() const {
-            return std::min(_max_quota, _parent->_per_pool_quota);
-        }
+        int quota() const { return std::min(_max_quota, _parent->_per_pool_quota); }
 
         // Sets the max thread quota for this pool.  This is only used for testing since
         // the dynamic values should be used normally.  The actual quota is the min of this
         // value and the dynamic quota.
-        void set_max_quota(int quota) {
-            _max_quota = quota;
-        }
+        void set_max_quota(int quota) { _max_quota = quota; }
 
     private:
         friend class ThreadResourceMgr;
@@ -181,13 +162,6 @@ public:
         // swap operations.  The number of required threads is the lower
         // 32 bits and the number of optional threads is the upper 32 bits.
         int64_t _num_threads;
-
-        // Lock for the fields below.  This lock is taken when the callback
-        // function is called.
-        // TODO: reconsider this.
-        boost::mutex _lock;
-
-        thread_available_cb _thread_available_fn;
     };
 
     // Create a thread mgr object.  If threads_quota is non-zero, it will be
@@ -195,10 +169,9 @@ public:
     // based on the hardware.
     ThreadResourceMgr(int threads_quota);
     ThreadResourceMgr();
+    ~ThreadResourceMgr();
 
-    int system_threads_quota() const {
-        return _system_threads_quota;
-    }
+    int system_threads_quota() const { return _system_threads_quota; }
 
     // Register a new pool with the thread mgr.  Registering a pool
     // will update the quotas for all existing pools.
@@ -213,7 +186,7 @@ private:
     int _system_threads_quota;
 
     // Lock for the entire object.  Protects all fields below.
-    boost::mutex _lock;
+    std::mutex _lock;
 
     // Pools currently being managed
     typedef std::set<ResourcePool*> Pools;
@@ -226,14 +199,7 @@ private:
     // Recycled list of pool objects
     std::list<ResourcePool*> _free_pool_objs;
 
-    // Updates the per pool quota and notifies any pools that now have
-    // more threads they can use.  Must be called with _lock taken.
-    // If new_pool is non-null, new_pool will *not* be notified.
-    void update_pool_quotas(ResourcePool* new_pool);
-
-    void update_pool_quotas() {
-        update_pool_quotas(NULL); 
-    }
+    void update_pool_quotas();
 };
 
 inline void ThreadResourceMgr::ResourcePool::acquire_thread_token() {
@@ -247,7 +213,7 @@ inline bool ThreadResourceMgr::ResourcePool::try_acquire_thread_token() {
         int64_t new_required_threads = previous_num_threads & 0xFFFFFFFF;
 
         if (new_optional_threads > _num_reserved_optional_threads &&
-                new_optional_threads + new_required_threads > quota()) {
+            new_optional_threads + new_required_threads > quota()) {
             return false;
         }
 
@@ -279,22 +245,8 @@ inline void ThreadResourceMgr::ResourcePool::release_thread_token(bool required)
             }
         }
     }
-
-    // We need to grab a lock before issuing the callback to prevent the
-    // callback from being removed while it is happening.
-    // Note: this is unlikely to be a big deal for performance currently
-    // since only scanner threads call this with any frequency and that only
-    // happens once when the scanner thread is complete.
-    // TODO: reconsider this.
-    if (num_available_threads() > 0 && _thread_available_fn != NULL) {
-        boost::unique_lock<boost::mutex> l(_lock);
-
-        if (num_available_threads() > 0 && _thread_available_fn != NULL) {
-            _thread_available_fn(this);
-        }
-    }
 }
 
-}
+} // namespace doris
 
 #endif

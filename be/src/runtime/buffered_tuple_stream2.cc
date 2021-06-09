@@ -17,8 +17,6 @@
 
 #include "runtime/buffered_tuple_stream2.h"
 
-#include <boost/bind.hpp>
-
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -39,7 +37,7 @@ namespace doris {
 // IO size. These blocks never spill.
 // TODO: Consider adding a 4MB in-memory buffer that would split the gap between the
 // 512KB in-memory buffer and the 8MB (IO-sized) spillable buffer.
-static const int64_t INITIAL_BLOCK_SIZES[] = { 64 * 1024, 512 * 1024 };
+static const int64_t INITIAL_BLOCK_SIZES[] = {64 * 1024, 512 * 1024};
 static const int NUM_SMALL_BLOCKS = sizeof(INITIAL_BLOCK_SIZES) / sizeof(int64_t);
 
 string BufferedTupleStream2::RowIdx::debug_string() const {
@@ -48,36 +46,36 @@ string BufferedTupleStream2::RowIdx::debug_string() const {
     return ss.str();
 }
 
-BufferedTupleStream2::BufferedTupleStream2(RuntimeState* state,
-        const RowDescriptor& row_desc, BufferedBlockMgr2* block_mgr,
-        BufferedBlockMgr2::Client* client, bool use_initial_small_buffers,
-        bool read_write) :
-            _use_small_buffers(use_initial_small_buffers),
-            _delete_on_read(false),
-            _read_write(read_write),
-            _state(state),
-            _desc(row_desc),
-            _nullable_tuple(row_desc.is_any_tuple_nullable()),
-            _block_mgr(block_mgr),
-            _block_mgr_client(client),
-            _total_byte_size(0),
-            _read_ptr(NULL),
-            _read_tuple_idx(0),
-            _read_bytes(0),
-            _rows_returned(0),
-            _read_block_idx(-1),
-            _write_block(NULL),
-            _num_pinned(0),
-            _num_small_blocks(0),
-            _closed(false),
-            _num_rows(0),
-            _pinned(true),
-            _pin_timer(NULL),
-            _unpin_timer(NULL),
-            _get_new_block_timer(NULL) {
-        _null_indicators_read_block = _null_indicators_write_block = -1;
-        _read_block = _blocks.end();
-        _fixed_tuple_row_size = 0;
+BufferedTupleStream2::BufferedTupleStream2(RuntimeState* state, const RowDescriptor& row_desc,
+                                           BufferedBlockMgr2* block_mgr,
+                                           BufferedBlockMgr2::Client* client,
+                                           bool use_initial_small_buffers, bool read_write)
+        : _use_small_buffers(use_initial_small_buffers),
+          _delete_on_read(false),
+          _read_write(read_write),
+          _state(state),
+          _desc(row_desc),
+          _nullable_tuple(row_desc.is_any_tuple_nullable()),
+          _block_mgr(block_mgr),
+          _block_mgr_client(client),
+          _total_byte_size(0),
+          _read_ptr(NULL),
+          _read_tuple_idx(0),
+          _read_bytes(0),
+          _rows_returned(0),
+          _read_block_idx(-1),
+          _write_block(NULL),
+          _num_pinned(0),
+          _num_small_blocks(0),
+          _closed(false),
+          _num_rows(0),
+          _pinned(true),
+          _pin_timer(NULL),
+          _unpin_timer(NULL),
+          _get_new_block_timer(NULL) {
+    _null_indicators_read_block = _null_indicators_write_block = -1;
+    _read_block = _blocks.end();
+    _fixed_tuple_row_size = 0;
     for (int i = 0; i < _desc.tuple_descriptors().size(); ++i) {
         const TupleDescriptor* tuple_desc = _desc.tuple_descriptors()[i];
         const int tuple_byte_size = tuple_desc->byte_size();
@@ -95,8 +93,8 @@ BufferedTupleStream2::BufferedTupleStream2(RuntimeState* state,
 // Only called in DCHECKs to validate _num_pinned.
 int num_pinned(const list<BufferedBlockMgr2::Block*>& blocks) {
     int num_pinned = 0;
-    for (list<BufferedBlockMgr2::Block*>::const_iterator it = blocks.begin();
-            it != blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::const_iterator it = blocks.begin(); it != blocks.end();
+         ++it) {
         if ((*it)->is_pinned() && (*it)->is_max_size()) {
             ++num_pinned;
         }
@@ -106,20 +104,19 @@ int num_pinned(const list<BufferedBlockMgr2::Block*>& blocks) {
 
 string BufferedTupleStream2::debug_string() const {
     stringstream ss;
-    ss << "BufferedTupleStream2 num_rows=" << _num_rows << " rows_returned="
-        << _rows_returned << " pinned=" << (_pinned ? "true" : "false")
-        << " delete_on_read=" << (_delete_on_read ? "true" : "false")
-        << " closed=" << (_closed ? "true" : "false")
-        << " num_pinned=" << _num_pinned
-        << " write_block=" << _write_block << " _read_block=";
+    ss << "BufferedTupleStream2 num_rows=" << _num_rows << " rows_returned=" << _rows_returned
+       << " pinned=" << (_pinned ? "true" : "false")
+       << " delete_on_read=" << (_delete_on_read ? "true" : "false")
+       << " closed=" << (_closed ? "true" : "false") << " num_pinned=" << _num_pinned
+       << " write_block=" << _write_block << " _read_block=";
     if (_read_block == _blocks.end()) {
         ss << "<end>";
     } else {
         ss << *_read_block;
     }
     ss << " blocks=[\n";
-    for (list<BufferedBlockMgr2::Block*>::const_iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::const_iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         ss << "{" << (*it)->debug_string() << "}";
         if (*it != _blocks.back()) {
             ss << ",\n";
@@ -149,13 +146,13 @@ Status BufferedTupleStream2::init(int node_id, RuntimeProfile* profile, bool pin
     if (!pinned) {
         RETURN_IF_ERROR(unpin_stream());
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::switch_to_io_buffers(bool* got_buffer) {
     if (!_use_small_buffers) {
         *got_buffer = (_write_block != NULL);
-        return Status::OK;
+        return Status::OK();
     }
     _use_small_buffers = false;
     Status status = new_block_for_write(_block_mgr->max_block_size(), got_buffer);
@@ -167,8 +164,8 @@ Status BufferedTupleStream2::switch_to_io_buffers(bool* got_buffer) {
 }
 
 void BufferedTupleStream2::close() {
-    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         (*it)->del();
     }
     _blocks.clear();
@@ -179,8 +176,8 @@ void BufferedTupleStream2::close() {
 
 int64_t BufferedTupleStream2::bytes_in_mem(bool ignore_current) const {
     int64_t result = 0;
-    for (list<BufferedBlockMgr2::Block*>::const_iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::const_iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         if (!(*it)->is_pinned()) {
             continue;
         }
@@ -199,12 +196,12 @@ Status BufferedTupleStream2::unpin_block(BufferedBlockMgr2::Block* block) {
     SCOPED_TIMER(_unpin_timer);
     DCHECK(block->is_pinned());
     if (!block->is_max_size()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(block->unpin());
     --_num_pinned;
     DCHECK_EQ(_num_pinned, num_pinned(_blocks));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_block) {
@@ -213,9 +210,9 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
     if (min_size > _block_mgr->max_block_size()) {
         std::stringstream error_msg;
         error_msg << "Cannot process row that is bigger than the IO size (row_size="
-                << PrettyPrinter::print(min_size, TUnit::BYTES)
-                << "). To run this query, increase the IO size (--read_size option).";
-        return Status(error_msg.str());
+                  << PrettyPrinter::print(min_size, TUnit::BYTES)
+                  << "). To run this query, increase the IO size (--read_size option).";
+        return Status::InternalError(error_msg.str());
     }
 
     BufferedBlockMgr2::Block* unpin_block = _write_block;
@@ -238,21 +235,21 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
         if (block_len == _block_mgr->max_block_size()) {
             // Do not switch to IO-buffers automatically. Do not get a buffer.
             *got_block = false;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
     BufferedBlockMgr2::Block* new_block = NULL;
     {
         SCOPED_TIMER(_get_new_block_timer);
-        RETURN_IF_ERROR(_block_mgr->get_new_block(
-                _block_mgr_client, unpin_block, &new_block, block_len));
+        RETURN_IF_ERROR(
+                _block_mgr->get_new_block(_block_mgr_client, unpin_block, &new_block, block_len));
     }
     *got_block = (new_block != NULL);
 
     if (!*got_block) {
         DCHECK(unpin_block == NULL);
-        return Status::OK;
+        return Status::OK();
     }
 
     if (unpin_block != NULL) {
@@ -279,7 +276,7 @@ Status BufferedTupleStream2::new_block_for_write(int64_t min_size, bool* got_blo
         ++_num_small_blocks;
     }
     _total_byte_size += block_len;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::next_block_for_read() {
@@ -290,8 +287,7 @@ Status BufferedTupleStream2::next_block_for_read() {
     // If non-NULL, this will be the current block if we are going to free it while
     // grabbing the next block. This will stay NULL if we don't want to free the
     // current block.
-    BufferedBlockMgr2::Block* block_to_free =
-        (!_pinned || _delete_on_read) ? *_read_block : NULL;
+    BufferedBlockMgr2::Block* block_to_free = (!_pinned || _delete_on_read) ? *_read_block : NULL;
     if (_delete_on_read) {
         // TODO: this is weird. We are deleting even if it is pinned. The analytic
         // eval node needs this.
@@ -335,8 +331,8 @@ Status BufferedTupleStream2::next_block_for_read() {
         SCOPED_TIMER(_pin_timer);
         RETURN_IF_ERROR((*_read_block)->pin(&pinned, block_to_free, !_delete_on_read));
         if (!pinned) {
-            DCHECK(block_to_free == NULL) << "Should have been able to pin."
-                << std::endl << _block_mgr->debug_string(_block_mgr_client);
+            DCHECK(block_to_free == NULL) << "Should have been able to pin." << std::endl
+                                          << _block_mgr->debug_string(_block_mgr_client);
         }
         if (block_to_free == NULL && pinned) {
             ++_num_pinned;
@@ -345,17 +341,17 @@ Status BufferedTupleStream2::next_block_for_read() {
 
     if (_read_block != _blocks.end() && (*_read_block)->is_pinned()) {
         _null_indicators_read_block =
-            compute_num_null_indicator_bytes((*_read_block)->buffer_len());
+                compute_num_null_indicator_bytes((*_read_block)->buffer_len());
         _read_ptr = (*_read_block)->buffer() + _null_indicators_read_block;
     }
     DCHECK_EQ(_num_pinned, num_pinned(_blocks)) << debug_string();
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buffer) {
     DCHECK(!_closed);
     if (_blocks.empty()) {
-        return Status::OK;
+        return Status::OK();
     }
 
     if (!_read_write && _write_block != NULL) {
@@ -368,8 +364,8 @@ Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buf
 
     // Walk the blocks and pin the first non-io sized block.
     // (small buffers always being pinned, no need to pin again)
-    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         if (!(*it)->is_pinned()) {
             SCOPED_TIMER(_pin_timer);
             bool current_pinned = false;
@@ -377,7 +373,7 @@ Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buf
             if (!current_pinned) {
                 DCHECK(got_buffer != NULL) << "Should have reserved enough blocks";
                 *got_buffer = false;
-                return Status::OK;
+                return Status::OK();
             }
             ++_num_pinned;
             DCHECK_EQ(_num_pinned, num_pinned(_blocks));
@@ -399,7 +395,7 @@ Status BufferedTupleStream2::prepare_for_read(bool delete_on_read, bool* got_buf
     if (got_buffer != NULL) {
         *got_buffer = true;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
@@ -409,12 +405,12 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
         // If we can't get all the blocks, don't try at all.
         if (!_block_mgr->try_acquire_tmp_reservation(_block_mgr_client, blocks_unpinned())) {
             *pinned = false;
-            return Status::OK;
+            return Status::OK();
         }
     }
 
-    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         if ((*it)->is_pinned()) {
             continue;
         }
@@ -424,8 +420,8 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
         }
         if (!*pinned) {
             VLOG_QUERY << "Should have been reserved." << std::endl
-                << _block_mgr->debug_string(_block_mgr_client);
-            return Status::OK;
+                       << _block_mgr->debug_string(_block_mgr_client);
+            return Status::OK();
         }
         ++_num_pinned;
         DCHECK_EQ(_num_pinned, num_pinned(_blocks));
@@ -435,21 +431,21 @@ Status BufferedTupleStream2::pin_stream(bool already_reserved, bool* pinned) {
         // Populate _block_start_idx on pin.
         DCHECK_EQ(_block_start_idx.size(), _blocks.size());
         _block_start_idx.clear();
-        for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin();
-                it != _blocks.end(); ++it) {
+        for (list<BufferedBlockMgr2::Block*>::iterator it = _blocks.begin(); it != _blocks.end();
+             ++it) {
             _block_start_idx.push_back((*it)->buffer());
         }
     }
     *pinned = true;
     _pinned = true;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status BufferedTupleStream2::unpin_stream(bool all) {
     DCHECK(!_closed);
     SCOPED_TIMER(_unpin_timer);
 
-    BOOST_FOREACH(BufferedBlockMgr2::Block* block, _blocks) {
+    for (BufferedBlockMgr2::Block* block : _blocks) {
         if (!block->is_pinned()) {
             continue;
         }
@@ -463,7 +459,7 @@ Status BufferedTupleStream2::unpin_stream(bool all) {
         _write_block = NULL;
     }
     _pinned = false;
-    return Status::OK;
+    return Status::OK();
 }
 
 int BufferedTupleStream2::compute_num_null_indicator_bytes(int block_size) const {
@@ -484,11 +480,10 @@ int BufferedTupleStream2::compute_num_null_indicator_bytes(int block_size) const
 Status BufferedTupleStream2::get_rows(scoped_ptr<RowBatch>* batch, bool* got_rows) {
     RETURN_IF_ERROR(pin_stream(false, got_rows));
     if (!*got_rows) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(prepare_for_read(false));
-    batch->reset(
-            new RowBatch(_desc, num_rows(), _block_mgr->get_tracker(_block_mgr_client)));
+    batch->reset(new RowBatch(_desc, num_rows(), _block_mgr->get_tracker(_block_mgr_client).get()));
     bool eos = false;
     // Loop until get_next fills the entire batch. Each call can stop at block
     // boundaries. We generally want it to stop, so that blocks can be freed
@@ -496,11 +491,10 @@ Status BufferedTupleStream2::get_rows(scoped_ptr<RowBatch>* batch, bool* got_row
     while (!eos) {
         RETURN_IF_ERROR(get_next(batch->get(), &eos));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
-Status BufferedTupleStream2::get_next(RowBatch* batch, bool* eos,
-        vector<RowIdx>* indices) {
+Status BufferedTupleStream2::get_next(RowBatch* batch, bool* eos, vector<RowIdx>* indices) {
     if (_nullable_tuple) {
         return get_next_internal<true>(batch, eos, indices);
     } else {
@@ -509,13 +503,13 @@ Status BufferedTupleStream2::get_next(RowBatch* batch, bool* eos,
 }
 
 template <bool HasNullableTuple>
-Status BufferedTupleStream2::get_next_internal(
-        RowBatch* batch, bool* eos, vector<RowIdx>* indices) {
+Status BufferedTupleStream2::get_next_internal(RowBatch* batch, bool* eos,
+                                               vector<RowIdx>* indices) {
     DCHECK(!_closed);
     DCHECK(batch->row_desc().equals(_desc));
     *eos = (_rows_returned == _num_rows);
     if (*eos) {
-        return Status::OK;
+        return Status::OK();
     }
     DCHECK_GE(_null_indicators_read_block, 0);
 
@@ -542,8 +536,8 @@ Status BufferedTupleStream2::get_next_internal(
     DCHECK(_read_ptr != NULL);
 
     int64_t rows_left = _num_rows - _rows_returned;
-    int rows_to_fill = std::min(
-            static_cast<int64_t>(batch->capacity() - batch->num_rows()), rows_left);
+    int rows_to_fill =
+            std::min(static_cast<int64_t>(batch->capacity() - batch->num_rows()), rows_left);
     DCHECK_GE(rows_to_fill, 1);
     batch->add_rows(rows_to_fill);
     uint8_t* tuple_row_mem = reinterpret_cast<uint8_t*>(batch->get_row(batch->num_rows()));
@@ -583,7 +577,7 @@ Status BufferedTupleStream2::get_next_internal(
         indices->push_back(RowIdx());
         DCHECK_EQ(indices->size(), i + 1);
         (*indices)[i].set(_read_block_idx, _read_bytes + _null_indicators_read_block,
-                last_read_row);
+                          last_read_row);
         if (HasNullableTuple) {
             for (int j = 0; j < tuples_per_row; ++j) {
                 // Stitch together the tuples from the block and the NULL ones.
@@ -594,12 +588,11 @@ Status BufferedTupleStream2::get_next_internal(
                 // Copy tuple and advance _read_ptr. If it is a NULL tuple, it calls set_tuple
                 // with Tuple* being 0x0. To do that we multiply the current _read_ptr with
                 // false (0x0).
-                row->set_tuple(j, reinterpret_cast<Tuple*>(
-                            reinterpret_cast<uint64_t>(_read_ptr) * is_not_null));
+                row->set_tuple(j, reinterpret_cast<Tuple*>(reinterpret_cast<uint64_t>(_read_ptr) *
+                                                           is_not_null));
                 _read_ptr += _desc.tuple_descriptors()[j]->byte_size() * is_not_null;
             }
-            const uint64_t row_read_bytes =
-                reinterpret_cast<uint64_t>(_read_ptr) - last_read_ptr;
+            const uint64_t row_read_bytes = reinterpret_cast<uint64_t>(_read_ptr) - last_read_ptr;
             DCHECK_GE(_fixed_tuple_row_size, row_read_bytes);
             _read_bytes += row_read_bytes;
             last_read_ptr = reinterpret_cast<uint64_t>(_read_ptr);
@@ -642,17 +635,17 @@ Status BufferedTupleStream2::get_next_internal(
     _rows_returned += i;
     *eos = (_rows_returned == _num_rows);
     if ((!_pinned || _delete_on_read) &&
-            rows_returned_curr_block + i == (*_read_block)->num_rows()) {
+        rows_returned_curr_block + i == (*_read_block)->num_rows()) {
         // No more data in this block. Mark this batch as needing to return so
         // the caller can pass the rows up the operator tree.
         batch->mark_need_to_return();
     }
     DCHECK_EQ(indices->size(), i);
-    return Status::OK;
+    return Status::OK();
 }
 
-void BufferedTupleStream2::read_strings(const vector<SlotDescriptor*>& string_slots,
-        int data_len, Tuple* tuple) {
+void BufferedTupleStream2::read_strings(const vector<SlotDescriptor*>& string_slots, int data_len,
+                                        Tuple* tuple) {
     DCHECK(tuple != NULL);
     for (int i = 0; i < string_slots.size(); ++i) {
         const SlotDescriptor* slot_desc = string_slots[i];

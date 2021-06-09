@@ -27,15 +27,15 @@ namespace doris {
 /// If the ReservationTracker is linked to a profile these have the same lifetime as that
 /// profile, otherwise they have the same lifetime as the ReservationTracker itself.
 struct ReservationTrackerCounters {
-  /// The tracker's peak reservation in bytes.
-  RuntimeProfile::HighWaterMarkCounter* peak_reservation;
+    /// The tracker's peak reservation in bytes.
+    RuntimeProfile::HighWaterMarkCounter* peak_reservation;
 
-  /// The tracker's peak usage in bytes.
-  RuntimeProfile::HighWaterMarkCounter* peak_used_reservation;
+    /// The tracker's peak usage in bytes.
+    RuntimeProfile::HighWaterMarkCounter* peak_used_reservation;
 
-  /// The hard limit on the tracker's reservations
-  RuntimeProfile::Counter* reservation_limit;
+    /// The hard limit on the tracker's reservations
+    RuntimeProfile::Counter* reservation_limit;
 };
-}
+} // namespace doris
 
 #endif

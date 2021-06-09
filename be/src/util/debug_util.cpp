@@ -17,16 +17,14 @@
 
 #include "util/debug_util.h"
 
-#include "common/logging.h"
-
 #include <iomanip>
 #include <sstream>
 
 #include "common/logging.h"
-#include "gen_cpp/version.h"
-#include "util/cpu_info.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "gen_cpp/types.pb.h"
+#include "gen_cpp/version.h"
+#include "util/cpu_info.h"
 
 #define PRECISION 2
 #define KILOBYTE (1024)
@@ -43,25 +41,25 @@
 
 namespace doris {
 
-#define THRIFT_ENUM_OUTPUT_FN_IMPL(E, MAP) \
-    std::ostream& operator<<(std::ostream& os, const E::type& e) {\
-        std::map<int, const char*>::const_iterator i;\
-        i = MAP.find(e);\
-        if (i != MAP.end()) {\
-            os << i->second;\
-        }\
-        return os;\
+#define THRIFT_ENUM_OUTPUT_FN_IMPL(E, MAP)                         \
+    std::ostream& operator<<(std::ostream& os, const E::type& e) { \
+        std::map<int, const char*>::const_iterator i;              \
+        i = MAP.find(e);                                           \
+        if (i != MAP.end()) {                                      \
+            os << i->second;                                       \
+        }                                                          \
+        return os;                                                 \
     }
 
 // Macro to stamp out operator<< for thrift enums.  Why doesn't thrift do this?
 #define THRIFT_ENUM_OUTPUT_FN(E) THRIFT_ENUM_OUTPUT_FN_IMPL(E, _##E##_VALUES_TO_NAMES)
 
 // Macro to implement Print function that returns string for thrift enums
-#define THRIFT_ENUM_PRINT_FN(E) \
-    std::string Print##E(const E::type& e) {\
-        std::stringstream ss;\
-        ss << e;\
-        return ss.str();\
+#define THRIFT_ENUM_PRINT_FN(E)              \
+    std::string Print##E(const E::type& e) { \
+        std::stringstream ss;                \
+        ss << e;                             \
+        return ss.str();                     \
     }
 
 THRIFT_ENUM_OUTPUT_FN(TExprOpcode);
@@ -91,20 +89,25 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 
 std::string get_build_version(bool compact) {
     std::stringstream ss;
-    ss << PALO_BUILD_VERSION
+    ss << DORIS_BUILD_VERSION
 #ifdef NDEBUG
        << " RELEASE"
 #else
        << " DEBUG"
 #endif
-       << " (build " << PALO_BUILD_HASH
-       << ")";
+       << " (build " << DORIS_BUILD_HASH << ")";
 
     if (!compact) {
-        ss << std::endl << "Built on " << PALO_BUILD_TIME << " by " << PALO_BUILD_INFO;
+        ss << std::endl << "Built on " << DORIS_BUILD_TIME << " by " << DORIS_BUILD_INFO;
     }
 
     return ss.str();
+}
+
+std::string get_short_version() {
+    static std::string short_version(std::string(DORIS_BUILD_VERSION) + "-" +
+                                     DORIS_BUILD_SHORT_HASH);
+    return short_version;
 }
 
 std::string get_version_string(bool compact) {
@@ -122,4 +125,4 @@ std::string hexdump(const char* buf, int len) {
     return ss.str();
 }
 
-}
+} // namespace doris

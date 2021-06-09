@@ -18,69 +18,106 @@
 #ifndef DORIS_BE_SRC_DELTA_WRITER_H
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
-#include "olap/memtable.h"
-#include "olap/olap_engine.h"
-#include "olap/olap_table.h"
-#include "olap/schema_change.h"
-#include "olap/data_writer.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "olap/rowset/rowset_writer.h"
+#include "olap/tablet.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
-class SegmentGroup;
+class FlushToken;
+class MemTable;
+class MemTracker;
+class Schema;
+class StorageEngine;
+class Tuple;
+class TupleDescriptor;
+class SlotDescriptor;
 
-enum WriteType {
-    LOAD = 1,
-    LOAD_DELETE = 2,
-    DELETE = 3
-};
+enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
 
 struct WriteRequest {
     int64_t tablet_id;
     int32_t schema_hash;
     WriteType write_type;
-    int64_t transaction_id;
+    int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
     bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
+    // slots are in order of tablet's schema
+    const std::vector<SlotDescriptor*>* slots;
 };
 
+// Writer for a particular (load, index, tablet).
+// This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
-    OLAPStatus init();
-    DeltaWriter(WriteRequest* req);
-    ~DeltaWriter();
-    OLAPStatus write(Tuple* tuple);
-    OLAPStatus close(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    static OLAPStatus open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                           DeltaWriter** writer);
 
+    ~DeltaWriter();
+
+    OLAPStatus init();
+
+    OLAPStatus write(Tuple* tuple);
+    // flush the last memtable to flush queue, must call it before close_wait()
+    OLAPStatus close();
+    // wait for all memtables to be flushed.
+    // mem_consumption() should be 0 after this function returns.
+    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+
+    // abandon current memtable and wait for all pending-flushing memtables to be destructed.
+    // mem_consumption() should be 0 after this function returns.
     OLAPStatus cancel();
 
-    int64_t partition_id() const { return _req.partition_id; }
-private:
-    void _garbage_collection();
-    OLAPStatus _init();
-    
-    bool _is_init = false;
-    WriteRequest _req;
-    OLAPTablePtr _table;
-    SegmentGroup* _cur_segment_group;
-    std::vector<SegmentGroup*> _segment_group_vec;
-    std::vector<SegmentGroup*> _new_segment_group_vec;
-    OLAPTablePtr _new_table;
-    ColumnDataWriter* _writer;
-    MemTable* _mem_table;
-    Schema* _schema;
-    std::vector<FieldInfo>* _field_infos;
-    std::vector<uint32_t> _col_ids;
+    // submit current memtable to flush queue, and wait all memtables in flush queue
+    // to be flushed.
+    // This is currently for reducing mem consumption of this delta writer.
+    // If need_wait is true, it will wait for all memtable in flush queue to be flushed.
+    // Otherwise, it will just put memtables to the flush queue and return.
+    OLAPStatus flush_memtable_and_wait(bool need_wait);
 
-    int32_t _segment_group_id;
+    int64_t partition_id() const;
+
+    int64_t mem_consumption() const;
+
+    // Wait all memtable in flush queue to be flushed
+    OLAPStatus wait_flush();
+
+private:
+    DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
+                StorageEngine* storage_engine);
+
+    // push a full memtable to flush executor
+    OLAPStatus _flush_memtable_async();
+
+    void _garbage_collection();
+
+    void _reset_mem_table();
+
+private:
+    bool _is_init = false;
+    bool _is_cancelled = false;
+    WriteRequest _req;
+    TabletSharedPtr _tablet;
+    RowsetSharedPtr _cur_rowset;
+    RowsetSharedPtr _new_rowset;
+    TabletSharedPtr _new_tablet;
+    std::unique_ptr<RowsetWriter> _rowset_writer;
+    std::shared_ptr<MemTable> _mem_table;
+    std::unique_ptr<Schema> _schema;
+    const TabletSchema* _tablet_schema;
     bool _delta_written_success;
+
+    StorageEngine* _storage_engine;
+    std::unique_ptr<FlushToken> _flush_token;
+    std::shared_ptr<MemTracker> _parent_mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
+
+    SpinLock _lock;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_DELTA_WRITER_H

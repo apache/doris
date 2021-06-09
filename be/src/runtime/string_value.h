@@ -29,20 +29,25 @@ namespace doris {
 // The returned StringValue of all functions that return StringValue
 // shares its buffer the parent.
 struct StringValue {
+    const static char MIN_CHAR;
+    const static char MAX_CHAR;
+
     static const int MAX_LENGTH = (1 << 30);
     // TODO: change ptr to an offset relative to a contiguous memory block,
     // so that we can send row batches between nodes without having to swizzle
     // pointers
+    // NOTE: This struct should keep the same memory layout with Slice, otherwise
+    // it will lead to BE crash.
+    // TODO(zc): we should unify this struct with Slice some day.
     char* ptr;
-    int len;
+    size_t len;
 
-    StringValue(char* ptr, int len): ptr(ptr), len(len) {}
-    StringValue(): ptr(NULL), len(0) {}
+    StringValue(char* ptr, int len) : ptr(ptr), len(len) {}
+    StringValue() : ptr(NULL), len(0) {}
 
     /// Construct a StringValue from 's'.  's' must be valid for as long as
     /// this object is valid.
-    explicit StringValue(const std::string& s) : 
-            ptr(const_cast<char*>(s.c_str())), len(s.size()) {
+    explicit StringValue(const std::string& s) : ptr(const_cast<char*>(s.c_str())), len(s.size()) {
         DCHECK_LE(len, MAX_LENGTH);
     }
 
@@ -59,49 +64,27 @@ struct StringValue {
 
     // ==
     bool eq(const StringValue& other) const;
-    bool operator==(const StringValue& other) const {
-        return eq(other);
-    }
+    bool operator==(const StringValue& other) const { return eq(other); }
     // !=
-    bool ne(const StringValue& other) const {
-        return !eq(other);
-    }
+    bool ne(const StringValue& other) const { return !eq(other); }
     // <=
-    bool le(const StringValue& other) const {
-        return compare(other) <= 0;
-    }
+    bool le(const StringValue& other) const { return compare(other) <= 0; }
     // >=
-    bool ge(const StringValue& other) const {
-        return compare(other) >= 0;
-    }
+    bool ge(const StringValue& other) const { return compare(other) >= 0; }
     // <
-    bool lt(const StringValue& other) const {
-        return compare(other) < 0;
-    }
+    bool lt(const StringValue& other) const { return compare(other) < 0; }
     // >
-    bool gt(const StringValue& other) const {
-        return compare(other) > 0;
-    }
+    bool gt(const StringValue& other) const { return compare(other) > 0; }
 
-    bool operator!=(const StringValue& other) const {
-        return ne(other);
-    }
+    bool operator!=(const StringValue& other) const { return ne(other); }
 
-    bool operator<=(const StringValue& other) const {
-        return le(other);
-    }
+    bool operator<=(const StringValue& other) const { return le(other); }
 
-    bool operator>=(const StringValue& other) const {
-        return ge(other);
-    }
+    bool operator>=(const StringValue& other) const { return ge(other); }
 
-    bool operator<(const StringValue& other) const {
-        return lt(other);
-    }
+    bool operator<(const StringValue& other) const { return lt(other); }
 
-    bool operator>(const StringValue& other) const {
-        return gt(other);
-    }
+    bool operator>(const StringValue& other) const { return gt(other); }
 
     std::string debug_string() const;
 
@@ -125,8 +108,9 @@ struct StringValue {
         return StringValue(reinterpret_cast<char*>(sv.ptr), sv.len);
     }
 
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* s_llvm_class_name;
+    static StringValue min_string_val();
+
+    static StringValue max_string_val();
 };
 
 // This function must be called 'hash_value' to be picked up by boost.
@@ -138,6 +122,6 @@ std::ostream& operator<<(std::ostream& os, const StringValue& string_value);
 
 std::size_t operator-(const StringValue& v1, const StringValue& v2);
 
-}
+} // namespace doris
 
 #endif

@@ -1,0 +1,13 @@
+diff -rupN s2geometry-0.9.0/CMakeLists.txt s2geometry-0.9.0.new/CMakeLists.txt
+--- s2geometry-0.9.0/CMakeLists.txt	2019-03-05 00:53:16.000000000 +0800
++++ s2geometry-0.9.0.new/CMakeLists.txt	2019-05-29 07:12:28.672879024 +0800
+@@ -531,6 +531,6 @@ if (BUILD_EXAMPLES)
+   add_subdirectory("doc/examples" examples)
+ endif()
+ 
+-if (${SWIG_FOUND} AND ${PYTHONLIBS_FOUND})
+-  add_subdirectory("src/python" python)
+-endif()
++# if (${SWIG_FOUND} AND ${PYTHONLIBS_FOUND})
++#   add_subdirectory("src/python" python)
++# endif()

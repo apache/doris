@@ -17,36 +17,32 @@
 
 #include "runtime/export_task_mgr.h"
 
-#include "gen_cpp/Types_types.h"
 #include <gtest/gtest.h>
-#include "runtime/fragment_mgr.h"
-#include "runtime/exec_env.h"
-#include "util/cpu_info.h"
-#include "util/disk_info.h"
 
 #include "gen_cpp/BackendService.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
 
 namespace doris {
 
 // Mock fragment mgr
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
-    return Status::OK;
+    return Status::OK();
 }
 
-FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
-        _thread_pool(10, 128) {
-}
+FragmentMgr::FragmentMgr(ExecEnv* exec_env) : _thread_pool(10, 128) {}
 
-FragmentMgr::~FragmentMgr() {
-}
+FragmentMgr::~FragmentMgr() {}
 
-void FragmentMgr::debug(std::stringstream& ss) {
-}
+void FragmentMgr::debug(std::stringstream& ss) {}
 
 class ExportTaskMgrTest : public testing::Test {
 public:
-    ExportTaskMgrTest() {
-    }
+    ExportTaskMgrTest() {}
+
 private:
     ExecEnv _exec_env;
 };
@@ -70,7 +66,7 @@ TEST_F(ExportTaskMgrTest, NormalCase) {
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::FINISHED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -125,7 +121,7 @@ TEST_F(ExportTaskMgrTest, RunAfterSuccess) {
     // make it finishing
     ExportTaskResult task_result;
     task_result.files.push_back("path/file1");
-    ASSERT_TRUE(mgr.finish_task(id, Status::OK, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::OK(), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::FINISHED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -159,7 +155,7 @@ TEST_F(ExportTaskMgrTest, RunAfterFail) {
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_TRUE(mgr.finish_task(id, Status::THRIFT_RPC_ERROR, task_result).ok());
+    ASSERT_TRUE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::CANCELLED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -201,7 +197,7 @@ TEST_F(ExportTaskMgrTest, CancelJob) {
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-TEST_F(ExportTaskMgrTest, FinishUnknowJob) {
+TEST_F(ExportTaskMgrTest, FinishUnknownJob) {
     ExportTaskMgr mgr(&_exec_env);
     TUniqueId id;
     id.lo = 1;
@@ -211,13 +207,13 @@ TEST_F(ExportTaskMgrTest, FinishUnknowJob) {
 
     // make it finishing
     ExportTaskResult task_result;
-    ASSERT_FALSE(mgr.finish_task(id, Status::THRIFT_RPC_ERROR, task_result).ok());
+    ASSERT_FALSE(mgr.finish_task(id, Status::ThriftRpcError("Thrift rpc error"), task_result).ok());
     ASSERT_TRUE(mgr.get_task_state(id, &res).ok());
     ASSERT_EQ(TExportState::CANCELLED, res.state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

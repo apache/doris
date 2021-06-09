@@ -19,9 +19,9 @@
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_set.hpp>
 #include <boost/thread.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
@@ -58,8 +58,6 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
 
-    static const char* _s_llvm_class_name;
-
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 
@@ -69,7 +67,7 @@ private:
     bool _is_push_down;
 
     // for right outer joins, keep track of what's been joined
-    typedef boost::unordered_set<TupleRow*> BuildTupleRowSet;
+    typedef std::unordered_set<TupleRow*> BuildTupleRowSet;
     BuildTupleRowSet _joined_build_rows;
 
     TJoinOp::type _join_op;
@@ -78,19 +76,23 @@ private:
     // _build_exprs (over child(1)) and _probe_exprs (over child(0))
     std::vector<ExprContext*> _probe_expr_ctxs;
     std::vector<ExprContext*> _build_expr_ctxs;
+    // true: the operator of eq join predicate is null safe equal => '<=>'
+    // false: the operator of eq join predicate is equal => '='
+    std::vector<bool> _is_null_safe_eq_join;
     std::list<ExprContext*> _push_down_expr_ctxs;
 
     // non-equi-join conjuncts from the JOIN clause
     std::vector<ExprContext*> _other_join_conjunct_ctxs;
 
     // derived from _join_op
-    bool _match_all_probe;  // output all rows coming from the probe input
-    bool _match_one_build;  // match at most one build row to each probe row
-    bool _match_all_build;  // output all rows coming from the build input
+    bool _match_all_probe; // output all rows coming from the probe input
+    bool _match_one_build; // match at most one build row to each probe row
+    bool _match_all_build; // output all rows coming from the build input
+    bool _build_unique;    // build a hash table without duplicated rows
 
-    bool _matched_probe;  // if true, we have matched the current probe row
-    bool _eos;  // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool;  // holds everything referenced in _hash_tbl
+    bool _matched_probe;                    // if true, we have matched the current probe row
+    bool _eos;                              // if true, nothing left to return in get_next()
+    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
 
     // Size of the TupleRow (just the Tuple ptrs) from the build (right) and probe (left)
     // sides. Set to zero if the build/probe tuples are not returned, e.g., for semi joins.
@@ -102,8 +104,9 @@ private:
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
     boost::scoped_ptr<RowBatch> _probe_batch;
-    int _probe_batch_pos;  // current scan pos in _probe_batch
-    bool _probe_eos;  // if true, probe child has no more rows to process
+    int _probe_batch_pos; // current scan pos in _probe_batch
+    int _probe_counter;
+    bool _probe_eos; // if true, probe child has no more rows to process
     TupleRow* _current_probe_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
@@ -113,9 +116,6 @@ private:
     // byte size of result tuple row (sum of the tuple ptrs, not the tuple data).
     // This should be the same size as the probe tuple row.
     int _result_tuple_row_size;
-
-    /// llvm function for build batch
-    llvm::Function* _codegen_process_build_batch_fn;
 
     // Function declaration for codegen'd function.  Signature must match
     // HashJoinNode::ProcessBuildBatch
@@ -130,13 +130,13 @@ private:
     // record anti join pos in get_next()
     HashTable::Iterator* _anti_join_last_pos;
 
-    RuntimeProfile::Counter* _build_timer;   // time to build hash table
-    RuntimeProfile::Counter* _push_down_timer;   // time to build hash table
+    RuntimeProfile::Counter* _build_timer;     // time to build hash table
+    RuntimeProfile::Counter* _push_down_timer; // time to build hash table
     RuntimeProfile::Counter* _push_compute_timer;
-    RuntimeProfile::Counter* _probe_timer;   // time to probe
-    RuntimeProfile::Counter* _build_rows_counter;   // num build rows
-    RuntimeProfile::Counter* _probe_rows_counter;   // num probe rows
-    RuntimeProfile::Counter* _build_buckets_counter;   // num buckets in hash table
+    RuntimeProfile::Counter* _probe_timer;           // time to probe
+    RuntimeProfile::Counter* _build_rows_counter;    // num build rows
+    RuntimeProfile::Counter* _probe_rows_counter;    // num probe rows
+    RuntimeProfile::Counter* _build_buckets_counter; // num buckets in hash table
     RuntimeProfile::Counter* _hash_tbl_load_factor_counter;
 
     // Supervises ConstructHashTable in a separate thread, and
@@ -176,22 +176,14 @@ private:
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
 
-    /// Codegen function to create output row
-    llvm::Function* codegen_create_output_row(LlvmCodeGen* codegen);
-
-    /// Codegen processing build batches.  Identical signature to ProcessBuildBatch.
-    /// hash_fn is the codegen'd function for computing hashes over tuple rows in the
-    /// hash table.
-    /// Returns NULL if codegen was not possible.
-    llvm::Function* codegen_process_build_batch(RuntimeState* state, llvm::Function* hash_fn);
-
-    /// Codegen processing probe batches.  Identical signature to ProcessProbeBatch.
-    /// hash_fn is the codegen'd function for computing hashes over tuple rows in the
-    /// hash table.
-    /// Returns NULL if codegen was not possible.
-    llvm::Function* codegen_process_probe_batch(RuntimeState* state, llvm::Function* hash_fn);
+    // RELEASE_CONTEXT_COUNTER should be power of 2
+    // GCC will optimize the modulo operation to &(release_context_counter - 1)
+    // build_expr_context and probe_expr_context will free local alloc after this probe calculations
+    static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 5;
+    static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
+                  "should be power of 2");
 };
 
-}
+} // namespace doris
 
 #endif

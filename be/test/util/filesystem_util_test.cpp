@@ -17,16 +17,17 @@
 
 #include "util/filesystem_util.h"
 
+#include <gtest/gtest.h>
 #include <sys/stat.h>
 
-#include <boost/filesystem.hpp>
-#include <gtest/gtest.h>
+#include <filesystem>
 
+#include "common/configbase.h"
 #include "util/logging.h"
 
 namespace doris {
 
-namespace filesystem = boost::filesystem;
+namespace filesystem = std::filesystem;
 using filesystem::path;
 
 TEST(FileSystemUtil, rlimit) {
@@ -34,8 +35,10 @@ TEST(FileSystemUtil, rlimit) {
 }
 
 TEST(FileSystemUtil, CreateDirectory) {
+    char filename[] = "temp-XXXXXX";
     // Setup a temporary directory with one subdir
-    path dir = filesystem::unique_path();
+    std::string dir_name = mkdtemp(filename);
+    path dir{dir_name};
     path subdir1 = dir / "path1";
     path subdir2 = dir / "path2";
     path subdir3 = dir / "a" / "longer" / "path";
@@ -43,8 +46,13 @@ TEST(FileSystemUtil, CreateDirectory) {
     // Test error cases by removing write permissions on root dir to prevent
     // creation/deletion of subdirs
     chmod(dir.string().c_str(), 0);
-    EXPECT_FALSE(FileSystemUtil::create_directory(subdir1.string()).ok());
-    EXPECT_FALSE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    if (getuid() == 0) { // User root
+        EXPECT_TRUE(FileSystemUtil::create_directory(subdir1.string()).ok());
+        EXPECT_TRUE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    } else { // User other
+        EXPECT_FALSE(FileSystemUtil::create_directory(subdir1.string()).ok());
+        EXPECT_FALSE(FileSystemUtil::create_directory(subdir2.string()).ok());
+    }
     // Test success cases by adding write permissions back
     chmod(dir.string().c_str(), S_IRWXU);
     EXPECT_TRUE(FileSystemUtil::create_directory(subdir1.string()).ok());
@@ -84,7 +92,7 @@ TEST(FilesystemUtil, contain_path) {
 
     {
         std::string parent("/a///./././/./././b/"); // "/a/b/."
-        std::string sub("/a/b/../././b/c/");    // "/a/b/c/"
+        std::string sub("/a/b/../././b/c/");        // "/a/b/c/"
         EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
         EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
         EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
@@ -112,7 +120,7 @@ TEST(FilesystemUtil, contain_path) {
     {
         // absolute path and relative path
         std::string parent("/a////./././b/"); // "/a/b/"
-        std::string sub("a/b/../././b/c/");  // "a/b/c/"
+        std::string sub("a/b/../././b/c/");   // "a/b/c/"
         EXPECT_FALSE(FileSystemUtil::contain_path(parent, sub));
         EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
         EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
@@ -123,13 +131,6 @@ TEST(FilesystemUtil, contain_path) {
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

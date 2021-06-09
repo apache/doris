@@ -16,35 +16,39 @@
 // under the License.
 
 #include "runtime/export_sink.h"
+
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <sstream>
 
+#include "exec/broker_writer.h"
+#include "exec/local_file_writer.h"
+#include "exec/s3_writer.h"
 #include "exprs/expr.h"
-#include "runtime/runtime_state.h"
-#include "runtime/mysql_table_sink.h"
+#include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/tuple_row.h"
+#include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
-#include "exec/local_file_writer.h"
-#include "exec/broker_writer.h"
-#include <thrift/protocol/TDebugProtocol.h>
+#include "util/uid_util.h"
 
 namespace doris {
 
-ExportSink::ExportSink(ObjectPool* pool,
-                       const RowDescriptor& row_desc,
-                       const std::vector<TExpr>& t_exprs) :
-        _pool(pool),
-        _row_desc(row_desc),
-        _t_output_expr(t_exprs),
-        _bytes_written_counter(nullptr),
-        _rows_written_counter(nullptr),
-        _write_timer(nullptr) {
+ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
+                       const std::vector<TExpr>& t_exprs)
+        : _pool(pool),
+          _row_desc(row_desc),
+          _t_output_expr(t_exprs),
+          _bytes_written_counter(nullptr),
+          _rows_written_counter(nullptr),
+          _write_timer(nullptr) {
+    _name = "ExportSink";
 }
 
-ExportSink::~ExportSink() {
-}
+ExportSink::~ExportSink() {}
 
 Status ExportSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(DataSink::init(t_sink));
@@ -52,7 +56,7 @@ Status ExportSink::init(const TDataSink& t_sink) {
 
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(Expr::create_expr_trees(_pool, _t_output_expr, &_output_expr_ctxs));
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::prepare(RuntimeState* state) {
@@ -63,20 +67,22 @@ Status ExportSink::prepare(RuntimeState* state) {
     std::stringstream title;
     title << "ExportSink (frag_id=" << state->fragment_instance_id() << ")";
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
-    _mem_tracker.reset(new MemTracker(-1, "ExportSink", state->instance_mem_tracker()));
+    _mem_tracker = MemTracker::CreateTracker(
+            -1,
+            "ExportSink", state->instance_mem_tracker());
 
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker.get()));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
 
     // TODO(lingbin): add some Counter
     _bytes_written_counter = ADD_COUNTER(profile(), "BytesExported", TUnit::BYTES);
     _rows_written_counter = ADD_COUNTER(profile(), "RowsExported", TUnit::UNIT);
     _write_timer = ADD_TIMER(profile(), "WriteTime");
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open(RuntimeState* state) {
@@ -84,7 +90,7 @@ Status ExportSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
     // open broker
     RETURN_IF_ERROR(open_file_writer());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
@@ -107,12 +113,11 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
         SCOPED_TIMER(_write_timer);
         // TODO(lingbin): for broker writer, we should not send rpc each row.
         RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
-                buf.size(),
-                &written_len));
+                                            buf.size(), &written_len));
         COUNTER_UPDATE(_bytes_written_counter, buf.size());
     }
     COUNTER_UPDATE(_rows_written_counter, num_rows);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
@@ -121,84 +126,102 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     for (int i = 0; i < num_columns; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            (*ss) << "NULL";
+            (*ss) << "\\N";
         } else {
             switch (_output_expr_ctxs[i]->root()->type().type) {
-                case TYPE_BOOLEAN:
-                case TYPE_TINYINT:
-                    (*ss) << (int)*static_cast<int8_t*>(item);
-                    break;
-                case TYPE_SMALLINT:
-                    (*ss) << *static_cast<int16_t*>(item);
-                    break;
-                case TYPE_INT:
-                    (*ss) << *static_cast<int32_t*>(item);
-                    break;
-                case TYPE_BIGINT:
-                    (*ss) << *static_cast<int64_t*>(item);
-                    break;
-                case TYPE_LARGEINT:
-                    (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
-                    break;
-                case TYPE_FLOAT:
-                    (*ss) << *static_cast<float*>(item);
-                    break;
-                case TYPE_DOUBLE:
-                    (*ss) << *static_cast<double*>(item);
-                    break;
-                case TYPE_DATE:
-                case TYPE_DATETIME: {
-                    char buf[64];
-                    const DateTimeValue* time_val = (const DateTimeValue*)(item);
-                    time_val->to_string(buf);
-                    (*ss) << buf;
-                    break;
-                }
-                case TYPE_VARCHAR:
-                case TYPE_CHAR: {
-                    const StringValue* string_val = (const StringValue*)(item);
+            case TYPE_BOOLEAN:
+            case TYPE_TINYINT:
+                (*ss) << (int)*static_cast<int8_t*>(item);
+                break;
+            case TYPE_SMALLINT:
+                (*ss) << *static_cast<int16_t*>(item);
+                break;
+            case TYPE_INT:
+                (*ss) << *static_cast<int32_t*>(item);
+                break;
+            case TYPE_BIGINT:
+                (*ss) << *static_cast<int64_t*>(item);
+                break;
+            case TYPE_LARGEINT:
+                (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
+                break;
+            case TYPE_FLOAT: {
+                char buffer[MAX_FLOAT_STR_LENGTH + 2];
+                float float_value = *static_cast<float*>(item);
+                buffer[0] = '\0';
+                int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
+                DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
+                (*ss) << buffer;
+                break;
+            }
+            case TYPE_DOUBLE: {
+                // To prevent loss of precision on float and double types,
+                // they are converted to strings before output.
+                // For example: For a double value 27361919854.929001,
+                // the direct output of using std::stringstream is 2.73619e+10,
+                // and after conversion to a string, it outputs 27361919854.929001
+                char buffer[MAX_DOUBLE_STR_LENGTH + 2];
+                double double_value = *static_cast<double*>(item);
+                buffer[0] = '\0';
+                int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
+                DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
+                (*ss) << buffer;
+                break;
+            }
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                char buf[64];
+                const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                time_val->to_string(buf);
+                (*ss) << buf;
+                break;
+            }
+            case TYPE_VARCHAR:
+            case TYPE_CHAR: {
+                const StringValue* string_val = (const StringValue*)(item);
 
-                    if (string_val->ptr == NULL) {
-                        if (string_val->len == 0) {
-                        } else {
-                            (*ss) << "NULL";
-                        }
+                if (string_val->ptr == NULL) {
+                    if (string_val->len == 0) {
                     } else {
-                        (*ss) << std::string(string_val->ptr, string_val->len);
+                        (*ss) << "\\N";
                     }
-                    break;
+                } else {
+                    (*ss) << std::string(string_val->ptr, string_val->len);
                 }
-                case TYPE_DECIMAL: {
-                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                    std::string decimal_str;
-                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                break;
+            }
+            case TYPE_DECIMAL: {
+                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val->to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val->to_string();
-                    }
-                    (*ss) << decimal_str;
-                    break;
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val->to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val->to_string();
                 }
-                case TYPE_DECIMALV2: {
-                    const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-                    std::string decimal_str;
-                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                (*ss) << decimal_str;
+                break;
+            }
+            case TYPE_DECIMALV2: {
+                const DecimalV2Value decimal_val(
+                        reinterpret_cast<const PackedInt128*>(item)->value);
+                std::string decimal_str;
+                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val.to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val.to_string();
-                    }
-                    (*ss) << decimal_str;
-                    break;
+                if (output_scale > 0 && output_scale <= 30) {
+                    decimal_str = decimal_val.to_string(output_scale);
+                } else {
+                    decimal_str = decimal_val.to_string();
                 }
-                default: {
-                    std::stringstream err_ss;
-                    err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
-                    return Status(err_ss.str());
-                }
+                (*ss) << decimal_str;
+                break;
+            }
+            default: {
+                std::stringstream err_ss;
+                err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
+                return Status::InternalError(err_ss.str());
+            }
             }
         }
 
@@ -208,7 +231,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
     }
     (*ss) << _t_export_sink.line_delimiter;
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::close(RuntimeState* state, Status exec_status) {
@@ -217,12 +240,12 @@ Status ExportSink::close(RuntimeState* state, Status exec_status) {
         _file_writer->close();
         _file_writer = nullptr;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExportSink::open_file_writer() {
     if (_file_writer != nullptr) {
-        return Status::OK;
+        return Status::OK();
     }
 
     std::string file_name = gen_file_name();
@@ -230,31 +253,36 @@ Status ExportSink::open_file_writer() {
     // TODO(lingbin): gen file path
     switch (_t_export_sink.file_type) {
     case TFileType::FILE_LOCAL: {
-        LocalFileWriter* file_writer
-                = new LocalFileWriter(_t_export_sink.export_path + "/" + file_name, 0);
+        LocalFileWriter* file_writer =
+                new LocalFileWriter(_t_export_sink.export_path + "/" + file_name, 0);
         RETURN_IF_ERROR(file_writer->open());
         _file_writer.reset(file_writer);
         break;
     }
     case TFileType::FILE_BROKER: {
-        BrokerWriter* broker_writer = new BrokerWriter(_state->exec_env(),
-                                                       _t_export_sink.broker_addresses,
-                                                       _t_export_sink.properties,
-                                                       _t_export_sink.export_path + "/" + file_name,
-                                                       0 /* offset */);
+        BrokerWriter* broker_writer = new BrokerWriter(
+                _state->exec_env(), _t_export_sink.broker_addresses, _t_export_sink.properties,
+                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(broker_writer->open());
         _file_writer.reset(broker_writer);
+        break;
+    }
+    case TFileType::FILE_S3: {
+        S3Writer* s3_writer = new S3Writer( _t_export_sink.properties,
+                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
+        RETURN_IF_ERROR(s3_writer->open());
+        _file_writer.reset(s3_writer);
         break;
     }
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << _t_export_sink.file_type;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     }
 
     _state->add_export_output_file(_t_export_sink.export_path + "/" + file_name);
-    return Status::OK;
+    return Status::OK();
 }
 
 // TODO(lingbin): add some other info to file name, like partition
@@ -265,9 +293,8 @@ std::string ExportSink::gen_file_name() {
     gettimeofday(&tv, NULL);
 
     std::stringstream file_name;
-    file_name << "export_data_" << id.hi << "_" << id.lo << "_" 
-            << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    file_name << "export-data-" << print_id(id) << "-" << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
     return file_name.str();
 }
 
-}
+} // namespace doris

@@ -23,15 +23,22 @@
 #include "service/brpc.h"
 #include "service/internal_service.h"
 
+namespace brpc {
+
+DECLARE_uint64(max_body_size);
+DECLARE_int64(socket_max_unwritten_bytes);
+
+} // namespace brpc
+
 namespace doris {
 
-BRpcService::BRpcService(ExecEnv* exec_env)
-        : _exec_env(exec_env),
-        _server(new brpc::Server()) {
+BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new brpc::Server()) {
+    // Set config
+    brpc::FLAGS_max_body_size = config::brpc_max_body_size;
+    brpc::FLAGS_socket_max_unwritten_bytes = config::brpc_socket_max_unwritten_bytes;
 }
 
-BRpcService::~BRpcService() {
-}
+BRpcService::~BRpcService() {}
 
 Status BRpcService::start(int port) {
     // Add service
@@ -41,17 +48,23 @@ Status BRpcService::start(int port) {
                         brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
+    if (config::brpc_num_threads != -1) {
+        options.num_threads = config::brpc_num_threads;
+    }
+
     if (_server->Start(port, &options) != 0) {
         char buf[64];
         LOG(WARNING) << "start brpc failed, errno=" << errno
-            << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;
-        return Status("start brpc service failed");
+                     << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;
+        return Status::InternalError("start brpc service failed");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void BRpcService::join() {
+    _server->Stop(1000);
     _server->Join();
+    _server->ClearServices();
 }
 
-}
+} // namespace doris

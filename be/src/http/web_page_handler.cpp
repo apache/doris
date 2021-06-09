@@ -17,156 +17,207 @@
 
 #include "http/web_page_handler.h"
 
-#include <boost/bind.hpp>
-#include <boost/mem_fn.hpp>
+#include <functional>
 
-#include "http/http_status.h"
-#include "http/http_request.h"
-#include "http/http_response.h"
+#include "common/config.h"
+#include "env/env.h"
+#include "gutil/stl_util.h"
+#include "gutil/strings/substitute.h"
+#include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
-#include "http/ev_http_server.h"
-#include "util/debug_util.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
+#include "http/http_status.h"
+#include "http/utils.h"
+#include "olap/file_helper.h"
 #include "util/cpu_info.h"
+#include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/mustache/mustache.h"
+
+using strings::Substitute;
 
 namespace doris {
 
 static std::string s_html_content_type = "text/html";
 
-WebPageHandler::WebPageHandler(EvHttpServer* server) :
-        _http_server(server) {
-    PageHandlerCallback default_callback =
-            boost::bind<void>(boost::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
-    register_page("/", default_callback);
+WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
+    _www_path = std::string(getenv("DORIS_HOME")) + "/www/";
+
+    // Make WebPageHandler to be static file handler, static files, e.g. css, png, will be handled by WebPageHandler.
+    _http_server->register_static_file_handler(this);
+
+    TemplatePageHandlerCallback root_callback =
+            std::bind<void>(std::mem_fn(&WebPageHandler::root_handler), this, std::placeholders::_1,
+                            std::placeholders::_2);
+    register_template_page("/", "Home", root_callback, false /* is_on_nav_bar */);
 }
 
-void WebPageHandler::register_page(
-        const std::string& path, 
-        const PageHandlerCallback& callback) {
-    // Put this handler to to s_handler_by_name
-    // because handler does't often new
-    // So we insert it to this set when everytime
-    boost::mutex::scoped_lock lock(_map_lock);
-    auto map_iter = _page_map.find(path);
-    if (map_iter == _page_map.end()) {
-        // first time, register this to web server
-        _http_server->register_handler(HttpMethod::GET, path, this);
-    }
-    _page_map[path].add_callback(callback);
+WebPageHandler::~WebPageHandler() {
+    STLDeleteValues(&_page_map);
 }
 
-void WebPageHandler::handle(HttpRequest *req) {
-    // Should we render with css styles?
-    bool use_style = true;
-    auto& params = *req->params();
-    if (params.find("raw") != params.end()) {
-        use_style = false;
-    }
+void WebPageHandler::register_template_page(const std::string& path, const string& alias,
+                                            const TemplatePageHandlerCallback& callback,
+                                            bool is_on_nav_bar) {
+    // Relative path which will be used to find .mustache file in _www_path
+    std::string render_path = (path == "/") ? "/home" : path;
+    auto wrapped_cb = [=](const ArgumentMap& args, std::stringstream* output) {
+        EasyJson ej;
+        callback(args, &ej);
+        render(render_path, ej, true /* is_styled */, output);
+    };
+    register_page(path, alias, wrapped_cb, is_on_nav_bar);
+}
 
-    std::stringstream output;
+void WebPageHandler::register_page(const std::string& path, const string& alias,
+                                   const PageHandlerCallback& callback, bool is_on_nav_bar) {
+    std::unique_lock lock(_map_lock);
+    CHECK(_page_map.find(path) == _page_map.end());
+    // first time, register this to web server
+    _http_server->register_handler(HttpMethod::GET, path, this);
+    _page_map[path] = new PathHandler(true /* is_styled */, is_on_nav_bar, alias, callback);
+}
 
-    // Append header
-    if (use_style) {
-        bootstrap_page_header(&output);
-    }
-
-    // Append content
-    // push_content(&output);
-    LOG(INFO) << req->debug_string();
+void WebPageHandler::handle(HttpRequest* req) {
+    VLOG_TRACE << req->debug_string();
+    PathHandler* handler = nullptr;
     {
-        boost::mutex::scoped_lock lock(_map_lock);
+        std::unique_lock lock(_map_lock);
         auto iter = _page_map.find(req->raw_path());
         if (iter != _page_map.end()) {
-            for (auto& callback : iter->second.callbacks()) {
-                callback(*req->params(), &output);
-            }
+            handler = iter->second;
         }
     }
 
-    // Append footer
-    if (use_style) {
-        bootstrap_page_footer(&output);
+    if (handler == nullptr) {
+        // Try to handle static file request
+        do_file_response(_www_path + req->raw_path(), req);
+        // Has replied in do_file_response, so we return here.
+        return;
     }
-    std::string str = output.str();
+
+    const auto& params = *req->params();
+
+    // Should we render with css styles?
+    bool use_style = (params.find("raw") == params.end());
+
+    std::stringstream content;
+    handler->callback()(params, &content);
+
+    std::string output;
+    if (use_style) {
+        std::stringstream oss;
+        render_main_template(content.str(), &oss);
+        output = oss.str();
+    } else {
+        output = content.str();
+    }
 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, s_html_content_type.c_str());
-    HttpChannel::send_reply(req, HttpStatus::OK, str);
-#if 0
-    HttpResponse response(HttpStatus::OK, s_html_content_type, &str);
-    channel->send_response(response);
-#endif
+    HttpChannel::send_reply(req, HttpStatus::OK, output);
 }
 
-static const std::string PAGE_HEADER = 
-    "<!DOCTYPE html>"
-    " <html>"
-    "   <head><title>Doris</title>"
-    " <link href='www/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen'>"
-    "  <style>"
-    "  body {"
-    "    padding-top: 60px; "
-    "  }"
-    "  </style>"
-    " </head>"
-    " <body>";
+static const std::string kMainTemplate = R"(
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Doris</title>
+    <meta charset='utf-8'/>
+    <link href='/Bootstrap-3.3.7/css/bootstrap.min.css' rel='stylesheet' media='screen' />
+    <link href='/Bootstrap-3.3.7/css/bootstrap-table.min.css' rel='stylesheet' media='screen' />
+    <script src='/jQuery-3.3.1/jquery-3.3.1.min.js'></script>
+    <script src='/Bootstrap-3.3.7/js/bootstrap.min.js' defer></script>
+    <script src='/Bootstrap-3.3.7/js/bootstrap-table.min.js' defer></script>
+    <script src='/doris.js' defer></script>
+    <link href='/doris.css' rel='stylesheet' />
+  </head>
+  <body>
+    <nav class="navbar navbar-default">
+      <div class="container-fluid">
+        <div class="navbar-header">
+          <a class="navbar-brand" style="padding-top: 5px;" href="/">
+            <img src="/logo.png" width='40' height='40' alt="Doris" />
+          </a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+          <ul class="nav navbar-nav">
+           {{#path_handlers}}
+            <li><a class="nav-link"href="{{path}}">{{alias}}</a></li>
+           {{/path_handlers}}
+          </ul>
+        </div><!--/.nav-collapse -->
+      </div><!--/.container-fluid -->
+    </nav>
+      {{^static_pages_available}}
+      <div style="color: red">
+        <strong>Static pages not available. Make sure ${DORIS_HOME}/www/ exists and contains web static files.</strong>
+      </div>
+      {{/static_pages_available}}
+      {{{content}}}
+    </div>
+    {{#footer_html}}
+    <footer class="footer"><div class="container text-muted">
+      {{{.}}}
+    </div></footer>
+    {{/footer_html}}
+  </body>
+</html>
+)";
 
-static const std::string PAGE_FOOTER = "</div></body></html>";
+std::string WebPageHandler::mustache_partial_tag(const std::string& path) const {
+    return strings::Substitute("{{> $0.mustache}}", path);
+}
 
-static const std::string NAVIGATION_BAR_PREFIX =
-    "<div class='navbar navbar-inverse navbar-fixed-top'>"
-    "      <div class='navbar-inner'>"
-    "        <div class='container'>"
-    "          <a class='btn btn-navbar' data-toggle='collapse' data-target='.nav-collapse'>"
-    "            <span class='icon-bar'></span>"
-    "            <span class='icon-bar'></span>"
-    "            <span class='icon-bar'></span>"
-    "          </a>"
-    "          <a class='brand' href='/'>Impala</a>"
-    "          <div class='nav-collapse collapse'>"
-    "            <ul class='nav'>";
+bool WebPageHandler::static_pages_available() const {
+    bool is_dir = false;
+    return Env::Default()->is_directory(_www_path, &is_dir).ok() && is_dir;
+}
 
-static const std::string NAVIGATION_BAR_SUFFIX =
-    "            </ul>"
-    "          </div>"
-    "        </div>"
-    "      </div>"
-    "    </div>"
-    "    <div class='container'>";
-
-void WebPageHandler::bootstrap_page_header(std::stringstream* output) {
-    boost::mutex::scoped_lock lock(_map_lock);
-    (*output) << PAGE_HEADER;
-    (*output) << NAVIGATION_BAR_PREFIX;
-    for (auto& iter : _page_map) {
-        (*output) << "<li><a href=\"" << iter.first << "\">" << iter.first
-            << "</a></li>";
+bool WebPageHandler::mustache_template_available(const std::string& path) const {
+    if (!static_pages_available()) {
+        return false;
     }
-    (*output) << NAVIGATION_BAR_SUFFIX;
+    return Env::Default()->path_exists(strings::Substitute("$0/$1.mustache", _www_path, path)).ok();
 }
 
-void WebPageHandler::bootstrap_page_footer(std::stringstream* output) {
-    (*output) << PAGE_FOOTER;
+void WebPageHandler::render_main_template(const std::string& content, std::stringstream* output) {
+    static const std::string& footer =
+            std::string("<pre>") + get_version_string(true) + std::string("</pre>");
+
+    EasyJson ej;
+    ej["static_pages_available"] = static_pages_available();
+    ej["content"] = content;
+    ej["footer_html"] = footer;
+    EasyJson path_handlers = ej.Set("path_handlers", EasyJson::kArray);
+    for (const auto& handler : _page_map) {
+        if (handler.second->is_on_nav_bar()) {
+            EasyJson path_handler = path_handlers.PushBack(EasyJson::kObject);
+            path_handler["path"] = handler.first;
+            path_handler["alias"] = handler.second->alias();
+        }
+    }
+    mustache::RenderTemplate(kMainTemplate, _www_path, ej.value(), output);
 }
 
-void WebPageHandler::root_handler(
-        const ArgumentMap& args,
-        std::stringstream* output) {
-    // _path_handler_lock already held by MongooseCallback
-    (*output) << "<h2>Version</h2>";
-    (*output) << "<pre>" << get_version_string(false) << "</pre>" << std::endl;
-    (*output) << "<h2>Hardware Info</h2>";
-    (*output) << "<pre>";
-    (*output) << CpuInfo::debug_string();
-    (*output) << MemInfo::debug_string();
-    (*output) << DiskInfo::debug_string();
-    (*output) << "</pre>";
-
-    (*output) << "<h2>Status Pages</h2>";
-    for (auto& iter : _page_map) {
-        (*output) << "<a href=\"" << iter.first << "\">" << iter.first << "</a><br/>";
+void WebPageHandler::render(const string& path, const EasyJson& ej, bool use_style,
+                            std::stringstream* output) {
+    if (mustache_template_available(path)) {
+        mustache::RenderTemplate(mustache_partial_tag(path), _www_path, ej.value(), output);
+    } else if (use_style) {
+        (*output) << "<pre>" << ej.ToString() << "</pre>";
+    } else {
+        (*output) << ej.ToString();
     }
 }
 
+void WebPageHandler::root_handler(const ArgumentMap& args, EasyJson* output) {
+    (*output)["version"] = get_version_string(false);
+    (*output)["cpuinfo"] = CpuInfo::debug_string();
+    (*output)["meminfo"] = MemInfo::debug_string();
+    (*output)["diskinfo"] = DiskInfo::debug_string();
 }
+
+} // namespace doris

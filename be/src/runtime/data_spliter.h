@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_RUNTIME_DATA_SPLITER_H
 #define DORIS_BE_RUNTIME_DATA_SPLITER_H
 
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -42,7 +42,6 @@ class TupleRow;
 class DppSink;
 class MemTracker;
 
-
 // DataSpliter used to split data input to groups of data
 // according to partition information, distributed information
 // and rollup information.
@@ -63,22 +62,17 @@ public:
     virtual Status close(RuntimeState* state, Status close_status);
 
     // Returns the runtime profile for the sink.
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
-    static Status from_thrift(ObjectPool* pool,
-                              const TDataSplitSink& t_sink,
-                              DataSpliter* spliter);
+    static Status from_thrift(ObjectPool* pool, const TDataSplitSink& t_sink, DataSpliter* spliter);
 
 private:
     int binary_find_partition(const PartRangeKey& key) const;
-    Status process_partition(
-            RuntimeState* state, TupleRow* row, PartitionInfo** info, int32_t* part_index);
-    Status process_distribute(RuntimeState* state, TupleRow* row,
-                              const PartitionInfo* part, uint32_t* mod);
-    Status send_row(
-            RuntimeState* state, const TabletDesc& desc, TupleRow* row, DppSink* dpp_sink);
+    Status process_partition(RuntimeState* state, TupleRow* row, PartitionInfo** info,
+                             int32_t* part_index);
+    Status process_distribute(RuntimeState* state, TupleRow* row, const PartitionInfo* part,
+                              uint32_t* mod);
+    Status send_row(RuntimeState* state, const TabletDesc& desc, TupleRow* row, DppSink* dpp_sink);
     Status process_one_row(RuntimeState* state, TupleRow* row);
 
     boost::scoped_ptr<ObjectPool> _obj_pool;
@@ -89,7 +83,7 @@ private:
     std::vector<ExprContext*> _partition_expr_ctxs;
 
     // map from range value to partition_id
-    // sorted in ascending orderi by range for binary search
+    // sorted in ascending order by range for binary search
     std::vector<PartitionInfo*> _partition_infos;
 
     // Information of rollup
@@ -109,6 +103,6 @@ private:
     RuntimeProfile::Counter* _finish_timer;
 };
 
-}
+} // namespace doris
 
 #endif

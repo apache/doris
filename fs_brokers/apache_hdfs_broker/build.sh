@@ -33,7 +33,7 @@ mkdir -p ${BROKER_HOME}/src/main/thrift
 
 cp ${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift ${BROKER_HOME}/src/main/resources/thrift/
 
-$MVN package -DskipTests
+$MVN_CMD package -DskipTests
 
 echo "Install broker..."
 BROKER_OUTPUT=${BROKER_HOME}/output/apache_hdfs_broker/
@@ -44,6 +44,7 @@ install -d ${BROKER_OUTPUT}/bin ${BROKER_OUTPUT}/conf \
 
 cp -r -p ${BROKER_HOME}/bin/*.sh ${BROKER_OUTPUT}/bin/
 cp -r -p ${BROKER_HOME}/conf/*.conf ${BROKER_OUTPUT}/conf/
+cp -r -p ${BROKER_HOME}/conf/*.xml ${BROKER_OUTPUT}/conf/
 cp -r -p ${BROKER_HOME}/conf/log4j.properties ${BROKER_OUTPUT}/conf/
 cp -r -p ${BROKER_HOME}/target/lib/* ${BROKER_OUTPUT}/lib/
 cp -r -p ${BROKER_HOME}/target/apache_hdfs_broker.jar ${BROKER_OUTPUT}/lib/

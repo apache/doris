@@ -44,7 +44,8 @@ public:
 
     // prepare all expressions used for sorting and tuple materialization.
     Status prepare(RuntimeState* state, const RowDescriptor& child_row_desc,
-                   const RowDescriptor& output_row_desc, MemTracker* mem_tracker);
+                   const RowDescriptor& output_row_desc,
+                   const std::shared_ptr<MemTracker>& mem_tracker);
 
     // open all expressions used for sorting and tuple materialization.
     Status open(RuntimeState* state);
@@ -83,9 +84,9 @@ private:
     // Prepare(), Open(), and Close() on input ExprContexts (instead of calling the
     // analogous functions in this class). Used for testing.
     Status init(const std::vector<ExprContext*>& lhs_ordering_expr_ctxs,
-            const std::vector<ExprContext*>& rhs_ordering_expr_ctxs);
+                const std::vector<ExprContext*>& rhs_ordering_expr_ctxs);
 };
 
-}
+} // namespace doris
 
 #endif

@@ -50,7 +50,7 @@ class ScalarFnCall : public Expr {
 public:
     virtual std::string debug_string() const;
     virtual ~ScalarFnCall();
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new ScalarFnCall(*this));
     }
 
@@ -58,13 +58,11 @@ protected:
     friend class Expr;
 
     ScalarFnCall(const TExprNode& node);
-    virtual Status prepare(
-        RuntimeState* state, const RowDescriptor& desc, ExprContext* context);
-    virtual Status open(
-        RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
-    virtual void close(
-        RuntimeState* state, ExprContext* context, FunctionContext::FunctionStateScope scope);
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc, ExprContext* context);
+    virtual Status open(RuntimeState* state, ExprContext* context,
+                        FunctionContext::FunctionStateScope scope);
+    virtual void close(RuntimeState* state, ExprContext* context,
+                       FunctionContext::FunctionStateScope scope);
 
     virtual bool is_constant() const;
 
@@ -111,9 +109,6 @@ private:
         return _vararg_start_idx >= 0 ? _vararg_start_idx : _children.size();
     }
 
-    /// Loads the native or IR function from HDFS and puts the result in *udf.
-    Status get_udf(RuntimeState* state, llvm::Function** udf);
-
     /// Loads the native or IR function 'symbol' from HDFS and puts the result in *fn.
     /// If the function is loaded from an IR module, it cannot be called until the module
     /// has been JIT'd (i.e. after Prepare() has completed).
@@ -122,14 +117,13 @@ private:
     /// Evaluates the children exprs and stores the results in input_vals. Used in the
     /// interpreted path.
     void evaluate_children(ExprContext* context, TupleRow* row,
-                          std::vector<doris_udf::AnyVal*>* input_vals);
+                           std::vector<doris_udf::AnyVal*>* input_vals);
 
     /// Function to call _scalar_fn. Used in the interpreted path.
-    template<typename RETURN_TYPE>
+    template <typename RETURN_TYPE>
     RETURN_TYPE interpret_eval(ExprContext* context, TupleRow* row);
 };
 
-}
+} // namespace doris
 
 #endif
-

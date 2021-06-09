@@ -26,6 +26,7 @@ namespace doris {
 class ArithmeticExpr : public Expr {
 public:
     static Expr* from_thrift(const TExprNode& node);
+
 protected:
     enum BinaryOpType {
         ADD,
@@ -39,21 +40,15 @@ protected:
         BIT_NOT,
     };
 
-    ArithmeticExpr(const TExprNode& node) : Expr(node) { }
-    virtual ~ArithmeticExpr() { }
-
-    Status codegen_binary_op(
-        RuntimeState* state, llvm::Function** fn, BinaryOpType op_type);
+    ArithmeticExpr(const TExprNode& node) : Expr(node) {}
+    virtual ~ArithmeticExpr() {}
 };
 
 class AddExpr : public ArithmeticExpr {
 public:
-    AddExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~AddExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new AddExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    AddExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~AddExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new AddExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -65,12 +60,9 @@ public:
 
 class SubExpr : public ArithmeticExpr {
 public:
-    SubExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~SubExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new SubExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    SubExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~SubExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new SubExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -82,12 +74,9 @@ public:
 
 class MulExpr : public ArithmeticExpr {
 public:
-    MulExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~MulExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new MulExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    MulExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~MulExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new MulExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -99,12 +88,9 @@ public:
 
 class DivExpr : public ArithmeticExpr {
 public:
-    DivExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~DivExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new DivExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    DivExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~DivExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new DivExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -116,12 +102,9 @@ public:
 
 class ModExpr : public ArithmeticExpr {
 public:
-    ModExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~ModExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new ModExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    ModExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~ModExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new ModExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -133,12 +116,11 @@ public:
 
 class BitAndExpr : public ArithmeticExpr {
 public:
-    BitAndExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~BitAndExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new BitAndExpr(*this)); 
+    BitAndExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~BitAndExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override {
+        return pool->add(new BitAndExpr(*this));
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -148,12 +130,9 @@ public:
 
 class BitOrExpr : public ArithmeticExpr {
 public:
-    BitOrExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~BitOrExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new BitOrExpr(*this)); 
-    }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    BitOrExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~BitOrExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new BitOrExpr(*this)); }
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -163,12 +142,11 @@ public:
 
 class BitXorExpr : public ArithmeticExpr {
 public:
-    BitXorExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~BitXorExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new BitXorExpr(*this)); 
+    BitXorExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~BitXorExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override {
+        return pool->add(new BitXorExpr(*this));
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -178,12 +156,11 @@ public:
 
 class BitNotExpr : public ArithmeticExpr {
 public:
-    BitNotExpr(const TExprNode& node) : ArithmeticExpr(node) { }
-    virtual ~BitNotExpr() { }
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new BitNotExpr(*this)); 
+    BitNotExpr(const TExprNode& node) : ArithmeticExpr(node) {}
+    virtual ~BitNotExpr() {}
+    virtual Expr* clone(ObjectPool* pool) const override {
+        return pool->add(new BitNotExpr(*this));
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -191,6 +168,6 @@ public:
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
 };
 
-}
+} // namespace doris
 
 #endif

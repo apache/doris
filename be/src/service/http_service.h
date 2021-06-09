@@ -20,6 +20,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "common/object_pool.h"
 
 namespace doris {
 
@@ -34,11 +35,14 @@ public:
     ~HttpService();
 
     Status start();
+    void stop();
+
 private:
     ExecEnv* _env;
+    ObjectPool _pool;
 
     std::unique_ptr<EvHttpServer> _ev_http_server;
     std::unique_ptr<WebPageHandler> _web_page_handler;
 };
 
-}
+} // namespace doris

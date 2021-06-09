@@ -1,7 +1,27 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Apache Doris (incubating)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. It is open-sourced by Baidu. 
+Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
+Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
 
 ## 1. License
 
@@ -11,11 +31,11 @@ Doris is an MPP-based interactive SQL data warehousing for reporting and analysi
 Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
 ## 3. User cases
-Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis. 
+Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis.
 
-Doris not only provides batch data loading, but also provides near real-time mini-batch data loading. 
+Doris not only provides batch data loading, but also provides near real-time mini-batch data loading.
 
-Doris also provides high availability, reliability, fault tolerance, and scalability. 
+Doris also provides high availability, reliability, fault tolerance, and scalability.
 
 The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Doris (refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview)).
 
@@ -25,16 +45,16 @@ Currently only supports Docker environment and Linux OS, such as Ubuntu and Cent
 
 ### 4.1 Compile in Docker environment (Recommended)
 
-We offer a docker images as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environment.
+We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environments.
 
-Firstly, you must be install and start docker service.
+Firstly, you need to install and start docker service.
 
 And then you could build Doris as following steps:
 
 #### Step1: Pull the docker image with Doris building environment
 
 ```
-$ docker pull apachedoris/doris-dev:build-env
+$ docker pull apachedoris/doris-dev:build-env-1.3
 ```
 
 You can check it by listing images, for example:
@@ -42,26 +62,37 @@ You can check it by listing images, for example:
 ```
 $ docker images
 REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
+apachedoris/doris-dev   build-env-1.3       c9665fbee395        5 days ago         3.55GB
 ```
+> NOTE: You may have to use different images to compile from source.
+>
+> | image version | commit id | release version |
+> |---|---|---|
+> | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+> | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or 0.11.x |
+> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or 0.13 |
+> | apachedoris/doris-dev:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x or later |
 
-#### Step2: Run the Docker image 
 
-You can run the image directyly:
+
+
+#### Step2: Run the Docker image
+
+You can run the image directly:
 
 ```
-$ docker run -it apachedoris/doris-dev:build-env
+$ docker run -it apachedoris/doris-dev:build-env-1.3
 ```
 
 Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
 
 ```
-$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.3
 ```
 
 #### Step3: Download Doris source
 
-Now you should in docker environment.
+Now you should be attached in docker environment.
 
 You can download Doris source by release package or by git clone in image.
 
@@ -87,25 +118,44 @@ After successfully building, it will install binary files in the directory `outp
 
 #### Prerequisites
 
-You must be install following softwares:
+You should install the following softwares:
 
 ```
-GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
+GCC 10.2.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+, Flex 2.6.0+
 ```
 
-After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
+Then set them to environment variable PATH and set JAVA_HOME.
 
-If your GCC version is less than 5.3.1, you can run:
+If your GCC version is lower than 10.2.1, you can run:
 
 ```
-sudo yum install devtoolset-4-toolchain -y
+sudo yum install -y devtoolset-10-gcc* 
 ```
 
-and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
+If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can create
+repo file `CentOS-SCLo-scl.ol.repo` in path `/etc/yum.repos.d/`:
+
+```
+[ol7_software_collections]
+name=Software Collection packages for Oracle Linux 7 ($basearch)
+baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+```
+
+and then
+
+```
+wget http://public-yum.oracle.com/RPM-GPG-KEY-oracle-ol7 -O /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+rpm --import  /etc/pki/rpm-gpg/RPM-GPG-KEY-*
+sudo yum install -y devtoolset-10-gcc*
+```
+Don't forget to set the path of GCC (e.g `/opt/rh/devtoolset-10/root/usr/bin`) to the environment variable PATH.
 
 #### Compile and install
 
-Run following script, it will compile thirdparty libraries and build whole Doris.
+Run the following script, it will compile thirdparty libraries and build whole Doris.
 
 ```
 sh build.sh
@@ -113,15 +163,20 @@ sh build.sh
 
 After successfully building, it will install binary files in the directory `output/`.
 
-## 5. Reporting Issues
+## 5. License Notice
+
+Some of the third-party dependencies' license are not compatible with Apache 2.0 License. So you may have to disable
+some features of Doris to be complied with Apache 2.0 License. Details can be found in `thirdparty/LICENSE.txt`
+
+## 6. Reporting Issues
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 6. Links
+## 7. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
-* Developer Mailing list - Subscribe to <dev@doris.incubator.apache.org> to discuss with us.
+* Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
 * Gitter channel - <https://gitter.im/apache-doris/Lobby> - Online chat room with Doris developers.
 * Overview - <https://github.com/apache/incubator-doris/wiki/Doris-Overview>
 * Compile and install - <https://github.com/apache/incubator-doris/wiki/Doris-Install>
@@ -129,4 +184,3 @@ If you find any bugs, please file a [GitHub issue](https://github.com/apache/inc
 * Deploy and Upgrade - <https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade>
 * User Manual - <https://github.com/apache/incubator-doris/wiki/Doris-Create%2C-Load-and-Delete>
 * FAQs - <https://github.com/apache/incubator-doris/wiki/Doris-FAQ>
-

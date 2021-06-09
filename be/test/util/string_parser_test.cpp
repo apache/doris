@@ -17,13 +17,12 @@
 
 #include "util/string_parser.hpp"
 
-#include <cstdio>
-#include <cstdint>
-
-#include <string>
+#include <gtest/gtest.h>
 
 #include <boost/lexical_cast.hpp>
-#include <gtest/gtest.h>
+#include <cstdint>
+#include <cstdio>
+#include <string>
 
 #include "util/logging.h"
 
@@ -33,7 +32,7 @@ std::string space[] = {"", "   ", "\t\t\t", "\n\n\n", "\v\v\v", "\f\f\f", "\r\r\
 const int space_len = 7;
 
 // Tests conversion of s to integer with and without leading/trailing whitespace
-template<typename T>
+template <typename T>
 void test_int_value(const char* s, T exp_val, StringParser::ParseResult exp_result) {
     for (int i = 0; i < space_len; ++i) {
         for (int j = 0; j < space_len; ++j) {
@@ -47,8 +46,23 @@ void test_int_value(const char* s, T exp_val, StringParser::ParseResult exp_resu
     }
 }
 
+// Tests conversion of s to integer with and without leading/trailing whitespace
+template <typename T>
+void test_unsigned_int_value(const char* s, T exp_val, StringParser::ParseResult exp_result) {
+    for (int i = 0; i < space_len; ++i) {
+        for (int j = 0; j < space_len; ++j) {
+            // All combinations of leading and/or trailing whitespace.
+            std::string str = space[i] + s + space[j];
+            StringParser::ParseResult result;
+            T val = StringParser::string_to_unsigned_int<T>(str.data(), str.length(), &result);
+            EXPECT_EQ(exp_val, val) << str;
+            EXPECT_EQ(result, exp_result);
+        }
+    }
+}
+
 // Tests conversion of s, given a base, to an integer with and without leading/trailing whitespace
-template<typename T>
+template <typename T>
 void test_int_value(const char* s, int base, T exp_val, StringParser::ParseResult exp_result) {
     for (int i = 0; i < space_len; ++i) {
         for (int j = 0; j < space_len; ++j) {
@@ -76,7 +90,7 @@ void test_bool_value(const char* s, bool exp_val, StringParser::ParseResult exp_
 }
 
 // Compare Impala's float conversion function against strtod.
-template<typename T>
+template <typename T>
 void test_float_value(const std::string& s, StringParser::ParseResult exp_result) {
     StringParser::ParseResult result;
     T val = StringParser::string_to_float<T>(s.data(), s.length(), &result);
@@ -88,14 +102,14 @@ void test_float_value(const std::string& s, StringParser::ParseResult exp_result
     }
 }
 
-template<typename T>
+template <typename T>
 void test_float_value_is_nan(const std::string& s, StringParser::ParseResult exp_result) {
     StringParser::ParseResult result;
     T val = StringParser::string_to_float<T>(s.data(), s.length(), &result);
     EXPECT_EQ(exp_result, result);
 
     if (exp_result == StringParser::PARSE_SUCCESS && result == exp_result) {
-        EXPECT_TRUE(isnan(val));
+        EXPECT_TRUE(std::isnan(val));
     }
 }
 
@@ -115,7 +129,7 @@ void test_all_float_variants(const std::string& s, StringParser::ParseResult exp
     }
 }
 
-template<typename T>
+template <typename T>
 void TestFloatBruteForce() {
     T min_val = std::numeric_limits<T>::min();
     T max_val = std::numeric_limits<T>::max();
@@ -139,15 +153,12 @@ void TestFloatBruteForce() {
 
 class StringParserTest : public testing::Test {
 public:
-    StringParserTest(){}
-    ~StringParserTest(){}
+    StringParserTest() {}
+    ~StringParserTest() {}
 
 protected:
-    virtual void SetUp() {
-        init();
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() { init(); }
+    virtual void TearDown() {}
 
     void init();
 
@@ -208,14 +219,54 @@ TEST(StringToInt, Limit) {
     test_int_value<int16_t>("-32768", -32768, StringParser::PARSE_SUCCESS);
     test_int_value<int32_t>("2147483647", 2147483647, StringParser::PARSE_SUCCESS);
     test_int_value<int32_t>("-2147483648", -2147483648, StringParser::PARSE_SUCCESS);
-    test_int_value<int64_t>(
-            "9223372036854775807",
-            std::numeric_limits<int64_t>::max(),
-            StringParser::PARSE_SUCCESS);
-    test_int_value<int64_t>(
-            "-9223372036854775808",
-            std::numeric_limits<int64_t>::min(),
-            StringParser::PARSE_SUCCESS);
+    test_int_value<int64_t>("9223372036854775807", std::numeric_limits<int64_t>::max(),
+                            StringParser::PARSE_SUCCESS);
+    test_int_value<int64_t>("-9223372036854775808", std::numeric_limits<int64_t>::min(),
+                            StringParser::PARSE_SUCCESS);
+}
+
+TEST(StringToUnsignedInt, Basic) {
+    test_unsigned_int_value<uint8_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("123", 123, StringParser::PARSE_SUCCESS);
+
+    test_unsigned_int_value<uint8_t>("123", 123, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("12345", 12345, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("12345678", 12345678, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("12345678901234", 12345678901234,
+                                      StringParser::PARSE_SUCCESS);
+
+    test_unsigned_int_value<uint8_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("-10", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("-10", 0, StringParser::PARSE_FAILURE);
+
+    test_unsigned_int_value<uint8_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("+1", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("+1", 0, StringParser::PARSE_FAILURE);
+
+    test_unsigned_int_value<uint8_t>("+0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint16_t>("-0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint32_t>("+0", 0, StringParser::PARSE_FAILURE);
+    test_unsigned_int_value<uint64_t>("-0", 0, StringParser::PARSE_FAILURE);
+}
+
+TEST(StringToUnsignedInt, Limit) {
+    test_unsigned_int_value<uint8_t>("255", 255, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint16_t>("65535", 65535, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint32_t>("4294967295", 4294967295, StringParser::PARSE_SUCCESS);
+    test_unsigned_int_value<uint64_t>("18446744073709551615", std::numeric_limits<uint64_t>::max(),
+                                      StringParser::PARSE_SUCCESS);
+}
+
+TEST(StringToUnsignedInt, Overflow) {
+    test_unsigned_int_value<uint8_t>("256", 255, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint16_t>("65536", 65535, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint32_t>("4294967296", 4294967295, StringParser::PARSE_OVERFLOW);
+    test_unsigned_int_value<uint64_t>("18446744073709551616", std::numeric_limits<uint64_t>::max(),
+                                      StringParser::PARSE_OVERFLOW);
 }
 
 TEST(StringToInt, Overflow) {
@@ -225,14 +276,10 @@ TEST(StringToInt, Overflow) {
     test_int_value<int16_t>("-32769", -32768, StringParser::PARSE_OVERFLOW);
     test_int_value<int32_t>("2147483648", 2147483647, StringParser::PARSE_OVERFLOW);
     test_int_value<int32_t>("-2147483649", -2147483648, StringParser::PARSE_OVERFLOW);
-    test_int_value<int64_t>(
-            "9223372036854775808",
-            9223372036854775807LL,
-            StringParser::PARSE_OVERFLOW);
-    test_int_value<int64_t>(
-            "-9223372036854775809",
-            std::numeric_limits<int64_t>::min(),
-            StringParser::PARSE_OVERFLOW);
+    test_int_value<int64_t>("9223372036854775808", 9223372036854775807LL,
+                            StringParser::PARSE_OVERFLOW);
+    test_int_value<int64_t>("-9223372036854775809", std::numeric_limits<int64_t>::min(),
+                            StringParser::PARSE_OVERFLOW);
 }
 
 TEST(StringToInt, Int8_Exhaustive) {
@@ -245,7 +292,8 @@ TEST(StringToInt, Int8_Exhaustive) {
         } else if (i < -128) {
             expected = -128;
         }
-        test_int_value<int8_t>(buffer, expected,
+        test_int_value<int8_t>(
+                buffer, expected,
                 i == expected ? StringParser::PARSE_SUCCESS : StringParser::PARSE_OVERFLOW);
     }
 }
@@ -318,9 +366,9 @@ TEST(StringToIntWithBase, Limit) {
     test_int_value<int32_t>("2147483647", 10, 2147483647, StringParser::PARSE_SUCCESS);
     test_int_value<int32_t>("-2147483648", 10, -2147483648, StringParser::PARSE_SUCCESS);
     test_int_value<int64_t>("9223372036854775807", 10, std::numeric_limits<int64_t>::max(),
-            StringParser::PARSE_SUCCESS);
+                            StringParser::PARSE_SUCCESS);
     test_int_value<int64_t>("-9223372036854775808", 10, std::numeric_limits<int64_t>::min(),
-            StringParser::PARSE_SUCCESS);
+                            StringParser::PARSE_SUCCESS);
 }
 
 TEST(StringToIntWithBase, Overflow) {
@@ -331,9 +379,9 @@ TEST(StringToIntWithBase, Overflow) {
     test_int_value<int32_t>("2147483648", 10, 2147483647, StringParser::PARSE_OVERFLOW);
     test_int_value<int32_t>("-2147483649", 10, -2147483648, StringParser::PARSE_OVERFLOW);
     test_int_value<int64_t>("9223372036854775808", 10, 9223372036854775807LL,
-            StringParser::PARSE_OVERFLOW);
+                            StringParser::PARSE_OVERFLOW);
     test_int_value<int64_t>("-9223372036854775809", 10, std::numeric_limits<int64_t>::min(),
-            StringParser::PARSE_OVERFLOW);
+                            StringParser::PARSE_OVERFLOW);
 }
 
 TEST(StringToIntWithBase, Int8_Exhaustive) {
@@ -346,7 +394,8 @@ TEST(StringToIntWithBase, Int8_Exhaustive) {
         } else if (i < -128) {
             expected = -128;
         }
-        test_int_value<int8_t>(buffer, 10, expected,
+        test_int_value<int8_t>(
+                buffer, 10, expected,
                 i == expected ? StringParser::PARSE_SUCCESS : StringParser::PARSE_OVERFLOW);
     }
 }
@@ -412,7 +461,6 @@ TEST(StringToFloat, Basic) {
     test_float_value_is_nan<float>("n aN", StringParser::PARSE_FAILURE);
     test_float_value_is_nan<float>("nnaN", StringParser::PARSE_FAILURE);
 
-
     // Overflow.
     test_float_value<float>(float_max + "11111", StringParser::PARSE_OVERFLOW);
     test_float_value<double>(double_max + "11111", StringParser::PARSE_OVERFLOW);
@@ -430,18 +478,18 @@ TEST(StringToFloat, Basic) {
     test_all_float_variants("0.01234567890123456789012", StringParser::PARSE_SUCCESS);
     test_all_float_variants(".1234567890123456789012", StringParser::PARSE_SUCCESS);
     test_all_float_variants("0.01234567890123456789012", StringParser::PARSE_SUCCESS);
-    test_all_float_variants(
-            "12345678901234567890.1234567890123456789012", StringParser::PARSE_SUCCESS);
-    test_all_float_variants(
-            "12345678901234567890.01234567890123456789012", StringParser::PARSE_SUCCESS);
+    test_all_float_variants("12345678901234567890.1234567890123456789012",
+                            StringParser::PARSE_SUCCESS);
+    test_all_float_variants("12345678901234567890.01234567890123456789012",
+                            StringParser::PARSE_SUCCESS);
     test_all_float_variants("0.000000000000000000001234", StringParser::PARSE_SUCCESS);
     test_all_float_variants("1.000000000000000000001234", StringParser::PARSE_SUCCESS);
     test_all_float_variants(".000000000000000000001234", StringParser::PARSE_SUCCESS);
     test_all_float_variants("0.000000000000000000001234e10", StringParser::PARSE_SUCCESS);
-    test_all_float_variants(
-            "00000000000000000000.000000000000000000000", StringParser::PARSE_SUCCESS);
-    test_all_float_variants(
-            "00000000000000000000.000000000000000000001", StringParser::PARSE_SUCCESS);
+    test_all_float_variants("00000000000000000000.000000000000000000000",
+                            StringParser::PARSE_SUCCESS);
+    test_all_float_variants("00000000000000000000.000000000000000000001",
+                            StringParser::PARSE_SUCCESS);
     test_all_float_variants("12345678901234567890123456", StringParser::PARSE_SUCCESS);
     test_all_float_variants("12345678901234567890123456e10", StringParser::PARSE_SUCCESS);
 
@@ -498,4 +546,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

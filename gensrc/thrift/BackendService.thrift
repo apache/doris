@@ -20,34 +20,10 @@ namespace java org.apache.doris.thrift
 
 include "Status.thrift"
 include "Types.thrift"
+include "PlanNodes.thrift"
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
-
-struct TPullLoadSubTaskInfo {
-    1: required Types.TUniqueId id
-    2: required i32 sub_task_id
-    3: required map<string, i64> file_map
-    4: required map<string, string> counters
-    5: optional string tracking_url
-}
-
-struct TPullLoadTaskInfo {
-    1: required Types.TUniqueId id
-    2: required Types.TEtlState etl_state
-    3: optional map<string, i64> file_map
-    4: optional map<string, string> counters
-    5: optional list<string> tracking_urls
-}
-
-struct TFetchPullLoadTaskInfoResult {
-    1: required Status.TStatus status
-    2: required TPullLoadTaskInfo task_info
-}
-
-struct TFetchAllPullLoadTaskInfosResult {
-    1: required Status.TStatus status
-    2: required list<TPullLoadTaskInfo> task_infos
-}
+include "DorisExternalService.thrift"
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
@@ -67,6 +43,7 @@ struct TKafkaLoadInfo {
     1: required string brokers;
     2: required string topic;
     3: required map<i32, i64> partition_begin_offset;
+    4: optional map<string, string> properties;
 }
 
 struct TRoutineLoadTask {
@@ -83,6 +60,49 @@ struct TRoutineLoadTask {
     11: optional i64 max_batch_size
     12: optional TKafkaLoadInfo kafka_load_info
     13: optional PaloInternalService.TExecPlanFragmentParams params
+    14: optional PlanNodes.TFileFormatType format
+}
+
+struct TKafkaMetaProxyRequest {
+    1: optional TKafkaLoadInfo kafka_info
+}
+
+struct TKafkaMetaProxyResult {
+    1: optional list<i32> partition_ids
+}
+
+struct TProxyRequest {
+    1: optional TKafkaMetaProxyRequest kafka_meta_request;
+}
+
+struct TProxyResult {
+    1: required Status.TStatus status;
+    2: optional TKafkaMetaProxyResult kafka_meta_result;
+}
+
+struct TStreamLoadRecord {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+    7: required string label
+    8: required string status
+    9: required string message
+    10: optional string url
+    11: optional i64 auth_code;
+    12: required i64 total_rows
+    13: required i64 loaded_rows
+    14: required i64 filtered_rows
+    15: required i64 unselected_rows
+    16: required i64 load_bytes
+    17: required i64 start_time
+    18: required i64 finish_time
+}
+
+struct TStreamLoadRecordResult {
+    1: required map<string, TStreamLoadRecord> stream_load_record
 }
 
 service BackendService {
@@ -120,20 +140,6 @@ service BackendService {
 
     AgentService.TAgentResult delete_etl_files(1:AgentService.TDeleteEtlFilesRequest request);
 
-    // Register one pull load task.
-    Status.TStatus register_pull_load_task(1: Types.TUniqueId id, 2: i32 num_senders)
-
-    // Call by task coordinator to unregister this task.
-    // This task may be failed because load task have been finished or this task
-    // has been canceled by coordinator.
-    Status.TStatus deregister_pull_load_task(1: Types.TUniqueId id)
-
-    Status.TStatus report_pull_load_sub_task_info(1:TPullLoadSubTaskInfo task_info)
-
-    TFetchPullLoadTaskInfoResult fetch_pull_load_task_info(1:Types.TUniqueId id)
-
-    TFetchAllPullLoadTaskInfosResult fetch_all_pull_load_task_infos()
-
     Status.TStatus submit_export_task(1:TExportTaskRequest request);
 
     PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);
@@ -143,4 +149,16 @@ service BackendService {
     TTabletStatResult get_tablet_stat();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
+
+    // doris will build  a scan context for this session, context_id returned if success
+    DorisExternalService.TScanOpenResult open_scanner(1: DorisExternalService.TScanOpenParams params);
+
+    // return the batch_size of data
+    DorisExternalService.TScanBatchResult get_next(1: DorisExternalService.TScanNextBatchParams params);
+
+    // release the context resource associated with the context_id
+    DorisExternalService.TScanCloseResult close_scanner(1: DorisExternalService.TScanCloseParams params);
+
+    TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
+
 }

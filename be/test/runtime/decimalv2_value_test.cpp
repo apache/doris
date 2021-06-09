@@ -17,10 +17,10 @@
 
 #include "runtime/decimalv2_value.h"
 
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
-
-#include <gtest/gtest.h>
 
 #include "util/logging.h"
 
@@ -28,14 +28,11 @@ namespace doris {
 
 class DecimalV2ValueTest : public testing::Test {
 public:
-    DecimalV2ValueTest() {
-    }
+    DecimalV2ValueTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 TEST_F(DecimalV2ValueTest, string_to_decimal) {
@@ -93,7 +90,6 @@ TEST_F(DecimalV2ValueTest, negative_zero) {
         ASSERT_FALSE(!(value <= value3));
         ASSERT_FALSE(!(value3 > value));
         ASSERT_FALSE(!(value3 >= value));
-
     }
     {
         // from int
@@ -119,7 +115,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
     DecimalV2Value value1;
     ASSERT_EQ("0", value1.to_string(3));
 
-    DecimalV2Value value2(111111111); // 9 digits
+    DecimalV2Value value2(111111111, 0); // 9 digits
     std::cout << "value2: " << value2.get_debug_info() << std::endl;
     ASSERT_EQ("111111111", value2.to_string(3));
 
@@ -147,14 +143,14 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
     std::cout << "value8: " << value8.get_debug_info() << std::endl;
     ASSERT_EQ("11", value8.to_string(3));
 
-    // more than 9digit, fraction will be trancated to 999999999
+    // more than 9digit, fraction will be truncated to 999999999
     DecimalV2Value value9(1230123456789, 1230123456789);
     std::cout << "value9: " << value9.get_debug_info() << std::endl;
     ASSERT_EQ("1230123456789.999999999", value9.to_string(10));
 
     // negative
     {
-        DecimalV2Value value2(-111111111); // 9 digits
+        DecimalV2Value value2(-111111111, 0); // 9 digits
         std::cout << "value2: " << value2.get_debug_info() << std::endl;
         ASSERT_EQ("-111111111", value2.to_string(3));
 
@@ -181,14 +177,14 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 }
 
 TEST_F(DecimalV2ValueTest, add) {
-    DecimalV2Value value11(std::string("1111111111.222222222"));// 9 digits
+    DecimalV2Value value11(std::string("1111111111.222222222")); // 9 digits
     DecimalV2Value value12(std::string("2222222222.111111111")); // 9 digits
     DecimalV2Value add_result1 = value11 + value12;
     std::cout << "add_result1: " << add_result1.get_debug_info() << std::endl;
     ASSERT_EQ("3333333333.333333333", add_result1.to_string(9));
 
-    DecimalV2Value value21(std::string("-3333333333.222222222"));// 9 digits
-    DecimalV2Value value22(std::string("2222222222.111111111")); // 9 digits
+    DecimalV2Value value21(std::string("-3333333333.222222222")); // 9 digits
+    DecimalV2Value value22(std::string("2222222222.111111111"));  // 9 digits
     DecimalV2Value add_result2 = value21 + value22;
     std::cout << "add_result2: " << add_result2.get_debug_info() << std::endl;
     ASSERT_EQ("-1111111111.111111111", add_result2.to_string(9));
@@ -205,7 +201,7 @@ TEST_F(DecimalV2ValueTest, compound_add) {
 }
 
 TEST_F(DecimalV2ValueTest, sub) {
-    DecimalV2Value value11(std::string("3333333333.222222222"));// 9 digits
+    DecimalV2Value value11(std::string("3333333333.222222222")); // 9 digits
     DecimalV2Value value12(std::string("2222222222.111111111")); // 9 digits
     DecimalV2Value sub_result1 = value11 - value12;
     std::cout << "sub_result1: " << sub_result1.get_debug_info() << std::endl;
@@ -228,14 +224,11 @@ TEST_F(DecimalV2ValueTest, sub) {
     }
     // minimum - maximal
     {
-        DecimalV2Value value1(std::string(
-                "999999999999999999.999999999")); // 27 digits
-        DecimalV2Value value2(std::string(
-                "-999999999999999999.999999999")); // 27 digits
+        DecimalV2Value value1(std::string("999999999999999999.999999999"));  // 27 digits
+        DecimalV2Value value2(std::string("-999999999999999999.999999999")); // 27 digits
         DecimalV2Value sub_result = value2 - value1;
         std::cout << "sub_result: " << sub_result.get_debug_info() << std::endl;
-        DecimalV2Value expected_value = value2;
-        ASSERT_EQ(expected_value, sub_result);
+        ASSERT_STREQ("-1999999999999999999.999999998", sub_result.to_string().c_str());
         ASSERT_FALSE(sub_result.is_zero());
         ASSERT_TRUE(value1 > value2);
     }
@@ -246,15 +239,12 @@ TEST_F(DecimalV2ValueTest, mul) {
     DecimalV2Value value12(std::string("-222222222.1111"));
     DecimalV2Value mul_result1 = value11 * value12;
     std::cout << "mul_result1: " << mul_result1.get_debug_info() << std::endl;
-    ASSERT_EQ(DecimalV2Value(
-            std::string("-74074074012337037.04938642")),
-            mul_result1);
+    ASSERT_EQ(DecimalV2Value(std::string("-74074074012337037.04938642")), mul_result1);
 
     DecimalV2Value value21(std::string("0")); // zero
     DecimalV2Value mul_result2 = value11 * value21;
     std::cout << "mul_result2: " << mul_result2.get_debug_info() << std::endl;
     ASSERT_EQ(DecimalV2Value(std::string("0")), mul_result2);
-
 }
 
 TEST_F(DecimalV2ValueTest, div) {
@@ -281,7 +271,6 @@ TEST_F(DecimalV2ValueTest, unary_minus_operator) {
         std::cout << "value2: " << value2.get_debug_info() << std::endl;
         ASSERT_EQ("111111111.222222222", value1.to_string(10));
         ASSERT_EQ("-111111111.222222222", value2.to_string(10));
-
     }
 }
 
@@ -310,7 +299,7 @@ TEST_F(DecimalV2ValueTest, to_int_frac_value) {
     {
         DecimalV2Value value(std::string("-123456789.987654321987654321"));
         ASSERT_EQ(-123456789, value.int_value());
-        ASSERT_EQ(-987654321, value.frac_value());
+        ASSERT_EQ(-987654322, value.frac_value());
     }
 }
 
@@ -524,7 +513,7 @@ TEST_F(DecimalV2ValueTest, round_to_int) {
 
 TEST_F(DecimalV2ValueTest, double_to_decimal) {
     double i = 1.2;
-    DecimalV2Value *value = new DecimalV2Value(100, 9876);
+    DecimalV2Value* value = new DecimalV2Value(100, 9876);
     value->assign_from_double(i);
     ASSERT_STREQ("1.2", value->to_string().c_str());
     delete value;
@@ -532,7 +521,7 @@ TEST_F(DecimalV2ValueTest, double_to_decimal) {
 
 TEST_F(DecimalV2ValueTest, float_to_decimal) {
     float i = 1.2;
-    DecimalV2Value *value = new DecimalV2Value(100, 9876);
+    DecimalV2Value* value = new DecimalV2Value(100, 9876);
     value->assign_from_float(i);
     ASSERT_STREQ("1.2", value->to_string().c_str());
     delete value;

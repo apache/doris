@@ -26,36 +26,42 @@
 #include "exec/es/es_scan_reader.h"
 #include "exec/es/es_scroll_query.h"
 #include "exprs/expr.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
+#include "exprs/expr_context.h"
 #include "runtime/dpp_sink_internal.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-EsHttpScanNode::EsHttpScanNode(
-        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) : 
-            ScanNode(pool, tnode, descs), 
-            _tuple_id(tnode.es_scan_node.tuple_id),
-            _runtime_state(nullptr),
-            _tuple_desc(nullptr),
-            _num_running_scanners(0),
-            _scan_finished(false),
-            _eos(false),
-            _max_buffered_batches(1024),
-            _wait_scanner_timer(nullptr) {
-}
+EsHttpScanNode::EsHttpScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _tuple_id(tnode.es_scan_node.tuple_id),
+          _runtime_state(nullptr),
+          _tuple_desc(nullptr),
+          _num_running_scanners(0),
+          _scan_finished(false),
+          _eos(false),
+          _max_buffered_batches(1024),
+          _wait_scanner_timer(nullptr) {}
 
-EsHttpScanNode::~EsHttpScanNode() {
-}
+EsHttpScanNode::~EsHttpScanNode() {}
 
 Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
-    return Status::OK;
+
+    if (tnode.es_scan_node.__isset.docvalue_context) {
+        _docvalue_context = tnode.es_scan_node.docvalue_context;
+    }
+
+    if (tnode.es_scan_node.__isset.fields_context) {
+        _fields_context = tnode.es_scan_node.fields_context;
+    }
+    return Status::OK();
 }
 
 Status EsHttpScanNode::prepare(RuntimeState* state) {
@@ -67,7 +73,7 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     // set up column name vector for ESScrollQueryBuilder
@@ -80,21 +86,21 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
 
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
-    return Status::OK;
+    return Status::OK();
 }
 
-// build predicate 
+// build predicate
 Status EsHttpScanNode::build_conjuncts_list() {
-    Status status = Status::OK;
+    Status status = Status::OK();
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        EsPredicate* predicate = _pool->add(
-                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
+        EsPredicate* predicate = _pool->add(new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
+        predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
             _predicates.push_back(predicate);
             _predicate_to_conjunct.push_back(i);
         } else {
-            VLOG(1) << status.get_error_msg();
+            VLOG_CRITICAL << status.get_error_msg();
             status = predicate->get_es_query_status();
             if (!status.ok()) {
                 LOG(WARNING) << status.get_error_msg();
@@ -103,7 +109,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsHttpScanNode::open(RuntimeState* state) {
@@ -128,8 +134,8 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     std::vector<bool> list;
     BooleanQueryBuilder::validate(_predicates, &list);
     DCHECK(list.size() == _predicate_to_conjunct.size());
-    for(int i = list.size() - 1; i >= 0; i--) {
-        if(!list[i]) {
+    for (int i = list.size() - 1; i >= 0; i--) {
+        if (!list[i]) {
             _predicate_to_conjunct.erase(_predicate_to_conjunct.begin() + i);
             _predicates.erase(_predicates.begin() + i);
         }
@@ -144,7 +150,7 @@ Status EsHttpScanNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(start_scanners());
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status EsHttpScanNode::start_scanners() {
@@ -153,44 +159,51 @@ Status EsHttpScanNode::start_scanners() {
         _num_running_scanners = _scan_ranges.size();
     }
 
+    _scanners_status.resize(_scan_ranges.size());
     for (int i = 0; i < _scan_ranges.size(); i++) {
-        std::promise<Status> p;
-        std::future<Status> f = p.get_future();
-        _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i,
-                    _scan_ranges.size(), std::ref(p));
-        Status status = f.get();
-        if (!status.ok()) return status;
+        _scanner_threads.emplace_back(&EsHttpScanNode::scanner_worker, this, i, _scan_ranges.size(),
+                                      std::ref(_scanners_status[i]));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
-Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, 
-            bool* eos) {
+Status EsHttpScanNode::collect_scanners_status() {
+    // NOTE. if open() was called, but set_range() was NOT called for some reason.
+    // then close() was called.
+    // there would cause a core because _scanners_status's iterator was in [0, _scan_ranges) other than [0, _scanners_status)
+    // it is said that the fragment-call-frame is calling scan-node in this way....
+    // in my options, it's better fixed in fragment-call-frame. e.g. call close() according the return value of open()
+    for (int i = 0; i < _scanners_status.size(); i++) {
+        std::future<Status> f = _scanners_status[i].get_future();
+        RETURN_IF_ERROR(f.get());
+    }
+    return Status::OK();
+}
+
+Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (state->is_cancelled()) {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        if (update_status(Status::CANCELLED)) {
+        if (update_status(Status::Cancelled("Cancelled"))) {
             _queue_writer_cond.notify_all();
         }
     }
 
     if (_eos) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     if (_scan_finished.load()) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     std::shared_ptr<RowBatch> scanner_batch;
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        while (_process_status.ok() &&
-               !_runtime_state->is_cancelled() &&
-               _num_running_scanners > 0 &&
-               _batch_queue.empty()) {
+        while (_process_status.ok() && !_runtime_state->is_cancelled() &&
+               _num_running_scanners > 0 && _batch_queue.empty()) {
             SCOPED_TIMER(_wait_scanner_timer);
             _queue_reader_cond.wait_for(l, std::chrono::seconds(1));
         }
@@ -199,7 +212,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
             return _process_status;
         }
         if (_runtime_state->is_cancelled()) {
-            if (update_status(Status::CANCELLED)) {
+            if (update_status(Status::Cancelled("Cancelled"))) {
                 _queue_writer_cond.notify_all();
             }
             return _process_status;
@@ -214,7 +227,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
     if (scanner_batch == nullptr) {
         _scan_finished.store(true);
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     // notify one scanner
@@ -244,16 +257,16 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch,
         for (int i = 0; i < row_batch->num_rows(); ++i) {
             TupleRow* row = row_batch->get_row(i);
             VLOG_ROW << "EsHttpScanNode output row: "
-                << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
+                     << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
-    
-    return Status::OK;
+
+    return Status::OK();
 }
 
 Status EsHttpScanNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -266,37 +279,43 @@ Status EsHttpScanNode::close(RuntimeState* state) {
 
     _batch_queue.clear();
 
-    return ExecNode::close(state);
+    //don't need to hold lock to update_status in close function
+    //collect scanners status
+    update_status(collect_scanners_status());
+
+    //close exec node
+    update_status(ExecNode::close(state));
+
+    return _process_status;
 }
 
 // This function is called after plan node has been prepared.
 Status EsHttpScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     _scan_ranges = scan_ranges;
-    return Status::OK;
+    return Status::OK();
 }
 
 void EsHttpScanNode::debug_string(int ident_level, std::stringstream* out) const {
     (*out) << "EsHttpScanNode";
 }
 
-Status EsHttpScanNode::scanner_scan(
-            std::unique_ptr<EsHttpScanner> scanner,
-            const std::vector<ExprContext*>& conjunct_ctxs, 
-            EsScanCounter* counter) {
+Status EsHttpScanNode::scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
+                                    const std::vector<ExprContext*>& conjunct_ctxs,
+                                    EsScanCounter* counter) {
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
-    
+
     while (!scanner_eof) {
         // Fill one row batch
         std::shared_ptr<RowBatch> row_batch(
-            new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker()));
+                new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
         int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
         void* tuple_buffer = tuple_pool->allocate(tuple_buffer_size);
         if (tuple_buffer == nullptr) {
-            return Status("Allocate memory for row batch failed.");
+            return Status::InternalError("Allocate memory for row batch failed.");
         }
 
         Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buffer);
@@ -304,7 +323,7 @@ Status EsHttpScanNode::scanner_scan(
             RETURN_IF_CANCELLED(_runtime_state);
             // If we have finished all works
             if (_scan_finished.load()) {
-                return Status::OK;
+                return Status::OK();
             }
 
             // This row batch has been filled up, and break this
@@ -319,7 +338,7 @@ Status EsHttpScanNode::scanner_scan(
             memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
-            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
+            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, _docvalue_context));
             if (scanner_eof) {
                 continue;
             }
@@ -339,50 +358,48 @@ Status EsHttpScanNode::scanner_scan(
         // Row batch has been filled, push this to the queue
         if (row_batch->num_rows() > 0) {
             std::unique_lock<std::mutex> l(_batch_queue_lock);
-            while (_process_status.ok() && 
-                   !_scan_finished.load() && 
+            while (_process_status.ok() && !_scan_finished.load() &&
                    !_runtime_state->is_cancelled() &&
                    _batch_queue.size() >= _max_buffered_batches) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK
             if (!_process_status.ok()) {
-                return Status::OK;
+                return Status::OK();
             }
             // Scan already finished, just return
             if (_scan_finished.load()) {
-                return Status::OK;
+                return Status::OK();
             }
             // Runtime state is canceled, just return cancel
             if (_runtime_state->is_cancelled()) {
-                return Status::CANCELLED;
+                return Status::Cancelled("Cancelled");
             }
-            // Queue size Must be samller than _max_buffered_batches
+            // Queue size Must be smaller than _max_buffered_batches
             _batch_queue.push_back(row_batch);
 
-            // Notify reader to 
+            // Notify reader to
             _queue_reader_cond.notify_one();
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 // Prefer to the local host
 static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
-
     std::string host_port;
     std::string localhost = BackendOptions::get_localhost();
 
     TNetworkAddress host = es_hosts[0];
     for (auto& es_host : es_hosts) {
         if (es_host.hostname == localhost) {
-           host = es_host;
-           break;
+            host = es_host;
+            break;
         }
     }
 
-    host_port = host.hostname; 
+    host_port = host.hostname;
     host_port += ":";
     host_port += std::to_string(host.port);
     return host_port;
@@ -392,17 +409,15 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);
-    auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, 
-                &scanner_expr_ctxs);
+    auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);
     if (!status.ok()) {
         LOG(WARNING) << "Clone conjuncts failed.";
     }
 
     EsScanCounter counter;
-    const TEsScanRange& es_scan_range = 
-        _scan_ranges[start_idx].scan_range.es_scan_range;
+    const TEsScanRange& es_scan_range = _scan_ranges[start_idx].scan_range.es_scan_range;
 
-    // Collect the informations from scan range to perperties
+    // Collect the information from scan range to properties
     std::map<std::string, std::string> properties(_properties);
     properties[ESScanReader::KEY_INDEX] = es_scan_range.index;
     if (es_scan_range.__isset.type) {
@@ -411,21 +426,27 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
     properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
     properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
-    properties[ESScanReader::KEY_QUERY] 
-        = ESScrollQueryBuilder::build(properties, _column_names, _predicates);
-
-    // start scanner to scan
-    std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
-                    _runtime_state, runtime_profile(), _tuple_id,
-                    properties, scanner_expr_ctxs, &counter));
-    status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
-    if (!status.ok()) {
-        LOG(WARNING) << "Scanner[" << start_idx << "] process failed. status="
-            << status.get_error_msg();
+    // push down limit to Elasticsearch
+    // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
+    if (limit() != -1 && limit() <= _runtime_state->batch_size() && _conjunct_ctxs.empty()) {
+        properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
     }
 
+    bool doc_value_mode = false;
+    properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
+            properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
-    // scanner is going to finish 
+    // start scanner to scan
+    std::unique_ptr<EsHttpScanner> scanner(
+            new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
+                              scanner_expr_ctxs, &counter, doc_value_mode));
+    status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
+    if (!status.ok()) {
+        LOG(WARNING) << "Scanner[" << start_idx
+                     << "] process failed. status=" << status.get_error_msg();
+    }
+
+    // scanner is going to finish
     {
         std::lock_guard<std::mutex> l(_batch_queue_lock);
         if (!status.ok()) {
@@ -442,4 +463,4 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
 
     p_status.set_value(status);
 }
-}
+} // namespace doris

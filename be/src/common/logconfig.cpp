@@ -15,14 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iostream>
-#include <cerrno>
-#include <cstring>
-#include <cstdlib>
-#include <mutex>
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
+
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <mutex>
+
 #include "common/config.h"
+#include "gutil/stringprintf.h"
+#include "util/logging.h"
 
 namespace doris {
 
@@ -30,8 +34,7 @@ static bool logging_initialized = false;
 
 static std::mutex logging_mutex;
 
-static bool iequals(const std::string& a, const std::string& b)
-{
+static bool iequals(const std::string& a, const std::string& b) {
     unsigned int sz = a.size();
     if (b.size() != sz) {
         return false;
@@ -42,10 +45,9 @@ static bool iequals(const std::string& a, const std::string& b)
         }
     }
     return true;
-}       
+}
 
 bool init_glog(const char* basename, bool install_signal_handler) {
-
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
     if (logging_initialized) {
@@ -63,10 +65,10 @@ bool init_glog(const char* basename, bool install_signal_handler) {
     // 0 means buffer INFO only
     FLAGS_logbuflevel = 0;
     // buffer log messages for at most this many seconds
-    FLAGS_logbufsecs = 30;  
+    FLAGS_logbufsecs = 30;
     // set roll num
     FLAGS_log_filenum_quota = config::sys_log_roll_num;
-    
+
     // set log level
     std::string& loglevel = config::sys_log_level;
     if (iequals(loglevel, "INFO")) {
@@ -104,7 +106,7 @@ bool init_glog(const char* basename, bool install_signal_handler) {
     } else if (rollmode.substr(0, sizeflag.length()).compare(sizeflag) == 0) {
         FLAGS_log_split_method = "size";
         std::string sizestr = rollmode.substr(sizeflag.size(), rollmode.size() - sizeflag.size());
-        if (sizestr.size() != 0)  {
+        if (sizestr.size() != 0) {
             char* end = NULL;
             errno = 0;
             const char* sizecstr = sizestr.c_str();
@@ -125,26 +127,36 @@ bool init_glog(const char* basename, bool install_signal_handler) {
         return false;
     }
 
-    // set verbose modules. only use vlog(0)
+    // set verbose modules.
     FLAGS_v = -1;
     std::vector<std::string>& verbose_modules = config::sys_log_verbose_modules;
+    int32_t vlog_level = config::sys_log_verbose_level;
     for (size_t i = 0; i < verbose_modules.size(); i++) {
         if (verbose_modules[i].size() != 0) {
-            google::SetVLOGLevel(verbose_modules[i].c_str(), 10);
+            google::SetVLOGLevel(verbose_modules[i].c_str(), vlog_level);
         }
     }
 
     google::InitGoogleLogging(basename);
 
     logging_initialized = true;
- 
-    return true;
 
+    return true;
 }
 
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
     google::ShutdownGoogleLogging();
+}
+
+std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch) {
+    time_t secs_since_epoch = micros_since_epoch / 1000000;
+    int usecs = micros_since_epoch % 1000000;
+    struct tm tm_time;
+    localtime_r(&secs_since_epoch, &tm_time);
+
+    return StringPrintf("%02d%02d %02d:%02d:%02d.%06d", 1 + tm_time.tm_mon, tm_time.tm_mday,
+                        tm_time.tm_hour, tm_time.tm_min, tm_time.tm_sec, usecs);
 }
 
 } // namespace doris

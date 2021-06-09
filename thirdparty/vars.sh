@@ -21,9 +21,6 @@
 # which are used for compiling thirdparties and palo itself.
 ############################################################
 
-# --job param for *make*
-PARALLEL=$[$(nproc)/4+1]
-
 ###################################################
 # DO NOT change variables bellow unless you known 
 # what you are doing.
@@ -55,13 +52,13 @@ export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 # libevent
 # the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
 # so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
-LIBEVENT_DOWNLOAD="https://doris-incubating-repo.bj.bcebos.com/thirdparty/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip"
+LIBEVENT_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip"
 LIBEVENT_NAME=libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip
 LIBEVENT_SOURCE=libevent-master
 LIBEVENT_MD5SUM="e8b9ba50270ba3b520aec8ff1089f9d7"
 
 # openssl
-OPENSSL_DOWNLOAD="https://www.openssl.org/source/openssl-1.0.2k.tar.gz"
+OPENSSL_DOWNLOAD="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2k.tar.gz"
 OPENSSL_NAME=openssl-1.0.2k.tar.gz
 OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
@@ -139,11 +136,11 @@ LZ4_SOURCE=lz4-1.7.5
 LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
-# BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
-BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
-BZIP_NAME=bzip2-1.0.6.tar.gz
-BZIP_SOURCE=bzip2-1.0.6
-BZIP_MD5SUM="00b516f4704d4a7cb50a1d97e6e8e15b"
+BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
+BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
+BZIP_NAME=bzip2-1.0.8.tar.gz
+BZIP_SOURCE=bzip2-1.0.8
+BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
 LZO2_DOWNLOAD="http://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
@@ -152,10 +149,10 @@ LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
-RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
-RAPIDJSON_NAME=rapidjson-1.1.0.tar.gz
-RAPIDJSON_SOURCE=rapidjson-1.1.0
-RAPIDJSON_MD5SUM="badd12c511e081fec6c89c43a7027bce"
+RAPIDJSON_DOWNLOAD="https://github.com/Tencent/rapidjson/archive/1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip"
+RAPIDJSON_NAME=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5.zip
+RAPIDJSON_SOURCE=rapidjson-1a803826f1197b5e30703afe4b9c0e7dd48074f5
+RAPIDJSON_MD5SUM="f2212a77e055a15501477f1e390007ea"
 
 # curl
 CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.1.tar.gz"
@@ -170,10 +167,10 @@ RE2_SOURCE=re2-2017-05-01
 RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
-BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
-BOOST_NAME=boost_1_64_0.tar.gz
-BOOST_SOURCE=boost_1_64_0
-BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"
+BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.73.0/source/boost_1_73_0.tar.gz"
+BOOST_NAME=boost_1_73_0.tar.gz
+BOOST_SOURCE=boost_1_73_0
+BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
 
 # mysql
 MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
@@ -181,11 +178,11 @@ MYSQL_NAME=mysql-5.7.18.tar.gz
 MYSQL_SOURCE=mysql-server-mysql-5.7.18
 MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
 
-# boost for mysql
-BOOST_FOR_MYSQL_DOWNLOAD="http://sourceforge.net/projects/boost/files/boost/1.59.0/boost_1_59_0.tar.gz"
-BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
-BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
-BOOST_FOR_MYSQL_MD5SUM="51528a0e3b33d9e10aaa311d9eb451e3"
+# unix odbc
+ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
+ODBC_NAME=unixODBC-2.3.7.tar.gz
+ODBC_SOURCE=unixODBC-2.3.7
+ODBC_MD5SUM="274a711b0c77394e052db6493840c6f9"
 
 # leveldb
 LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/v1.20.tar.gz"
@@ -194,10 +191,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/v0.9.0.tar.gz"
-BRPC_NAME=incubator-brpc-0.9.0.tar.gz
-BRPC_SOURCE=incubator-brpc-0.9.0
-BRPC_MD5SUM="79dfdc8b6e2d7a08dc68f14c5fabe6b7"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/0.9.7.tar.gz"
+BRPC_NAME=incubator-brpc-0.9.7.tar.gz
+BRPC_SOURCE=incubator-brpc-0.9.7
+BRPC_MD5SUM="a5b79339d139d1c55d39689c0a69bcef"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -217,12 +214,6 @@ ZSTD_NAME=zstd-1.3.7.tar.gz
 ZSTD_SOURCE=zstd-1.3.7
 ZSTD_MD5SUM="9b89923a360ac85a3b8076fdf495318d"
 
-# uriparser
-URIPARSER_DOWNLOAD="https://github.com/uriparser/uriparser/archive/uriparser-0.9.2.tar.gz"
-URIPARSER_NAME=uriparser-0.9.2.tar.gz
-URIPARSER_SOURCE=uriparser-0.9.2
-URIPARSER_MD5SUM="3169aa620d63c67580fd1bc0b1f54638"
-
 # double-conversion
 DOUBLE_CONVERSION_DOWNLOAD="https://github.com/google/double-conversion/archive/v3.1.1.tar.gz"
 DOUBLE_CONVERSION_NAME=double-conversion-3.1.1.tar.gz
@@ -230,17 +221,207 @@ DOUBLE_CONVERSION_SOURCE=double-conversion-3.1.1
 DOUBLE_CONVERSION_MD5SUM="befd431c3de3f3ed7926ba2845ee609d"
 
 # brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v0.6.0.tar.gz"
-BROTLI_NAME=brotli-0.6.0.tar.gz
-BROTLI_SOURCE=brotli-0.6.0
-BROTLI_MD5SUM="1dcdcda924ab0c232ce54fa9f2b02624"
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.7.tar.gz"
+BROTLI_NAME="brotli-1.0.7.tar.gz"
+BROTLI_SOURCE="brotli-1.0.7"
+BROTLI_MD5SUM="7b6edd4f2128f22794d0ca28c53898a5"
+
+# flatbuffers
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v1.10.0.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-v1.10.0.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-1.10.0
+FLATBUFFERS_MD5SUM="f7d19a3f021d93422b0bc287d7148cd2"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.13.0.tar.gz"
-ARROW_NAME=arrow-apache-arrow-0.13.0.tar.gz
-ARROW_SOURCE=arrow-apache-arrow-0.13.0
-ARROW_MD5SUM="de9e00e43df0b5fae2ed92f6491cb10b"
+ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-0.15.1.tar.gz"
+ARROW_NAME="arrow-apache-arrow-0.15.1.tar.gz"
+ARROW_SOURCE="arrow-apache-arrow-0.15.1"
+ARROW_MD5SUM="7d822863bbbe409794c6cdec3dcb8e6c"
+
+# S2
+S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
+S2_NAME=s2geometry-0.9.0.tar.gz
+S2_SOURCE=s2geometry-0.9.0
+S2_MD5SUM="293552c7646193b8b4a01556808fe155"
+
+# BITSHUFFLE
+BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
+BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
+BITSHUFFLE_SOURCE=bitshuffle-0.3.5
+BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
+
+# CROARINGBITMAP
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.2.60.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-0.2.60
+CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
+
+# fmt
+FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
+FMT_NAME="fmt-7.1.3.tar.gz"
+FMT_SOURCE="fmt-7.1.3"
+FMT_MD5SUM="2522ec65070c0bda0ca288677ded2831"
+
+# ORC
+ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.5.8/orc-1.5.8.tar.gz"
+ORC_NAME=orc-1.5.8.tar.gz
+ORC_SOURCE=orc-1.5.8
+ORC_MD5SUM="2318b0a8233c8833b3a6cfd771c60883"
+
+# jemalloc
+JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
+JEMALLOC_SOURCE="jemalloc-5.2.1"
+JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+
+# CCTZ
+CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
+CCTZ_NAME="cctz-2.3.tar.gz"
+CCTZ_SOURCE="cctz-2.3"
+CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
+
+# datatables, bootstrap 3 and jQuery 3
+DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.24"
+DATATABLES_NAME="DataTables.zip"
+DATATABLES_SOURCE="DataTables-1.10.24"
+DATATABLES_MD5SUM="22404292d02cf3c5f4cd9f5a02d4b42c"
+
+# bootstrap table js
+BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_NAME="bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_FILE="bootstrap-table.min.js"
+BOOTSTRAP_TABLE_JS_MD5SUM="6cc9c41eaf7e81e54e220061cc9c0432"
+
+# bootstrap table css
+BOOTSTRAP_TABLE_CSS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
+BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
+
+# aws-c-common
+AWS_C_COMMON_DOWNLOAD="https://github.com/awslabs/aws-c-common/archive/v0.4.63.tar.gz"
+AWS_C_COMMON_NAME="aws-c-common-0.4.63.tar.gz"
+AWS_C_COMMON_SOURCE="aws-c-common-0.4.63"
+AWS_C_COMMON_MD5SUM="8298e00a0fb64779b7cf660592d50ab6"
+
+# aws-c-event-stream
+AWS_C_EVENT_STREAM_DOWNLOAD="https://github.com/awslabs/aws-c-event-stream/archive/v0.2.6.tar.gz"
+AWS_C_EVENT_STREAM_NAME="aws-c-event-stream-0.2.6.tar.gz"
+AWS_C_EVENT_STREAM_SOURCE="aws-c-event-stream-0.2.6"
+AWS_C_EVENT_STREAM_MD5SUM="fceedde198ddbf38ffdaed08d1435f7f"
+
+# aws-checksums
+AWS_CHECKSUMS_DOWNLOAD="https://github.com/awslabs/aws-checksums/archive/v0.1.10.tar.gz"
+AWS_CHECKSUMS_NAME="aws-checksums-0.1.10.tar.gz"
+AWS_CHECKSUMS_SOURCE="aws-checksums-0.1.10"
+AWS_CHECKSUMS_MD5SUM="2383c66f6250fa0238edbd1d779b49d3"
+
+# aws-c-io
+AWS_C_IO_DOWNLOAD="https://github.com/awslabs/aws-c-io/archive/v0.7.0.tar.gz"
+AWS_C_IO_NAME="aws-c-io-0.7.0.tar.gz"
+AWS_C_IO_SOURCE="aws-c-io-0.7.0"
+AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
+
+# aws-s2n
+AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
+AWS_S2N_NAME="s2n-0.10.0.tar.gz"
+AWS_S2N_SOURCE="s2n-tls-0.10.0"
+AWS_S2N_MD5SUM="345aa5d2f9e82347bb3e568c22104d0e"
+
+# aws-c-cal
+AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
+AWS_C_CAL_NAME="aws-c-cal-0.4.5.tar.gz"
+AWS_C_CAL_SOURCE="aws-c-cal-0.4.5"
+AWS_C_CAL_MD5SUM="317f3dbafae551a0fc7d70f31434e216"
+
+# aws sdk
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/1.8.108.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.8.108.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.8.108"
+AWS_SDK_MD5SUM="76d8855406e7da61f1f996c11c0b93d7"
+
+# tsan_header
+TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
+TSAN_HEADER_NAME="tsan_interface_atomic.h"
+TSAN_HEADER_FILE="tsan_interface_atomic.h"
+TSAN_HEADER_MD5SUM="d72679bea167d6a513d959f5abd149dc"
+
+# lzma
+LZMA_DOWNLOAD="https://github.com/kobolabs/liblzma/archive/refs/heads/master.zip"
+LZMA_NAME="liblzma-master.zip"
+LZMA_SOURCE="liblzma-master"
+LZMA_MD5SUM="ef11f2fbbfa6893b629f207a32bf730e"
+
+# xml2
+XML2_DOWNLOAD="https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.10/libxml2-v2.9.10.tar.gz"
+XML2_NAME="libxml2-v2.9.10.tar.gz"
+XML2_SOURCE="libxml2-v2.9.10"
+XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
+
+# gsasl
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
+GSASL_NAME="libgsasl-1.10.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.10.0"
+GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
+
+# hdfs3
+HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
+HDFS3_NAME="libhdfs3-master.zip"
+HDFS3_SOURCE="libhdfs3-master"
+HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC ROCKSDB LIBRDKAFKA ARROW BROTLI DOUBLE_CONVERSION URIPARSER ZSTD"
-
+export TP_ARCHIVES="LIBEVENT
+OPENSSL
+THRIFT
+LLVM
+CLANG
+COMPILER_RT
+PROTOBUF
+GFLAGS
+GLOG
+GTEST
+RAPIDJSON
+SNAPPY
+GPERFTOOLS
+ZLIB
+LZ4
+BZIP
+LZO2
+CURL
+RE2
+BOOST
+MYSQL
+ODBC
+LEVELDB
+BRPC
+ROCKSDB
+LIBRDKAFKA
+FLATBUFFERS
+ARROW
+BROTLI
+DOUBLE_CONVERSION
+ZSTD
+S2
+BITSHUFFLE
+CROARINGBITMAP
+FMT
+ORC
+JEMALLOC
+CCTZ
+DATATABLES
+BOOTSTRAP_TABLE_JS
+BOOTSTRAP_TABLE_CSS
+TSAN_HEADER
+AWS_C_COMMON
+AWS_C_EVENT_STREAM
+AWS_C_IO
+AWS_C_CAL
+AWS_C_IO
+AWS_CHECKSUMS
+AWS_S2N
+AWS_SDK
+LZMA
+XML2
+GSASL
+HDFS3"

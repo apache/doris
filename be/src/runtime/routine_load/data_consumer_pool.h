@@ -20,10 +20,12 @@
 #include <ctime>
 #include <memory>
 #include <mutex>
-#include <thread>
 
+#include "gutil/ref_counted.h"
 #include "runtime/routine_load/data_consumer.h"
+#include "util/countdown_latch.h"
 #include "util/lru_cache.hpp"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -35,23 +37,22 @@ class Status;
 // to be reused
 class DataConsumerPool {
 public:
-    DataConsumerPool(int64_t max_pool_size):
-        _max_pool_size(max_pool_size) {
-    }
+    DataConsumerPool(int64_t max_pool_size)
+            : _max_pool_size(max_pool_size), _stop_background_threads_latch(1) {}
 
     ~DataConsumerPool() {
+        _stop_background_threads_latch.count_down();
+        if (_clean_idle_consumer_thread) {
+            _clean_idle_consumer_thread->join();
+        }
     }
 
     // get a already initialized consumer from cache,
     // if not found in cache, create a new one.
-    Status get_consumer(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumer>* ret);
+    Status get_consumer(StreamLoadContext* ctx, std::shared_ptr<DataConsumer>* ret);
 
     // get several consumers and put them into group
-    Status get_consumer_grp(
-        StreamLoadContext* ctx,
-        std::shared_ptr<DataConsumerGroup>* ret);
+    Status get_consumer_grp(StreamLoadContext* ctx, std::shared_ptr<DataConsumerGroup>* ret);
 
     // return the consumer to the pool
     void return_consumer(std::shared_ptr<DataConsumer> consumer);
@@ -68,7 +69,8 @@ private:
     std::list<std::shared_ptr<DataConsumer>> _pool;
     int64_t _max_pool_size;
 
-    std::thread _clean_idle_consumer_thread;
+    CountDownLatch _stop_background_threads_latch;
+    scoped_refptr<Thread> _clean_idle_consumer_thread;
 };
 
 } // end namespace doris

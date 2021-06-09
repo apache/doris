@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <gtest/gtest.h>
 #include "util/url_coding.h"
+
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+
 #include "util/logging.h"
 
 namespace doris {
@@ -29,7 +32,7 @@ namespace doris {
 void test_url(const string& input, const string& expected_encoded, bool hive_compat) {
     std::string intermediate;
     url_encode(input, &intermediate, hive_compat);
-    string output;
+    std::string output;
 
     if (!expected_encoded.empty()) {
         EXPECT_EQ(intermediate, expected_encoded);
@@ -39,18 +42,18 @@ void test_url(const string& input, const string& expected_encoded, bool hive_com
     EXPECT_EQ(input, output);
 
     // Convert string to vector and try that also
-    vector<uint8_t> input_vector;
+    std::vector<uint8_t> input_vector;
     input_vector.resize(input.size());
     memcpy(&input_vector[0], input.c_str(), input.size());
-    string intermediate2;
+    std::string intermediate2;
     url_encode(input_vector, &intermediate2, hive_compat);
     EXPECT_EQ(intermediate, intermediate2);
 }
 
 void test_base64(const string& input, const string& expected_encoded) {
-    string intermediate;
+    std::string intermediate;
     Base64Encode(input, &intermediate);
-    string output;
+    std::string output;
 
     if (!expected_encoded.empty()) {
         EXPECT_EQ(intermediate, expected_encoded);
@@ -60,10 +63,10 @@ void test_base64(const string& input, const string& expected_encoded) {
     EXPECT_EQ(input, output);
 
     // Convert string to vector and try that also
-    vector<uint8_t> input_vector;
+    std::vector<uint8_t> input_vector;
     input_vector.resize(input.size());
     memcpy(&input_vector[0], input.c_str(), input.size());
-    string intermediate2;
+    std::string intermediate2;
     Base64Encode(input_vector, &intermediate2);
     EXPECT_EQ(intermediate, intermediate2);
 }
@@ -100,13 +103,13 @@ TEST(Base64Test, Basic) {
 }
 
 TEST(HtmlEscapingTest, Basic) {
-    string before = "<html><body>&amp";
-    stringstream after;
+    std::string before = "<html><body>&amp";
+    std::stringstream after;
     EscapeForHtml(before, &after);
     EXPECT_EQ(after.str(), "&lt;html&gt;&lt;body&gt;&amp;amp");
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

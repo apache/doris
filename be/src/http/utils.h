@@ -21,6 +21,7 @@
 
 #include "common/utils.h"
 #include "http/http_common.h"
+#include "http/http_request.h"
 
 namespace doris {
 
@@ -29,9 +30,14 @@ class HttpRequest;
 std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
 // return true, if request contain valid basic authorization.
-// Otherwise return fasle
+// Otherwise return false
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd);
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
 
-}
+void do_file_response(const std::string& dir_path, HttpRequest* req);
+
+void do_dir_response(const std::string& dir_path, HttpRequest* req);
+
+std::string get_content_type(const std::string& file_name);
+} // namespace doris

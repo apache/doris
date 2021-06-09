@@ -19,21 +19,13 @@
 
 #include <string>
 
-#include "codegen/llvm_codegen.h"
-#include "codegen/codegen_anyval.h"
 #include "gen_cpp/Exprs_types.h"
-#include "util/string_parser.hpp"
 #include "runtime/runtime_state.h"
-
-using llvm::BasicBlock;
-using llvm::Function;
-using llvm::Type;
-using llvm::Value;
+#include "util/string_parser.hpp"
 
 namespace doris {
 
-Literal::Literal(const TExprNode& node) : 
-        Expr(node) {
+Literal::Literal(const TExprNode& node) : Expr(node) {
     switch (_type.type) {
     case TYPE_BOOLEAN:
         DCHECK_EQ(node.node_type, TExprNodeType::BOOL_LITERAL);
@@ -63,12 +55,11 @@ Literal::Literal(const TExprNode& node) :
     case TYPE_LARGEINT: {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
         DCHECK_EQ(node.node_type, TExprNodeType::LARGE_INT_LITERAL);
-        _value.large_int_val = 
-            StringParser::string_to_int<__int128>(node.large_int_literal.value.c_str(),
-                                                  node.large_int_literal.value.size(),
-                                                  &parse_result);
+        _value.large_int_val = StringParser::string_to_int<__int128>(
+                node.large_int_literal.value.c_str(), node.large_int_literal.value.size(),
+                &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            _value.large_int_val = MAX_INT128; 
+            _value.large_int_val = MAX_INT128;
         }
         break;
     }
@@ -78,14 +69,15 @@ Literal::Literal(const TExprNode& node) :
         _value.float_val = node.float_literal.value;
         break;
     case TYPE_DOUBLE:
+    case TYPE_TIME:
         DCHECK_EQ(node.node_type, TExprNodeType::FLOAT_LITERAL);
         DCHECK(node.__isset.float_literal);
         _value.double_val = node.float_literal.value;
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-        _value.datetime_val.from_date_str(
-            node.date_literal.value.c_str(), node.date_literal.value.size());
+        _value.datetime_val.from_date_str(node.date_literal.value.c_str(),
+                                          node.date_literal.value.size());
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -105,14 +97,13 @@ Literal::Literal(const TExprNode& node) :
         _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
         break;
     }
-    default: 
+    default:
         break;
         // DCHECK(false) << "Invalid type: " << TypeToString(_type.type);
     }
 }
 
-Literal::~Literal() {
-}
+Literal::~Literal() {}
 
 BooleanVal Literal::get_boolean_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BOOLEAN) << _type;
@@ -150,7 +141,7 @@ FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {
 }
 
 DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DOUBLE) << _type;
+    DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME) << _type;
     return DoubleVal(_value.double_val);
 }
 
@@ -181,81 +172,4 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
     return str_val;
 }
 
-// IR produced for bigint literal 10:
-//
-// define { i8, i64 } @Literal(i8* %context, %"class.doris::TupleRow"* %row) {
-// entry:
-//   ret { i8, i64 } { i8 0, i64 10 }
-// }
-Status Literal::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-    if (_ir_compute_fn != NULL) {
-        *fn = _ir_compute_fn;
-        return Status::OK;
-    }
-
-    DCHECK_EQ(get_num_children(), 0);
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    Value* args[2];
-    *fn = create_ir_function_prototype(codegen, "literal", &args);
-    BasicBlock* entry_block = BasicBlock::Create(codegen->context(), "entry", *fn);
-    LlvmCodeGen::LlvmBuilder builder(entry_block);
-
-    CodegenAnyVal v = CodegenAnyVal::get_non_null_val(codegen, &builder, _type);
-    switch (_type.type) {
-    case TYPE_BOOLEAN:
-        v.set_val(_value.bool_val);
-        break;
-    case TYPE_TINYINT:
-        v.set_val(_value.tinyint_val);
-        break;
-    case TYPE_SMALLINT:
-        v.set_val(_value.smallint_val);
-        break;
-    case TYPE_INT:
-        v.set_val(_value.int_val);
-        break;
-    case TYPE_BIGINT:
-        v.set_val(_value.bigint_val);
-        break;
-    case TYPE_LARGEINT:
-        v.set_val(_value.large_int_val);
-        break;
-    case TYPE_FLOAT:
-        v.set_val(_value.float_val);
-        break;
-    case TYPE_DOUBLE:
-        v.set_val(_value.double_val);
-        break;
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-        v.set_len(builder.getInt32(_value.string_val.len));
-        v.set_ptr(codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), _value.string_val.ptr));
-        break;
-    case TYPE_DECIMAL: {
-        Type* raw_ptr_type = codegen->decimal_val_type()->getPointerTo();
-        Value* raw_ptr = codegen->cast_ptr_to_llvm_ptr(raw_ptr_type, &_value.decimal_val);
-        v.set_from_raw_ptr(raw_ptr);
-        break;
-    }
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        Type* raw_ptr_type = codegen->decimal_val_type()->getPointerTo();
-        Value* raw_ptr = codegen->cast_ptr_to_llvm_ptr(raw_ptr_type, &_value.datetime_val);
-        v.set_from_raw_ptr(raw_ptr);
-        break;
-    }
-    default:
-        std::stringstream ss;
-        ss << "Invalid type: " << _type;
-        DCHECK(false) << ss.str();
-        return Status(ss.str());
-    }
-
-    builder.CreateRet(v.value());
-    *fn = codegen->finalize_function(*fn);
-    _ir_compute_fn = *fn;
-    return Status::OK;
-}
-
-}
+} // namespace doris

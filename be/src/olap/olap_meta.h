@@ -18,11 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
 #define DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H
 
-#include <string>
-#include <map>
 #include <functional>
+#include <map>
+#include <string>
 
-#include "olap/olap_header.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
 
@@ -36,16 +35,22 @@ public:
 
     OLAPStatus init();
 
-    OLAPStatus get(const int column_family_index, const std::string& key, std::string& value);
+    OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
+
+    bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
 
     OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
 
     OLAPStatus remove(const int column_family_index, const std::string& key);
 
     OLAPStatus iterate(const int column_family_index, const std::string& prefix,
-            std::function<bool(const std::string&, const std::string&)> const& func);
+                       std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path();
+
+    OLAPStatus get_tablet_convert_finished(bool& flag);
+
+    OLAPStatus set_tablet_convert_finished();
 
 private:
     std::string _root_path;
@@ -53,6 +58,6 @@ private:
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_OLAP_META_H

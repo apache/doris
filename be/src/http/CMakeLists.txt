@@ -37,6 +37,9 @@ add_library(Webserver STATIC
   http_client.cpp
   action/mini_load.cpp
   action/health_action.cpp
+  action/tablet_migration_action.cpp
+  action/tablets_info_action.cpp
+  action/tablets_distribution_action.cpp
   action/checksum_action.cpp
   action/snapshot_action.cpp
   action/reload_tablet_action.cpp
@@ -45,6 +48,8 @@ add_library(Webserver STATIC
   action/metrics_action.cpp
   action/stream_load.cpp
   action/meta_action.cpp
+  action/compaction_action.cpp
+  action/update_config_action.cpp
   #  action/multi_start.cpp
   #  action/multi_show.cpp
   #  action/multi_commit.cpp

@@ -17,6 +17,7 @@
 
 #include "exec/hash_join_node.h"
 #include "exec/hash_table.hpp"
+#include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
 
 namespace doris {
@@ -27,18 +28,17 @@ namespace doris {
 // This lets us distinguish between the join conjuncts vs. non-join conjuncts
 // for codegen.
 // Note: don't declare this static.  LLVM will pick the fastcc calling convention and
-// we will not be able to replace the funcitons with codegen'd versions.
+// we will not be able to replace the functions with codegen'd versions.
 // TODO: explicitly set the calling convention?
 // TODO: investigate using fastcc for all codegen internal functions?
-bool IR_NO_INLINE eval_other_join_conjuncts(
-        ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
+bool IR_NO_INLINE eval_other_join_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
     return ExecNode::eval_conjuncts(ctxs, num_ctxs, row);
 }
 
 // CreateOutputRow, EvalOtherJoinConjuncts, and EvalConjuncts are replaced by
 // codegen.
 int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch,
-                                    int max_added_rows) {
+                                      int max_added_rows) {
     // This path does not handle full outer or right outer joins
     DCHECK(!_match_all_build);
 
@@ -63,8 +63,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
             _hash_tbl_iterator.next<true>();
             create_output_row(out_row, _current_probe_row, matched_build_row);
 
-            if (!eval_other_join_conjuncts(
-                    other_conjunct_ctxs, num_other_conjunct_ctxs, out_row)) {
+            if (!eval_other_join_conjuncts(other_conjunct_ctxs, num_other_conjunct_ctxs, out_row)) {
                 continue;
             }
 
@@ -72,7 +71,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
 
             // left_anti_join: equal match won't return
             if (_join_op == TJoinOp::LEFT_ANTI_JOIN) {
-                _hash_tbl_iterator= _hash_tbl->end();
+                _hash_tbl_iterator = _hash_tbl->end();
                 break;
             }
 
@@ -95,10 +94,10 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
                 break;
             }
         }
-        
+
         // Handle left outer-join and left semi-join
-        if ((!_matched_probe && _match_all_probe) || 
-                ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
+        if ((!_matched_probe && _match_all_probe) ||
+            ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
             create_output_row(out_row, _current_probe_row, NULL);
             _matched_probe = true;
 
@@ -120,7 +119,10 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
             if (UNLIKELY(_probe_batch_pos == probe_rows)) {
                 goto end;
             }
-
+            if (++_probe_counter % RELEASE_CONTEXT_COUNTER == 0) {
+                ExprContext::free_local_allocations(_probe_expr_ctxs);
+                ExprContext::free_local_allocations(_build_expr_ctxs);
+            }
             _current_probe_row = probe_batch->get_row(_probe_batch_pos++);
             _hash_tbl_iterator = _hash_tbl->find(_current_probe_row);
             _matched_probe = false;
@@ -137,11 +139,19 @@ end:
     return rows_returned;
 }
 
+// when build table has too many duplicated rows, the collisions will be very serious,
+// so in some case will don't need to store duplicated value in hash table, we can build an unique one
 void HashJoinNode::process_build_batch(RowBatch* build_batch) {
     // insert build row into our hash table
-    for (int i = 0; i < build_batch->num_rows(); ++i) {
-        _hash_tbl->insert(build_batch->get_row(i));
+    if (_build_unique) {
+        for (int i = 0; i < build_batch->num_rows(); ++i) {
+            _hash_tbl->insert_unique(build_batch->get_row(i));
+        }
+    } else {
+        for (int i = 0; i < build_batch->num_rows(); ++i) {
+            _hash_tbl->insert(build_batch->get_row(i));
+        }
     }
 }
-}
 
+} // namespace doris

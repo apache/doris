@@ -20,24 +20,17 @@
 #include <sstream>
 
 #include "exprs/expr.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-const char* BlockingJoinNode::LLVM_CLASS_NAME = "class.doris::BlockingJoinNode";
-
-BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
-                                   const TJoinOp::type join_op,
-                                   ObjectPool* pool,
-                                   const TPlanNode& tnode,
+BlockingJoinNode::BlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op,
+                                   ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _node_name(node_name),
-      _join_op(join_op) {
-}
+        : ExecNode(pool, tnode, descs), _node_name(node_name), _join_op(join_op) {}
 
 Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return ExecNode::init(tnode, state);
@@ -52,12 +45,11 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
-    _left_child_row_counter = ADD_COUNTER(runtime_profile(), "LeftChildRows",
-                                          TUnit::UNIT);
+    _left_child_row_counter = ADD_COUNTER(runtime_profile(), "LeftChildRows", TUnit::UNIT);
 
     _result_tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
 
@@ -76,16 +68,16 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
-    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
-    return Status::OK;
+    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    return Status::OK();
 }
 
 Status BlockingJoinNode::close(RuntimeState* state) {
     // TODO(zhaochun): avoid double close
-    // if (is_closed()) return Status::OK;
+    // if (is_closed()) return Status::OK();
     _left_batch.reset();
     ExecNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
@@ -163,14 +155,13 @@ Status BlockingJoinNode::open(RuntimeState* state) {
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void BlockingJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
     *out << std::string(indentation_level * 2, ' ');
     *out << _node_name;
-    *out << "(eos=" << (_eos ? "true" : "false")
-         << " left_batch_pos=" << _left_batch_pos;
+    *out << "(eos=" << (_eos ? "true" : "false") << " left_batch_pos=" << _left_batch_pos;
     add_to_debug_string(indentation_level, out);
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
@@ -187,7 +178,7 @@ std::string BlockingJoinNode::get_left_child_row_string(TupleRow* row) {
         }
 
         int* is_build_tuple =
-            std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
+                std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
             out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
@@ -216,4 +207,4 @@ void BlockingJoinNode::create_output_row(TupleRow* out, TupleRow* left, TupleRow
     }
 }
 
-}
+} // namespace doris

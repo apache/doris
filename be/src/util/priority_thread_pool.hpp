@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
 
-#include "util/blocking_priority_queue.hpp"
-
-#include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/bind/mem_fn.hpp>
+#include <boost/thread.hpp>
+#include <mutex>
+
+#include "util/blocking_priority_queue.hpp"
 
 namespace doris {
 
@@ -33,15 +33,13 @@ public:
     // Signature of a work-processing function. Takes the integer id of the thread which is
     // calling it (ids run from 0 to num_threads - 1) and a reference to the item to
     // process.
-    typedef boost::function<void ()> WorkFunction;
+    typedef std::function<void()> WorkFunction;
 
     struct Task {
     public:
         int priority;
         WorkFunction work_function;
-        bool operator< (const Task& o) const {
-            return priority < o.priority;
-        }
+        bool operator<(const Task& o) const { return priority < o.priority; }
 
         Task& operator++() {
             priority += 2;
@@ -55,14 +53,11 @@ public:
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
     //  -- work_function: the function to run every time an item is consumed from the queue
-    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size) :
-            _thread_num(num_threads),
-            _work_queue(queue_size),
-            _shutdown(false) {
+    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size)
+            : _work_queue(queue_size), _shutdown(false) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
-                    boost::bind<void>(
-                        boost::mem_fn(&PriorityThreadPool::work_thread), this, i));
+                    std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
         }
     }
 
@@ -84,7 +79,10 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    bool offer(Task task) {
+    bool offer(Task task) { return _work_queue.blocking_put(task); }
+
+    bool offer(WorkFunction func) {
+        PriorityThreadPool::Task task = {0, func};
         return _work_queue.blocking_put(task);
     }
 
@@ -93,29 +91,22 @@ public:
     // Returns once the shutdown flag has been set, does not wait for the threads to
     // terminate.
     void shutdown() {
-        {
-            boost::lock_guard<boost::mutex> l(_lock);
-            _shutdown = true;
-        }
+        _shutdown = true;
         _work_queue.shutdown();
     }
 
     // Blocks until all threads are finished. shutdown does not need to have been called,
     // since it may be called on a separate thread.
-    void join() {
-        _threads.join_all();
-    }
+    void join() { _threads.join_all(); }
 
-    uint32_t get_queue_size() const {
-        return _work_queue.get_size();
-    }
+    uint32_t get_queue_size() const { return _work_queue.get_size(); }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
     void drain_and_shutdown() {
         {
-            boost::unique_lock<boost::mutex> l(_lock);
+            std::unique_lock<std::mutex> l(_lock);
             while (_work_queue.get_size() != 0) {
                 _empty_cv.wait(l);
             }
@@ -139,13 +130,7 @@ private:
         }
     }
 
-    // Returns value of _shutdown under a lock, forcing visibility to threads in the pool.
-    bool is_shutdown() {
-        boost::lock_guard<boost::mutex> l(_lock);
-        return _shutdown;
-    }
-
-    uint32_t _thread_num;
+    bool is_shutdown() { return _shutdown; }
 
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.
@@ -154,16 +139,16 @@ private:
     // Collection of worker threads that process work from the queue.
     boost::thread_group _threads;
 
-    // Guards _shutdown and _empty_cv
-    boost::mutex _lock;
+    // Guards _empty_cv
+    std::mutex _lock;
 
     // Set to true when threads should stop doing work and terminate.
-    bool _shutdown;
+    std::atomic<bool> _shutdown;
 
     // Signalled when the queue becomes empty
-    boost::condition_variable _empty_cv;
+    std::condition_variable _empty_cv;
 };
 
-}
+} // namespace doris
 
 #endif

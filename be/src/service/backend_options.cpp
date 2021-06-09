@@ -19,12 +19,12 @@
 
 #include <algorithm>
 
-#include <boost/algorithm/string.hpp>
-
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "util/network_util.h"
+#include "gutil/strings/split.h"
 #include "util/cidr.h"
+#include "util/network_util.h"
 
 namespace doris {
 
@@ -54,7 +54,7 @@ bool BackendOptions::init() {
     std::vector<InetAddress>::iterator addr_it = hosts.begin();
     for (; addr_it != hosts.end(); ++addr_it) {
         if ((*addr_it).is_address_v4()) {
-            VLOG(2) << "check ip=" << addr_it->get_host_address_v4();
+            VLOG_CRITICAL << "check ip=" << addr_it->get_host_address_v4();
             if ((*addr_it).is_loopback_v4()) {
                 loopback = addr_it->get_host_address_v4();
             } else if (!_s_priority_cidrs.empty()) {
@@ -87,8 +87,8 @@ bool BackendOptions::analyze_priority_cidrs() {
     }
     LOG(INFO) << "priority cidrs in conf: " << config::priority_networks;
 
-    std::vector<std::string> cidr_strs;
-    boost::split(cidr_strs, config::priority_networks, boost::is_any_of(PRIORITY_CIDR_SEPARATOR));
+    std::vector<std::string> cidr_strs =
+            strings::Split(config::priority_networks, PRIORITY_CIDR_SEPARATOR);
 
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
@@ -110,4 +110,4 @@ bool BackendOptions::is_in_prior_network(const std::string& ip) {
     return false;
 }
 
-}
+} // namespace doris

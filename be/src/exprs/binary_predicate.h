@@ -18,10 +18,8 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_BINARY_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_BINARY_PREDICATE_H
 
-#include <string>
 #include <iostream>
-
-#include <llvm/IR/InstrTypes.h>
+#include <string>
 
 #include "common/object_pool.h"
 #include "exprs/predicate.h"
@@ -32,38 +30,35 @@ namespace doris {
 class BinaryPredicate : public Predicate {
 public:
     static Expr* from_thrift(const TExprNode& node);
-    BinaryPredicate(const TExprNode& node) : Predicate(node) { }
-    virtual ~BinaryPredicate() { }
+    BinaryPredicate(const TExprNode& node) : Predicate(node) {}
+    virtual ~BinaryPredicate() {}
 
 protected:
     friend class Expr;
 
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
     virtual std::string debug_string() const;
-
-    Status codegen_compare_fn(
-        RuntimeState* state, llvm::Function** fn, llvm::CmpInst::Predicate pred);
 };
 
-#define BIN_PRED_CLASS_DEFINE(CLASS) \
-    class CLASS : public BinaryPredicate { \
-    public: \
-        CLASS(const TExprNode& node) : BinaryPredicate(node) { } \
-        virtual ~CLASS() { }  \
-        virtual Expr* clone(ObjectPool* pool) const override { \
-            return pool->add(new CLASS(*this)); }  \
-        \
-        virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn); \
-        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*); \
+#define BIN_PRED_CLASS_DEFINE(CLASS)                                             \
+    class CLASS : public BinaryPredicate {                                       \
+    public:                                                                      \
+        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                  \
+        virtual ~CLASS() {}                                                      \
+        virtual Expr* clone(ObjectPool* pool) const override {                   \
+            return pool->add(new CLASS(*this));                                  \
+        }                                                                        \
+                                                                                 \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
     };
 
-#define BIN_PRED_CLASSES_DEFINE(TYPE) \
+#define BIN_PRED_CLASSES_DEFINE(TYPE)     \
     BIN_PRED_CLASS_DEFINE(Eq##TYPE##Pred) \
     BIN_PRED_CLASS_DEFINE(Ne##TYPE##Pred) \
     BIN_PRED_CLASS_DEFINE(Lt##TYPE##Pred) \
     BIN_PRED_CLASS_DEFINE(Le##TYPE##Pred) \
     BIN_PRED_CLASS_DEFINE(Gt##TYPE##Pred) \
-    BIN_PRED_CLASS_DEFINE(Ge##TYPE##Pred) 
+    BIN_PRED_CLASS_DEFINE(Ge##TYPE##Pred)
 
 BIN_PRED_CLASSES_DEFINE(BooleanVal)
 BIN_PRED_CLASSES_DEFINE(TinyIntVal)
@@ -77,5 +72,32 @@ BIN_PRED_CLASSES_DEFINE(StringVal)
 BIN_PRED_CLASSES_DEFINE(DateTimeVal)
 BIN_PRED_CLASSES_DEFINE(DecimalVal)
 BIN_PRED_CLASSES_DEFINE(DecimalV2Val)
-}
+
+#define BIN_PRED_FOR_NULL_CLASS_DEFINE(CLASS)                                    \
+    class CLASS : public BinaryPredicate {                                       \
+    public:                                                                      \
+        CLASS(const TExprNode& node) : BinaryPredicate(node) {}                  \
+        virtual ~CLASS() {}                                                      \
+        virtual Expr* clone(ObjectPool* pool) const override {                   \
+            return pool->add(new CLASS(*this));                                  \
+        }                                                                        \
+                                                                                 \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
+    };
+
+#define BIN_PRED_FOR_NULL_CLASSES_DEFINE(TYPE) BIN_PRED_FOR_NULL_CLASS_DEFINE(EqForNull##TYPE##Pred)
+
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(BooleanVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(TinyIntVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(SmallIntVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(IntVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(BigIntVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(LargeIntVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(FloatVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(DoubleVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(StringVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(DateTimeVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(DecimalVal)
+BIN_PRED_FOR_NULL_CLASSES_DEFINE(DecimalV2Val)
+} // namespace doris
 #endif

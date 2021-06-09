@@ -17,7 +17,6 @@
 
 #include "exprs/anyval_util.h"
 
-#include "exprs/anyval_util.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -37,17 +36,15 @@ using doris_udf::StringVal;
 using doris_udf::AnyVal;
 
 Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
-    const std::string& mem_limit_exceeded_msg, AnyVal** result) {
-  const int anyval_size = AnyValUtil::any_val_size(type);
-  const int anyval_alignment = AnyValUtil::any_val_alignment(type);
-  *result =
-      reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
-  if (*result == NULL) {
-    return pool->mem_tracker()->MemLimitExceeded(
-        state, mem_limit_exceeded_msg, anyval_size);
-  }
-  memset(*result, 0, anyval_size);
-  return Status::OK;
+                        const std::string& mem_limit_exceeded_msg, AnyVal** result) {
+    const int anyval_size = AnyValUtil::any_val_size(type);
+    const int anyval_alignment = AnyValUtil::any_val_alignment(type);
+    *result = reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
+    if (*result == NULL) {
+        return pool->mem_tracker()->MemLimitExceeded(state, mem_limit_exceeded_msg, anyval_size);
+    }
+    memset(static_cast<void*>(*result), 0, anyval_size);
+    return Status::OK();
 }
 
 AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
@@ -76,12 +73,14 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_FLOAT:
         return pool->add(new FloatVal);
 
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return pool->add(new DoubleVal);
 
     case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_VARCHAR:
+    case TYPE_OBJECT:
         return pool->add(new StringVal);
 
     case TYPE_DECIMAL:
@@ -125,6 +124,7 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_FLOAT:
         out.type = FunctionContext::TYPE_FLOAT;
         break;
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         out.type = FunctionContext::TYPE_DOUBLE;
         break;
@@ -141,7 +141,9 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_HLL:
         out.type = FunctionContext::TYPE_HLL;
         out.len = type.len;
-        break; 
+        break;
+    case TYPE_OBJECT:
+        out.type = FunctionContext::TYPE_OBJECT;
     case TYPE_CHAR:
         out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;
@@ -165,4 +167,4 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     return out;
 }
 
-}
+} // namespace doris

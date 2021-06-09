@@ -16,6 +16,8 @@
 # under the License.
 
 # where to put generated libraries
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 
 # where to put generated binaries
@@ -29,7 +31,7 @@ add_library(DorisUdf udf.cpp udf_ir.cpp)
 set_target_properties(DorisUdf PROPERTIES COMPILE_FLAGS "-DDORIS_UDF_SDK_BUILD")
 
 # We can't use the normal link list since we want to pick up libDorisUdf (the external
-# library) rather than the interal libUdf.
+# library) rather than the internal libUdf.
 set (UDF_TEST_LINK_LIBS
   -Wl,--start-group
   Common
@@ -45,5 +47,11 @@ set (UDF_TEST_LINK_LIBS
   -lboost_date_time
   gtest)
   
+set_target_properties(DorisUdf PROPERTIES PUBLIC_HEADER "udf.h;uda_test_harness.h")
+INSTALL(TARGETS DorisUdf
+        ARCHIVE DESTINATION ${OUTPUT_DIR}/udf
+        LIBRARY DESTINATION ${OUTPUT_DIR}/udf/lib
+        PUBLIC_HEADER DESTINATION ${OUTPUT_DIR}/udf/include)
+
 #ADD_BE_TEST(udf_test)
 #ADD_BE_TEST(uda_test)

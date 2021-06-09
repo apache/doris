@@ -17,17 +17,15 @@
 
 #include "util/network_util.h"
 
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
 #include <arpa/inet.h>
-#include <limits.h>
-#include <ifaddrs.h>
 #include <common/logging.h>
+#include <ifaddrs.h>
+#include <limits.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 #include <sstream>
-
-#include <boost/foreach.hpp>
 
 namespace doris {
 
@@ -35,7 +33,7 @@ InetAddress::InetAddress(struct sockaddr* addr) {
     this->addr = *(struct sockaddr_in*)addr;
 }
 
-bool InetAddress::is_address_v4 () const {
+bool InetAddress::is_address_v4() const {
     return addr.sin_family == AF_INET;
 }
 
@@ -59,11 +57,11 @@ Status get_hostname(std::string* hostname) {
     if (ret != 0) {
         std::stringstream ss;
         ss << "Could not get hostname: errno: " << errno;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     *hostname = std::string(name);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* addresses) {
@@ -77,7 +75,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     if (getaddrinfo(name.c_str(), NULL, &hints, &addr_info) != 0) {
         std::stringstream ss;
         ss << "Could not find IPv4 address for: " << name;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     addrinfo* it = addr_info;
@@ -85,13 +83,13 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     while (it != NULL) {
         char addr_buf[64];
         const char* result =
-            inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
+                inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
 
         if (result == NULL) {
             std::stringstream ss;
             ss << "Could not convert IPv4 address for: " << name;
             freeaddrinfo(addr_info);
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
 
         addresses->push_back(std::string(addr_buf));
@@ -99,11 +97,11 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     }
 
     freeaddrinfo(addr_info);
-    return Status::OK;
+    return Status::OK();
 }
 
 bool find_first_non_localhost(const std::vector<std::string>& addresses, std::string* addr) {
-    BOOST_FOREACH(const std::string & candidate, addresses) {
+    for (const std::string& candidate : addresses) {
         if (candidate != LOCALHOST) {
             *addr = candidate;
             return true;
@@ -119,7 +117,7 @@ Status get_hosts_v4(std::vector<InetAddress>* hosts) {
         std::stringstream ss;
         char buf[64];
         ss << "getifaddrs failed because " << strerror_r(errno, buf, sizeof(buf));
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
 
     for (ifaddrs* if_addr = if_addrs; if_addr != nullptr; if_addr = if_addr->ifa_next) {
@@ -147,7 +145,7 @@ Status get_hosts_v4(std::vector<InetAddress>* hosts) {
         freeifaddrs(if_addrs);
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 TNetworkAddress make_network_address(const std::string& hostname, int port) {
@@ -162,9 +160,9 @@ Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ip
     if (getifaddrs(&if_addrs)) {
         std::stringstream ss;
         char buf[64];
-        ss << "getifaddrs failed, errno:" << errno
-            << ", message" << strerror_r(errno, buf, sizeof(buf));
-        return Status(ss.str());
+        ss << "getifaddrs failed, errno:" << errno << ", message"
+           << strerror_r(errno, buf, sizeof(buf));
+        return Status::InternalError(ss.str());
     }
 
     for (ifaddrs* if_addr = if_addrs; if_addr != nullptr; if_addr = if_addr->ifa_next) {
@@ -179,7 +177,7 @@ Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ip
     if (if_addrs != nullptr) {
         freeifaddrs(if_addrs);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
-}
+} // namespace doris

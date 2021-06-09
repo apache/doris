@@ -17,10 +17,9 @@
 
 #include "http/action/stream_load.h"
 
-#include <gtest/gtest.h>
-
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
 #include "exec/schema_scanner/schema_helper.h"
@@ -33,7 +32,6 @@
 #include "runtime/thread_resource_mgr.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "util/doris_metrics.h"
 
 class mg_connection;
 
@@ -42,22 +40,17 @@ namespace doris {
 std::string k_response_str;
 
 // Send Unauthorized status with basic challenge
-void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {
-}
+void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {}
 
-void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {
-}
+void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {}
 
-void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {
-}
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {}
 
-void HttpChannel::send_reply(
-        HttpRequest* request, HttpStatus status, const std::string& content) {
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
     k_response_str = content;
 }
 
-void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {
-}
+void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {}
 
 extern TLoadTxnBeginResult k_stream_load_begin_result;
 extern TLoadTxnCommitResult k_stream_load_commit_result;
@@ -67,14 +60,14 @@ extern Status k_stream_load_plan_status;
 
 class StreamLoadActionTest : public testing::Test {
 public:
-    StreamLoadActionTest() { }
-    virtual ~StreamLoadActionTest() { }
+    StreamLoadActionTest() {}
+    virtual ~StreamLoadActionTest() {}
     void SetUp() override {
         k_stream_load_begin_result = TLoadTxnBeginResult();
         k_stream_load_commit_result = TLoadTxnCommitResult();
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
-        k_stream_load_plan_status = Status::OK;
+        k_stream_load_plan_status = Status::OK();
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
@@ -102,16 +95,17 @@ public:
             evhttp_request_free(_evhttp_req);
         }
     }
+
 private:
     ExecEnv _env;
     evhttp_request* _evhttp_req = nullptr;
 };
 
 TEST_F(StreamLoadActionTest, no_auth) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -122,11 +116,11 @@ TEST_F(StreamLoadActionTest, no_auth) {
 
 #if 0
 TEST_F(StreamLoadActionTest, no_content_length) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&__env);
 
     HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -136,12 +130,12 @@ TEST_F(StreamLoadActionTest, no_content_length) {
 }
 
 TEST_F(StreamLoadActionTest, unknown_encoding) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked111");
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -152,7 +146,6 @@ TEST_F(StreamLoadActionTest, unknown_encoding) {
 #endif
 
 TEST_F(StreamLoadActionTest, normal) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -163,6 +156,7 @@ TEST_F(StreamLoadActionTest, normal) {
 
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "0");
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -172,7 +166,6 @@ TEST_F(StreamLoadActionTest, normal) {
 }
 
 TEST_F(StreamLoadActionTest, put_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -183,8 +176,9 @@ TEST_F(StreamLoadActionTest, put_fail) {
 
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_put_result.status);
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -194,7 +188,6 @@ TEST_F(StreamLoadActionTest, put_fail) {
 }
 
 TEST_F(StreamLoadActionTest, commit_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -203,8 +196,9 @@ TEST_F(StreamLoadActionTest, commit_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_commit_result.status);
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -214,7 +208,6 @@ TEST_F(StreamLoadActionTest, commit_fail) {
 }
 
 TEST_F(StreamLoadActionTest, begin_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -223,8 +216,9 @@ TEST_F(StreamLoadActionTest, begin_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    Status status("TestFail");
+    Status status = Status::InternalError("TestFail");
     status.to_thrift(&k_stream_load_begin_result.status);
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -235,12 +229,12 @@ TEST_F(StreamLoadActionTest, begin_fail) {
 
 #if 0
 TEST_F(StreamLoadActionTest, receive_failed) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked");
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -251,7 +245,6 @@ TEST_F(StreamLoadActionTest, receive_failed) {
 #endif
 
 TEST_F(StreamLoadActionTest, plan_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -260,7 +253,8 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
-    k_stream_load_plan_status = Status("TestFail");
+    k_stream_load_plan_status = Status::InternalError("TestFail");
+    request.set_handler(&action);
     action.on_header(&request);
     action.handle(&request);
 
@@ -269,7 +263,7 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     ASSERT_STREQ("Fail", doc["Status"].GetString());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

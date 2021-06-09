@@ -25,38 +25,38 @@ namespace doris {
 // this class is a helper for getting schema info from FE
 class SchemaHelper {
 public:
-    static Status get_db_names(
-            const std::string& ip,
-            const int32_t port,
-            const TGetDbsParams &db_params,
-            TGetDbsResult *db_result);
+    static Status get_db_names(const std::string& ip, const int32_t port,
+                               const TGetDbsParams& db_params, TGetDbsResult* db_result);
 
-    static Status get_table_names(
-            const std::string& ip,
-            const int32_t port,
-            const TGetTablesParams &table_params,
-            TGetTablesResult *table_result);
+    static Status get_table_names(const std::string& ip, const int32_t port,
+                                  const TGetTablesParams& table_params,
+                                  TGetTablesResult* table_result);
 
-    static Status list_table_status(
-            const std::string& ip,
-            const int32_t port,
-            const TGetTablesParams &table_params,
-            TListTableStatusResult *table_result);
+    static Status list_table_status(const std::string& ip, const int32_t port,
+                                    const TGetTablesParams& table_params,
+                                    TListTableStatusResult* table_result);
 
-    static Status describe_table(
-            const std::string& ip,
-            const int32_t port,
-            const TDescribeTableParams &desc_params,
-            TDescribeTableResult *desc_result);
+    static Status describe_table(const std::string& ip, const int32_t port,
+                                 const TDescribeTableParams& desc_params,
+                                 TDescribeTableResult* desc_result);
 
-    static Status show_varialbes(
-            const std::string& ip,
-            const int32_t port,
-            const TShowVariableRequest &var_params,
-            TShowVariableResult *var_result);
+    static Status show_variables(const std::string& ip, const int32_t port,
+                                 const TShowVariableRequest& var_params,
+                                 TShowVariableResult* var_result);
+
+    static Status list_table_privilege_status(const std::string& ip, const int32_t port,
+                                              const TGetTablesParams& table_params,
+                                              TListPrivilegesResult* privileges_result);
+
+    static Status list_schema_privilege_status(const std::string& ip, const int32_t port,
+                                               const TGetTablesParams& table_params,
+                                               TListPrivilegesResult* privileges_result);
+
+    static Status list_user_privilege_status(const std::string& ip, const int32_t port,
+                                             const TGetTablesParams& table_params,
+                                             TListPrivilegesResult* privileges_result);
 
     static std::string extract_db_name(const std::string& full_name);
 };
 
-}
-
+} // namespace doris

@@ -17,33 +17,29 @@
 
 #include "runtime/etl_job_mgr.h"
 
-#include "gen_cpp/Types_types.h"
 #include <gtest/gtest.h>
-#include "runtime/fragment_mgr.h"
+
+#include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "util/cpu_info.h"
 
 namespace doris {
 // Mock fragment mgr
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       FinishCallback cb) {
-    return Status::OK;
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+    return Status::OK();
 }
 
-FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
-        _thread_pool(10, 128) {
-}
+FragmentMgr::FragmentMgr(ExecEnv* exec_env) : _thread_pool(10, 128) {}
 
-FragmentMgr::~FragmentMgr() {
-}
+FragmentMgr::~FragmentMgr() {}
 
-void FragmentMgr::debug(std::stringstream& ss) {
-}
+void FragmentMgr::debug(std::stringstream& ss) {}
 
 class EtlJobMgrTest : public testing::Test {
 public:
-    EtlJobMgrTest() {
-    }
+    EtlJobMgrTest() {}
+
 private:
     ExecEnv _exec_env;
 };
@@ -69,7 +65,7 @@ TEST_F(EtlJobMgrTest, NormalCase) {
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -127,7 +123,7 @@ TEST_F(EtlJobMgrTest, RunAfterSuccess) {
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -162,7 +158,7 @@ TEST_F(EtlJobMgrTest, RunAfterFail) {
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_TRUE(mgr.finish_job(id, Status::THRIFT_RPC_ERROR, job_result).ok());
+    ASSERT_TRUE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
@@ -205,7 +201,7 @@ TEST_F(EtlJobMgrTest, CancelJob) {
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-TEST_F(EtlJobMgrTest, FinishUnknowJob) {
+TEST_F(EtlJobMgrTest, FinishUnknownJob) {
     EtlJobMgr mgr(&_exec_env);
     TUniqueId id;
     id.lo = 1;
@@ -216,13 +212,13 @@ TEST_F(EtlJobMgrTest, FinishUnknowJob) {
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_FALSE(mgr.finish_job(id, Status::THRIFT_RPC_ERROR, job_result).ok());
+    ASSERT_FALSE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
     ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
     ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

@@ -16,13 +16,13 @@
 // under the License.
 
 #include "exec/local_file_writer.h"
+
 #include "util/error_util.h"
 
 namespace doris {
 
 LocalFileWriter::LocalFileWriter(const std::string& path, int64_t start_offset)
-        : _path(path), _start_offset(start_offset), _fp(nullptr) {
-}
+        : _path(path), _start_offset(start_offset), _fp(nullptr) {}
 
 LocalFileWriter::~LocalFileWriter() {
     close();
@@ -32,24 +32,22 @@ Status LocalFileWriter::open() {
     _fp = fopen(_path.c_str(), "w+");
     if (_fp == nullptr) {
         std::stringstream ss;
-        ss << "Open file failed. path=" << _path
-            << ", errno= " << errno
-            << ", description=" << get_str_err_msg();
-        return Status(ss.str());
+        ss << "Open file failed. path=" << _path << ", errno= " << errno
+           << ", description=" << get_str_err_msg();
+        return Status::InternalError(ss.str());
     }
 
     if (_start_offset != 0) {
         int success = fseek(_fp, _start_offset, SEEK_SET);
         if (success != 0) {
             std::stringstream ss;
-            ss << "Seek to start_offset failed. offset=" << _start_offset
-                << ", errno= " << errno
-                << ", description=" << get_str_err_msg();
-            return Status(ss.str());
+            ss << "Seek to start_offset failed. offset=" << _start_offset << ", errno= " << errno
+               << ", description=" << get_str_err_msg();
+            return Status::InternalError(ss.str());
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len) {
@@ -57,22 +55,21 @@ Status LocalFileWriter::write(const uint8_t* buf, size_t buf_len, size_t* writte
     if (bytes_written < buf_len) {
         std::stringstream error_msg;
         error_msg << "fail to write to file. "
-                << " len=" << buf_len
-                << ", path=" << _path
-                << ", failed with errno=" << errno
-                << ", description=" << get_str_err_msg();
-        return Status(error_msg.str());
+                  << " len=" << buf_len << ", path=" << _path << ", failed with errno=" << errno
+                  << ", description=" << get_str_err_msg();
+        return Status::InternalError(error_msg.str());
     }
 
     *written_len = bytes_written;
-    return Status::OK;
+    return Status::OK();
 }
 
-void LocalFileWriter::close() {
+Status LocalFileWriter::close() {
     if (_fp != nullptr) {
         fclose(_fp);
         _fp = nullptr;
     }
+    return Status::OK();
 }
 
 } // end namespace doris

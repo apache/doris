@@ -28,27 +28,25 @@
 
 namespace doris {
 
-CrossJoinNode::CrossJoinNode(
-    ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-    : BlockingJoinNode("CrossJoinNode", TJoinOp::CROSS_JOIN, pool, tnode, descs) {
-}
+CrossJoinNode::CrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : BlockingJoinNode("CrossJoinNode", TJoinOp::CROSS_JOIN, pool, tnode, descs) {}
 
 Status CrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(BlockingJoinNode::prepare(state));
     _build_batch_pool.reset(new ObjectPool());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status CrossJoinNode::close(RuntimeState* state) {
     // avoid double close
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     _build_batches.reset();
     _build_batch_pool.reset();
     BlockingJoinNode::close(state);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
@@ -57,7 +55,7 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
 
     while (true) {
         RowBatch* batch = _build_batch_pool->add(
-                new RowBatch(child(1)->row_desc(), state->batch_size(), mem_tracker()));
+                new RowBatch(child(1)->row_desc(), state->batch_size(), mem_tracker().get()));
 
         RETURN_IF_CANCELLED(state);
         // TODO(zhaochun):
@@ -66,20 +64,19 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
 
         // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state);
+        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         SCOPED_TIMER(_build_timer);
         _build_batches.add_row_batch(batch);
         VLOG_ROW << build_list_debug_string();
-        COUNTER_SET(_build_row_counter,
-                    static_cast<int64_t>(_build_batches.total_num_rows()));
+        COUNTER_SET(_build_row_counter, static_cast<int64_t>(_build_batches.total_num_rows()));
 
         if (eos) {
             break;
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
@@ -96,7 +93,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
 
     if (reached_limit() || _eos) {
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     }
 
     ScopedTimer<MonotonicStopWatch> timer(_left_child_timer);
@@ -111,7 +108,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
 
         // Continue processing this row batch
         _num_rows_returned +=
-            process_left_child_batch(output_batch, _left_batch.get(), max_added_rows);
+                process_left_child_batch(output_batch, _left_batch.get(), max_added_rows);
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
         if (reached_limit() || output_batch->is_full()) {
@@ -140,7 +137,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
         }
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 std::string CrossJoinNode::build_list_debug_string() {
@@ -153,7 +150,7 @@ std::string CrossJoinNode::build_list_debug_string() {
 
 // TODO: this can be replaced with a codegen'd function
 int CrossJoinNode::process_left_child_batch(RowBatch* output_batch, RowBatch* batch,
-        int max_added_rows) {
+                                            int max_added_rows) {
     int row_idx = output_batch->add_rows(max_added_rows);
     DCHECK(row_idx != RowBatch::INVALID_ROW_INDEX);
     uint8_t* output_row_mem = reinterpret_cast<uint8_t*>(output_batch->get_row(row_idx));
@@ -200,4 +197,4 @@ int CrossJoinNode::process_left_child_batch(RowBatch* output_batch, RowBatch* ba
     output_batch->commit_rows(rows_returned);
     return rows_returned;
 }
-}
+} // namespace doris

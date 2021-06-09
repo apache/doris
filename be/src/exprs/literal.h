@@ -25,15 +25,11 @@ namespace doris {
 
 class TExprNode;
 
-class Literal : public Expr {
+class Literal final : public Expr {
 public:
     virtual ~Literal();
 
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new Literal(*this));
-    }
-
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
 
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
@@ -56,6 +52,6 @@ private:
     ExprValue _value;
 };
 
-}
+} // namespace doris
 
 #endif

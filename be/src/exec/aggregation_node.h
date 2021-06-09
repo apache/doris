@@ -28,14 +28,9 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class AggFnEvaluator;
-class LlvmCodeGen;
 class RowBatch;
 class RuntimeState;
 struct StringValue;
@@ -66,10 +61,8 @@ public:
     virtual Status close(RuntimeState* state);
 
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
-    virtual void push_down_predicate(
-        RuntimeState *state, std::list<ExprContext*> *expr_ctxs);
+    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
-    static const char* _s_llvm_class_name;
 private:
     boost::scoped_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _output_iterator;
@@ -79,7 +72,7 @@ private:
     /// FunctionContext for each agg fn and backing pool.
     std::vector<doris_udf::FunctionContext*> _agg_fn_ctxs;
     boost::scoped_ptr<MemPool> _agg_fn_pool;
-  
+
     // Exprs used to evaluate input rows
     std::vector<ExprContext*> _probe_expr_ctxs;
     // Exprs used to insert constructed aggregation tuple into the hash table.
@@ -94,12 +87,9 @@ private:
     /// the intermediate tuple.
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc;
-    
-    Tuple* _singleton_output_tuple;  // result of aggregation w/o GROUP BY
-    boost::scoped_ptr<MemPool> _tuple_pool;
 
-    /// IR for process row batch.  NULL if codegen is disabled.
-    llvm::Function* _codegen_process_row_batch_fn;
+    Tuple* _singleton_output_tuple; // result of aggregation w/o GROUP BY
+    boost::scoped_ptr<MemPool> _tuple_pool;
 
     typedef void (*ProcessRowBatchFn)(AggregationNode*, RowBatch*);
     // Jitted ProcessRowBatch function pointer.  Null if codegen is disabled.
@@ -136,23 +126,8 @@ private:
     // Do the aggregation for all tuple rows in the batch
     void process_row_batch_no_grouping(RowBatch* batch, MemPool* pool);
     void process_row_batch_with_grouping(RowBatch* batch, MemPool* pool);
-
-    /// Codegen the process row batch loop.  The loop has already been compiled to
-    /// IR and loaded into the codegen object.  UpdateAggTuple has also been
-    /// codegen'd to IR.  This function will modify the loop subsituting the
-    /// UpdateAggTuple function call with the (inlined) codegen'd 'update_tuple_fn'.
-    llvm::Function* codegen_process_row_batch(
-        RuntimeState* state, llvm::Function* update_tuple_fn);
-
-    /// Codegen for updating aggregate_exprs at slot_idx. Returns NULL if unsuccessful.
-    /// slot_idx is the idx into aggregate_exprs_ (does not include grouping exprs).
-    llvm::Function* codegen_update_slot(
-        RuntimeState* state, AggFnEvaluator* evaluator, SlotDescriptor* slot_desc);
-
-    /// Codegen UpdateTuple(). Returns NULL if codegen is unsuccessful.
-    llvm::Function* codegen_update_tuple(RuntimeState* state);
 };
 
-}
+} // namespace doris
 
 #endif

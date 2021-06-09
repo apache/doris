@@ -27,6 +27,7 @@
 #include <type_traits>
 
 #include "common/compiler_util.h"
+#include "common/status.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {
@@ -85,6 +86,20 @@ public:
         return string_to_int_internal<T>(s + i, len - i, result);
     }
 
+    // This is considerably faster than glibc's implementation.
+    // In the case of overflow, the max/min value for the data type will be returned.
+    // Assumes s represents a decimal number.
+    template <typename T>
+    static inline T string_to_unsigned_int(const char* s, int len, ParseResult* result) {
+        T ans = string_to_unsigned_int_internal<T>(s, len, result);
+        if (LIKELY(*result == PARSE_SUCCESS)){
+            return ans;
+        }
+
+        int i = skip_leading_whitespace(s, len);
+        return string_to_unsigned_int_internal<T>(s + i, len - i, result);
+    }
+
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
     static inline T string_to_int(const char* s, int len, int base, ParseResult* result) {
@@ -122,6 +137,34 @@ public:
     static inline __int128 string_to_decimal(const char* s, int len,
 	    int type_precision, int type_scale, ParseResult* result);
 
+   
+    template <typename T>
+    static Status split_string_to_map(const std::string& base, const T element_separator,
+                                      const T key_value_separator, 
+                                      std::map<std::string, std::string>* result) {
+        int key_pos = 0;
+        int key_end;
+        int val_pos;
+        int val_end;
+    
+        while ((key_end = base.find(key_value_separator, key_pos)) != std::string::npos) {
+            if ((val_pos = base.find_first_not_of(key_value_separator, key_end)) 
+			          == std::string::npos) {
+                break;
+            }
+    	    if ((val_end = base.find(element_separator, val_pos)) == std::string::npos) {
+                val_end = base.size();
+            }
+            result->insert(std::make_pair(base.substr(key_pos, key_end - key_pos), 
+			                              base.substr(val_pos, val_end - val_pos)));
+            key_pos = val_end;
+            if (key_pos != std::string::npos) {
+          	    ++key_pos;
+            }
+        }
+    
+        return Status::OK();
+    }
 private:
     // This is considerably faster than glibc's implementation.
     // In the case of overflow, the max/min value for the data type will be returned.
@@ -129,6 +172,13 @@ private:
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
     static inline T string_to_int_internal(const char* s, int len, ParseResult* result);
+
+    // This is considerably faster than glibc's implementation.
+    // In the case of overflow, the max/min value for the data type will be returned.
+    // Assumes s represents a decimal number.
+    // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
+    template <typename T>
+    static inline T string_to_unsigned_int_internal(const char* s, int len, ParseResult* result);
 
     // Convert a string s representing a number in given base into a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
@@ -235,6 +285,53 @@ inline T StringParser::string_to_int_internal(const char* s, int len, ParseResul
     }
     *result = PARSE_SUCCESS;
     return static_cast<T>(negative ? -val : val);
+}
+
+template <typename T>
+inline T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseResult* result) {
+    if (UNLIKELY(len <= 0)) {
+        *result = PARSE_FAILURE;
+        return 0;
+    }
+
+    T val = 0;
+    T max_val = std::numeric_limits<T>::max();
+    int i = 0;
+
+    typedef typename std::make_signed<T>::type signedT;
+    // This is the fast path where the string cannot overflow.
+    if (LIKELY(len - i < StringParseTraits<signedT>::max_ascii_len())) {
+        val = string_to_int_no_overflow<T>(s + i, len - i, result);
+        return val;
+    }
+
+    const T max_div_10 = max_val / 10;
+    const T max_mod_10 = max_val % 10;
+
+    int first = i;
+    for (; i < len; ++i) {
+        if (LIKELY(s[i] >= '0' && s[i] <= '9')) {
+            T digit = s[i] - '0';
+            // This is a tricky check to see if adding this digit will cause an overflow.
+            if (UNLIKELY(val > (max_div_10 - (digit > max_mod_10)))) {
+                *result = PARSE_OVERFLOW;
+                return max_val;
+            }
+            val = val * 10 + digit;
+        } else {
+            if ((UNLIKELY(i == first || !is_all_whitespace(s + i, len - i)))) {
+                // Reject the string because either the first char was not a digit,
+                // or the remaining chars are not all whitespace
+                *result = PARSE_FAILURE;
+                return 0;
+            }
+            // Returning here is slightly faster than breaking the loop.
+            *result = PARSE_SUCCESS;
+            return val;
+        }
+    }
+    *result = PARSE_SUCCESS;
+    return val;
 }
 
 template <typename T>

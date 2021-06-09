@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
 #define DORIS_BE_SRC_OLAP_COLUMN_MAPPING_H
 
-#include "olap/wrapper_field.h"
-
 namespace doris {
 
+class WrapperField;
+
 struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(NULL) {}
+    ColumnMapping() : ref_column(-1), default_value(nullptr) {}
     virtual ~ColumnMapping() {}
 
     // <0: use default value
@@ -31,7 +31,11 @@ struct ColumnMapping {
     int32_t ref_column;
     // normally for default value. stores values for filters
     WrapperField* default_value;
+    // materialize view transform function used in schema change
+    std::string materialized_function;
 };
 
-}  // namespace doris
+typedef std::vector<ColumnMapping> SchemaMapping;
+
+} // namespace doris
 #endif // DORIS_BE_SRC_COLUMN_MAPPING_H

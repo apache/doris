@@ -19,31 +19,28 @@
 
 #include <boost/scoped_ptr.hpp>
 
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/data_stream_recvr.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-ExchangeNode::ExchangeNode(
-        ObjectPool* pool,
-        const TPlanNode& tnode,
-        const DescriptorTbl& descs) :
-            ExecNode(pool, tnode, descs),
-            _num_senders(0),
-            _stream_recvr(NULL),
-            _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
-                vector<bool>(
-                    tnode.nullable_tuples.begin(),
-                    tnode.nullable_tuples.begin() + tnode.exchange_node.input_row_tuples.size())),
-            _next_row_idx(0),
-            _is_merging(tnode.exchange_node.__isset.sort_info),
-            _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
-            _num_rows_skipped(0) {
+ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _num_senders(0),
+          _stream_recvr(NULL),
+          _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
+                          std::vector<bool>(tnode.nullable_tuples.begin(),
+                                            tnode.nullable_tuples.begin() +
+                                                    tnode.exchange_node.input_row_tuples.size())),
+          _next_row_idx(0),
+          _is_merging(tnode.exchange_node.__isset.sort_info),
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
+          _num_rows_skipped(0) {
     DCHECK_GE(_offset, 0);
     DCHECK(_is_merging || (_offset == 0));
 }
@@ -51,13 +48,13 @@ ExchangeNode::ExchangeNode(
 Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (!_is_merging) {
-        return Status::OK;
+        return Status::OK();
     }
 
     RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.exchange_node.sort_info, _pool));
     _is_asc_order = tnode.exchange_node.sort_info.is_asc_order;
     _nulls_first = tnode.exchange_node.sort_info.nulls_first;
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::prepare(RuntimeState* state) {
@@ -67,16 +64,15 @@ Status ExchangeNode::prepare(RuntimeState* state) {
     DCHECK_GT(_num_senders, 0);
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->stream_mgr()->create_recvr(
-            state, _input_row_desc,
-            state->fragment_instance_id(), _id,
-            _num_senders, config::exchg_node_buffer_size_bytes,
-            state->runtime_profile(), _is_merging, _sub_plan_query_statistics_recvr);
+            state, _input_row_desc, state->fragment_instance_id(), _id, _num_senders,
+            config::exchg_node_buffer_size_bytes, _runtime_profile.get(), _is_merging,
+            _sub_plan_query_statistics_recvr);
     if (_is_merging) {
-        RETURN_IF_ERROR(_sort_exec_exprs.prepare(
-                    state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
+        RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor,
+                                                 expr_mem_tracker()));
         // AddExprCtxsToFree(_sort_exec_exprs);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::open(RuntimeState* state) {
@@ -87,22 +83,26 @@ Status ExchangeNode::open(RuntimeState* state) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
-        RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        if (state->enable_exchange_node_parallel_merge()) {
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(), mem_tracker().get()));
+        } else {
+            RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        }
     } else {
         RETURN_IF_ERROR(fill_input_row_batch(state));
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
     statistics->merge(_sub_plan_query_statistics_recvr.get());
-    return Status::OK;
+    return Status::OK();
 }
 
 Status ExchangeNode::close(RuntimeState* state) {
     if (is_closed()) {
-        return Status::OK;
+        return Status::OK();
     }
     if (_is_merging) {
         _sort_exec_exprs.close(state);
@@ -110,7 +110,7 @@ Status ExchangeNode::close(RuntimeState* state) {
     if (_stream_recvr != NULL) {
         _stream_recvr->close();
     }
-    _stream_recvr.reset();
+    // _stream_recvr.reset();
     return ExecNode::close(state);
 }
 
@@ -122,9 +122,9 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
         ret_status = _stream_recvr->get_batch(&_input_batch);
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == NULL ? "false" : "true")
-        << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
-        << " is_cancelled=" << (ret_status.is_cancelled() ? "true" : "false")
-        << " instance_id=" << state->fragment_instance_id();
+              << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
+              << " is_cancelled=" << (ret_status.is_cancelled() ? "true" : "false")
+              << " instance_id=" << state->fragment_instance_id();
     return ret_status;
 }
 
@@ -135,7 +135,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
     if (reached_limit()) {
         _stream_recvr->transfer_all_resources(output_batch);
         *eos = true;
-        return Status::OK;
+        return Status::OK();
     } else {
         *eos = false;
     }
@@ -151,11 +151,9 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         {
             SCOPED_TIMER(_convert_row_batch_timer);
             RETURN_IF_CANCELLED(state);
-            // RETURN_IF_ERROR(QueryMaintenance(state));
-            RETURN_IF_ERROR(state->check_query_state());
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
-            while (!reached_limit() && !output_batch->at_capacity()
-                    && _input_batch != NULL && _next_row_idx < _input_batch->capacity()) {
+            while (!reached_limit() && !output_batch->at_capacity() && _input_batch != NULL &&
+                   _next_row_idx < _input_batch->num_rows()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
                 if (ExecNode::eval_conjuncts(ctxs, num_ctxs, src)) {
@@ -183,12 +181,12 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             if (reached_limit()) {
                 _stream_recvr->transfer_all_resources(output_batch);
                 *eos = true;
-                return Status::OK;
+                return Status::OK();
             }
 
             if (output_batch->at_capacity()) {
                 *eos = false;
-                return Status::OK;
+                return Status::OK();
             }
         }
 
@@ -200,7 +198,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         RETURN_IF_ERROR(fill_input_row_batch(state));
         *eos = (_input_batch == NULL);
         if (*eos) {
-            return Status::OK;
+            return Status::OK();
         }
 
         _next_row_idx = 0;
@@ -211,8 +209,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
 Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     DCHECK_EQ(output_batch->num_rows(), 0);
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
-    RETURN_IF_ERROR(state->check_query_state());
+    RETURN_IF_ERROR(state->check_query_state("Exchange, while merging next."));
 
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
     while ((_num_rows_skipped < _offset)) {
@@ -244,7 +241,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     }
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-    return Status::OK;
+    return Status::OK();
 }
 
 void ExchangeNode::debug_string(int indentation_level, std::stringstream* out) const {
@@ -254,4 +251,4 @@ void ExchangeNode::debug_string(int indentation_level, std::stringstream* out) c
     *out << ")";
 }
 
-}
+} // namespace doris

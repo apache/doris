@@ -43,4 +43,4 @@ private:
     std::unique_ptr<brpc::Server> _server;
 };
 
-}
+} // namespace doris

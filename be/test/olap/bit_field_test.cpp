@@ -18,31 +18,30 @@
 #include <gtest/gtest.h>
 
 #include "olap/byte_buffer.h"
-#include "olap/out_stream.h"
 #include "olap/in_stream.h"
-#include "olap/bit_field_reader.h"
-#include "olap/bit_field_writer.h"
+#include "olap/out_stream.h"
+#include "olap/rowset/bit_field_reader.h"
+#include "olap/rowset/bit_field_writer.h"
 #include "util/logging.h"
 
 namespace doris {
 
 class TestBitField : public testing::Test {
 public:
-    TestBitField() {
-    }
-    
-    virtual ~TestBitField() {
-    }
-    
+    TestBitField() {}
+
+    virtual ~TestBitField() {}
+
     void SetUp() {
-        system("rm tmp_file");
+        system("mkdir -p ./ut_dir/");
+        system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) BitFieldWriter(_out_stream);
         ASSERT_TRUE(_writer != NULL);
         _writer->init();
-    }   
-    
+    }
+
     void TearDown() {
         SAFE_DELETE(_reader);
         SAFE_DELETE(_out_stream);
@@ -52,27 +51,22 @@ public:
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode("tmp_file", 
-                O_CREAT | O_EXCL | O_WRONLY, 
-                S_IRUSR | S_IWUSR));
+        ASSERT_EQ(OLAP_SUCCESS,
+                  _helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
+                                         S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&_helper, 0);
         _helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, _helper.open_with_mode("tmp_file", 
-                O_RDONLY, S_IRUSR | S_IWUSR)); 
+        ASSERT_EQ(OLAP_SUCCESS,
+                  _helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
-        _shared_buffer = StorageByteBuffer::create(
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
+        _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
+                                                   sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
-        _stream = new (std::nothrow) ReadOnlyFileStream(
-                &_helper, 
-                &_shared_buffer,
-                0, 
-                _helper.length(), 
-                NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
-                &_stats);
+        _stream = new (std::nothrow)
+                ReadOnlyFileStream(&_helper, &_shared_buffer, 0, _helper.length(), NULL,
+                                   OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) BitFieldReader(_stream);
@@ -87,13 +81,15 @@ public:
     StorageByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
     OlapReaderStatistics _stats;
+
+    std::string _file_path = "./ut_dir/tmp_file";
 };
 
 TEST_F(TestBitField, ReadWriteOneBit) {
     // write data
     ASSERT_EQ(OLAP_SUCCESS, _writer->write(true));
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -112,18 +108,18 @@ TEST_F(TestBitField, ReadWriteMultiBits) {
         }
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
     char value = 0;
-    for (int32_t i = 0; i < 100; i++) { 
+    for (int32_t i = 0; i < 100; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         if (0 == i % 2) {
             ASSERT_EQ(value, 1);
         } else {
             ASSERT_EQ(value, 0);
-        }   
+        }
     }
 }
 
@@ -140,9 +136,9 @@ TEST_F(TestBitField, Seek) {
     _writer->get_position(&index_entry);
 
     ASSERT_EQ(OLAP_SUCCESS, _writer->write(true));
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -169,9 +165,9 @@ TEST_F(TestBitField, Skip) {
     }
 
     ASSERT_EQ(OLAP_SUCCESS, _writer->write(true));
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -181,7 +177,7 @@ TEST_F(TestBitField, Skip) {
     ASSERT_EQ(value, 1);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -196,4 +192,3 @@ int main(int argc, char** argv) {
     google::protobuf::ShutdownProtobufLibrary();
     return ret;
 }
-

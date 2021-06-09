@@ -33,7 +33,7 @@ public:
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const LargeIntVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const FloatVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const DoubleVal& val);
-    // static BooleanVal cast_to_boolean_val(FunctionContext* context, const StringVal& val);
+    static BooleanVal cast_to_boolean_val(FunctionContext* context, const StringVal& val);
     static BooleanVal cast_to_boolean_val(FunctionContext* context, const DateTimeVal& val);
 
     static TinyIntVal cast_to_tiny_int_val(FunctionContext* context, const BooleanVal& val);
@@ -124,6 +124,7 @@ public:
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const SmallIntVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const IntVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const BigIntVal& val);
+    static DateTimeVal cast_to_datetime_val(FunctionContext* context, const LargeIntVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const FloatVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const DateTimeVal& val);
@@ -133,12 +134,13 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext* context, const SmallIntVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const IntVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const BigIntVal& val);
+    static DateTimeVal cast_to_date_val(FunctionContext* context, const LargeIntVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const FloatVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DateTimeVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const StringVal& val);
 };
 
-}
+} // namespace doris
 
 #endif

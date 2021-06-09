@@ -15,8 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 2.6)
-
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
@@ -25,12 +23,13 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     aggregation_node.cpp
-    #pre_aggregation_node.cpp
     aggregation_node_ir.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
     broker_reader.cpp
+    buffered_reader.cpp
+    base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
     data_sink.cpp
@@ -41,6 +40,7 @@ set(EXEC_FILES
     hash_join_node.cpp
     hash_join_node_ir.cpp
     hash_table.cpp
+    hdfs_file_reader.cpp
     local_file_reader.cpp
     merge_node.cpp
     merge_join_node.cpp
@@ -49,17 +49,13 @@ set(EXEC_FILES
     text_converter.cpp
     topn_node.cpp
     sort_exec_exprs.cpp
-    sort_node.cpp
     olap_rewrite_node.cpp
     olap_scan_node.cpp
     olap_scanner.cpp
-    olap_meta_reader.cpp
     olap_common.cpp
-    olap_table_info.cpp
-    olap_table_sink.cpp
+    tablet_info.cpp
+    tablet_sink.cpp
     plain_text_line_reader.cpp
-    mysql_scan_node.cpp
-    mysql_scanner.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
     es_scan_node.cpp
@@ -73,6 +69,10 @@ set(EXEC_FILES
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
+    set_operation_node.cpp
+    intersect_node.cpp
+    except_node.cpp
+    repeat_node.cpp
     schema_scanner.cpp
     schema_scan_node.cpp
     schema_scanner/schema_tables_scanner.cpp
@@ -83,53 +83,44 @@ set(EXEC_FILES
     schema_scanner/schema_charsets_scanner.cpp
     schema_scanner/schema_collations_scanner.cpp
     schema_scanner/schema_helper.cpp
+    schema_scanner/schema_views_scanner.cpp
+    schema_scanner/schema_statistics_scanner.cpp
+    schema_scanner/schema_table_privileges_scanner.cpp
+    schema_scanner/schema_schema_privileges_scanner.cpp
+    schema_scanner/schema_user_privileges_scanner.cpp
+
     partitioned_hash_table.cc
     partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc
     partitioned_aggregation_node_ir.cc
-    new_partitioned_hash_table.cc
-    new_partitioned_hash_table_ir.cc
-    new_partitioned_aggregation_node.cc
-    new_partitioned_aggregation_node_ir.cc
+    odbc_scan_node.cpp
     local_file_writer.cpp
     broker_writer.cpp
+    parquet_scanner.cpp
+    parquet_reader.cpp
+    parquet_writer.cpp
+    orc_scanner.cpp
+    odbc_connector.cpp
+    json_scanner.cpp
+    assert_num_rows_node.cpp
+    s3_reader.cpp
+    s3_writer.cpp
 )
 
-if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
+if (WITH_MYSQL)
+    set(EXEC_FILES
+        ${EXEC_FILES}
+        mysql_scan_node.cpp
+        mysql_scanner.cpp
+        )
+endif()
+
+if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}
-        #kudu_scan_node.cpp
-        #kudu_scanner.cpp
-        #kudu_util.cpp
+        lzo_decompressor.cpp
     )
 endif()
 
 add_library(Exec STATIC
     ${EXEC_FILES}
 )
-
-# TODO: why is this test disabled?
-#ADD_BE_TEST(es/es_query_builder_test)
-#ADD_BE_TEST(es/es_scan_reader_test)
-#ADD_BE_TEST(new_olap_scan_node_test)
-#ADD_BE_TEST(pre_aggregation_node_test)
-#ADD_BE_TEST(hash_table_test)
-#ADD_BE_TEST(olap_scanner_test)
-#ADD_BE_TEST(olap_meta_reader_test)
-#ADD_BE_TEST(olap_common_test)
-#ADD_BE_TEST(olap_scan_node_test)
-#ADD_BE_TEST(mysql_scan_node_test)
-#ADD_BE_TEST(mysql_scanner_test)
-#ADD_BE_TEST(schema_scan_node_test)
-#ADD_BE_TEST(schema_scanner_test)
-##ADD_BE_TEST(set_executor_test)
-#ADD_BE_TEST(schema_scanner/schema_authors_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_columns_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_create_table_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_open_tables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_schemata_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_table_names_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_tables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_variables_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_engines_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_collations_scanner_test)
-#ADD_BE_TEST(schema_scanner/schema_charsets_scanner_test)

@@ -22,20 +22,33 @@
 #include "common/config.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
-#include "service/backend_options.h"
-#include "runtime/exec_env.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "util/doris_metrics.h"
 #include "util/thrift_util.h"
 
 namespace doris {
 
-BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
-        _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(broker_count, MetricUnit::NOUNIT);
+
+BrokerMgr::BrokerMgr(ExecEnv* exec_env) : _exec_env(exec_env), _stop_background_threads_latch(1) {
+    CHECK(Thread::create(
+                  "BrokerMgr", "ping_worker", [this]() { this->ping_worker(); }, &_ping_thread)
+                  .ok());
+
+    REGISTER_HOOK_METRIC(broker_count, [this]() {
+        std::lock_guard<std::mutex> l(_mutex);
+        return _broker_set.size();
+    });
 }
 
 BrokerMgr::~BrokerMgr() {
-    _thread_stop = true;
-    _ping_thread.join();
+    DEREGISTER_HOOK_METRIC(broker_count);
+    _stop_background_threads_latch.count_down();
+    if (_ping_thread) {
+        _ping_thread->join();
+    }
 }
 
 void BrokerMgr::init() {
@@ -60,11 +73,10 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
     try {
         Status status;
         // 500ms is enough
-        BrokerServiceConnection client(
-            _exec_env->broker_client_cache(), addr, 500, &status);
+        BrokerServiceConnection client(_exec_env->broker_client_cache(), addr, 500, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << addr
-                << ", status=" << status.get_error_msg();
+                         << ", status=" << status.get_error_msg();
             return;
         }
 
@@ -74,7 +86,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Create broker client failed. broker=" << addr
-                    << ", status=" << status.get_error_msg();
+                             << ", status=" << status.get_error_msg();
                 return;
             }
             client->ping(response, request);
@@ -85,7 +97,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
 }
 
 void BrokerMgr::ping_worker() {
-    while (!_thread_stop) {
+    do {
         std::vector<TNetworkAddress> addresses;
         {
             std::lock_guard<std::mutex> l(_mutex);
@@ -96,8 +108,7 @@ void BrokerMgr::ping_worker() {
         for (auto& addr : addresses) {
             ping(addr);
         }
-        sleep(5);
-    }
+    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(5)));
 }
 
-}
+} // namespace doris

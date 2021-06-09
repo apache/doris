@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/set_executor.h"
+
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
-#include "exec/set_executor.h"
 #include "runtime/exec_env.h"
 #include "service/doris_server.h"
 
@@ -26,14 +27,12 @@ namespace doris {
 
 class SetExecutorTest : public testing::Test {
 public:
-    SetExecutorTest() :
-        _runtim_state("tmp") {
-    }
+    SetExecutorTest() : _runtime_state("tmp") {}
 
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
+
 private:
-    RuntimeState _runtim_state;
+    RuntimeState _runtime_state;
 };
 
 TEST_F(SetExecutorTest, normal_case) {
@@ -84,7 +83,7 @@ TEST_F(SetExecutorTest, normal_case) {
     }
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
-    Status status = executor.prepare((RuntimeState*)&_runtim_state, row_desc);
+    Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
     ASSERT_TRUE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
@@ -107,11 +106,11 @@ TEST_F(SetExecutorTest, failed_case) {
     }
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
-    Status status = executor.prepare((RuntimeState*)&_runtim_state, row_desc);
+    Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
     ASSERT_FALSE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -124,4 +123,3 @@ int main(int argc, char** argv) {
     doris::CpuInfo::Init();
     return RUN_ALL_TESTS();
 }
-

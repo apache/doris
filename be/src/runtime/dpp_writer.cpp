@@ -21,28 +21,27 @@
 
 #include <vector>
 
-#include "olap/utils.h"
 #include "exprs/expr.h"
-#include "util/debug_util.h"
-#include "util/types.h"
+#include "exprs/expr_context.h"
+#include "olap/utils.h"
 #include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "util/debug_util.h"
+#include "util/types.h"
 
 namespace doris {
 
-DppWriter::DppWriter(
-            int32_t schema_hash, 
-            const std::vector<ExprContext*>& output_expr_ctxs, 
-            FileHandler* fp) : 
-        _schema_hash(schema_hash),
-        _output_expr_ctxs(output_expr_ctxs),
-        _fp(fp),
-        _buf(nullptr),
-        _end(nullptr),
-        _pos(nullptr),
-        _write_len(0), 
-        _content_adler32(1) {
+DppWriter::DppWriter(int32_t schema_hash, const std::vector<ExprContext*>& output_expr_ctxs,
+                     FileHandler* fp)
+        : _schema_hash(schema_hash),
+          _output_expr_ctxs(output_expr_ctxs),
+          _fp(fp),
+          _buf(nullptr),
+          _end(nullptr),
+          _pos(nullptr),
+          _write_len(0),
+          _content_adler32(1) {
     _num_null_slots = 0;
     for (int i = 0; i < _output_expr_ctxs.size(); ++i) {
         if (true == _output_expr_ctxs[i]->is_nullable()) {
@@ -71,7 +70,7 @@ Status DppWriter::open() {
     _buf = new char[k_buf_len];
     _pos = _buf;
     _end = _buf + k_buf_len;
-    return Status::OK;
+    return Status::OK();
 }
 
 void DppWriter::reset_buf() {
@@ -84,7 +83,7 @@ void DppWriter::append_to_buf(const void* ptr, int len) {
         int cur_len = _pos - _buf;
         int old_buf_len = _end - _buf;
         int new_len = std::max(2 * old_buf_len, old_buf_len + len);
-        char *new_buf = new char[new_len];
+        char* new_buf = new char[new_len];
         memcpy(new_buf, _buf, cur_len);
         delete[] _buf;
         _buf = new_buf;
@@ -103,7 +102,7 @@ void DppWriter::increase_buf(int len) {
         int cur_len = _pos - _buf;
         int old_buf_len = _end - _buf;
         int new_len = std::max(2 * old_buf_len, old_buf_len + len);
-        char *new_buf = new char[new_len];
+        char* new_buf = new char[new_len];
         memcpy(new_buf, _buf, cur_len);
         delete[] _buf;
         _buf = new_buf;
@@ -111,7 +110,7 @@ void DppWriter::increase_buf(int len) {
         _end = _buf + new_len;
     }
 
-    memset(_pos, 0, len); 
+    memset(_pos, 0, len);
     _pos += len;
 }
 
@@ -123,7 +122,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
     for (int i = 0; i < num_columns; ++i) {
         char* position = _buf + pos;
         void* item = _output_expr_ctxs[i]->get_value(row);
-        // What happend failed???
+        // What happened failed???
         if (true == _output_expr_ctxs[i]->is_nullable()) {
             int index = off % 8;
             if (item == nullptr) {
@@ -179,9 +178,9 @@ Status DppWriter::append_one_row(TupleRow* row) {
         }
         case TYPE_VARCHAR: {
         case TYPE_HLL:
-           const StringValue* str_val = (const StringValue*)(item);
+            const StringValue* str_val = (const StringValue*)(item);
             if (UNLIKELY(str_val->ptr == nullptr && str_val->len != 0)) {
-              return Status("String value ptr is null");
+                return Status::InternalError("String value ptr is null");
             }
 
             // write len first
@@ -189,10 +188,10 @@ Status DppWriter::append_one_row(TupleRow* row) {
             if (len != str_val->len) {
                 std::stringstream ss;
                 ss << "length of string is overflow.len=" << str_val->len;
-                return Status(ss.str());
+                return Status::InternalError(ss.str());
             }
             append_to_buf(&len, 2);
-             // passing a NULL pointer to memcpy may be core/
+            // passing a NULL pointer to memcpy may be core/
             if (len == 0) {
                 break;
             }
@@ -200,10 +199,9 @@ Status DppWriter::append_one_row(TupleRow* row) {
             break;
         }
         case TYPE_CHAR: {
-           
             const StringValue* str_val = (const StringValue*)(item);
-           if (UNLIKELY(str_val->ptr == nullptr || str_val->len == 0)) {
-                return Status("String value ptr is null");
+            if (UNLIKELY(str_val->ptr == nullptr || str_val->len == 0)) {
+                return Status::InternalError("String value ptr is null");
             }
             append_to_buf(str_val->ptr, str_val->len);
             break;
@@ -227,19 +225,18 @@ Status DppWriter::append_one_row(TupleRow* row) {
         default: {
             std::stringstream ss;
             ss << "Unknown column type " << _output_expr_ctxs[i]->root()->type();
-            return Status(ss.str());
+            return Status::InternalError(ss.str());
         }
         }
-
     }
 
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DppWriter::add_batch(RowBatch* batch) {
     int num_rows = batch->num_rows();
     if (num_rows <= 0) {
-        return Status::OK;
+        return Status::OK();
     }
 
     Status status;
@@ -248,15 +245,14 @@ Status DppWriter::add_batch(RowBatch* batch) {
         TupleRow* row = batch->get_row(i);
         status = append_one_row(row);
         if (!status.ok()) {
-            LOG(WARNING) << "convert row to dpp output failed. reason: " 
-                << status.get_error_msg();
+            LOG(WARNING) << "convert row to dpp output failed. reason: " << status.get_error_msg();
 
             return status;
         }
         int len = _pos - _buf;
         OLAPStatus olap_status = _fp->write(_buf, len);
         if (olap_status != OLAP_SUCCESS) {
-            return Status("write to file failed.");
+            return Status::InternalError("write to file failed.");
         }
         _content_adler32 = olap_adler32(_content_adler32, _buf, len);
         _write_len += len;
@@ -269,7 +265,7 @@ Status DppWriter::write_header() {
     _header.set_file_length(_header.size() + _write_len);
     _header.set_checksum(_content_adler32);
     _header.serialize(_fp);
-    return Status::OK;
+    return Status::OK();
 }
 
 Status DppWriter::close() {
@@ -277,5 +273,4 @@ Status DppWriter::close() {
     return write_header();
 }
 
-}
-
+} // namespace doris

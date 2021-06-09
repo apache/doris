@@ -15,20 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/data_spliter.h"
+
 #include <gtest/gtest.h>
 
-#include "runtime/data_spliter.h"
 #include "common/object_pool.h"
-#include "runtime/dpp_sink_internal.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
-#include "runtime/descriptors.h"
-#include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_main.cpp"
+#include "runtime/descriptors.h"
+#include "runtime/dpp_sink_internal.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/tuple_row.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
@@ -39,8 +41,7 @@ public:
         init_row_desc();
         init_runtime_state();
     }
-    ~DataSplitTest() {
-    }
+    ~DataSplitTest() {}
 
     void init_desc_tbl();
 
@@ -49,10 +50,9 @@ public:
     void init_runtime_state();
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
-    virtual void TearDown() { }
+    virtual void TearDown() {}
 
 private:
     ObjectPool _obj_pool;
@@ -263,10 +263,10 @@ TEST_F(DataSplitTest, NoData) {
         batch.commit_last_row();
     }
     ASSERT_TRUE(spliter.send(_state, &batch).ok());
-    ASSERT_TRUE(spliter.close(_state, Status::OK).ok());
+    ASSERT_TRUE(spliter.close(_state, Status::OK()).ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
     }
     // 覆盖be.conf中的配置
     doris::config::storage_root_path = "./test_run/mini_load";
-    doris::create_dirs(doris::config::storage_root_path);
+    doris::FileUtils::create_dir(doris::config::storage_root_path);
     doris::touch_all_singleton();
 
     doris::CpuInfo::init();

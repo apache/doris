@@ -19,14 +19,12 @@
 
 #include <arpa/inet.h>
 
-#include <boost/algorithm/string.hpp>
-
 #include "common/logging.h"
+#include "gutil/strings/split.h"
 
 namespace doris {
 
-CIDR::CIDR() : _address(0), _netmask(0xffffffff) {
-}
+CIDR::CIDR() : _address(0), _netmask(0xffffffff) {}
 
 void CIDR::reset() {
     _address = 0;
@@ -42,10 +40,9 @@ bool CIDR::reset(const std::string& cidr_str) {
     if (have_mask == -1) {
         cidr_format_str.assign(cidr_str + "/32");
     }
-    VLOG(2) << "cidr format str: " << cidr_format_str;
+    VLOG_CRITICAL << "cidr format str: " << cidr_format_str;
 
-    std::vector<std::string> cidr_items;
-    boost::split(cidr_items, cidr_format_str, boost::is_any_of("/"));
+    std::vector<std::string> cidr_items = strings::Split(cidr_format_str, "/");
     if (cidr_items.size() != 2) {
         LOG(WARNING) << "wrong CIDR format. network=" << cidr_str;
         return false;
@@ -63,14 +60,13 @@ bool CIDR::reset(const std::string& cidr_str) {
         char errmsg[64];
         strerror_r(errno, errmsg, 64);
         LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
-            << ", mask_length=" << mask_length
-            << ", errno=" << errno
-            << ", errmsg=" << errmsg;
+                     << ", mask_length=" << mask_length << ", errno=" << errno
+                     << ", errmsg=" << errmsg;
         return false;
     }
     if (mask_length <= 0 || mask_length > 32) {
         LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
-            << ", mask_length=" << mask_length;
+                     << ", mask_length=" << mask_length;
         return false;
     }
 

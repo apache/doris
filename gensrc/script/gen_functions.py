@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -520,6 +523,7 @@ native_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'Date',
   'DATETIME': 'DateTime',
+  'TIME': 'double',
   'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
@@ -537,6 +541,7 @@ implemented_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
+  'TIME': 'double',
   'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
@@ -552,6 +557,7 @@ result_fields = {
   'VARCHAR': 'string_val',
   'DATE': 'datetime_val',
   'DATETIME': 'datetime_val',
+  'TIME': 'double_val',
   'DECIMAL': 'decimal_val',
   'DECIMALV2': 'decimalv2_val',
 }
@@ -671,7 +677,7 @@ if __name__ == "__main__":
     h_file.write(h_preamble)
     cc_file.write(cc_preamble)
     python_file.write(python_preamble)
-    
+
     # Generate functions and headers
     for func_data in functions:
         op = func_data[0]
@@ -683,7 +689,7 @@ if __name__ == "__main__":
             if not op in templates:
                 continue
             template = templates[op]
-        
+
         # Expand all arguments
         return_types = []
         for ret in func_data[1]:
@@ -696,48 +702,48 @@ if __name__ == "__main__":
                 for t in types[arg]:
                     expanded_arg.append(t)
             signatures.append(expanded_arg)
-        
+
         # Put arguments into substitution structure
         num_functions = 0
         for args in signatures:
             num_functions = max(num_functions, len(args))
         num_functions = max(num_functions, len(return_types))
         num_args = len(signatures)
-        
+
         # Validate the input is correct
         if len(return_types) != 1 and len(return_types) != num_functions:
-            print "Invalid Declaration: " + func_data
+            print("Invalid Declaration: " + func_data)
             sys.exit(1)
-        
+
         for args in signatures:
             if len(args) != 1 and len(args) != num_functions:
-                print "Invalid Declaration: " + func_data
+                print("Invalid Declaration: " + func_data)
                 sys.exit(1)
-        
+
         # Iterate over every function signature to generate
         for i in range(0, num_functions):
             if len(return_types) == 1:
                 return_type = return_types[0]
             else:
                 return_type = return_types[i]
-        
+
             arg_types = []
             for j in range(0, num_args):
                 if len(signatures[j]) == 1:
                     arg_types.append(signatures[j][0])
                 else:
                     arg_types.append(signatures[j][i])
-        
+
             # At this point, 'return_type' is a single type and 'arg_types'
             # is a list of single types
             sub = initialize_sub(op, return_type, arg_types)
             if template == binary_func:
                 sub["native_func"] = native_funcs[op.upper()]
-            
+
             h_file.write(header_template.substitute(sub))
             cc_file.write(template.substitute(sub))
             python_file.write(python_template.substitute(sub))
-    
+
     h_file.write(h_epilogue)
     cc_file.write(cc_epilogue)
     python_file.write(python_epilogue)

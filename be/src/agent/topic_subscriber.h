@@ -18,17 +18,17 @@
 #ifndef DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
 #define DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
 
-#include <map>
 #include <boost/thread.hpp>
+#include <map>
+#include <shared_mutex>
+
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
 
 namespace doris {
 
 class TopicSubscriber {
-
 public:
-    
     TopicSubscriber();
     ~TopicSubscriber();
     // Put the topic type and listener to the map
@@ -37,8 +37,8 @@ public:
     void handle_updates(const TAgentPublishRequest& agent_publish_request);
 
 private:
-    std::map<TTopicType::type, std::vector<TopicListener*>> _registed_listeners;
-    boost::shared_mutex _listener_mtx;
+    std::map<TTopicType::type, std::vector<TopicListener*>> _registered_listeners;
+    std::shared_mutex _listener_mtx;
 };
 } // namespace doris
 #endif

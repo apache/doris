@@ -19,13 +19,10 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
 
 #include <stdint.h>
+
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "udf/udf.h"
-
-namespace llvm {
-class Function;
-}
 
 namespace doris {
 
@@ -41,7 +38,7 @@ public:
 class IfNullExpr : public Expr {
 public:
     virtual ~IfNullExpr();
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new IfNullExpr(*this));
     }
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
@@ -57,11 +54,7 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-
-    virtual std::string debug_string() const { 
-        return Expr::debug_string("IfNullExpr"); 
-    }
+    virtual std::string debug_string() const { return Expr::debug_string("IfNullExpr"); }
 
 protected:
     friend class Expr;
@@ -71,7 +64,7 @@ protected:
 class NullIfExpr : public Expr {
 public:
     virtual ~NullIfExpr();
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NullIfExpr(*this));
     }
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
@@ -83,13 +76,11 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    // virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+//    virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-    virtual std::string debug_string() const { 
-        return Expr::debug_string("NullIfExpr"); 
-    }
+    virtual std::string debug_string() const { return Expr::debug_string("NullIfExpr"); }
 
 protected:
     friend class Expr;
@@ -99,9 +90,7 @@ protected:
 class IfExpr : public Expr {
 public:
     virtual ~IfExpr();
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new IfExpr(*this));
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new IfExpr(*this)); }
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row);
@@ -115,10 +104,7 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-    virtual std::string debug_string() const { 
-        return Expr::debug_string("IfExpr"); 
-    }
+    virtual std::string debug_string() const { return Expr::debug_string("IfExpr"); }
 
 protected:
     friend class Expr;
@@ -129,7 +115,7 @@ protected:
 class CoalesceExpr : public Expr {
 public:
     virtual ~CoalesceExpr();
-    virtual Expr* clone(ObjectPool* pool) const override { 
+    virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new CoalesceExpr(*this));
     }
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
@@ -145,7 +131,6 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { return Expr::debug_string("CoalesceExpr"); }
 
 protected:
@@ -153,6 +138,6 @@ protected:
     CoalesceExpr(const TExprNode& node);
 };
 
-}
+} // namespace doris
 
 #endif

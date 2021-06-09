@@ -18,16 +18,15 @@
 #include "exec/es/es_query_builder.h"
 
 #include <boost/algorithm/string/replace.hpp>
+
+#include "common/logging.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-#include "common/logging.h"
 
 namespace doris {
 
-ESQueryBuilder::ESQueryBuilder(const std::string& es_query_str) : _es_query_str(es_query_str) {
-
-}
+ESQueryBuilder::ESQueryBuilder(const std::string& es_query_str) : _es_query_str(es_query_str) {}
 ESQueryBuilder::ESQueryBuilder(const ExtFunction& es_query) {
     auto first = es_query.values.front();
     _es_query_str = first.to_string();
@@ -46,34 +45,50 @@ void ESQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* qu
     query_key.CopyFrom(first->name, allocator);
     // if we found one key, then end loop as QueryDSL only support one `query` root
     query_value.CopyFrom(first->value, allocator);
-    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
+    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics
     query->AddMember(query_key, query_value, allocator);
 }
 
-TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& term) : _field(field), _term(term) {
+TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& term)
+        : _field(field), _term(term), _match_none(false) {}
 
-}
-
-TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) {
-    _field =  binary_predicate.col.name;
-    _term = binary_predicate.value.to_string();
+TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate)
+        : _field(binary_predicate.col.name), _match_none(false) {
+        if (binary_predicate.col.type.type == PrimitiveType::TYPE_BOOLEAN) {
+            int val = atoi(binary_predicate.value.to_string().c_str());
+            if (val == 1) {
+                _term = std::string("true");
+            } else if (val == 0){
+                _term = std::string("false");
+            } else {
+                // keep semantic consistent with mysql
+                _match_none = true;
+            }
+        } else {
+            _term = binary_predicate.value.to_string();
+        }
 }
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value term_node(rapidjson::kObjectType);
     term_node.SetObject();
-    rapidjson::Value field_value(_field.c_str(), allocator);
-    rapidjson::Value term_value(_term.c_str(), allocator);
-    term_node.AddMember(field_value, term_value, allocator);
-    query->AddMember("term", term_node, allocator);
+    if (!_match_none) {
+        rapidjson::Value field_value(_field.c_str(), allocator);
+        rapidjson::Value term_value(_term.c_str(), allocator);
+        term_node.AddMember(field_value, term_value, allocator);
+        query->AddMember("term", term_node, allocator);
+    } else {
+        // this would only appear `bool` column's predicate (a = 2)
+        query->AddMember("match_none", term_node, allocator);
+    }
+
 }
 
-RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) {
-    _field = range_predicate.col.name;
-    _value = range_predicate.value.to_string();
-    _op = range_predicate.op;
-}
+RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate)
+        : _field(range_predicate.col.name),
+          _value(range_predicate.value.to_string()),
+          _op(range_predicate.op) {}
 
 void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
@@ -82,20 +97,20 @@ void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value*
     rapidjson::Value op_node(rapidjson::kObjectType);
     op_node.SetObject();
     switch (_op) {
-        case TExprOpcode::LT:
-            op_node.AddMember("lt", value, allocator);
-            break;
-        case TExprOpcode::LE:
-            op_node.AddMember("le", value, allocator);
-            break;
-        case TExprOpcode::GT:
-            op_node.AddMember("gt", value, allocator);
-            break;
-        case TExprOpcode::GE:
-            op_node.AddMember("ge", value, allocator);
-            break;
-        default:
-            break;
+    case TExprOpcode::LT:
+        op_node.AddMember("lt", value, allocator);
+        break;
+    case TExprOpcode::LE:
+        op_node.AddMember("lte", value, allocator);
+        break;
+    case TExprOpcode::GT:
+        op_node.AddMember("gt", value, allocator);
+        break;
+    case TExprOpcode::GE:
+        op_node.AddMember("gte", value, allocator);
+        break;
+    default:
+        break;
     }
     rapidjson::Value field_node(rapidjson::kObjectType);
     field_node.SetObject();
@@ -112,11 +127,27 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     term_node.AddMember(field_value, term_value, allocator);
     query->AddMember("wildcard", term_node, allocator);
 }
-WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) {
+WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate)
+        : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
-    std::replace(_like_value.begin(), _like_value.end(), '_', '?');
-    std::replace(_like_value.begin(), _like_value.end(), '%', '*');
-    _field = like_predicate.col.name;
+    // example of translation :
+    //      abc_123  ===> abc?123
+    //      abc%ykz  ===> abc*123
+    //      %abc123  ===> *abc123
+    //      _abc123  ===> ?abc123
+    //      \\_abc1  ===> \\_abc1
+    //      abc\\_123 ===> abc\\_123
+    //      abc\\%123 ===> abc\\%123
+    // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
+    for (int i = 0; i < _like_value.size(); i++) {
+        if (_like_value[i] == '_' || _like_value[i] == '%') {
+            if (i == 0) {
+                _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
+            } else if (_like_value[i - 1] != '\\') {
+                _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
+            }
+        }
+    }
 }
 
 void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
@@ -132,8 +163,8 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
     query->AddMember("terms", terms_node, allocator);
 }
 
-TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate) {
-    _field = in_predicate.col.name;
+TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate)
+        : _field(in_predicate.col.name) {
     for (auto& value : in_predicate.values) {
         _values.push_back(value.to_string());
     }
@@ -146,9 +177,19 @@ void MatchAllQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     query->AddMember("match_all", match_all_node, allocator);
 }
 
-BooleanQueryBuilder::BooleanQueryBuilder() {
+ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate)
+        : _field(is_null_predicate.col.name) {}
 
+void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
+    rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
+    rapidjson::Value term_node(rapidjson::kObjectType);
+    term_node.SetObject();
+    rapidjson::Value field_name(_field.c_str(), allocator);
+    term_node.AddMember("field", field_name, allocator);
+    query->AddMember("exists", term_node, allocator);
 }
+
+BooleanQueryBuilder::BooleanQueryBuilder() {}
 BooleanQueryBuilder::~BooleanQueryBuilder() {
     for (auto clause : _must_clauses) {
         delete clause;
@@ -171,70 +212,96 @@ BooleanQueryBuilder::~BooleanQueryBuilder() {
 BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates) {
     for (auto predicate : predicates) {
         switch (predicate->node_type) {
-            case TExprNodeType::BINARY_PRED: {
-                ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
-                switch (binary_predicate->op) {
-                    case TExprOpcode::EQ: {
-                        TermQueryBuilder* term_query = new TermQueryBuilder(*binary_predicate);
-                        _should_clauses.push_back(term_query);
-                        break;
-                        }
-                    case TExprOpcode::NE:{ // process NE
-                        TermQueryBuilder* term_query = new TermQueryBuilder(*binary_predicate);
-                        BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
-                        bool_query->must_not(term_query);
-                        _should_clauses.push_back(bool_query);
-                        break;
-                        }
-                    case TExprOpcode::LT:
-                    case TExprOpcode::LE:
-                    case TExprOpcode::GT:
-                    case TExprOpcode::GE: {
-                        RangeQueryBuilder* range_query = new RangeQueryBuilder(*binary_predicate);
-                        _should_clauses.push_back(range_query);
-                        break;
-                        }
-                    default:
-                        break;
-                }
+        case TExprNodeType::BINARY_PRED: {
+            ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
+            switch (binary_predicate->op) {
+            case TExprOpcode::EQ: {
+                TermQueryBuilder* term_query = new TermQueryBuilder(*binary_predicate);
+                _should_clauses.push_back(term_query);
                 break;
             }
-            case TExprNodeType::IN_PRED: {
-                ExtInPredicate* in_predicate = (ExtInPredicate *)predicate;
-                    bool is_not_in = in_predicate->is_not_in;
-                    if (is_not_in) { // process not in predicate
-                        TermsInSetQueryBuilder* terms_predicate = new TermsInSetQueryBuilder(*in_predicate);
-                        BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
-                        bool_query->must_not(terms_predicate);
-                        _should_clauses.push_back(bool_query);
-                    } else { // process in predicate 
-                        TermsInSetQueryBuilder* terms_query= new TermsInSetQueryBuilder(*in_predicate);
-                        _should_clauses.push_back(terms_query);
-                    }
-                    break;
-            }
-            case TExprNodeType::LIKE_PRED: {
-                ExtLikePredicate* like_predicate = (ExtLikePredicate *)predicate;
-                WildCardQueryBuilder* wild_card_query = new WildCardQueryBuilder(*like_predicate);
-                _should_clauses.push_back(wild_card_query);
+            case TExprOpcode::NE: { // process NE
+                TermQueryBuilder* term_query = new TermQueryBuilder(*binary_predicate);
+                BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                bool_query->must_not(term_query);
+                _should_clauses.push_back(bool_query);
                 break;
             }
-            case TExprNodeType::FUNCTION_CALL: {
-                ExtFunction* function_predicate = (ExtFunction *)predicate;
-                if ("esquery" == function_predicate->func_name ) {
-                    ESQueryBuilder* es_query = new ESQueryBuilder(*function_predicate);
-                    _should_clauses.push_back(es_query);
-                };
+            case TExprOpcode::LT:
+            case TExprOpcode::LE:
+            case TExprOpcode::GT:
+            case TExprOpcode::GE: {
+                RangeQueryBuilder* range_query = new RangeQueryBuilder(*binary_predicate);
+                _should_clauses.push_back(range_query);
                 break;
             }
             default:
                 break;
+            }
+            break;
+        }
+        case TExprNodeType::IN_PRED: {
+            ExtInPredicate* in_predicate = (ExtInPredicate*)predicate;
+            bool is_not_in = in_predicate->is_not_in;
+            if (is_not_in) { // process not in predicate
+                TermsInSetQueryBuilder* terms_predicate = new TermsInSetQueryBuilder(*in_predicate);
+                BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                bool_query->must_not(terms_predicate);
+                _should_clauses.push_back(bool_query);
+            } else { // process in predicate
+                TermsInSetQueryBuilder* terms_query = new TermsInSetQueryBuilder(*in_predicate);
+                _should_clauses.push_back(terms_query);
+            }
+            break;
+        }
+        case TExprNodeType::LIKE_PRED: {
+            ExtLikePredicate* like_predicate = (ExtLikePredicate*)predicate;
+            WildCardQueryBuilder* wild_card_query = new WildCardQueryBuilder(*like_predicate);
+            _should_clauses.push_back(wild_card_query);
+            break;
+        }
+        case TExprNodeType::IS_NULL_PRED: {
+            ExtIsNullPredicate* is_null_predicate = (ExtIsNullPredicate*)predicate;
+            ExistsQueryBuilder* exists_query = new ExistsQueryBuilder(*is_null_predicate);
+            if (is_null_predicate->is_not_null) {
+                _should_clauses.push_back(exists_query);
+            } else {
+                BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                bool_query->must_not(exists_query);
+                _should_clauses.push_back(bool_query);
+            }
+            break;
+        }
+        case TExprNodeType::FUNCTION_CALL: {
+            ExtFunction* function_predicate = (ExtFunction*)predicate;
+            if ("esquery" == function_predicate->func_name) {
+                ESQueryBuilder* es_query = new ESQueryBuilder(*function_predicate);
+                _should_clauses.push_back(es_query);
+            };
+            break;
+        }
+        case TExprNodeType::COMPOUND_PRED: {
+            ExtCompPredicates* compound_predicates = (ExtCompPredicates*)predicate;
+            // reserved for compound_not
+            if (compound_predicates->op == TExprOpcode::COMPOUND_AND) {
+                BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                for (auto es_predicate : compound_predicates->conjuncts) {
+                    std::vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
+                    BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
+                    bool_query->must(inner_bool_query);
+                }
+                _should_clauses.push_back(bool_query);
+            }
+            break;
+        }
+        default:
+            break;
         }
     }
 }
 
 void BooleanQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
-    rapidjson::Document::AllocatorType &allocator = document->GetAllocator();
+    rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value root_node_object(rapidjson::kObjectType);
     if (_filter_clauses.size() > 0) {
         rapidjson::Value filter_node(rapidjson::kArrayType);
@@ -293,62 +360,80 @@ Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
     // { "term": { "dv": "2" } }
     if (!scratch_document.HasParseError()) {
         if (!scratch_document.IsObject()) {
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must be a object");
+            return Status::InvalidArgument("esquery must be a object");
         }
         rapidjson::SizeType object_count = scratch_document.MemberCount();
         if (object_count != 1) {
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery must only one root");
+            return Status::InvalidArgument("esquery must only one root");
         }
         // deep copy, reference http://rapidjson.org/md_doc_tutorial.html#DeepCopyValue
         rapidjson::Value::ConstMemberIterator first = scratch_document.MemberBegin();
         query_key.CopyFrom(first->name, allocator);
         if (!query_key.IsString()) {
             // if we found one key, then end loop as QueryDSL only support one `query` root
-            return Status(TStatusCode::ES_REQUEST_ERROR, "esquery root key must be string");
+            return Status::InvalidArgument("esquery root key must be string");
         }
     } else {
-        return Status(TStatusCode::ES_REQUEST_ERROR, "malformed esquery json");
+        return Status::InvalidArgument("malformed esquery json");
     }
-    return Status::OK;
+    return Status::OK();
 }
 
-void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result) {
+void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates,
+                                   std::vector<bool>* result) {
     int conjunct_size = espredicates.size();
     result->reserve(conjunct_size);
     for (auto espredicate : espredicates) {
         bool flag = true;
         for (auto predicate : espredicate->get_predicate_list()) {
             switch (predicate->node_type) {
-                case TExprNodeType::BINARY_PRED: {
-                    ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
-                    TExprOpcode::type op = binary_predicate->op;
-                    if (op != TExprOpcode::EQ && op != TExprOpcode::NE 
-                        && op != TExprOpcode::LT && op != TExprOpcode::LE
-                        && op != TExprOpcode::GT && op != TExprOpcode::GE) {
+            case TExprNodeType::BINARY_PRED: {
+                ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
+                TExprOpcode::type op = binary_predicate->op;
+                if (op != TExprOpcode::EQ && op != TExprOpcode::NE && op != TExprOpcode::LT &&
+                    op != TExprOpcode::LE && op != TExprOpcode::GT && op != TExprOpcode::GE) {
+                    flag = false;
+                }
+                break;
+            }
+            case TExprNodeType::COMPOUND_PRED: {
+                ExtCompPredicates* compound_predicates = (ExtCompPredicates*)predicate;
+                if (compound_predicates->op == TExprOpcode::COMPOUND_AND) {
+                    std::vector<bool> list;
+                    validate(compound_predicates->conjuncts, &list);
+                    for (int i = list.size() - 1; i >= 0; i--) {
+                        if (!list[i]) {
+                            flag = false;
+                            break;
+                        }
+                    }
+                } else {
+                    // reserved for compound_not
+                    flag = false;
+                }
+                break;
+            }
+            case TExprNodeType::LIKE_PRED:
+            case TExprNodeType::IS_NULL_PRED:
+            case TExprNodeType::IN_PRED: {
+                break;
+            }
+            case TExprNodeType::FUNCTION_CALL: {
+                ExtFunction* function_predicate = (ExtFunction*)predicate;
+                if ("esquery" == function_predicate->func_name) {
+                    Status st = check_es_query(*function_predicate);
+                    if (!st.ok()) {
                         flag = false;
                     }
-                    break;
-                }
-                case TExprNodeType::LIKE_PRED:
-                case TExprNodeType::IN_PRED: {
-                    break;
-                }
-                case TExprNodeType::FUNCTION_CALL: {
-                    ExtFunction* function_predicate = (ExtFunction *)predicate;
-                    if ("esquery" == function_predicate->func_name ) {
-                        Status st = check_es_query(*function_predicate);
-                        if (!st.ok()) {
-                            flag = false;
-                        }
-                    } else {
-                       flag = false;
-		            }
-                    break;
-                }
-                default: {
+                } else {
                     flag = false;
-                    break;
                 }
+                break;
+            }
+            default: {
+                flag = false;
+                break;
+            }
             }
             if (!flag) {
                 break;
@@ -358,7 +443,8 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
     }
 }
 
-void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root, rapidjson::Value* query) {
+void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates,
+                                   rapidjson::Document* root, rapidjson::Value* query) {
     if (predicates.size() == 0) {
         MatchAllQueryBuilder match_all_query;
         match_all_query.to_json(root, query);
@@ -367,9 +453,10 @@ void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, 
     root->SetObject();
     BooleanQueryBuilder bool_query;
     for (auto es_predicate : predicates) {
-        vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
+        std::vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
         BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
         bool_query.must(inner_bool_query);
     }
-    bool_query.to_json(root, query);}
+    bool_query.to_json(root, query);
 }
+} // namespace doris

@@ -20,9 +20,9 @@
 using namespace doris;
 
 FunctionContext* NewAggFnEvaluator::agg_fn_ctx() const {
-  return agg_fn_ctx_.get();
+    return agg_fn_ctx_.get();
 }
 
 ExprContext* const* NewAggFnEvaluator::input_evals() const {
-  return input_evals_.data();
+    return input_evals_.data();
 }

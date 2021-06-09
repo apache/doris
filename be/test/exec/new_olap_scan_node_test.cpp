@@ -16,24 +16,25 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <sstream>
 
 #include "exec/olap_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/batch_reader_interface.h"
+#include "olap/field.h"
 #include "olap/olap_configure.h"
 #include "olap/olap_reader.h"
 #include "olap/session_manager.h"
-#include "olap/field.h"
-#include "olap/batch_reader_interface.h"
 #include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -44,7 +45,7 @@ namespace doris {
 
 class TestOlapScanNode : public testing::Test {
 public:
-    TestOlapScanNode() : _runtime_stat("test") { }
+    TestOlapScanNode() : _runtime_stat("test") {}
 
     void SetUp() {
         init_olap();
@@ -52,7 +53,7 @@ public:
     }
 
     void TearDown() {
-        OLAPEngine::get_instance()->clear();
+        StorageEngine::get_instance()->clear();
         SessionManager::get_instance()->delete_session_by_fd(123);
 
         system("rm -rf ./testrun");
@@ -63,27 +64,24 @@ public:
         system("cp -r ./testdata/case3 ./testrun/.");
 
         string tables_root_path = "./testrun/case3";
-        memcpy(OLAPConfigure::get_instance()->_tables_root_path,
-               tables_root_path.c_str(),
+        memcpy(OLAPConfigure::get_instance()->_tables_root_path, tables_root_path.c_str(),
                tables_root_path.size());
         string unused_flag_path = "./testrun/unused_flag";
-        memcpy(OLAPConfigure::get_instance()->_unused_flag_path,
-               unused_flag_path.c_str(),
+        memcpy(OLAPConfigure::get_instance()->_unused_flag_path, unused_flag_path.c_str(),
                unused_flag_path.size());
 
-        OLAPRootPath::get_instance()->init();
+        StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
-        OLAPEngine::get_instance()->_lru_cache = newLRU_cache(10000);
+        _tablet_meta = new TabletMeta(
+                "./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
+        _tablet_meta->load();
+        tablet = new Tablet(_tablet_meta);
+        tablet->load_indices();
+        tablet->_root_path_name = "./testrun/case3";
 
-        _olap_header = new
-        OLAPHeader("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
-        _olap_header->load();
-        _olap_table = new OLAPTable(_olap_header);
-        _olap_table->load_indices();
-        _olap_table->_root_path_name = "./testrun/case3";
-
-        TableDescription description("fc", "clickuserid_online", "userid_type_planid_unitid_winfoid");
-        OLAPEngine::get_instance()->add_table(description, _olap_table);
+        TableDescription description("fc", "clickuserid_online",
+                                     "userid_type_planid_unitid_winfoid");
+        StorageEngine::get_instance()->add_table(description, tablet);
 
         // init session manager
         SessionManager::get_instance()->init();
@@ -230,7 +228,7 @@ public:
             doris_scan_range.hosts.push_back(host);
             doris_scan_range.__set_schema_hash("1709394");
             doris_scan_range.__set_version("0");
-            doris_scan_range.__set_version_hash("2709394");
+            doris_scan_range.__set_version_hash("0");
             config::olap_index_name = "userid_type_planid_unitid_winfoid";
             doris_scan_range.engine_table_name.push_back("clickuserid_online");
             doris_scan_range.__set_db_name("fc");
@@ -239,13 +237,13 @@ public:
         }
     }
 
-    void read_data(int version, vector<string>* data) {
+    void read_data(int version, std::vector<string>* data) {
         data->clear();
 
         int row[21];
 
         for (int i = 0; i <= version; ++i) {
-            stringstream ss;
+            std::stringstream ss;
             ss << "./testrun/case3/_fc_dayhour" << i << ".txt";
             fstream f(ss.str());
 
@@ -258,7 +256,7 @@ public:
                     break;
                 }
 
-                stringstream str;
+                std::stringstream str;
                 str << "[(";
                 str << row[0] << " ";
                 str << row[2] << " ";
@@ -266,20 +264,20 @@ public:
                 str << row[18] << " ";
                 str << row[20] << ")]";
                 data->push_back(str.str());
-                VLOG(3) << "Read Row: " << str.str();
+                VLOG_NOTICE << "Read Row: " << str.str();
             }
         }
     }
 
 private:
-    OLAPHeader* _olap_header;
-    OLAPTable* _olap_table;
+    TabletMeta* _tablet_meta;
+    Tablet* tablet;
 
     TPlanNode _tnode;
     ObjectPool _obj_pool;
     DescriptorTbl* _desc_tbl;
     RuntimeState _runtime_stat;
-    vector<TScanRangeParams> _scan_ranges;
+    std::vector<TScanRangeParams> _scan_ranges;
 };
 
 TEST_F(TestOlapScanNode, SimpleTest) {
@@ -298,7 +296,7 @@ TEST_F(TestOlapScanNode, SimpleTest) {
         row_batch.reset();
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
         ASSERT_TRUE(status.ok());
-        VLOG(1) << "num_rows: " << row_batch.num_rows();
+        VLOG_CRITICAL << "num_rows: " << row_batch.num_rows();
         num_rows += row_batch.num_rows();
     }
 
@@ -308,8 +306,8 @@ TEST_F(TestOlapScanNode, SimpleTest) {
 
 TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("0");
-    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("2709394");
-    vector<string> data;
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
+    std::vector<string> data;
     read_data(0, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
@@ -331,7 +329,7 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
-            VLOG(3) << "input row: " << print_row(row, scan_node._row_descriptor);
+            VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
             ASSERT_LT(data_index, data.size());
             ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;
@@ -347,7 +345,7 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
 TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("9");
     _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
-    vector<string> data;
+    std::vector<string> data;
     read_data(9, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
@@ -369,7 +367,7 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
-            VLOG(3) << "input row: " << print_row(row, scan_node._row_descriptor);
+            VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
             ASSERT_LT(data_index, data.size());
             ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;
@@ -380,10 +378,9 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
 
     ASSERT_EQ(num_rows, data.size());
     ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
-
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

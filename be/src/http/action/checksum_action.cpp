@@ -17,20 +17,20 @@
 
 #include "http/action/checksum_action.h"
 
-#include <string>
 #include <sstream>
+#include <string>
 
-#include "boost/lexical_cast.hpp"
-
-#include "common/logging.h"
 #include "agent/cgroups_mgr.h"
+#include "boost/lexical_cast.hpp"
+#include "common/logging.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
+#include "olap/task/engine_checksum_task.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -42,11 +42,9 @@ const std::string TABLET_VERSION = "version";
 const std::string VERSION_HASH = "version_hash";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ChecksumAction::ChecksumAction(ExecEnv* exec_env) :
-        _exec_env(exec_env) {
-}
+ChecksumAction::ChecksumAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
-void ChecksumAction::handle(HttpRequest *req) {
+void ChecksumAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -54,8 +52,7 @@ void ChecksumAction::handle(HttpRequest *req) {
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);
     if (tablet_id_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + TABLET_ID + " not specified in url.");
+        std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
 
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
@@ -64,8 +61,8 @@ void ChecksumAction::handle(HttpRequest *req) {
     // Get version
     const std::string& version_str = req->param(TABLET_VERSION);
     if (version_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + TABLET_VERSION + " not specified in url.");
+        std::string error_msg =
+                std::string("parameter " + TABLET_VERSION + " not specified in url.");
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
@@ -73,8 +70,7 @@ void ChecksumAction::handle(HttpRequest *req) {
     // Get version hash
     const std::string& version_hash_str = req->param(VERSION_HASH);
     if (version_hash_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + VERSION_HASH + " not specified in url.");
+        std::string error_msg = std::string("parameter " + VERSION_HASH + " not specified in url.");
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
@@ -82,8 +78,7 @@ void ChecksumAction::handle(HttpRequest *req) {
     // Get schema hash
     const std::string& schema_hash_str = req->param(SCHEMA_HASH);
     if (schema_hash_str.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + SCHEMA_HASH + " not specified in url.");
+        std::string error_msg = std::string("parameter " + SCHEMA_HASH + " not specified in url.");
         HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
@@ -104,8 +99,8 @@ void ChecksumAction::handle(HttpRequest *req) {
         return;
     }
 
-    VLOG_ROW << "get checksum tablet info: " << tablet_id << "-"
-             << version << "-" << version_hash << "-" << schema_hash;
+    VLOG_ROW << "get checksum tablet info: " << tablet_id << "-" << version << "-" << version_hash
+             << "-" << schema_hash;
 
     int64_t checksum = do_checksum(tablet_id, version, version_hash, schema_hash, req);
     if (checksum == -1L) {
@@ -123,22 +118,20 @@ void ChecksumAction::handle(HttpRequest *req) {
 }
 
 int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t version_hash,
-        int32_t schema_hash, HttpRequest *req) {
-
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+                                    int32_t schema_hash, HttpRequest* req) {
+    OLAPStatus res = OLAP_SUCCESS;
     uint32_t checksum;
-    res = _exec_env->olap_engine()->compute_checksum(
-            tablet_id, schema_hash, version, version_hash, &checksum);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
-        LOG(WARNING) << "checksum failed. status: " << res
-                     << ", signature: " << tablet_id;
+    EngineChecksumTask engine_task(tablet_id, schema_hash, version, version_hash, &checksum);
+    res = engine_task.execute();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "checksum failed. status: " << res << ", signature: " << tablet_id;
         return -1L;
     } else {
-        LOG(INFO) << "checksum success. status: " << res
-                  << ", signature: " << tablet_id << ". checksum: " << checksum;
+        LOG(INFO) << "checksum success. status: " << res << ", signature: " << tablet_id
+                  << ". checksum: " << checksum;
     }
 
     return static_cast<int64_t>(checksum);
-} 
+}
 
 } // end namespace doris

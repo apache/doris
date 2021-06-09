@@ -26,9 +26,9 @@ using std::vector;
 using std::list;
 using std::endl;
 
-using boost::lock_guard;
-using boost::unique_lock;
-using boost::mutex;
+using std::lock_guard;
+using std::unique_lock;
+using std::mutex;
 
 namespace doris {
 
@@ -84,14 +84,14 @@ Status DiskIoMgr::ScanRange::get_next(BufferDescriptor** buffer) {
     {
         unique_lock<mutex> scan_range_lock(_lock);
         if (_eosr_returned) {
-            return Status::OK;
+            return Status::OK();
         }
         DCHECK(validate()) << debug_string();
 
         if (_ready_buffers.empty()) {
             // The queue is empty indicating this thread could use more
             // IO. Increase the capacity to allow for more queueing.
-            ++_ready_buffers_capacity ;
+            ++_ready_buffers_capacity;
             _ready_buffers_capacity = std::min(_ready_buffers_capacity, MAX_QUEUE_CAPACITY);
         }
 
@@ -130,7 +130,7 @@ Status DiskIoMgr::ScanRange::get_next(BufferDescriptor** buffer) {
         _reader->_total_range_queue_capacity += _ready_buffers_capacity;
         ++_reader->_num_finished_ranges;
         _reader->_initial_queue_capacity =
-            _reader->_total_range_queue_capacity / _reader->_num_finished_ranges;
+                _reader->_total_range_queue_capacity / _reader->_num_finished_ranges;
     }
 
     DCHECK(_reader->validate()) << endl << _reader->debug_string();
@@ -150,7 +150,7 @@ Status DiskIoMgr::ScanRange::get_next(BufferDescriptor** buffer) {
         _reader->_blocked_ranges.remove(this);
         _reader->schedule_scan_range(this);
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 void DiskIoMgr::ScanRange::cancel(const Status& status) {
@@ -197,24 +197,21 @@ void DiskIoMgr::ScanRange::cleanup_queued_buffers() {
 
 string DiskIoMgr::ScanRange::debug_string() const {
     stringstream ss;
-    ss << "file=" << _file << " disk_id=" << _disk_id << " offset=" << _offset
-        << " len=" << _len << " bytes_read=" << _bytes_read
-        << " buffer_queue=" << _ready_buffers.size()
-        << " capacity=" << _ready_buffers_capacity
-        << " hdfs_file=" << _hdfs_file;
+    ss << "file=" << _file << " disk_id=" << _disk_id << " offset=" << _offset << " len=" << _len
+       << " bytes_read=" << _bytes_read << " buffer_queue=" << _ready_buffers.size()
+       << " capacity=" << _ready_buffers_capacity << " hdfs_file=" << _hdfs_file;
     return ss.str();
 }
 
 bool DiskIoMgr::ScanRange::validate() {
     if (_bytes_read > _len) {
         LOG(WARNING) << "Bytes read tracking is wrong. Shouldn't read past the scan range."
-            << " _bytes_read=" << _bytes_read << " _len=" << _len;
+                     << " _bytes_read=" << _bytes_read << " _len=" << _len;
         return false;
     }
     if (_eosr_returned && !_eosr_queued) {
         LOG(WARNING) << "Returned eosr to reader before finishing reading the scan range"
-            << " _eosr_returned=" << _eosr_returned
-            << " _eosr_queued=" << _eosr_queued;
+                     << " _eosr_returned=" << _eosr_returned << " _eosr_queued=" << _eosr_queued;
         return false;
     }
     return true;
@@ -230,10 +227,9 @@ DiskIoMgr::ScanRange::~ScanRange() {
     DCHECK(_cached_buffer == NULL) << "Cached buffer was not released.";
 }
 
-void DiskIoMgr::ScanRange::reset(
-        hdfsFS fs, const char* file, int64_t len,
-        int64_t offset, int disk_id, bool try_cache,
-        bool expected_local, int64_t mtime, void* meta_data) {
+void DiskIoMgr::ScanRange::reset(hdfsFS fs, const char* file, int64_t len, int64_t offset,
+                                 int disk_id, bool try_cache, bool expected_local, int64_t mtime,
+                                 void* meta_data) {
     DCHECK(_ready_buffers.empty());
     _fs = fs;
     _file = file;
@@ -271,16 +267,16 @@ void DiskIoMgr::ScanRange::init_internal(DiskIoMgr* io_mgr, RequestContext* read
 Status DiskIoMgr::ScanRange::open() {
     unique_lock<mutex> hdfs_lock(_hdfs_lock);
     if (_is_cancelled) {
-        return Status::CANCELLED;
+        return Status::Cancelled("Cancelled");
     }
 
     // if (_fs != NULL) {
     //     if (_hdfs_file != NULL) {
-    //         return Status::OK;
+    //         return Status::OK();
     //     }
     //     _hdfs_file = _io_mgr->OpenHdfsFile(_fs, file(), mtime());
     //     if (_hdfs_file == NULL) {
-    //         return Status(GetHdfsErrorMsg("Failed to open HDFS file ", _file));
+    //         return Status::InternalError("GetHdfsErrorMsg("Failed to open HDFS file ", _file));
     //     }
 
     //     if (hdfsSeek(_fs, _hdfs_file->file(), _offset) != 0) {
@@ -289,11 +285,11 @@ Status DiskIoMgr::ScanRange::open() {
     //         string error_msg = GetHdfsErrorMsg("");
     //         stringstream ss;
     //         ss << "Error seeking to " << _offset << " in file: " << _file << " " << error_msg;
-    //         return Status(ss.str());
+    //         return Status::InternalError(ss.str());
     //     }
     // } else {
     if (_local_file != NULL) {
-        return Status::OK;
+        return Status::OK();
     }
 
     _local_file = fopen(file(), "r");
@@ -301,29 +297,23 @@ Status DiskIoMgr::ScanRange::open() {
         string error_msg = get_str_err_msg();
         stringstream ss;
         ss << "Could not open file: " << _file << ": " << error_msg;
-        return Status(ss.str());
+        return Status::InternalError(ss.str());
     }
     if (fseek(_local_file, _offset, SEEK_SET) == -1) {
         fclose(_local_file);
         _local_file = NULL;
         string error_msg = get_str_err_msg();
         stringstream ss;
-        ss << "Could not seek to " << _offset << " for file: " << _file
-            << ": " << error_msg;
-        return Status(ss.str());
+        ss << "Could not seek to " << _offset << " for file: " << _file << ": " << error_msg;
+        return Status::InternalError(ss.str());
     }
     // }
-#if 0
-    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
-        DorisMetrics::io_mgr_num_open_files()->increment(1L);
-    }
-#endif
-    return Status::OK;
+    return Status::OK();
 }
 
 void DiskIoMgr::ScanRange::close() {
     unique_lock<mutex> hdfs_lock(_hdfs_lock);
-/*
+    /*
  *   if (_fs != NULL) {
  *     if (_hdfs_file == NULL) return;
  *
@@ -363,11 +353,6 @@ void DiskIoMgr::ScanRange::close() {
         fclose(_local_file);
         _local_file = NULL;
     }
-#if 0
-    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
-        DorisMetrics::io_mgr_num_open_files()->increment(-1L);
-    }
-#endif
 }
 
 /*
@@ -377,7 +362,7 @@ void DiskIoMgr::ScanRange::close() {
  *     // Profiles show that both the JNI array allocation and the memcpy adds much more
  *     // overhead for larger buffers, so limit the size of each read request.  128K was
  *     // chosen empirically by trying values between 4K and 8M and optimizing for lower CPU
- *     // utilization and higher S3 througput.
+ *     // utilization and higher S3 throughput.
  *     if (_disk_id == _io_mgr->RemoteS3DiskId()) {
  *         DCHECK(IsS3APath(file()));
  *         return 128 * 1024;
@@ -392,7 +377,7 @@ void DiskIoMgr::ScanRange::close() {
 Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr) {
     unique_lock<mutex> hdfs_lock(_hdfs_lock);
     if (_is_cancelled) {
-        return Status::CANCELLED;
+        return Status::Cancelled("Cancelled");
     }
 
     *eosr = false;
@@ -401,7 +386,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
     // than an int, this min() will ensure that we don't overflow the length argument.
     DCHECK_LE(sizeof(_io_mgr->_max_buffer_size), sizeof(int));
     int bytes_to_read =
-        std::min(static_cast<int64_t>(_io_mgr->_max_buffer_size), _len - _bytes_read);
+            std::min(static_cast<int64_t>(_io_mgr->_max_buffer_size), _len - _bytes_read);
     DCHECK_GE(bytes_to_read, 0);
 
     /*
@@ -412,7 +397,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
      *         int chunk_size = min(bytes_to_read - *bytes_read, max_chunk_size);
      *         int last_read = hdfsRead(_fs, _hdfs_file->file(), buffer + *bytes_read, chunk_size);
      *         if (last_read == -1) {
-     *             return Status(GetHdfsErrorMsg("Error reading from HDFS file: ", _file));
+     *             return Status::InternalError("GetHdfsErrorMsg("Error reading from HDFS file: ", _file));
      *         } else if (last_read == 0) {
      *             // No more bytes in the file. The scan range went past the end.
      *             *eosr = true;
@@ -430,9 +415,9 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
         if (ferror(_local_file) != 0) {
             string error_msg = get_str_err_msg();
             stringstream ss;
-            ss << "Error reading from " << _file << " at byte offset: "
-                << (_offset + _bytes_read) << ": " << error_msg;
-            return Status(ss.str());
+            ss << "Error reading from " << _file << " at byte offset: " << (_offset + _bytes_read)
+               << ": " << error_msg;
+            return Status::InternalError(ss.str());
         } else {
             // On Linux, we should only get partial reads from block devices on error or eof.
             DCHECK(feof(_local_file) != 0);
@@ -445,7 +430,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
     if (_bytes_read == _len) {
         *eosr = true;
     }
-    return Status::OK;
+    return Status::OK();
 }
 
 /*
@@ -457,11 +442,11 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
  *   if (!status.ok()) return status;
  *
  *   // Cached reads not supported on local filesystem.
- *   if (_fs == NULL) return Status::OK;
+ *   if (_fs == NULL) return Status::OK();
  *
  *   {
  *     unique_lock<mutex> hdfs_lock(_hdfs_lock);
- *     if (_is_cancelled) return Status::CANCELLED;
+ *     if (_is_cancelled) return Status::Cancelled("Cancelled");
  *
  *     DCHECK(_hdfs_file != NULL);
  *     DCHECK(_cached_buffer == NULL);
@@ -469,7 +454,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
  *         _io_mgr->_cached_read_options, len());
  *
  *     // Data was not cached, caller will fall back to normal read path.
- *     if (_cached_buffer == NULL) return Status::OK;
+ *     if (_cached_buffer == NULL) return Status::OK();
  *   }
  *
  *   // Cached read succeeded.
@@ -493,8 +478,7 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
  *   }
  *   *read_succeeded = true;
  *   ++_reader->_num_used_buffers;
- *   return Status::OK;
+ *   return Status::OK();
  * }
  */
 } // namespace doris
-
