@@ -79,11 +79,11 @@ arrow::Status ParquetOutputStream::Close() {
     return arrow::Status::OK();
 }
 
-int64_t ParquetOutputStream::get_current_written_len() {
+int64_t ParquetOutputStream::get_written_len() {
     return _written_len;
 }
 
-void ParquetOutputStream::set_current_written_len(int64_t written_len) {
+void ParquetOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
@@ -438,8 +438,8 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
     return Status::OK();
 }
 
-int64_t ParquetWriterWrapper::get_writed_len() {
-    return _outstream->get_current_written_len();
+int64_t ParquetWriterWrapper::written_len() {
+    return _outstream->get_written_len();
 }
 void ParquetWriterWrapper::close() {
     try {

@@ -56,9 +56,9 @@ public:
 
     bool closed() const override { return _is_closed; }
 
-    int64_t get_current_written_len();
+    int64_t get_written_len();
 
-    void set_current_written_len(int64_t written_len);
+    void set_written_len(int64_t written_len);
 
 private:
     FileWriter* _file_writer; // not owned
@@ -90,7 +90,7 @@ public:
 
     parquet::RowGroupWriter* get_rg_writer();
 
-    int64_t get_writed_len();
+    int64_t written_len();
 
 private:
     std::shared_ptr<ParquetOutputStream> _outstream;
