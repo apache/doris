@@ -150,6 +150,14 @@ visible_functions = [
     [['weekofyear'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions12week_of_yearEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValE'],
+    [['yearweek'], 'INT', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions9year_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
+    [['yearweek'], 'INT', ['DATETIME', 'INT'],
+        '_ZN5doris18TimestampFunctions9year_weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
+    [['week'], 'INT', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions4weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
+    [['week'], 'INT', ['DATETIME', 'INT'],
+        '_ZN5doris18TimestampFunctions4weekEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
     [['hour'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions4hourEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['minute'], 'INT', ['DATETIME'],
@@ -157,6 +165,8 @@ visible_functions = [
     [['second'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions6secondEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
+    [['makedate'], 'DATETIME', ['INT', 'INT'],
+        '_ZN5doris18TimestampFunctions9make_dateEPN9doris_udf15FunctionContextERKNS1_6IntValES6_'],
     [['years_add'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN5doris18TimestampFunctions9years_addEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],

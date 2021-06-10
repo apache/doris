@@ -176,6 +176,101 @@ TEST_F(TimestampFunctionsTest, week_of_year_test) {
     delete context;
 }
 
+TEST_F(TimestampFunctionsTest, year_week_test) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    DateTimeValue dtv1(20210101000000);
+    dtv1.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv1;
+    dtv1.to_datetime_val(&tv1);
+    ASSERT_EQ(202052, TimestampFunctions::year_week(context, tv1).val);
+
+    DateTimeValue dtv2(20210103000000);
+    dtv2.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv2;
+    dtv2.to_datetime_val(&tv2);
+    ASSERT_EQ(202101, TimestampFunctions::year_week(context, tv2).val);
+
+    DateTimeValue dtv3(20210501000000);
+    dtv3.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv3;
+    dtv3.to_datetime_val(&tv3);
+    ASSERT_EQ(202117, TimestampFunctions::year_week(context, tv3).val);
+
+    DateTimeValue dtv4(20241230000000);
+    dtv4.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv4;
+    dtv4.to_datetime_val(&tv4);
+    ASSERT_EQ(202501, TimestampFunctions::year_week(context, tv4, 1).val);
+
+    DateTimeValue dtv5(20261229121030);
+    dtv5.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv5;
+    dtv5.to_datetime_val(&tv5);
+    ASSERT_EQ(202653, TimestampFunctions::year_week(context, tv5, 3).val);
+    delete context;
+}
+
+TEST_F(TimestampFunctionsTest, week_test) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    DateTimeValue dtv1(20210101000000);
+    dtv1.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv1;
+    dtv1.to_datetime_val(&tv1);
+    ASSERT_EQ(0, TimestampFunctions::week(context, tv1).val);
+
+    DateTimeValue dtv2(20210103000000);
+    dtv2.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv2;
+    dtv2.to_datetime_val(&tv2);
+    ASSERT_EQ(1, TimestampFunctions::week(context, tv2).val);
+
+    DateTimeValue dtv3(20210501000000);
+    dtv3.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv3;
+    dtv3.to_datetime_val(&tv3);
+    ASSERT_EQ(17, TimestampFunctions::week(context, tv3).val);
+
+    DateTimeValue dtv4(20210101000000);
+    dtv4.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv4;
+    dtv4.to_datetime_val(&tv4);
+    ASSERT_EQ(0, TimestampFunctions::week(context, tv4, {1}).val);
+
+    DateTimeValue dtv5(20211201000000);
+    dtv5.set_type(TIME_DATETIME);
+    doris_udf::DateTimeVal tv5;
+    dtv5.to_datetime_val(&tv5);
+    ASSERT_EQ(48, TimestampFunctions::week(context, tv5, 2).val);
+    delete context;
+}
+
+TEST_F(TimestampFunctionsTest, make_date_test) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(true, TimestampFunctions::make_date(context, 2021, 0).is_null);
+
+    DateTimeValue dtv1(20210101000000);
+    dtv1.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv1;
+    dtv1.to_datetime_val(&tv1);
+    ASSERT_EQ(tv1.packed_time, TimestampFunctions::make_date(context, 2021, 1).packed_time);
+
+    DateTimeValue dtv2(20211027000000);
+    dtv2.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv2;
+    dtv2.to_datetime_val(&tv2);
+    ASSERT_EQ(tv2.packed_time, TimestampFunctions::make_date(context, 2021, 300).packed_time);
+
+    DateTimeValue dtv3(20220204000000);
+    dtv3.set_type(TIME_DATE);
+    doris_udf::DateTimeVal tv3;
+    dtv3.to_datetime_val(&tv3);
+    ASSERT_EQ(tv3.packed_time, TimestampFunctions::make_date(context, 2021, 400).packed_time);
+    delete context;
+}
+
 TEST_F(TimestampFunctionsTest, time_diff_test) {
     DateTimeValue dt1(20190718120000);
     dt1.set_type(TIME_DATETIME);

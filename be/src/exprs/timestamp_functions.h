@@ -69,6 +69,16 @@ public:
                                          const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal week_of_year(doris_udf::FunctionContext* context,
                                           const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal year_week(doris_udf::FunctionContext *context,
+                                       const doris_udf::DateTimeVal &ts_val);
+    static doris_udf::IntVal year_week(doris_udf::FunctionContext *context,
+                                       const doris_udf::DateTimeVal &ts_val,
+                                       const doris_udf::IntVal &para);
+    static doris_udf::IntVal week(doris_udf::FunctionContext *context,
+                                  const doris_udf::DateTimeVal &ts_val);
+    static doris_udf::IntVal week(doris_udf::FunctionContext *context,
+                                  const doris_udf::DateTimeVal &ts_val,
+                                  const doris_udf::IntVal &mode);
     static doris_udf::IntVal hour(doris_udf::FunctionContext* context,
                                   const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal minute(doris_udf::FunctionContext* context,
@@ -77,6 +87,9 @@ public:
                                     const doris_udf::DateTimeVal& ts_val);
 
     // Date/time functions.
+    static doris_udf::DateTimeVal make_date(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::IntVal& year,
+                                           const doris_udf::IntVal& count);
     static doris_udf::DateTimeVal to_date(doris_udf::FunctionContext* ctx,
                                           const doris_udf::DateTimeVal& ts_val);
     static doris_udf::IntVal date_diff(doris_udf::FunctionContext* ctx,

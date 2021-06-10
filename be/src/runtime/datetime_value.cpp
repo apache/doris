@@ -947,6 +947,25 @@ uint8_t DateTimeValue::week(uint8_t mode) const {
     return calc_week(*this, mode, &year);
 }
 
+uint32_t DateTimeValue::year_week(uint8_t mode) const {
+    uint32_t year = 0;
+    // The range of the week in the year_week is 1-53, so the mode WEEK_YEAR is always true.
+    uint8_t week = calc_week(*this, mode | 2, &year);
+    // When the mode WEEK_FIRST_WEEKDAY is not set,
+    // the week in which the last three days of the year fall may belong to the following year.
+    if (week == 53 && day() >= 29 && !(mode & 4)) {
+        uint8_t monday_first = mode & WEEK_MONDAY_FIRST;
+        uint64_t daynr_of_last_day = calc_daynr(_year, 12, 31);
+        uint8_t weekday_of_last_day = calc_weekday(daynr_of_last_day, !monday_first);
+
+        if (weekday_of_last_day - monday_first < 2) {
+            ++year;
+            week = 1;
+        }
+    }
+    return year * 100 + week;
+}
+
 uint8_t DateTimeValue::calc_weekday(uint64_t day_nr, bool is_sunday_first_day) {
     return (day_nr + 5L + (is_sunday_first_day ? 1L : 0L)) % 7;
 }
