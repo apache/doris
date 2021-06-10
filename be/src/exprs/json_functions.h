@@ -65,7 +65,6 @@ struct JsonPath {
     }
 
     std::string debug_string() const {
-        std::stringstream ss;
         return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
     }
 };
