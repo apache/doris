@@ -998,7 +998,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id, 0 /*replica_id*/, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();
@@ -1034,7 +1034,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id, 0 /*replica_id*/, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 tablet->obtain_header_wrlock();

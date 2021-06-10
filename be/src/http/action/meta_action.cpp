@@ -60,7 +60,7 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     }
 
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, 0 /*replica_id*/, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status::InternalError("no tablet exist");

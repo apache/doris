@@ -94,7 +94,7 @@ void DeltaWriter::_garbage_collection() {
 
 OLAPStatus DeltaWriter::init() {
     TabletManager* tablet_mgr = _storage_engine->tablet_manager();
-    _tablet = tablet_mgr->get_tablet(_req.tablet_id, _req.schema_hash);
+    _tablet = tablet_mgr->get_tablet(_req.tablet_id, 0 /*replica_id*/, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "fail to find tablet. tablet_id=" << _req.tablet_id
                      << ", schema_hash=" << _req.schema_hash;

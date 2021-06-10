@@ -47,6 +47,7 @@ public class CreateReplicaTask extends AgentTask {
 
     private short shortKeyColumnCount;
     private int schemaHash;
+    private long replicaId;
 
     private long version;
     private long versionHash;
@@ -83,7 +84,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                             short shortKeyColumnCount, int schemaHash, long version, long versionHash,
+                             long replicaId, short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
@@ -94,6 +95,7 @@ public class CreateReplicaTask extends AgentTask {
 
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
+        this.replicaId = replicaId;
 
         this.version = version;
         this.versionHash = versionHash;
@@ -216,6 +218,7 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setInRestoreMode(true);
         }
         createTabletReq.setTableId(tableId);
+        createTabletReq.setReplicaId(replicaId);
         createTabletReq.setPartitionId(partitionId);
 
         if (baseTabletId != -1) {

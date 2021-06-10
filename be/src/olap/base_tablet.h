@@ -55,11 +55,12 @@ public:
     inline const std::string full_name() const;
     inline int64_t partition_id() const;
     inline int64_t tablet_id() const;
+    inline int64_t replica_id() const;
     inline int32_t schema_hash() const;
     inline int16_t shard_id();
     inline const int64_t creation_time() const;
     inline void set_creation_time(int64_t creation_time);
-    inline bool equal(int64_t tablet_id, int32_t schema_hash);
+    inline bool equal(int64_t tablet_id, int64_t replica_id, int32_t schema_hash);
 
     // properties encapsulated in TabletSchema
     inline const TabletSchema& tablet_schema() const;
@@ -125,6 +126,10 @@ inline int64_t BaseTablet::tablet_id() const {
     return _tablet_meta->tablet_id();
 }
 
+inline int64_t BaseTablet::replica_id() const {
+    return _tablet_meta->replica_id();
+}
+
 inline int32_t BaseTablet::schema_hash() const {
     return _tablet_meta->schema_hash();
 }
@@ -141,8 +146,10 @@ inline void BaseTablet::set_creation_time(int64_t creation_time) {
     _tablet_meta->set_creation_time(creation_time);
 }
 
-inline bool BaseTablet::equal(int64_t id, int32_t hash) {
-    return (tablet_id() == id) && (schema_hash() == hash);
+inline bool BaseTablet::equal(int64_t id, int64_t r_id, int32_t hash) {
+    // For compatibility with older data, there is no replica id in the old version of the tablet meta
+    // For new data with replica_id in the meta, there are some tasks that do not need to check the replica_id
+    return (tablet_id() == id) && ((replica_id() == 0 || r_id == 0) ? true : (replica_id() == r_id)) && (schema_hash() == hash);
 }
 
 inline const TabletSchema& BaseTablet::tablet_schema() const {

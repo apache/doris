@@ -106,7 +106,7 @@ AgentStatus EngineBatchLoadTask::_init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id,
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id, 0 /*replica_id*/,
                                                                      _push_req.schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "get tables failed. "
@@ -293,7 +293,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+            request.tablet_id, 0 /*replica_id*/, request.schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
@@ -355,7 +355,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
 
     // 1. Get all tablets with same tablet_id
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+            request.tablet_id, 0 /*replica_id*/, request.schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;

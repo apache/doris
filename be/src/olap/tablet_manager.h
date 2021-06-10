@@ -66,7 +66,7 @@ public:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus drop_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files = false);
+    OLAPStatus drop_tablet(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash, bool keep_files = false);
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
@@ -75,7 +75,7 @@ public:
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+    TabletSharedPtr get_tablet(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
@@ -150,23 +150,23 @@ private:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
                                     const TabletSharedPtr& tablet, bool update_meta, bool force);
 
-    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
                                            const TabletSharedPtr& tablet, bool update_meta,
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
     OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TReplicaId replica_id, TSchemaHash schema_hash,
                                               bool keep_files = false);
 
-    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
+    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash, bool keep_files);
 
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash);
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
                                          bool include_deleted, std::string* err);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,

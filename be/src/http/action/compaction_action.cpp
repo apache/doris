@@ -69,7 +69,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
                                    "check param failed");
 
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, 0 /*replica_id*/, schema_hash);
     if (tablet == nullptr) {
         return Status::NotFound(
             strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
@@ -98,7 +98,7 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
     // 2. fetch the tablet by tablet_id and schema_hash
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, 0 /*replica_id*/, schema_hash);
     if (tablet == nullptr) {
         return Status::NotFound(
             strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
@@ -160,7 +160,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     } else {
         // fetch the tablet by tablet_id and schema_hash
         TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, 0 /*replica_id*/, schema_hash);
     
         if (tablet == nullptr) {
             LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id

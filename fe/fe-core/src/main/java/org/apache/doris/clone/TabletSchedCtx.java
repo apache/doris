@@ -749,11 +749,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // That is, we may need to use 2 clone tasks to create a new replica. It is inefficient,
         // but there is no other way now.
         TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
-        cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
-                tabletId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, visibleVersionHash, (int) (taskTimeoutMs / 1000));
-        cloneTask.setPathHash(srcPathHash, destPathHash);
-        
+
         // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
         // we create a new replica with state CLONE
         if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
@@ -766,6 +762,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                     ReplicaState.CLONE,
                     committedVersion, committedVersionHash, /* use committed version as last failed version */
                     -1 /* last success version */, 0 /* last success version hash */);
+            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
+                    tabletId, cloneReplica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                    visibleVersion, visibleVersionHash, (int) (taskTimeoutMs / 1000));
 
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
@@ -781,8 +780,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.SCHEDULE_FAILED, "dest replica's path hash is changed. "
                         + "current: " + replica.getPathHash() + ", scheduled: " + destPathHash);
             }
+            cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
+                    tabletId, replica.getId(), schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                    visibleVersion, visibleVersionHash, (int) (taskTimeoutMs / 1000));
         }
-        
+
+        cloneTask.setPathHash(srcPathHash, destPathHash);
         this.state = State.RUNNING;
         return cloneTask;
     }

@@ -68,7 +68,7 @@ TEST(MemTablet, writescan) {
     tschema.__set_is_in_memory(false);
     tschema.__set_schema_hash(1);
     TabletMetaSharedPtr tablet_meta(
-            new TabletMeta(1, 1, 1, 1, 1, tschema, static_cast<uint32_t>(sc->cid_size()),
+            new TabletMeta(1, 1, 1, 1, 1, 1, tschema, static_cast<uint32_t>(sc->cid_size()),
                            col_idx_to_unique_id, TabletUid(1, 1), TTabletType::TABLET_TYPE_MEMORY));
     std::shared_ptr<MemTablet> tablet = MemTablet::create_tablet_from_meta(tablet_meta, nullptr);
     ASSERT_TRUE(tablet->init().ok());

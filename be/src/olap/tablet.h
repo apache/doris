@@ -134,6 +134,10 @@ public:
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
 
+    // message for clone task 
+    bool clone_mode();
+    void set_clone_mode(bool clone_mode);
+    
     // meta lock
     inline void obtain_header_rdlock() { _meta_lock.rdlock(); }
     inline void obtain_header_wrlock() { _meta_lock.wrlock(); }

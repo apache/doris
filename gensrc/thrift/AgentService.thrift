@@ -85,11 +85,13 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
+    15: optional Types.TReplicaId replica_id
 }
 
 struct TDropTabletReq {
     1: required Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
+    3: optional Types.TReplicaId replica_id
 }
 
 struct TAlterTabletReq {
@@ -156,6 +158,7 @@ struct TCloneReq {
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
+    11: optional Types.TReplicaId replica_id
 }
 
 struct TStorageMediumMigrateReq {
@@ -275,6 +278,7 @@ struct TTabletMetaInfo {
     3: optional Types.TPartitionId partition_id
     4: optional TTabletMetaType meta_type
     5: optional bool is_in_memory
+    6: optional Types.TReplicaId replica_id
 }
 
 struct TUpdateTabletMetaInfoReq {

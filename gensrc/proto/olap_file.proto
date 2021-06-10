@@ -220,6 +220,7 @@ message OLAPHeaderMessage {
     optional int64 tablet_id = 20;  // TabletMetaPB.tablet_id
     optional int32 schema_hash = 21;    // TabletMetaPB.schema_hash? int32 vs int64
     optional uint64 shard_id = 22; // TabletMetaPB.shard_id? int64 vs int32
+    optional uint64 replica_id = 23; // TabletMetaPB.replica_id
 }
 
 enum AlterTabletState {
@@ -312,6 +313,7 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
+    optional int64 replica_id = 19; // OlapHeaderMessage.replica_id
 }
 
 message OLAPIndexHeaderMessage {
