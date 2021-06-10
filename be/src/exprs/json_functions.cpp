@@ -385,7 +385,7 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
                     idx = atoi(index.c_str());
                 }
             }
-            parsed_paths->emplace_back(col, idx, true);
+            parsed_paths->emplace_back(std::move(col), idx, true);
         }
     }
 }
