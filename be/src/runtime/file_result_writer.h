@@ -40,6 +40,8 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
     std::string success_file_name = "";
+    std::vector<std::vector<std::string>> schema;
+    std::map<std::string, std::string> file_properties;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -59,6 +61,12 @@ struct ResultFileOptions {
         }
         if (t_opt.__isset.success_file_name) {
             success_file_name = t_opt.success_file_name;
+        }
+        if (t_opt.__isset.schema) {
+            schema = t_opt.schema;
+        }
+        if (t_opt.__isset.file_properties) {
+            file_properties = t_opt.file_properties;
         }
     }
 };
@@ -82,6 +90,7 @@ public:
 
 private:
     Status _write_csv_file(const RowBatch& batch);
+    Status _write_parquet_file(const RowBatch& batch);
     Status _write_one_row_as_csv(TupleRow* row);
 
     // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
