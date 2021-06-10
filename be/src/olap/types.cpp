@@ -152,8 +152,9 @@ TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     } else {
         switch (type) {
         case OLAP_FIELD_TYPE_ARRAY: {
-            DCHECK(column_meta_pb->children_columns_size() == 1) << "more than 1 child type.";
-            FieldType child_type = (FieldType)column_meta_pb->children_columns(0).type();
+            DCHECK(column_meta_pb->children_columns_size() >= 1 && column_meta_pb->children_columns_size() <=3)
+            << "more than 3 children or no children.";
+            auto child_type = (FieldType)column_meta_pb->children_columns(0).type();
             return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
         }
         default:
