@@ -89,7 +89,8 @@ public:
             BitmapChange(&nullmap, 0, cell.is_null());
             return append_nullable(&nullmap, cell.cell_ptr(), 1);
         } else {
-            return append_not_nulls(cell.cell_ptr(), 1);
+            auto* cel_ptr = cell.cell_ptr();
+            return append_data((const uint8_t**)&cel_ptr, 1);
         }
     }
 
@@ -102,8 +103,6 @@ public:
     }
 
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
-
-    Status append_not_nulls(const void* data, size_t num_rows);
 
     virtual Status append_nulls(size_t num_rows) = 0;
 
@@ -129,6 +128,9 @@ public:
 
     // used for append not null data.
     virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
+
+    // used for append not null data. When page is full, will append data not reach num_rows.
+    virtual Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) = 0;
 
     bool is_nullable() const { return _is_nullable; }
 
@@ -179,6 +181,8 @@ public:
         _new_page_callback = flush_page_callback;
     }
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override;
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -250,12 +254,16 @@ class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
                                ScalarColumnWriter* offset_writer,
+                               ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
     Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override {
+        return Status::NotSupported("array writer has no data, can not append_data_in_current_page");
+    }
 
     uint64_t estimate_buffer_size() override;
 
@@ -272,14 +280,18 @@ public:
 
     Status write_bloom_filter_index() override { return Status::OK(); }
 
-    ordinal_t get_next_rowid() const override { return _offset_writer->get_next_rowid(); }
+    ordinal_t get_next_rowid() const override { return _length_writer->get_next_rowid(); }
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
+    inline Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
 
 private:
-    std::unique_ptr<ScalarColumnWriter> _offset_writer;
+    std::unique_ptr<ScalarColumnWriter> _length_writer;
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
+    ordinal_t _current_length_page_first_ordinal = 0;
+    ordinal_t _lengh_sum_in_cur_page = 0;
 };
 
 } // namespace segment_v2
