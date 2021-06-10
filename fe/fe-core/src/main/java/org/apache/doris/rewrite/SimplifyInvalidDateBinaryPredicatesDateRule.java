@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.NotLiteralExprPredicate;
 
 /**
  * this rule try to convert date expression, if date is invalid, it will be
@@ -35,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new SimplifyInvalidDateBinaryPredicatesDateRule();
     public static final int DATETIME_STRING_MAX_LENGTH = new String("yyyy-MM-dd HH:ii:ss").length();
+    private static final NotLiteralExprPredicate NOT_LITERAL_EXPR_PREDICATE = new NotLiteralExprPredicate();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
@@ -50,13 +52,29 @@ public class SimplifyInvalidDateBinaryPredicatesDateRule implements ExprRewriteR
         if (!valueExpr.isConstant()) {
             return expr;
         }
+
+        // This is not a very good implementation and tricky.
+        // We have to handle the following cases:
+        // A. k1 is datetime, sql with "k1 > to_date(now())" will be converted to k1 > cast(to_date("xxxx-xx-xx"))
+        // B. k1 is datetime, sql with "k1 > '2021-10-32 10:00:00.100010'" will be converted to k1 > cast('2021-10-32 10:00:00.100010' as datetime)
+        // C. k1 is datetime, sql with "k1 > '2021-10-32'" will be converted to k1 > cast('2021-10-32' as datetime), and finally to converted to NullLiteral.
         if (valueExpr instanceof CastExpr) {
-            String dateStr = valueExpr.toSql();
-            // if it contains millisecond, microsecond, nanosecond, do nothing
-            if (dateStr.length() > DATETIME_STRING_MAX_LENGTH && dateStr.contains(".")) {
+            valueExpr = valueExpr.getChild(0);
+            if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
+                // Case A.
                 return expr;
             }
+            String dateStr = valueExpr.toSql();
+            if (dateStr.length() > DATETIME_STRING_MAX_LENGTH && dateStr.contains(".")) {
+                // Case B
+                return expr;
+            }
+            // Case C
             return new NullLiteral();
+        } else {
+            if (valueExpr.contains(NOT_LITERAL_EXPR_PREDICATE)) {
+                return expr;
+            }
         }
         return expr;
     }
