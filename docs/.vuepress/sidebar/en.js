@@ -251,6 +251,7 @@ module.exports = [
               "from_days",
               "from_unixtime",
               "hour",
+              "makedate",
               "minute",
               "month",
               "monthname",
@@ -264,8 +265,10 @@ module.exports = [
               "to_days",
               "unix_timestamp",
               "utc_timestamp",
+              "week",
               "weekofyear",
               "year",
+              "yearweek",
             ],
           },
           {

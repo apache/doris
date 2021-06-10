@@ -333,6 +333,8 @@ public:
     //      next week is week 1.
     uint8_t week(uint8_t) const;
 
+    uint32_t year_week(uint8_t mode) const;
+
     // Add interval
     bool date_add_interval(const TimeInterval& interval, TimeUnit unit);
 
