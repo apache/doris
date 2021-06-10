@@ -54,14 +54,14 @@ public class RangePartitionPrunerTest {
 
         String sql = "CREATE TABLE test.`prune1` (\n" +
             "  `a` int(11) NULL COMMENT \"\",\n" +
-            "  `b` int(11) NULL COMMENT \"\",\n" +
-            "  `c` int(11) NULL COMMENT \"\",\n" +
+            "  `b` bigint(20) NULL COMMENT \"\",\n" +
+            "  `c` tinyint(11) NULL COMMENT \"\",\n" +
             "  `d` int(11) NULL COMMENT \"\"\n" +
             ")\n" +
             "UNIQUE KEY(`a`,`b`,`c`)\n" +
             "COMMENT \"OLAP\"\n" +
             "PARTITION BY RANGE(`a`,`b`,`c`)(\n" +
-            "  PARTITION p VALUES LESS THAN ('0')\n" +
+            "  PARTITION pMin VALUES LESS THAN ('0')\n" +
             ")\n" +
             "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
@@ -91,7 +91,7 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testGe() throws Exception {
+    public void testGeOperator() throws Exception {
         String queryStr = "explain select * from test.`prune1` where a >= 0;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("partitions=0/1"));
@@ -99,12 +99,29 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testGt() throws Exception {
+    public void testGtOperator() throws Exception {
         String queryStr = "explain select * from test.`prune1` where a > 0;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("partitions=0/1"));
         Assert.assertFalse(explainString.contains("partitions=1/1"));
     }
+
+    @Test
+    public void testEqOperator() throws Exception {
+        String queryStr = "explain select * from test.`prune1` where a = 0;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("partitions=0/1"));
+        Assert.assertFalse(explainString.contains("partitions=1/1"));
+    }
+
+    @Test
+    public void testInPredicate() throws Exception {
+        String queryStr = "explain select * from test.`prune1` where a in (0);";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("partitions=0/1"));
+        Assert.assertFalse(explainString.contains("partitions=1/1"));
+    }
+
 
 
 }
