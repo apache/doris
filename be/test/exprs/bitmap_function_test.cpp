@@ -301,9 +301,9 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<DoubleVal, double>(ctx, DoubleVal(1.01), DoubleVal(1.02));
 
     DecimalV2Val v1;
-    DecimalV2Value("1.01").to_decimal_val(&v1);
+    DecimalV2Value(std::string("1.01")).to_decimal_val(&v1);
     DecimalV2Val v2;
-    DecimalV2Value("1.02").to_decimal_val(&v2);
+    DecimalV2Value(std::string("1.02")).to_decimal_val(&v2);
     test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(ctx, v1, v2);
 
     DateTimeVal datetime1;
