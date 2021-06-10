@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <locale>
 #include <sstream>
+#include <string_view>
 
 #include "anyval_util.h"
 #include "runtime/string_search.hpp"
