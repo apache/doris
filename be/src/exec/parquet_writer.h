@@ -36,16 +36,17 @@
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/tuple.h"
+#include "runtime/row_batch.h"
+#include "exprs/expr_context.h"
 
 namespace doris {
-
-class ExprContext;
 class FileWriter;
-class RowBatch;
 
 class ParquetOutputStream : public arrow::io::OutputStream {
 public:
     ParquetOutputStream(FileWriter* file_writer);
+    ParquetOutputStream(FileWriter* file_writer, const int64_t& written_len);
     virtual ~ParquetOutputStream();
 
     arrow::Status Write(const void* data, int64_t nbytes) override;
@@ -55,26 +56,52 @@ public:
 
     bool closed() const override { return _is_closed; }
 
+    int64_t get_written_len();
+
+    void set_written_len(int64_t written_len);
+
 private:
     FileWriter* _file_writer; // not owned
-    int64_t _cur_pos;         // current write position
+    int64_t _cur_pos = 0;         // current write position
     bool _is_closed = false;
+    int64_t _written_len = 0;
 };
 
 // a wrapper of parquet output stream
 class ParquetWriterWrapper {
 public:
     ParquetWriterWrapper(FileWriter* file_writer,
-                         const std::vector<ExprContext*>& output_expr_ctxs);
+                         const std::vector<ExprContext*>& output_expr_ctxs,
+                         const std::map<std::string, std::string>& properties,
+                         const std::vector<std::vector<std::string>>& schema);
     virtual ~ParquetWriterWrapper();
 
     Status write(const RowBatch& row_batch);
 
+    Status init_parquet_writer();
+
+    Status _write_one_row(TupleRow* row);
+
     void close();
 
+    void parse_properties(const std::map<std::string, std::string>& propertie_map);
+
+    Status parse_schema(const std::vector<std::vector<std::string>>& schema);
+
+    parquet::RowGroupWriter* get_rg_writer();
+
+    int64_t written_len();
+
 private:
-    ParquetOutputStream* _outstream;
+    std::shared_ptr<ParquetOutputStream> _outstream;
+    std::shared_ptr<parquet::WriterProperties> _properties;
+    std::shared_ptr<parquet::schema::GroupNode> _schema;
+    std::unique_ptr<parquet::ParquetFileWriter> _writer;
     const std::vector<ExprContext*>& _output_expr_ctxs;
+    std::vector<std::vector<std::string>> _str_schema;
+    int64_t _cur_writed_rows = 0;
+    parquet::RowGroupWriter* _rg_writer;
+    const int64_t _max_row_per_group = 10;
 };
 
 } // namespace doris
