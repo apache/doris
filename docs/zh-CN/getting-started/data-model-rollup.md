@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) COMMENT "用户地址",
     `register_time` DATETIME COMMENT "用户注册时间"
 )
-UNIQUE KEY(`user_id`, `user_name`)
+UNIQUE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) REPLACE COMMENT "用户地址",
     `register_time` DATETIME REPLACE COMMENT "用户注册时间"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
+AGGREGATE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
