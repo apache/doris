@@ -181,6 +181,14 @@ Default：The default is true after the official 0.14.0 version is released, and
 
 HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface
 
+### http_max_file_size
+
+### http_max_request_size
+
+Default：100M
+
+The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100M, you can modify it according to your needs
+
 ### frontend_address
 
 Status: Deprecated, not recommended use. This parameter may be deleted later Type: string Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. Default value: 0.0.0.0

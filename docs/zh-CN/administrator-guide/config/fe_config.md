@@ -180,6 +180,14 @@ FE 的配置项有两种方式进行配置：
 
 HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只有启用httpv2才能用户使用新的前端UI界面
 
+### http_max_file_size
+
+### http_max_request_size
+
+默认值：100M
+
+以上两个参数是http v2版本，web最大上传文件限制，默认100M，可以根据自己需要修改
+
 ### default_max_filter_ratio
 
 默认值：0
