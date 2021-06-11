@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 
+#include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_value.h"
@@ -44,6 +45,7 @@ struct ExprValue {
     StringValue string_val;
     DateTimeValue datetime_val;
     DecimalV2Value decimalv2_val;
+    CollectionValue array_val;
 
     ExprValue()
             : bool_val(false),
@@ -57,7 +59,8 @@ struct ExprValue {
               string_data(),
               string_val(NULL, 0),
               datetime_val(),
-              decimalv2_val(0) {}
+              decimalv2_val(0),
+              array_val() {}
 
     ExprValue(bool v) : bool_val(v) {}
     ExprValue(int8_t v) : tinyint_val(v) {}

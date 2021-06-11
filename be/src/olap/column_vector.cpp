@@ -130,19 +130,20 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
 
             std::unique_ptr<ColumnVectorBatch> elements;
             auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
-            RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity * 2, field->get_sub_field(0)->is_nullable(),
+            RETURN_IF_ERROR(ColumnVectorBatch::create(
+                    init_capacity * 2, field->get_sub_field(0)->is_nullable(),
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
-            RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false,
-                                      bigint_type_info, nullptr, &offsets));
+            TypeInfo* offsets_type_info =
+                    get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+            RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
+                                                      nullptr, &offsets));
 
-            std::unique_ptr<ColumnVectorBatch> local(
-                    new ArrayColumnVectorBatch(type_info,
-                            is_nullable,
-                            reinterpret_cast<ScalarColumnVectorBatch<uint64_t>*>(offsets.release()),
-                            elements.release()));
+            std::unique_ptr<ColumnVectorBatch> local(new ArrayColumnVectorBatch(
+                    type_info, is_nullable,
+                    reinterpret_cast<ScalarColumnVectorBatch<uint32_t>*>(offsets.release()),
+                    elements.release()));
             RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
@@ -172,7 +173,7 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
 }
 
 ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
-                                               ScalarColumnVectorBatch<uint64_t>* offsets,
+                                               ScalarColumnVectorBatch<uint32_t>* offsets,
                                                ColumnVectorBatch* elements)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {
     _offsets.reset(offsets);
@@ -205,13 +206,14 @@ void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t size, boo
     DCHECK(start_idx + size <= capacity());
     for (size_t i = 0; i < size; ++i) {
         if (!is_null_at(start_idx + i)) {
-            _data[start_idx + i] = Collection(
+            _data[start_idx + i] = CollectionValue(
                     _elements->mutable_cell_ptr(*(_offsets->scalar_cell_ptr(start_idx + i))),
-                    *(_offsets->scalar_cell_ptr(start_idx + i + 1)) - *(_offsets->scalar_cell_ptr(start_idx + i)),
+                    *(_offsets->scalar_cell_ptr(start_idx + i + 1)) -
+                            *(_offsets->scalar_cell_ptr(start_idx + i)),
                     item_has_null,
-                    _elements->is_nullable()
-                    ? const_cast<bool*>(&_elements->null_signs()[*(_offsets->scalar_cell_ptr(start_idx + i))])
-                    : nullptr);
+                    _elements->is_nullable() ? const_cast<bool*>(&_elements->null_signs()[*(
+                                                       _offsets->scalar_cell_ptr(start_idx + i))])
+                                             : nullptr);
         }
     }
 }

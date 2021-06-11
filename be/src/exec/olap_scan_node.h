@@ -209,6 +209,8 @@ private:
     // conjunct's index which already be push down storage engine
     // should be remove in olap_scan_node, no need check this conjunct again
     std::set<uint32_t> _pushed_conjuncts_index;
+    // collection slots
+    std::vector<SlotDescriptor*> _collection_slots;
 
     bool _eos;
 

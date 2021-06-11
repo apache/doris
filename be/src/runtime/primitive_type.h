@@ -69,9 +69,9 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DATETIME:
     case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
+    case TYPE_ARRAY:
     case TYPE_HLL:
         return false;
-
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
     case TYPE_INT:
@@ -102,6 +102,7 @@ inline int get_byte_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
+    case TYPE_ARRAY:
         return 0;
 
     case TYPE_NULL:
@@ -140,6 +141,7 @@ inline int get_real_byte_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
+    case TYPE_ARRAY:
         return 0;
 
     case TYPE_NULL:
@@ -175,48 +177,7 @@ inline int get_real_byte_size(PrimitiveType type) {
     return 0;
 }
 // Returns the byte size of type when in a tuple
-inline int get_slot_size(PrimitiveType type) {
-    switch (type) {
-    case TYPE_OBJECT:
-    case TYPE_HLL:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-        return sizeof(StringValue);
-
-    case TYPE_NULL:
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-        return 1;
-
-    case TYPE_SMALLINT:
-        return 2;
-
-    case TYPE_INT:
-    case TYPE_FLOAT:
-        return 4;
-
-    case TYPE_BIGINT:
-    case TYPE_DOUBLE:
-        return 8;
-
-    case TYPE_LARGEINT:
-        return sizeof(__int128);
-
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        // This is the size of the slot, the actual size of the data is 12.
-        return 16;
-
-    case TYPE_DECIMALV2:
-        return 16;
-
-    case INVALID_TYPE:
-    default:
-        DCHECK(false);
-    }
-
-    return 0;
-}
+int get_slot_size(PrimitiveType type);
 
 inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     if (lhs == TYPE_VARCHAR) {

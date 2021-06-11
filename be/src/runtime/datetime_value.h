@@ -278,7 +278,7 @@ public:
         cast_to_date();
         return loss_accuracy;
     }
-    
+
     void cast_to_date() {
         _hour = 0;
         _minute = 0;
@@ -452,6 +452,8 @@ public:
     }
 
     void set_type(int type);
+
+    int type() const { return _type; }
 
     bool is_valid_date() const { return !check_range() && !check_date() && _month > 0 && _day > 0; }
 

@@ -22,6 +22,7 @@
 #include <signal.h>
 
 #include "common/config.h"
+#include "exprs/array_functions.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
 #include "exprs/compound_predicate.h"
@@ -244,6 +245,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     IsNullPredicate::init();
     LikePredicate::init();
     StringFunctions::init();
+    ArrayFunctions::init();
     CastFunctions::init();
     InPredicate::init();
     MathFunctions::init();

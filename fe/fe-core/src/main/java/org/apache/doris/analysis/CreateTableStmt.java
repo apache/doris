@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
@@ -349,6 +350,21 @@ public class CreateTableStmt extends DdlStmt {
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
+
+            if (columnDef.getType().isArrayType()) {
+                ArrayType tp = (ArrayType) columnDef.getType();
+                if (!tp.getItemType().getPrimitiveType().isIntegerType() &&
+                        !tp.getItemType().getPrimitiveType().isCharFamily()) {
+                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+                }
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                    throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
+                }
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("Array can only be used in the non-key column of" +
+                            " the duplicate table at present.");
+                }
+            }
 
             if (columnDef.getType().isHllType()) {
                 hasHll = true;

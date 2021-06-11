@@ -39,11 +39,13 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
     _version = pschema.version();
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(pschema.tuple_desc()));
+
     for (auto& p_slot_desc : pschema.slot_descs()) {
         auto slot_desc = _obj_pool.add(new SlotDescriptor(p_slot_desc));
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+
     for (auto& p_index : pschema.indexes()) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = p_index.id();
@@ -78,6 +80,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         _tuple_desc->add_slot(slot_desc);
         slots_map.emplace(slot_desc->col_name(), slot_desc);
     }
+
     for (auto& t_index : tschema.indexes) {
         auto index = _obj_pool.add(new OlapTableIndexSchema());
         index->index_id = t_index.id;
@@ -133,10 +136,8 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
     }
     in_keys_ss << "]";
     ss << "(id=" << id << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
-       << ",end_key=" << Tuple::to_string(end_key, *tuple_desc) 
-       << ",in_key=" << in_keys_ss.str()
-       << ",num_buckets=" << num_buckets
-       << ",indexes=[";
+       << ",end_key=" << Tuple::to_string(end_key, *tuple_desc) << ",in_key=" << in_keys_ss.str()
+       << ",num_buckets=" << num_buckets << ",indexes=[";
     idx = 0;
     for (auto& index : indexes) {
         if (idx++ > 0) {
@@ -274,7 +275,6 @@ bool OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition
         it = _partitions_map->find(tuple);
     } else {
         it = _partitions_map->upper_bound(tuple);
-        
     }
     if (it == _partitions_map->end()) {
         return false;
