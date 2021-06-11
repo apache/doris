@@ -418,14 +418,24 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
+
+        AbstractAfterPartitionPruningWhereExprEraser abstractAfterPartitionPruningWhereExprEraser = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
             partitionPruner = new RangePartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
+            abstractAfterPartitionPruningWhereExprEraser = new AfterRangePartitionPruningWhereExprEraser();
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
+            abstractAfterPartitionPruningWhereExprEraser = new AfterListPartitionPruningWhereExprEraser();
+        } else {
+            throw new AnalysisException(partitionInfo.getType() + " does not match any partition type");
         }
-        return partitionPruner.prune();
+        Collection<Long> longCollection = partitionPruner.prune();
+        final List<PartitionItem> collect = longCollection.stream().map(keyItemMap::get).collect(Collectors.toList());
+        abstractAfterPartitionPruningWhereExprEraser.initial(collect);
+        abstractAfterPartitionPruningWhereExprEraser.eraseConjuncts(conjuncts, olapTable.getPartitionInfo().getPartitionColumns(), desc);
+        return longCollection;
     }
 
     private Collection<Long> distributionPrune(

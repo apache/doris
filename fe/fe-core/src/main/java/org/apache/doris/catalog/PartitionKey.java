@@ -148,6 +148,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         return keys;
     }
 
+    public int size() {
+        return keys.size();
+    }
+
+    public LiteralExpr getKeyByIndex(int index) {
+        return keys.get(index);
+    }
+
     public long getHashValue() {
         CRC32 hashValue = new CRC32();
         int i = 0;
