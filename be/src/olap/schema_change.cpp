@@ -2193,11 +2193,19 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
-    if (max_continuous_version.second >= request.alter_version) {
-        return OLAP_SUCCESS;
-    } else {
+    if (max_continuous_version.second < request.alter_version) {
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
+
+    std::vector<Version> new_tablet_versions;
+    new_tablet->list_versions(&new_tablet_versions);
+    for (auto& version : new_tablet_versions) {
+        RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
+        if (!rowset->check_file_exist()) {
+            return OLAP_ERR_FILE_NOT_EXIST;
+        }
+    }
+    return OLAP_SUCCESS;
 }
 
 } // namespace doris
