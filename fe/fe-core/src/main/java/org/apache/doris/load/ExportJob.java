@@ -70,6 +70,7 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -125,7 +126,9 @@ public class ExportJob implements Writable {
     private String lineDelimiter;
     private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
-
+    private TFileFormatType format;
+    private List<List<String>> schema;
+    private Map<String, String> fileProperties = Maps.newHashMap();
     private TableName tableName;
 
     private String sql = "";
@@ -208,6 +211,9 @@ public class ExportJob implements Writable {
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
+        this.schema = stmt.getSchema();
+        this.format = stmt.getFileFormat();
+        this.fileProperties = stmt.getFileProperties();
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -258,7 +264,8 @@ public class ExportJob implements Writable {
         } catch (URISyntaxException e) {
             throw new DdlException("Invalid export path: " + getExportPath());
         }
-        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(),
+                brokerDesc, schema, format, fileProperties);
         plan();
     }
 

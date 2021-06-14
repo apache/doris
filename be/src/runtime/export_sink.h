@@ -22,6 +22,7 @@
 
 #include "common/status.h"
 #include "exec/data_sink.h"
+#include "exec/parquet_writer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -60,6 +61,8 @@ private:
     Status open_file_writer();
     Status gen_row_buffer(TupleRow* row, std::stringstream* ss);
     std::string gen_file_name();
+    Status _write_parquet_file(const RowBatch& batch);
+    Status _write_csv_file(const RowBatch& batch);
 
     RuntimeState* _state;
 
@@ -72,6 +75,7 @@ private:
 
     TExportSink _t_export_sink;
     std::unique_ptr<FileWriter> _file_writer;
+    ParquetWriterWrapper* _parquet_writer = nullptr;
 
     RuntimeProfile* _profile;
 

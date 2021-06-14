@@ -95,15 +95,24 @@ Status ExportSink::open(RuntimeState* state) {
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
     VLOG_ROW << "debug: export_sink send batch: " << batch->to_string();
+    if (_t_export_sink.format == TFileFormatType::FORMAT_PARQUET) {
+        RETURN_IF_ERROR(_write_parquet_file(*batch));
+    } else {
+        RETURN_IF_ERROR(_write_csv_file(*batch));
+    }
+    return Status::OK();
+}
+
+Status ExportSink::_write_csv_file(const RowBatch &batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-    int num_rows = batch->num_rows();
+    int num_rows = batch.num_rows();
     // we send at most 1024 rows at a time
     int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {
         ss.str("");
         for (int j = 0; j < batch_send_rows && i < num_rows; ++j, ++i) {
-            RETURN_IF_ERROR(gen_row_buffer(batch->get_row(i), &ss));
+            RETURN_IF_ERROR(gen_row_buffer(batch.get_row(i), &ss));
         }
 
         VLOG_ROW << "debug: export_sink send row: " << ss.str();
@@ -116,6 +125,15 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
                                             buf.size(), &written_len));
         COUNTER_UPDATE(_bytes_written_counter, buf.size());
     }
+    COUNTER_UPDATE(_rows_written_counter, num_rows);
+    return Status::OK();
+}
+
+Status ExportSink::_write_parquet_file(const RowBatch& batch) {
+    SCOPED_TIMER(_profile->total_time_counter());
+    int num_rows = batch.num_rows();
+    SCOPED_TIMER(_write_timer);
+    RETURN_IF_ERROR(_parquet_writer->write(batch));
     COUNTER_UPDATE(_rows_written_counter, num_rows);
     return Status::OK();
 }
@@ -236,6 +254,14 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
 
 Status ExportSink::close(RuntimeState* state, Status exec_status) {
     Expr::close(_output_expr_ctxs, state);
+    if (_parquet_writer != nullptr) {
+        _parquet_writer->close();
+        COUNTER_UPDATE(_bytes_written_counter, _parquet_writer->written_len());
+        delete _parquet_writer;
+        _parquet_writer = nullptr;
+        // _file_writer has closed in parquet_writer.cpp
+        _file_writer = nullptr;
+    }
     if (_file_writer != nullptr) {
         _file_writer->close();
         _file_writer = nullptr;
@@ -280,7 +306,20 @@ Status ExportSink::open_file_writer() {
         return Status::InternalError(ss.str());
     }
     }
-
+    // if parquet file, new parquet writer
+    switch (_t_export_sink.format) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+            // just use file writer is enough
+            break;
+        case TFileFormatType::FORMAT_PARQUET:
+            _parquet_writer = new ParquetWriterWrapper(_file_writer.get(), _output_expr_ctxs,
+                                                       _t_export_sink.file_properties, _t_export_sink.schema);
+            break;
+        default:
+            std::stringstream ss;
+            ss << "Unknown file format, type=" << _t_export_sink.format;
+            return Status::InternalError(ss.str());
+    }
     _state->add_export_output_file(_t_export_sink.export_path + "/" + file_name);
     return Status::OK();
 }
@@ -294,6 +333,9 @@ std::string ExportSink::gen_file_name() {
 
     std::stringstream file_name;
     file_name << "export-data-" << print_id(id) << "-" << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
+    if (_t_export_sink.format == TFileFormatType::FORMAT_PARQUET) {
+        file_name << ".parquet";
+    }
     return file_name.str();
 }
 

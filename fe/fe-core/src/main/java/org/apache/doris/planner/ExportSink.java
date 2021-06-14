@@ -25,16 +25,21 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExportSink;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
-
 import org.apache.commons.lang.StringEscapeUtils;
+import java.util.List;
+import java.util.Map;
 
 public class ExportSink extends DataSink {
     private final String exportPath;
     private final String columnSeparator;
     private final String lineDelimiter;
     private BrokerDesc brokerDesc;
+    private List<List<String>> schema;
+    private Map<String, String> fileProperties;
+    private TFileFormatType format;
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc) {
@@ -42,6 +47,19 @@ public class ExportSink extends DataSink {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.brokerDesc = brokerDesc;
+    }
+
+    public ExportSink(String exportPath, String columnSeparator,
+                      String lineDelimiter, BrokerDesc brokerDesc,
+                      List<List<String>> schema, TFileFormatType format,
+                      Map<String, String> fileProperties) {
+        this.exportPath = exportPath;
+        this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
+        this.brokerDesc = brokerDesc;
+        this.format = format;
+        this.schema = schema;
+        this.fileProperties = fileProperties;
     }
 
     @Override
@@ -76,7 +94,11 @@ public class ExportSink extends DataSink {
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
-
+        if (this.format == TFileFormatType.FORMAT_PARQUET) {
+            tExportSink.setFormat(this.format);
+            tExportSink.setSchema(this.schema);
+            tExportSink.setFileProperties(this.fileProperties);
+        }
         result.setExportSink(tExportSink);
         return result;
     }

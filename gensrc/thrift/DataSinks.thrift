@@ -114,7 +114,10 @@ struct TExportSink {
     4: required string line_delimiter
     // properties need to access broker.
     5: optional list<Types.TNetworkAddress> broker_addresses
-    6: optional map<string, string> properties;
+    6: optional map<string, string> properties
+    7: optional list<list<string>> schema
+    8: optional map<string, string> file_properties
+    9: optional PlanNodes.TFileFormatType format
 }
 
 struct TOlapTableSink {
