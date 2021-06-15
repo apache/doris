@@ -1926,7 +1926,7 @@ public class Coordinator {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();
                 params.setProtocolVersion(PaloInternalServiceVersion.V1);
-                params.setFragment(fragment.toThrift());
+                params.setFragment(fragment.toThrift(instanceExecParam.perNodeScanRanges));
                 params.setDescTbl(descTable);
                 params.setParams(new TPlanFragmentExecParams());
                 params.setResourceInfo(tResourceInfo);

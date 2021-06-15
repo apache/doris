@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TScanRangeParams;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -41,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -393,13 +395,17 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     // Convert this plan node, including all children, to its Thrift representation.
     public TPlan treeToThrift() {
+        return treeToThrift(null);
+    }
+
+    public TPlan treeToThrift(Map<Integer, List<TScanRangeParams>> scanRanges) {
         TPlan result = new TPlan();
-        treeToThriftHelper(result);
+        treeToThriftHelper(result, scanRanges);
         return result;
     }
 
     // Append a flattened version of this plan node, including all children, to 'container'.
-    private void treeToThriftHelper(TPlan container) {
+    private void treeToThriftHelper(TPlan container, Map<Integer, List<TScanRangeParams>> scanRanges) {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.num_children = children.size();
@@ -408,7 +414,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
         }
-        for (Expr e : conjuncts) {
+        for (Expr e : pruneConjuncts(conjuncts, scanRanges == null ? null: scanRanges.get(id.asInt()))) {
             msg.addToConjuncts(e.treeToThrift());
         }
         msg.compact_data = compactData;
@@ -420,9 +426,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         } else {
             msg.num_children = children.size();
             for (PlanNode child: children) {
-                child.treeToThriftHelper(container);
+                child.treeToThriftHelper(container, scanRanges);
             }
         }
+    }
+
+    protected List<Expr> pruneConjuncts(List<Expr> conjuncts, List<TScanRangeParams> scanRangeParams) {
+        return conjuncts;
     }
 
     /**

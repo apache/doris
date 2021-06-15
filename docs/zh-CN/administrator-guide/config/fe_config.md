@@ -805,3 +805,9 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 
 在创建动态分区表时，允许自动创建的最大分区数量。以防止一次性创建过多的分区。
 默认为 500。
+
+### `enable_olap_scan_node_conjuncts_prunner`
+
+将此参数设置为 true，将会启用 OlapScanNodeConjunctsPrunner。如果 OlapScanNode 的 Conjuncts 中包含分桶键上的 InPredicate，将会根据 OlapScanNode 要扫描的 Tablets 信息对 InPredicate 进行裁剪。
+
+默认为 true。

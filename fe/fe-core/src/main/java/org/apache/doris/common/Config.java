@@ -1396,4 +1396,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_dynamic_partition_num = 500;
+
+    /**
+     * Whether to enable OlapScanNodeConjunctsPrunner. If the Conjuncts of the OlapScanNode contain
+     * InPredicate on the distrbute key, the InPredicate will be pruned based on the Tablets that
+     * the OlapScanNode to scan.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_olap_scan_node_conjuncts_prunner = true;
 }

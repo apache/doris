@@ -63,6 +63,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.thrift.TScanRangeParams;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -140,10 +141,13 @@ public class OlapScanNode extends ScanNode {
     // a bucket seq may map to many tablets, and each tablet has a TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
 
+    private OlapScanNodeConjunctsPrunner olapScanNodeConjunctsPrunner;
+
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
         olapTable = (OlapTable) desc.getTable();
+        olapScanNodeConjunctsPrunner = new OlapScanNodeConjunctsPrunner(desc);
     }
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
@@ -556,6 +560,10 @@ public class OlapScanNode extends ScanNode {
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
             addScanRangeLocations(partition, selectedTable, tablets, localBeId);
+
+            olapScanNodeConjunctsPrunner.addSelectedTablets(partition.getId(),
+                    partition.getDistributionInfo(), allTabletIds,
+                    new ArrayList<>(tabletIds != null ? tabletIds : allTabletIds));
         }
     }
 
@@ -804,5 +812,24 @@ public class OlapScanNode extends ScanNode {
             dataDistributeExprs.add(slotRef);
         }
         return DataPartition.hashPartitioned(dataDistributeExprs);
+    }
+
+    @Override
+    protected List<Expr> pruneConjuncts(List<Expr> conjuncts, List<TScanRangeParams> scanRangeParams) {
+        if (!Config.enable_olap_scan_node_conjuncts_prunner) {
+            return conjuncts;
+        }
+
+        if (scanRangeParams == null) {
+            return conjuncts;
+        }
+
+        boolean allIsPaloScanRange = scanRangeParams.stream()
+                .allMatch(scanRangeParam -> scanRangeParam.getScanRange().isSetPaloScanRange());
+        Preconditions.checkState(allIsPaloScanRange, "Invalidate scanrange for OlapScannNode.");
+        Set<Long> tabletIds = scanRangeParams.stream()
+                .map(s -> s.getScanRange().palo_scan_range.getTabletId())
+                .collect(Collectors.toSet());
+        return olapScanNodeConjunctsPrunner.pruneConjuncts(conjuncts, tabletIds);
     }
 }

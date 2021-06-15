@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TResultSinkType;
+import org.apache.doris.thrift.TScanRangeParams;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -37,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -219,9 +221,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     }
 
     public TPlanFragment toThrift() {
+        return toThrift(null);
+    }
+
+    public TPlanFragment toThrift(Map<Integer, List<TScanRangeParams>> scanRanges) {
         TPlanFragment result = new TPlanFragment();
         if (planRoot != null) {
-            result.setPlan(planRoot.treeToThrift());
+            result.setPlan(planRoot.treeToThrift(scanRanges));
         }
         if (outputExprs != null) {
             result.setOutputExprs(Expr.treesToThrift(outputExprs));

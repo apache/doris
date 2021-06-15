@@ -800,3 +800,9 @@ The default is empty, that is, not set.
 
 When creating a dynamic partition table, the maximum number of partitions allowed to be automatically created. To prevent creating too many partitions at once.
 The default is 500.
+
+### `enable_olap_scan_node_conjuncts_prunner`
+
+Setting this parameter to true will enable the OlapScanNodeConjunctsPrunner. If the Conjuncts of the OlapScanNode contain InPredicate on the distrbute key, the InPredicate will be pruned based on the Tablets that the OlapScanNode to scan.
+
+Default is true.
