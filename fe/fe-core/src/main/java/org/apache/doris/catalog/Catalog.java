@@ -849,8 +849,9 @@ public class Catalog {
                     // nodeName should be like "192.168.1.1_9217_1620296111213"
                     // and the selfNode should be the prefix of nodeName.
                     // If not, it means that the ip used last time is different from this time, which is not allowed.
+                    // But is metadata_failure_recovery is true, we will not check it because this may be a FE migration.
                     String[] split = nodeName.split("_");
-                    if (!selfNode.first.equalsIgnoreCase(split[0])) {
+                    if (Config.metadata_failure_recovery.equals("false") && !selfNode.first.equalsIgnoreCase(split[0])) {
                         throw new IOException("the self host " + selfNode.first + " does not equal to the host in ROLE" +
                                 " file " + split[0] + ". You need to set 'priority_networks' config in fe.conf to match" +
                                 " the host " + split[0]);
