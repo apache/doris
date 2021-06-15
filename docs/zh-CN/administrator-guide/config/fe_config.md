@@ -156,7 +156,7 @@ FE 的配置项有两种方式进行配置：
 
 默认值：false
 
-如果设置为 true，FE 将在 BDBJE 调试模式下启动，在Web页面System->bdbje 可以查看相关信息，否则不可以查看
+如果设置为 true，FE 将在 BDBJE 调试模式下启动，在 Web 页面 System->bdbje 可以查看相关信息，否则不可以查看
 
 ### enable_fe_heartbeat_by_thrift
 
@@ -166,7 +166,7 @@ FE 的配置项有两种方式进行配置：
 
 是否为 Master FE 节点独有的配置项：true
 
-这个配置是用来解决fe heartbeat response read_timeout问题的，当config设置为true时，master会通过thrift协议而不是http协议来获取fe heartbeat response。 为了保持与旧版本的兼容性，默认为false，在所有fe都升级之前不能将配置改为true。
+这个配置是用来解决 fe heartbeat response read_timeout 问题的，当 config 设置为 true 时，master 会通过 thrift 协议而不是 http 协议来获取 fe heartbeat response。 为了保持与旧版本的兼容性，默认为 false，在所有 fe 都升级之前不能将配置改为 true。
 
 ### enable_alpha_rowset
 
@@ -176,9 +176,9 @@ FE 的配置项有两种方式进行配置：
 
 ### enable_http_server_v2
 
-默认值：从官方0.14.0 release版之后默认是true，之前默认false
+默认值：从官方 0.14.0 release 版之后默认是 true，之前默认 false
 
-HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只有启用httpv2才能用户使用新的前端UI界面
+HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只有启用 httpv2 才能用户使用新的前端 UI 界面
 
 ### http_max_file_size
 
@@ -233,7 +233,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-在某些情况下，某些tablet可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的tablet会导致整个查询失败，无法查询剩余的健康tablet。 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的药片替换为空药片，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
+在某些情况下，某些 tablet 可能会损坏或丢失所有副本。 此时数据已经丢失，损坏的tablet会导致整个查询失败，无法查询剩余的健康 tablet。 在这种情况下，您可以将此配置设置为 true。 系统会将损坏的药片替换为空药片，以确保查询可以执行。 （但此时数据已经丢失，所以查询结果可能不准确）
 
 ### max_allowed_in_element_num_of_delete
 
@@ -243,7 +243,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-用于限制delete语句中Predicate的元素个数
+用于限制 delete 语句中 Predicate 的元素个数
 
 ### cache_result_max_row_count
 
@@ -273,7 +273,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为true，fe 将从be cache 中获取数据，该选项适用于部分分区的实时更新。
+如果设置为 true，fe 将从 be cache 中获取数据，该选项适用于部分分区的实时更新。
 
 ### cache_enable_sql_mode
 
@@ -283,7 +283,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：false
 
-如果设置为true，fe会启用sql结果缓存该选项适用于离线数据更新场景
+如果设置为 true，fe 会启用 sql 结果缓存该选项适用于离线数据更新场景
 
 |                        | case1 | case2 | case3 | case4 |
 | ---------------------- | ----- | ----- | ----- | ----- |
@@ -310,7 +310,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 当代理任务的创建时间被设置的时候，此配置将决定是否重新发送代理任务， 当且仅当当前时间减去创建时间大于 `agent_task_task_resend_wait_time_ms` 时，ReportHandler可以重新发送代理任务。
 
-该配置目前主要用来解决`PUBLISH_VERSION`代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
+该配置目前主要用来解决 `PUBLISH_VERSION` 代理任务的重复发送问题, 目前该配置的默认值是5000，是个实验值，由于把代理任务提交到代理任务队列和提交到be存在一定的时间延迟，所以调大该配置的值可以有效解决代理任务的重复发送问题，
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。
 
@@ -324,7 +324,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-是否启用ODBC表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：ADMIN SET FRONTEND CONFIG(“key”=“value”) 方式进行设置
+是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：ADMIN SET FRONTEND CONFIG(“key”=“value”) 方式进行设置
 
 ### enable_spark_load
 
@@ -334,7 +334,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-是否临时启用spark load，默认不启用
+是否临时启用 spark load，默认不启用
 
 ### enable_strict_storage_medium_check
 
@@ -373,7 +373,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-自动恢复Routine load的周期
+自动恢复 Routine load 的周期
 
 ### max_tolerable_backend_down_num
 
@@ -383,7 +383,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-只要有一个BE宕机，Routine Load就无法自动恢复 
+只要有一个BE宕机，Routine Load 就无法自动恢复 
 
 ### enable_materialized_view
 
@@ -413,7 +413,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-控制Rollup作业并发限制
+控制 Rollup 作业并发限制
 
 ### dynamic_partition_enable
 
@@ -441,12 +441,12 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否可以动态配置：true
 
-多集群功能将在 0.12 版本中弃用
-      将此配置设置为 true 将禁用与集群功能相关的所有操作，包括：
-         创建/删除集群
-         添加、释放BE/将BE添加到集群/停用集群balance
-        更改集群的后端数量
-        链接/迁移数据库
+多集群功能将在 0.12 版本中弃用 ，将此配置设置为 true 将禁用与集群功能相关的所有操作，包括：
+
+1. 创建/删除集群
+2. 添加、释放BE/将BE添加到集群/停用集群balance 
+3. 更改集群的后端数量
+4. 链接/迁移数据库
 
 ### force_do_metadata_checkpoint
 
@@ -476,11 +476,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：false
 
-这将限制哈希分布修剪器的最大递归深度。
-      例如：其中 a  in（5 个元素）和 b in（4 个元素）和 c in（3 个元素）和 d in（2 个元素）。
-       a/b/c/d 是分布式列，所以递归深度为 5 * 4 * 3 * 2 = 120，大于 100，
-      因此该分发修剪器将不起作用，只会返回所有 buckets。
-      增加深度可以支持更多元素的分布修剪，但可能会消耗更多的 CPU
+这将限制哈希分布修剪器的最大递归深度。 例如：其中 a  in（5 个元素）和 b in（4 个元素）和 c in（3 个元素）和 d in（2 个元素）。 a/b/c/d 是分布式列，所以递归深度为 5 * 4 * 3 * 2 = 120，大于 100， 因此该分发修剪器将不起作用，只会返回所有 buckets。  增加深度可以支持更多元素的分布修剪，但可能会消耗更多的 CPU
 
 通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项可以动态配置（`IsMutable` 为 true）。并且不是 Master FE 独有配置。
 
@@ -495,7 +491,7 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为true，处理错误的insert stmt 仍将返回一个标签给用户。 用户可以使用此标签来检查加载作业的状态。 默认值为false，表示插入操作遇到错误，不带加载标签，直接抛出异常给用户客户端。
+如果设置为 true，处理错误的 insert stmt  仍将返回一个标签给用户。 用户可以使用此标签来检查加载作业的状态。 默认值为 false，表示插入操作遇到错误，不带加载标签，直接抛出异常给用户客户端。
 
 ### small_file_dir
 
@@ -531,7 +527,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为 Master FE 节点独有的配置项：true
 
-每个 BE 的最大并发例Routine Load任务数。 这是为了限制发送到 BE 的Routine Load任务的数量，并且它也应该小于 BE config 'routine_load_thread_pool_size'（默认 10），这是 BE 上的Routine Load任务线程池大小。
+每个 BE 的最大并发例 Routine Load 任务数。 这是为了限制发送到 BE 的 Routine Load 任务的数量，并且它也应该小于 BE config 'routine_load_thread_pool_size'（默认 10），这是 BE 上的 Routine Load 任务线程池大小。
 
 ### max_routine_load_task_concurrent_num
 
@@ -541,13 +537,13 @@ SmallFileMgr 中存储的最大文件数
 
 是否为 Master FE 节点独有的配置项：true
 
-单个Routine Load作业的最大并发例程加载任务数
+单个 Routine Load 作业的最大并发任务数
 
 ### max_routine_load_job_num
 
 默认值：100
 
-最大Routine Load作业数，包括 NEED_SCHEDULED, RUNNING, PAUSE
+最大 Routine Load 作业数，包括 NEED_SCHEDULED, RUNNING, PAUSE
 
 ### max_running_txn_num_per_db
 
@@ -581,9 +577,9 @@ current running txns on db xxx is xx, larger than limit xx
 
 是否可以动态配置：true
 
-是否为 Master FE 节点独有的配置项：true
+是否为  Master FE  节点独有的配置项：true
 
-这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常。 ， 等等..）。 并且一个BE每 1 分钟会报告一次tablet信息，因此无限制接收报告是不可接受的。以后我们会优化tablet报告的处理速度
+这个阈值是为了避免在 FE 中堆积过多的报告任务，可能会导致 OOM 异常等问题。 并且每个 BE 每 1 分钟会报告一次 tablet 信息，因此无限制接收报告是不可接受的。以后我们会优化 tablet 报告的处理速度
 
 **不建议修改这个值**
 
@@ -595,7 +591,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 是否为 Master FE 节点独有的配置项：true
 
-仅在使用 PartitionRebalancer 时有效 ，
+仅在使用  PartitionRebalancer  时有效 ，
 
 ### partition_rebalance_move_expire_after_access
 
@@ -605,7 +601,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 是否为 Master FE 节点独有的配置项：true
 
-仅在使用 PartitionRebalancer 时有效。 如果更改，缓存的移动将被清除 
+仅在使用  PartitionRebalancer  时有效。 如果更改，缓存的移动将被清除 
 
 ### tablet_rebalancer_type
 
@@ -613,7 +609,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 是否为 Master FE 节点独有的配置项：true
 
-rebalancer类型（忽略大小写）：BeLoad、Partition。 如果类型解析失败，默认使用 BeLoad 
+rebalancer 类型（忽略大小写）：BeLoad、Partition。 如果类型解析失败，默认使用 BeLoad 
 
 ### max_balancing_tablets
 
@@ -623,7 +619,7 @@ rebalancer类型（忽略大小写）：BeLoad、Partition。 如果类型解析
 
 是否为 Master FE 节点独有的配置项：true
 
-如果 TabletScheduler 中的balance tablet数量超过 max_balancing_tablets，则不再进行balance检查 
+如果 TabletScheduler 中的 balance tablet 数量超过 max_balancing_tablets，则不再进行 balance 检查 
 
 ### max_scheduling_tablets
 
@@ -633,7 +629,7 @@ rebalancer类型（忽略大小写）：BeLoad、Partition。 如果类型解析
 
 是否为 Master FE 节点独有的配置项：true
 
-如果 TabletScheduler 中调度的tablet数量超过 max_scheduling_tablets， 则跳过检查。
+如果 TabletScheduler 中调度的 tablet 数量超过 max_scheduling_tablets， 则跳过检查。
 
 ### disable_balance
 
@@ -643,7 +639,7 @@ rebalancer类型（忽略大小写）：BeLoad、Partition。 如果类型解析
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，TabletScheduler 将不会做balance
+如果设置为 true，TabletScheduler 将不会做 balance
 
 ### balance_load_score_threshold
 
@@ -653,13 +649,13 @@ rebalancer类型（忽略大小写）：BeLoad、Partition。 如果类型解析
 
 是否为 Master FE 节点独有的配置项：true
 
-集群balance百分比的阈值，如果一个BE的负载分数比平均分数低10%，这个后端将被标记为低负载，如果负载分数比平均分数高10%，将被标记为高负载。
+集群 balance 百分比的阈值，如果一个BE的负载分数比平均分数低10%，这个后端将被标记为低负载，如果负载分数比平均分数高10%，将被标记为高负载。
 
 ### schedule_slot_num_per_path
 
 默认值：2
 
-tablet调度程序中每个路径的默认slot数量
+tablet 调度程序中每个路径的默认 slot 数量
 
 ### tablet_repair_delay_factor_second
 
@@ -670,10 +666,11 @@ tablet调度程序中每个路径的默认slot数量
 是否为 Master FE 节点独有的配置项：true
 
 决定修复tablet前的延迟时间因素。
-       如果优先级为 VERY_HIGH，请立即修复。
-       HIGH，延迟 tablet_repair_delay_factor_second  * 1；
-       正常：延迟 tablet_repair_delay_factor_second * 2；
-       低：延迟 tablet_repair_delay_factor_second * 3；
+
+1. 如果优先级为 VERY_HIGH，请立即修复。
+2. HIGH，延迟 tablet_repair_delay_factor_second  * 1； 
+3. 正常：延迟 tablet_repair_delay_factor_second * 2；
+4. 低：延迟 tablet_repair_delay_factor_second * 3；
 
 ### es_state_sync_interval_second
 
@@ -689,7 +686,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否为 Master FE 节点独有的配置项：true
 
-默认不禁用，将来不推荐使用 hadoop 集群load。 设置为 true 以禁用这种load方式。
+默认不禁用，将来不推荐使用 hadoop 集群 load。 设置为 true 以禁用这种 load 方式。
 
 ### db_used_data_quota_update_interval_secs
 
@@ -741,7 +738,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否可以动态配置：true
 
-异步执行远程fragment的超时时间。 在正常情况下，异步远程fragment_将在短时间内执行。 如果系统处于高负载状态，请尝试将此超时设置更长的时间。
+异步执行远程fragment的超时时间。 在正常情况下，异步远程 fragment 将在短时间内执行。 如果系统处于高负载状态，请尝试将此超时设置更长的时间。
 
 ### enable_local_replica_selection
 
@@ -749,16 +746,16 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否可以动态配置：true
 
-如果设置为 true，Planner 将尝试在与此前端相同的主机上选择tablet的副本。
+如果设置为 true，Planner 将尝试在与此前端相同的主机上选择 tablet 的副本。
 在以下情况下，这可能会减少网络传输：
 
-1. N 个主机，部署了 N 个BE和 N 个FE。
+1. N 个主机，部署了 N 个 BE 和 N 个 FE。
 
 2. 数据有N个副本。
 
-3. 高并发查询均匀发送到所有Frontends
+3. 高并发查询均匀发送到所有 Frontends
 
-   在这种情况下，所有 Frontends 只能使用本地副本进行查询。
+在这种情况下，所有 Frontends 只能使用本地副本进行查询。
 
 ### max_unfinished_load_job
 
@@ -778,7 +775,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否为 Master FE 节点独有的配置项：true
 
-broker scanner 程序可以在一个broker加载作业中处理的最大字节数。 通常，每个BE都有一个broker scanner程序。 
+broker scanner 程序可以在一个 broker 加载作业中处理的最大字节数。 通常，每个 BE 都有一个 broker scanner 程序。 
 
 ### enable_auth_check
 
@@ -790,8 +787,8 @@ broker scanner 程序可以在一个broker加载作业中处理的最大字节�
 
 默认值：300，（5分钟）
 
-tablet状态更新间隔
-所有FE将在每个时间间隔从所有BE获取tablet统计信息
+tablet 状态更新间隔
+所有 FE 将在每个时间间隔从所有 BE 获取 tablet 统计信息
 
 ### storage_flood_stage_usage_percent  
 
@@ -813,7 +810,7 @@ tablet状态更新间隔
 
 是否为 Master FE 节点独有的配置项：true
 
-如果磁盘容量达到'storage_flood_stage_usage_percent'和'storage_flood_stage_left_capacity_bytes'，      以下操作将被拒绝：       
+如果磁盘容量达到 `storage_flood_stage_usage_percent` 和 `storage_flood_stage_left_capacity_bytes`      以下操作将被拒绝：       
 
 1. load作业      
 2. restore工作 
@@ -834,10 +831,10 @@ tablet状态更新间隔
 
 是否为 Master FE 节点独有的配置项：true
 
-'storage_high_watermark_usage_percent' 限制BE端存储路径的最大容量使用百分比。
- 'storage_min_left_capacity_bytes' 限制BE端存储路径的最小剩余容量。
- 如果达到这两个限制，则不能选择此存储路径作为tablet存储目的地。
- 但是对于tablet恢复，我们可能会超过这些限制以尽可能保持数据完整性。
+`storage_high_watermark_usage_percent` 限制BE端存储路径的最大容量使用百分比。
+ `storage_min_left_capacity_bytes`限制BE端存储路径的最小剩余容量。
+ 如果达到这两个限制，则不能选择此存储路径作为 tablet 存储目的地。
+ 但是对于 tablet 恢复，我们可能会超过这些限制以尽可能保持数据完整性。
 
 ### backup_job_default_timeout_ms
 
@@ -917,7 +914,7 @@ tablet状态更新间隔
 
 是否可以动态配置：true
 
-限制 expr 树的深度。 超过此限制可能会导致在持有 db read lock 时分析时间过长。 如果您知道自己在做什么，请不要设置此项。
+限制 expr 树的深度。 超过此限制可能会导致在持有 db read lock 时分析时间过长。 
 
 ### expr_children_limit
 
@@ -925,7 +922,7 @@ tablet状态更新间隔
 
 是否可以动态配置：true
 
-限制 expr 树的 expr 子节点的数量。 超过此限制可能会导致在持有数据库读锁时分析时间过长。 如果您知道自己在做什么，请不要设置此项。
+限制 expr 树的 expr 子节点的数量。 超过此限制可能会导致在持有数据库读锁时分析时间过长。 
 
 ### proxy_auth_magic_prefix
 
@@ -949,11 +946,13 @@ tablet状态更新间隔
 
 是否为 Master FE 节点独有的配置项：true
 
-- 此配置可以设置为 true 以禁用自动colocate 表的重新定位和平衡。 如果 'disable_colocate_balance' 设置为 true，则 ColocateTableBalancer 将不会重新定位和平衡并置表。
-      **注意：**
-         一般情况下，根本不需要关闭平衡。
-         因为一旦关闭平衡，不稳定的colocate表可能无法恢复
-         最终查询时无法使用colocate 计划。
+此配置可以设置为 true 以禁用自动 colocate 表的重新定位和平衡。 如果 `disable_colocate_balance'`设置为 true，则 ColocateTableBalancer 将不会重新定位和平衡并置表。
+
+ **注意：** 
+
+1. 一般情况下，根本不需要关闭平衡。
+2. 因为一旦关闭平衡，不稳定的 colocate 表可能无法恢复
+3. 最终查询时无法使用 colocate 计划。
 
 ### query_colocate_join_memory_limit_penalty_factor
 
@@ -997,7 +996,7 @@ colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query
 
 一致性检查开始时间
 
-一致性检查器将从 *consistency_check_start_time* 运行到 *consistency_check_end_time*。 默认为 23:00 至 04:00 
+一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。 默认为 23:00 至 04:00 
 
 ### consistency_check_end_time
 
@@ -1009,7 +1008,7 @@ colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query
 
 一致性检查结束时间
 
-一致性检查器将从 *consistency_check_start_time* 运行到 *consistency_check_end_time*。 默认为 23:00 至 04:00 
+一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。 默认为 23:00 至 04:00 
 
 ### export_tablet_num_per_task
 
@@ -1019,7 +1018,7 @@ colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query
 
 是否为 Master FE 节点独有的配置项：true
 
-每个导出查询计划的tablet数量
+每个导出查询计划的 tablet 数量
 
 ### export_task_default_timeout_second
 
@@ -1039,7 +1038,7 @@ colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query
 
 是否为 Master FE 节点独有的配置项：true
 
-运行导出作业的并发限制。  默认值为 5。  0 表示无限制
+运行导出作业的并发限制，默认值为 5，0 表示无限制
 
 ### export_checker_interval_second
 
@@ -1055,7 +1054,7 @@ colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query
 
 是否为 Master FE 节点独有的配置项：true
 
-broker scanner的最大并发数。 如果您知道自己在做什么，请不要设置此项。
+broker scanner 的最大并发数。
 
 ### min_bytes_per_broker_scanner
 
@@ -1065,7 +1064,7 @@ broker scanner的最大并发数。 如果您知道自己在做什么，请不�
 
 是否为 Master FE 节点独有的配置项：true
 
-单个broker scanner将读取的最大字节数。 如果您知道自己在做什么，请不要设置此项。
+单个 broker scanner 将读取的最大字节数。
 
 ### catalog_trash_expire_second
 
@@ -1081,7 +1080,7 @@ broker scanner的最大并发数。 如果您知道自己在做什么，请不�
 
 默认值：30 * 24 * 3600L  （30天）
 
-创建表（或分区）时，可以指定其存储介质（HDD 或 SSD）。 如果设置为 SSD，这将指定tablet在 SSD 上停留的默认时间。 之后，tablet将自动移动到 HDD。 您可以在 CREATE TABLE stmt 中设置存储冷却时间。
+创建表（或分区）时，可以指定其存储介质（HDD 或 SSD）。 如果设置为 SSD，这将指定tablet在 SSD 上停留的默认时间。 之后，tablet将自动移动到 HDD。 您可以在 `CREATE TABLE stmt` 中设置存储冷却时间。
 
 ### default_storage_medium
 
@@ -1097,7 +1096,7 @@ broker scanner的最大并发数。 如果您知道自己在做什么，请不�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果BE关闭了 *max_backend_down_time_second*，将触发 BACKEND_DOWN 事件。 如果您知道自己在做什么，请不要设置此项。
+如果 BE 关闭了 `max_backend_down_time_second`，将触发 BACKEND_DOWN 事件。 
 
 ### alter_table_timeout_second
 
@@ -1137,12 +1136,17 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-* BE 中数据大小的平衡阈值。
-      平衡算法为：
-       1.计算整个集群的平均使用容量（AUC）（总数据大小/BE数）
-       2.高水位为(AUC * (1 + clone_capacity_balance_threshold))
-       3.低水位为(AUC * (1 - clone_capacity_balance_threshold))
-    克隆检查器将尝试将副本从高水位 BE 移动到低水位 BE。
+* BE 中数据大小的平衡阈值。 
+
+  平衡算法为： 
+
+  1. 计算整个集群的平均使用容量（AUC）（总数据大小/BE数）
+
+  2. 高水位为(AUC * (1 + clone_capacity_balance_threshold))
+
+  3. 低水位为(AUC * (1 - clone_capacity_balance_threshold))
+
+克隆检查器将尝试将副本从高水位 BE 移动到低水位 BE。
 
 ### replica_delay_recovery_second
 
@@ -1183,10 +1187,10 @@ BE副本数的平衡阈值。
 是否为 Master FE 节点独有的配置项：true
 
 低优先级克隆作业的延迟触发时间。 克隆作业包含需要克隆（恢复或迁移）的tablet。
-如果优先级为 LOW，则会延迟 *clone_low_priority_delay_second ，在作业创建之后然后被执行。
+如果优先级为 LOW，则会延迟  `clone_low_priority_delay_second `，在作业创建之后然后被执行。
 这是为了避免仅因为主机短时间停机而同时运行大量克隆作业。
 
-注意这个配置（还有 *clone_normal_priority_delay_second*） 如果它小于 *clone_checker_interval_second* 将不起作用
+注意这个配置（还有 `clone_normal_priority_delay_second`） 如果它小于 `clone_checker_interval_second` 将不起作用
 
 ### clone_max_job_num
 
@@ -1222,7 +1226,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-与 *tablet_create_timeout_second* 含义相同，但在删除tablet时使用
+与 `tablet_create_timeout_second` 含义相同，但在删除 tablet 时使用
 
 ### async_loading_load_task_pool_size
 
@@ -1232,9 +1236,9 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大`loading_load`任务数。
+`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大 `loading_load`任务数。
 
-当前，它仅限制`broker load`的`loading_load`任务的数量。
+当前，它仅限制 `broker load`的 `loading_load`任务的数量。
 
 ### async_pending_load_task_pool_size
 
@@ -1244,11 +1248,11 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大`pending_load`任务数。
+`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大 `pending_load`任务数。
 
-当前，它仅限制`broker load`和`spark load`的`pending_load`任务的数量。
+当前，它仅限制 `broker load`和 `spark load`的 `pending_load`任务的数量。
 
-它应该小于`max_running_txn_num_per_db`的值
+它应该小于 `max_running_txn_num_per_db`的值
 
 ### async_load_task_pool_size
 
@@ -1258,7 +1262,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-此配置只是为了兼容旧版本，此配置已被 async_loading_load_task_pool_size 取代，以后会被移除。
+此配置只是为了兼容旧版本，此配置已被 `async_loading_load_task_pool_size`取代，以后会被移除。
 
 ### disable_show_stream_load
 
@@ -1268,7 +1272,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-是否禁用显示stream load并清除内存中的stream load记录。
+是否禁用显示 stream load 并清除内存中的 stream load 记录。
 
 ### max_stream_load_record_size
 
@@ -1278,7 +1282,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-可以存储在内存中的最近stream load记录的默认最大数量
+可以存储在内存中的最近 stream load 记录的默认最大数量
 
 ### fetch_stream_load_record_interval_second
 
@@ -1288,7 +1292,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-获取stream load 记录间隔
+获取 stream load 记录间隔
 
 ### desired_max_waiting_jobs
 
@@ -1298,23 +1302,21 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-routine load V2版本加载的默认等待作业数
-      这是一个理想的数字。
-      在某些情况下，例如切换master，当前数量可能超过desired_max_waiting_jobs
+routine load V2 版本加载的默认等待作业数 ，这是一个理想的数字。 在某些情况下，例如切换 master，当前数量可能超过` desired_max_waiting_jobs`
 
 ### yarn_config_dir
 
 默认值：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
 
 
-默认的yarn配置文件目录每次运行yarn命令之前，我们需要检查一下这个路径下是否存在config文件，如果不存在，则创建它们。
+默认的 yarn 配置文件目录每次运行 yarn 命令之前，我们需要检查一下这个路径下是否存在 config 文件，如果不存在，则创建它们。
 
 
 ### yarn_client_path
 
 默认值：PaloFe.DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn"
 
-默认Yarn客户端路径
+默认 Yarn 客户端路径
 
 ### spark_launcher_log_dir
 
@@ -1326,13 +1328,13 @@ routine load V2版本加载的默认等待作业数
 
 默认值：空
 
-默认值的Spark依赖路径
+默认值的 Spark 依赖路径
 
 ### spark_home_default_dir
 
 默认值：PaloFe.DORIS_HOME_DIR + "/lib/spark2x"
 
-默认的Spark home路径
+默认的 Spark home 路径
 
 ### spark_load_default_timeout_second
 
@@ -1342,7 +1344,7 @@ routine load V2版本加载的默认等待作业数
 
 是否为 Master FE 节点独有的配置项：true
 
-默认Spark加载超时时间
+默认 Spark 加载超时时间
 
 ### spark_dpp_version
 
@@ -1358,7 +1360,7 @@ Spark 默认版本号
 
 是否为 Master FE 节点独有的配置项：true
 
-Hadoop加载超时时间
+Hadoop 加载超时时间
 
 ### min_load_timeout_second
 
@@ -1378,7 +1380,7 @@ mini load 超时时间，适用于所有类型的加载
 
 是否为 Master FE 节点独有的配置项：true
 
-stream load和mini load最大超时时间
+stream load 和 mini load 最大超时时间
 
 ### max_load_timeout_second
 
@@ -1388,7 +1390,7 @@ stream load和mini load最大超时时间
 
 是否为 Master FE 节点独有的配置项：true
 
-load最大超时时间，适用于除stream load 之外的所有类型的加载
+load 最大超时时间，适用于除 stream load 之外的所有类型的加载
 
 ### stream_load_default_timeout_second
 
@@ -1398,7 +1400,7 @@ load最大超时时间，适用于除stream load 之外的所有类型的加载
 
 是否为 Master FE 节点独有的配置项：true
 
-默认stream load 和mini load超时时间
+默认 stream load 和 mini load 超时时间
 
 ### insert_load_default_timeout_second
 
@@ -1408,7 +1410,7 @@ load最大超时时间，适用于除stream load 之外的所有类型的加载
 
 是否为 Master FE 节点独有的配置项：true
 
-默认insert load超时时间
+默认 insert load 超时时间
 
 ### mini_load_default_timeout_second
 
@@ -1418,7 +1420,7 @@ load最大超时时间，适用于除stream load 之外的所有类型的加载
 
 是否为 Master FE 节点独有的配置项：true
 
-默认非stream load类型的mini load的超时时间
+默认非 stream load 类型的 mini load 的超时时间
 
 ### broker_load_default_timeout_second
 
@@ -1438,7 +1440,7 @@ Broker load 的默认超时时间
 
 是否为 Master FE 节点独有的配置项：true
 
-Load任务数量限制，默认0，无限制
+Load 任务数量限制，默认0，无限制
 
 ### load_input_size_limit_gb
 
@@ -1448,7 +1450,7 @@ Load任务数量限制，默认0，无限制
 
 是否为 Master FE 节点独有的配置项：true
 
-Load作业输入的数据大小，默认是0，无限制
+Load 作业输入的数据大小，默认是0，无限制
 
 ### delete_thread_num
 
@@ -1485,11 +1487,7 @@ NORMAL 优先级挂起加载作业的并发数。 如果您知道自己在做什
 
 默认值：5 （s）
 
-负载调度器运行间隔。
-加载作业将其状态从 PENDING 转移到 LOADING 到 FINISHED。
-加载调度程序将加载作业从 PENDING 转移到 LOADING
-      而 txn 回调会将加载作业从 LOADING 转移到 FINISHED。
-因此，当并发未达到上限时，加载作业最多需要一个时间间隔才能完成。
+负载调度器运行间隔。 加载作业将其状态从 PENDING 转移到 LOADING 到 FINISHED。 加载调度程序将加载作业从 PENDING 转移到 LOADING  而 txn 回调会将加载作业从 LOADING 转移到 FINISHED。 因此，当并发未达到上限时，加载作业最多需要一个时间间隔才能完成。
 
 ### max_layout_length_per_row
 
@@ -1507,7 +1505,7 @@ NORMAL 优先级挂起加载作业的并发数。 如果您知道自己在做什
       schema：k1(int), v1(decimal), v2(varchar(2000))
       那么一行的内存布局长度为：8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
 
-查看所有类型的内存布局长度，在 mysql-client 中运行 'help create table'。
+查看所有类型的内存布局长度，在 mysql-client 中运行 `help create table`。
 
 如果要增加此数字以支持一行中的更多列，则还需要增加
 be.conf 中的 max_unpacked_row_block_size。 但性能影响未知。
@@ -1584,7 +1582,7 @@ Thrift Server最大工作线程数
 
 创建单个副本的最长等待时间。
   例如。
-       如果您为每个表创建一个包含 m 个tablet和 n 个副本的表，
+       如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
        创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
 
 ### max_mysql_service_task_threads_num
@@ -1626,7 +1624,7 @@ mysql 服务 nio 选项是否启用，默认启用
 
 默认值：9030
 
-Doris FE通过mysql协议查询连接端口
+Doris FE 通过 mysql 协议查询连接端口
 
 ### rewrite_count_distinct_to_bitmap_hll
 
@@ -1647,7 +1645,7 @@ FE Thrift Server的端口
 
 默认值：1024
 
-thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该确保它的值大于 linux /proc/sys/net/core/somaxconn 配置
+thrift 服务器的 backlog_num 当你扩大这个 backlog_num 时，你应该确保它的值大于 linux `/proc/sys/net/core/somaxconn` 配置
 
 ### thrift_client_timeout_ms
 
@@ -1659,37 +1657,37 @@ thrift 服务器的连接超时和套接字超时配置 thrift_client_timeout_ms
 
 默认值：1024
 
-mysql nio server的backlog_num 当你放大这个backlog_num时，你应该同时放大linux /proc/sys/net/core/somaxconn文件中的值
+mysql nio server 的 backlog_num 当你放大这个 backlog_num 时，你应该同时放大 linux `/proc/sys/net/core/somaxconn`文件中的值
 
 ### http_backlog_num
 
 默认值：1024
 
-netty http server的backlog_num 当你放大这个backlog_num时，你应该同时放大linux /proc/sys/net/core/somaxconn文件中的值
+netty http server 的 backlog_num 当你放大这个 backlog_num 时，你应该同时放大 linux `/proc/sys/net/core/somaxconn`文件中的值
 
 ### http_max_line_length
 
 默认值：4096
 
-HTTP服务允许接收请求的URL的最大长度，单位为比特
+HTTP 服务允许接收请求的 URL 的最大长度，单位为比特
 
 ### http_max_header_size
 
 默认值：8192
 
-HTTP服务允许接收请求的Header的最大长度，单位为比特
+HTTP 服务允许接收请求的 Header 的最大长度，单位为比特
 
 ### http_max_chunk_size
 
 默认值：8192
 
-http 上下文chunk块的最大尺寸
+http 上下文 chunk 块的最大尺寸
 
 ### http_port
 
 默认值：8030
 
-FE http端口，当前所有FE http端口都必须相同
+FE http 端口，当前所有 FE http 端口都必须相同
 
 ### max_bdbje_clock_delta_ms
 
@@ -1703,7 +1701,7 @@ FE http端口，当前所有FE http端口都必须相同
 
 是否可以动态配置：true
 
-如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 *meta_delay_toleration_second*。 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
+如果为 true，非主 FE 将忽略主 FE 与其自身之间的元数据延迟间隙，即使元数据延迟间隙超过 `meta_delay_toleration_second`。 非主 FE 仍将提供读取服务。 当您出于某种原因尝试停止 Master FE 较长时间，但仍希望非 Master FE 可以提供读取服务时，这会很有帮助。
 
 ### metadata_failure_recovery
 
@@ -1757,7 +1755,7 @@ heartbeat _mgr 中处理心跳事件的线程数。
 
 默认值：1
 
-bdbje操作的lock timeout 如果FE WARN日志中有很多LockTimeoutException，可以尝试增加这个值
+bdbje 操作的 lock timeout  如果 FE WARN 日志中有很多 LockTimeoutException，可以尝试增加这个值
 
 ### bdbje_heartbeat_timeout_second
 
@@ -1829,9 +1827,10 @@ temp dir 用于保存某些过程的中间结果，例如备份和恢复过程�
 
 默认值：PaloFe.DORIS_HOME_DIR + "/doris-meta"
 
-Doris 元数据将保存在这里。
-      强烈建议将此目录的存储为：
-         1. 高写入性能（SSD）
+Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
+
+1. 高写入性能（SSD）
+
                   2. 安全（RAID）
 
 ### custom_config_dir
@@ -1854,10 +1853,12 @@ Doris 元数据将保存在这里。
 
 默认值：PaloFe.DORIS_HOME_DIR + "/log"
 
-sys_log_dir:
-      这指定了 FE 日志目录。 FE 将产生 2 个日志文件：
-      fe.log：FE进程的所有日志。
-      fe.warn.log FE 进程的所有警告和错误日志。
+sys_log_dir: 
+
+这指定了 FE 日志目录。 FE 将产生 2 个日志文件：
+
+1. fe.log：FE进程的所有日志。
+2. fe.warn.log FE 进程的所有警告和错误日志。
 
 ### sys_log_level
 
@@ -1886,7 +1887,7 @@ sys_log_verbose_modules：
 默认值：DAY
 
 sys_log_roll_interval:
-           DAY:  log 前缀是 yyyyMMdd
+          DAY:  log 前缀是 yyyyMMdd
           HOUR: log 前缀是 yyyyMMddHH
 
 ### sys_log_delete_age
@@ -1974,7 +1975,7 @@ HOUR: log前缀是：yyyyMMddHH
        设置较短的时间会降低 FE 内存使用量。
       （因为所有加载作业的信息在被删除之前都保存在内存中）
 
-在高并发写的情况下，如果出现大量作业积压，出现call frontend service failed的情况，查看日志如果是元数据写占用锁的时间太长，可以将这个值调成12小时，或者更小6小时
+在高并发写的情况下，如果出现大量作业积压，出现 `call frontend service failed`的情况，查看日志如果是元数据写占用锁的时间太长，可以将这个值调成12小时，或者更小6小时
 
 ### streaming_label_keep_max_second
 
@@ -1994,16 +1995,16 @@ HOUR: log前缀是：yyyyMMddHH
 
 是否为 Master FE 节点独有的配置项：true
 
-某些作业的最大保留时间。 像schema 更改和Rollup作业。
+某些作业的最大保留时间。 像 schema 更改和 Rollup 作业。
 
 ### label_clean_interval_second
 
 默认值：4 * 3600  （4小时）
 
-load标签清理器将每隔 *label_clean_interval_second* 运行一次以清理过时的作业。
+load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
 ### transaction_clean_interval_second
 
 默认值：30
 
-如果事务 visible 或者aborted状态，事务将在 transaction_clean_interval_second 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
+如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
