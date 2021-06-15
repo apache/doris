@@ -26,10 +26,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <filesystem>
-#include <boost/regex.hpp>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -86,7 +86,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
-                    << "dest_len=" << dest_len << ", written_len=" << *written_len;
+                        << "dest_len=" << dest_len << ", written_len=" << *written_len;
 
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -107,7 +107,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
-                    << ", dest_len=" << dest_len << ", written_len=" << *written_len;
+                        << ", dest_len=" << dest_len << ", written_len=" << *written_len;
 
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -121,7 +121,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         *written_len = lz4_res;
         if (0 == lz4_res) {
             VLOG_TRACE << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
-                     << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
+                       << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
         break;
@@ -777,8 +777,8 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     }
     if (remove(test_file_path.c_str()) != 0) {
         char errmsg[64];
-        VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64) << "' path='"
-                << test_file_path << "']";
+        VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
+                    << "' path='" << test_file_path << "']";
         return OLAP_ERR_IO_ERROR;
     }
     return res;
@@ -913,9 +913,9 @@ bool valid_signed_number<int128_t>(const std::string& value_str) {
 
 bool valid_decimal(const string& value_str, const uint32_t precision, const uint32_t frac) {
     const char* decimal_pattern = "-?\\d+(.\\d+)?";
-    boost::regex e(decimal_pattern);
-    boost::smatch what;
-    if (!boost::regex_match(value_str, what, e) || what[0].str().size() != value_str.size()) {
+    std::regex e(decimal_pattern);
+    std::smatch what;
+    if (!std::regex_match(value_str, what, e) || what[0].str().size() != value_str.size()) {
         LOG(WARNING) << "invalid decimal value. [value=" << value_str << "]";
         return false;
     }
@@ -947,10 +947,10 @@ bool valid_datetime(const string& value_str) {
     const char* datetime_pattern =
             "((?:\\d){4})-((?:\\d){2})-((?:\\d){2})[ ]*"
             "(((?:\\d){2}):((?:\\d){2}):((?:\\d){2}))?";
-    boost::regex e(datetime_pattern);
-    boost::smatch what;
+    std::regex e(datetime_pattern);
+    std::smatch what;
 
-    if (boost::regex_match(value_str, what, e)) {
+    if (std::regex_match(value_str, what, e)) {
         if (what[0].str().size() != value_str.size()) {
             OLAP_LOG_WARNING("datetime str does not fully match. [value_str=%s match=%s]",
                              value_str.c_str(), what[0].str().c_str());

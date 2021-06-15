@@ -487,17 +487,17 @@ public class DeleteHandler implements Writable {
     private void checkDateTime(PrimitiveType type, String value) throws DdlException {
          if (type == PrimitiveType.DATE) {
             String re = "^(\\d{4})-(0[1-9]|1[012])-([123]0|[012][1-9]|31)$";
-            if (! Pattern.matches(re, value)) {
+            if (!Pattern.matches(re, value)) {
                 throw new DdlException("Invalid column value[" + value + "], must like 'yyyy-MM-dd'");
             }
         } else if (type == PrimitiveType.DATETIME) {
             String re = "^(\\d{4})-(0[1-9]|1[012])-([123]0|[012][1-9]|31) ([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$";
-            if (! Pattern.matches(re, value)) {
+            if (!Pattern.matches(re, value)) {
                 throw new DdlException("Invalid column value[" + value + "], must like 'yyyy-MM-dd HH:mm:ss'");
             }
         } else if (type == PrimitiveType.TIME) {
             String re = "^([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$";
-            if (! Pattern.matches(re, value)) {
+            if (!Pattern.matches(re, value)) {
                 throw new DdlException("Invalid column value[" + value + "], must like 'HH:mm:ss'");
             }
         }

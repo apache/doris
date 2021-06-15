@@ -22,8 +22,8 @@
 
 #include <algorithm>
 #include <boost/assign.hpp>
-#include <boost/regex.hpp>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -32,13 +32,12 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
+#include "util/cpu_info.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
-#include "util/cpu_info.h"
 
 using namespace std;
 using namespace doris;
-using namespace boost::assign;
 using google::protobuf::RepeatedPtrField;
 
 namespace doris {
@@ -1117,7 +1116,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     _delete_handler.finalize();
 }
 
-}  // namespace doris
+} // namespace doris
 
 int main(int argc, char** argv) {
     doris::init_glog("be-test");

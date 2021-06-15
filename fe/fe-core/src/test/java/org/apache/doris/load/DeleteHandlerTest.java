@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -52,20 +53,20 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -481,6 +482,55 @@ public class DeleteHandlerTest {
         Assert.assertEquals(1, jobs.size());
         for (DeleteJob job : jobs) {
             Assert.assertEquals(job.getState(), DeleteState.FINISHED);
+        }
+    }
+
+    @Test
+    public void testCheckDateTime() throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
+        Method checkmethod = DeleteHandler.class.getDeclaredMethod("checkDateTime", PrimitiveType.class, String.class);
+        checkmethod.setAccessible(true);
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.DATE, "2019-01-01");
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.DATE, "2019-1-01");
+        } catch (InvocationTargetException e1) {
+            if (!(e1.getTargetException() instanceof DdlException)) {
+                Assert.fail(e1.getMessage());
+            }
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.TIME, "12:12:12");
+        } catch (InvocationTargetException e) {
+            Assert.fail(e.getMessage());
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.TIME, "33:65:66");
+        } catch (InvocationTargetException e1) {
+            if (!(e1.getTargetException() instanceof DdlException)) {
+                Assert.fail(e1.getMessage());
+            }
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.TIME, "323:65:66");
+        } catch (InvocationTargetException e1) {
+            if (!(e1.getTargetException() instanceof DdlException)) {
+                Assert.fail(e1.getMessage());
+            }
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.DATETIME, "2019-01-01 12:12:12");
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+        try {
+            checkmethod.invoke(deleteHandler, PrimitiveType.DATETIME, "2019-1-01 12:12:12");
+        } catch (InvocationTargetException e1) {
+            if (!(e1.getTargetException() instanceof DdlException)) {
+                Assert.fail(e1.getMessage());
+            }
         }
     }
 }

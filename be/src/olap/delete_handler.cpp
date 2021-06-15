@@ -16,14 +16,13 @@
 // under the License.
 
 #include "olap/delete_handler.h"
-#include "olap/reader.h"
 
 #include <errno.h>
 #include <json2pb/pb_to_json.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/regex.hpp>
 #include <limits>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -31,6 +30,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
+#include "olap/reader.h"
 #include "olap/utils.h"
 
 using apache::thrift::ThriftDebugString;
@@ -39,10 +39,10 @@ using std::vector;
 using std::string;
 using std::stringstream;
 
-using boost::regex;
-using boost::regex_error;
-using boost::regex_match;
-using boost::smatch;
+using std::regex;
+using std::regex_error;
+using std::regex_match;
+using std::smatch;
 
 using google::protobuf::RepeatedPtrField;
 
@@ -118,37 +118,37 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
     }
 
     FieldType field_type = column.type();
-    switch(field_type) {
-        case OLAP_FIELD_TYPE_TINYINT:
-            return valid_signed_number<int8_t>(value_str);
-        case OLAP_FIELD_TYPE_SMALLINT:
-            return valid_signed_number<int16_t>(value_str);
-        case OLAP_FIELD_TYPE_INT:
-            return valid_signed_number<int32_t>(value_str);
-        case OLAP_FIELD_TYPE_BIGINT:
-            return valid_signed_number<int64_t>(value_str);
-        case OLAP_FIELD_TYPE_LARGEINT:
-            return valid_signed_number<int128_t>(value_str);
-        case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-            return valid_unsigned_number<uint8_t>(value_str);
-        case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-            return valid_unsigned_number<uint16_t>(value_str);
-        case OLAP_FIELD_TYPE_UNSIGNED_INT:
-            return valid_unsigned_number<uint32_t>(value_str);
-        case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-            return valid_unsigned_number<uint64_t>(value_str);
-        case OLAP_FIELD_TYPE_DECIMAL:
-            return valid_decimal(value_str, column.precision(), column.frac());
-        case OLAP_FIELD_TYPE_CHAR:
-        case OLAP_FIELD_TYPE_VARCHAR:
-            return value_str.size() <= column.length();
-        case OLAP_FIELD_TYPE_DATE:
-        case OLAP_FIELD_TYPE_DATETIME:
-            return valid_datetime(value_str);
-        case OLAP_FIELD_TYPE_BOOL:
-            return valid_bool(value_str);
-        default:
-            OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
+    switch (field_type) {
+    case OLAP_FIELD_TYPE_TINYINT:
+        return valid_signed_number<int8_t>(value_str);
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return valid_signed_number<int16_t>(value_str);
+    case OLAP_FIELD_TYPE_INT:
+        return valid_signed_number<int32_t>(value_str);
+    case OLAP_FIELD_TYPE_BIGINT:
+        return valid_signed_number<int64_t>(value_str);
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return valid_signed_number<int128_t>(value_str);
+    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+        return valid_unsigned_number<uint8_t>(value_str);
+    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+        return valid_unsigned_number<uint16_t>(value_str);
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        return valid_unsigned_number<uint32_t>(value_str);
+    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        return valid_unsigned_number<uint64_t>(value_str);
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return valid_decimal(value_str, column.precision(), column.frac());
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_VARCHAR:
+        return value_str.size() <= column.length();
+    case OLAP_FIELD_TYPE_DATE:
+    case OLAP_FIELD_TYPE_DATETIME:
+        return valid_datetime(value_str);
+    case OLAP_FIELD_TYPE_BOOL:
+        return valid_bool(value_str);
+    default:
+        OLAP_LOG_WARNING("unknown field type. [type=%d]", field_type);
     }
     return false;
 }
@@ -212,7 +212,8 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
             matched = false;
         }
     } catch (regex_error& e) {
-        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what() << "]";
+        VLOG_NOTICE << "fail to parse expr. [expr=" << condition_str << "; error=" << e.what()
+                    << "]";
         matched = false;
     }
 
@@ -227,7 +228,8 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 }
 
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
-        const DelPredicateArray& delete_conditions, int64_t version, const Reader* reader) {
+                               const DelPredicateArray& delete_conditions, int64_t version,
+                               const Reader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
@@ -288,7 +290,6 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             if (reader != nullptr) {
                 temp.column_predicate_vec.push_back(reader->_parse_to_predicate(condition, true));
             }
-
         }
 
         _del_conds.emplace_back(std::move(temp));
@@ -303,7 +304,8 @@ bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& 
     // 根据语义，存储在_del_conds的删除条件应该是OR关系
     // 因此，只要数据符合其中一条过滤条件，则返回true
     for (const auto& del_cond : _del_conds) {
-        if (data_version <= del_cond.filter_version && del_cond.del_cond->delete_conditions_eval(row)) {
+        if (data_version <= del_cond.filter_version &&
+            del_cond.del_cond->delete_conditions_eval(row)) {
             return true;
         }
     }
@@ -338,9 +340,9 @@ void DeleteHandler::finalize() {
     _is_inited = false;
 }
 
-void DeleteHandler::get_delete_conditions_after_version(int64_t version,
-                                                        std::vector<const Conditions *>* delete_conditions,
-                                                        AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
+void DeleteHandler::get_delete_conditions_after_version(
+        int64_t version, std::vector<const Conditions*>* delete_conditions,
+        AndBlockColumnPredicate* and_block_column_predicate_ptr) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             delete_conditions->emplace_back(del_cond.del_cond);
@@ -348,18 +350,20 @@ void DeleteHandler::get_delete_conditions_after_version(int64_t version,
             // now, only query support delete column predicate operator
             if (!del_cond.column_predicate_vec.empty()) {
                 if (del_cond.column_predicate_vec.size() == 1) {
-                    auto single_column_block_predicate = new SingleColumnBlockPredicate(
-                            del_cond.column_predicate_vec[0]);
-                    and_block_column_predicate_ptr->add_column_predicate(single_column_block_predicate);
+                    auto single_column_block_predicate =
+                            new SingleColumnBlockPredicate(del_cond.column_predicate_vec[0]);
+                    and_block_column_predicate_ptr->add_column_predicate(
+                            single_column_block_predicate);
                 } else {
                     auto or_column_predicate = new OrBlockColumnPredicate();
 
                     // build or_column_predicate
-                    std::for_each(del_cond.column_predicate_vec.cbegin(), del_cond.column_predicate_vec.cend(), \
-                    [&or_column_predicate](const ColumnPredicate *predicate) {
-                                      or_column_predicate->add_column_predicate(new SingleColumnBlockPredicate(predicate));
-                                  }
-                    );
+                    std::for_each(del_cond.column_predicate_vec.cbegin(),
+                                  del_cond.column_predicate_vec.cend(),
+                                  [&or_column_predicate](const ColumnPredicate* predicate) {
+                                      or_column_predicate->add_column_predicate(
+                                              new SingleColumnBlockPredicate(predicate));
+                                  });
                     and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
                 }
             }
