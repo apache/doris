@@ -38,6 +38,41 @@ import org.apache.parquet.Preconditions;
 
 import java.util.List;
 
+/*
+ *  e.g.
+ *  假设一个表按照a、b、c、d列进行Range分区(List分区也类似)。假设以下分区被筛选出来：
+ *  [(1,2,3,5),(1,2,4,5)), [(1,2,4,5),(1,2,5,5)), [(1,2,5,5),(1,2,6,5))
+ *  执行抽象方法doExpand后，range成为能覆盖它们的最小范围，即：[(1,2,3,5),(1,2,6,5))
+ *  +----------------------+-----+-----+-----+-----+
+ *  |   columnIndex        |  0  |  1  |  2  |  3  |
+ *  +----------------------+-----+-----+-----+-----+
+ *  |   columnName         |  a  |  b  |  c  |  d  |
+ *  +----------------------+-----+-----+-----+-----+
+ *  |   lowerBound(closed) |  1  |  2  |  3  |  5  |
+ *  +----------------------+-----+-----+-----+-----+
+ *  |   upperBound(open)   |  1  |  2  |  6  |  5  |
+ *  +----------------------+-----+-----+-----+-----+
+ *
+ *  下面穷举一下range里面的值：
+ *  (1,2,3,5)、(1,2,3,6)...(1,2,3,+∞)、(1,2,4,-∞)...(1,2,4,+∞)...(1,2,6,-∞)...(1,2,6,4)
+ *
+ *  用户如果填写的是where a = 1, 那么 a=1 是可以被擦除的了；可以看出range内所有的元素，a恒等于1；
+ *  同理，填写a>=1，b=1，c>=3，c<=6，也能擦除，这个看表很容易看出来。但是，在这个例子中，以下几种特殊情况不能直接查表：
+ *
+ *    d=5：由于c列对应了一个区间而并非单点，因此被选出的区间内或许存在 (1,2,4,any-number) 这类型的列；
+ *    但是，根据查询者的要求，他只需要筛选出(1,2,3,5)、(1,2,4,5)、(1,2,5,5)的数据，擦除d=5不合法
+ *    而b列及其左边，均为单点，因此不会出现类似情况。都是为了解决这类问题，应当引入一个变量，记录本用例`b`列的下标
+ *
+ *    c<6：虽然upperBound是open、开区间，c列对应的也是6，但由于c并非最后一列，因此区间内也会存在(1,2,6,-∞)~(1,2,6,4)的数据
+ *    因此c所处的列可以视为区间[3, 6]，即上界也是闭区间，c<6无法完全覆盖。
+ *
+ *  针对第一种情况，在本用例中，求出maxEqIndex为1，因为下标1之后的是第2列`c`，对应的lowerBound值和upperBound已经不相等了。
+ *  因此`d`列(第3列)出现了取值可以为无穷的情况。这种情况下，任何与d相关的表达式都无法擦除
+ *
+ *  针对第二种情况，当查询者输入的开区间边界恰好等于range中对应列的边界时(本用例中查询者填写了c<6；分区中c列范围是3~6，上界(1,2,6,5)属性是开区间)
+ *  必须要此对应列处于最后一列时才允许擦除。本用例d才是最后一列因此不能擦除
+ *
+ */
 public abstract class AbstractWhereExprEraser {
     private static final Logger LOG = LogManager.getLogger(AbstractWhereExprEraser.class);
     protected Range<PartitionKey> range;
@@ -47,7 +82,7 @@ public abstract class AbstractWhereExprEraser {
         range = null;
         this.doExpand(partitionItems);
         maxEqIndex = -1;
-        if(range == null) {
+        if (range == null) {
             return;
         }
         int size = range.lowerEndpoint().size();
@@ -68,7 +103,8 @@ public abstract class AbstractWhereExprEraser {
     }
 
     /**
-     * 扩张边界，使lowerBound成为partitionItems的共同下界。
+     * Make {@linkplain AbstractWhereExprEraser#range} the minimal range
+     * which {@linkplain Range#encloses(Range) encloses} all ranges in this list.
      */
     protected abstract void doExpand(List<PartitionItem> partitionItems);
 

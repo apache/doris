@@ -277,7 +277,7 @@ public class RangePartitionPrunerTest {
 
     @Test
     public void testErase13() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b = 0 and c between 0 and 2 and c < 3;";
+        String queryStr = "explain select * from test.`prune1` where a = 0 and b = 0 and c < 4;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
     }
 
