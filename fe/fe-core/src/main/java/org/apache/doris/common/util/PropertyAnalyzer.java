@@ -32,14 +32,11 @@ import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -183,12 +180,10 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
-
-            if (replicationNum <= 0) {
-                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
-            }
-
             properties.remove(PROPERTIES_REPLICATION_NUM);
+            if (replicationNum > Config.max_replica_num || replicationNum < Config.min_replica_num) {
+                throw new AnalysisException("replica number is out of limit range");
+            }
         }
         return replicationNum;
     }
