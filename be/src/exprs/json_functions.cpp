@@ -249,7 +249,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
 
     if (UNLIKELY((*parsed_paths).size() == 1)) {
         if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(), json_string.length(),document->GetAllocator());
+            document->SetString(json_string.data(), json_string.length(), document->GetAllocator());
         } else {
             return document;
         }
