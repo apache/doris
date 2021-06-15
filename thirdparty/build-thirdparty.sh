@@ -733,7 +733,7 @@ build_fmt() {
 build_parallel_hashmap() {
     check_if_source_exist $PARALLEL_HASHMAP_SOURCE
     cd $TP_SOURCE_DIR/$PARALLEL_HASHMAP_SOURCE
-    cp -r parallel_hashmap ../../../installed/include/
+    cp -r parallel_hashmap $TP_INSTALL_DIR/include/
 }
 
 #orc
