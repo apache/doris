@@ -94,6 +94,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class DeleteHandler implements Writable {
@@ -483,6 +484,24 @@ public class DeleteHandler implements Writable {
         }
         return slotRef;
     }
+    private void checkDateTime(PrimitiveType type, String value) throws DdlException {
+         if (type == PrimitiveType.DATE) {
+            String re = "^(\\d{4})-(0[1-9]|1[012])-([123]0|[012][1-9]|31)$";
+            if (! Pattern.matches(re, value)) {
+                throw new DdlException("Invalid column value[" + value + "], must like 'yyyy-MM-dd'");
+            }
+        } else if (type == PrimitiveType.DATETIME) {
+            String re = "^(\\d{4})-(0[1-9]|1[012])-([123]0|[012][1-9]|31) ([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$";
+            if (! Pattern.matches(re, value)) {
+                throw new DdlException("Invalid column value[" + value + "], must like 'yyyy-MM-dd HH:mm:ss'");
+            }
+        } else if (type == PrimitiveType.TIME) {
+            String re = "^([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])$";
+            if (! Pattern.matches(re, value)) {
+                throw new DdlException("Invalid column value[" + value + "], must like 'HH:mm:ss'");
+            }
+        }
+    }
 
     private void checkDeleteV2(OlapTable table, List<Partition> partitions, List<Predicate> conditions, List<String> deleteConditions)
             throws DdlException {
@@ -533,6 +552,7 @@ public class DeleteHandler implements Writable {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
                     }
+                    checkDateTime(column.getDataType(), value);
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
                     // ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value);
@@ -544,6 +564,7 @@ public class DeleteHandler implements Writable {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                         value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
+                        checkDateTime(column.getDataType(), value);
                         LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                     }
                 } catch (AnalysisException e) {
