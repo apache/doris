@@ -795,14 +795,20 @@ public class OlapScanNode extends ScanNode {
     }
 
     public DataPartition constructInputPartitionByDistributionInfo() {
-        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-        Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
-        List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
-        List<Expr> dataDistributeExprs = Lists.newArrayList();
-        for (Column column : distributeColumns) {
-            SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
-            dataDistributeExprs.add(slotRef);
+        if (getNumInstances() == 1) {
+            return DataPartition.UNPARTITIONED;
+        } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
+            List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            List<Expr> dataDistributeExprs = Lists.newArrayList();
+            for (Column column : distributeColumns) {
+                SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
+                dataDistributeExprs.add(slotRef);
+            }
+            return DataPartition.hashPartitioned(dataDistributeExprs);
+        } else {
+            return DataPartition.RANDOM;
         }
-        return DataPartition.hashPartitioned(dataDistributeExprs);
     }
 }
