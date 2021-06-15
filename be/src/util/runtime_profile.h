@@ -30,7 +30,9 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "gen_cpp/RuntimeProfile_types.h"
+#include "util/binary_cast.hpp"
 #include "util/stopwatch.hpp"
+
 
 namespace doris {
 
@@ -110,14 +112,14 @@ public:
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
-            _value.store(*reinterpret_cast<int64_t*>(&value));
+            _value.store(binary_cast<double,int64_t>(value));
         }
 
         virtual int64_t value() const { return _value.load(); }
 
         virtual double double_value() const {
             int64_t v = _value.load();
-            return *reinterpret_cast<const double*>(&v);
+            return binary_cast<int64_t, double>(v);
         }
 
         TUnit::type type() const { return _type; }
