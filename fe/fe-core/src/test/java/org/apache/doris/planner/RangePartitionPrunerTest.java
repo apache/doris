@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -52,6 +53,19 @@ public class RangePartitionPrunerTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
+        String sql0 = "CREATE TABLE test.`prune0` (\n" +
+            "   `a` int(11) NULL COMMENT \"\",\n" +
+            "   `b` bigint(20) NULL COMMENT \"\"\n" +
+            ")\n" +
+            "UNIQUE KEY(`a`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "PARTITION BY RANGE(`a`)(\n" +
+            "  PARTITION p0 VALUES [('0'),('2')),\n" +
+            "  PARTITION p2 VALUES [('2'),('4'))\n" +
+            ")\n" +
+            "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
+            "PROPERTIES(\"replication_num\" = \"1\");";
+
         String sql = "CREATE TABLE test.`prune1` (\n" +
             "  `a` int(11) NULL COMMENT \"\",\n" +
             "  `b` bigint(20) NULL COMMENT \"\",\n" +
@@ -77,6 +91,7 @@ public class RangePartitionPrunerTest {
             ")\n" +
             "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(sql0);
         createTable(sql);
 
     }
@@ -267,4 +282,101 @@ public class RangePartitionPrunerTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
     }
 
+    @Test
+    public void testErase() throws Exception {
+        String explainString;
+
+        String gt0 = "explain select b from test.`prune0` where a > 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, gt0);
+        Assert.assertTrue(explainString.contains("`a` > 0"));
+
+        String gt1 = "explain select b from test.`prune0` where a > 1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, gt1);
+        Assert.assertTrue(explainString.contains("`a` > 1"));
+
+        String gt2 = "explain select b from test.`prune0` where a > 2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, gt2);
+        Assert.assertTrue(explainString.contains("`a` > 2"));
+
+        String gt4 = "explain select b from test.`prune0` where a > 4";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, gt4);
+        Assert.assertTrue(explainString.contains("`a` > 4"));
+
+        String ge0 = "explain select b from test.`prune0` where a >= 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, ge0);
+        Assert.assertFalse(explainString.contains("`a` >= 0"));
+
+        String ge1 = "explain select b from test.`prune0` where a >= 1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, ge1);
+        Assert.assertTrue(explainString.contains("`a` >= 1"));
+
+        String ge2 = "explain select b from test.`prune0` where a >= 2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, ge2);
+        Assert.assertFalse(explainString.contains("`a` >= 2"));
+
+        String ge4 = "explain select b from test.`prune0` where a >= 4";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, ge4);
+        Assert.assertTrue(explainString.contains("`a` >= 4"));
+
+        String lt0 = "explain select b from test.`prune0` where a < 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, lt0);
+        Assert.assertTrue(explainString.contains("`a` < 0"));
+
+        String lt1 = "explain select b from test.`prune0` where a < 1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, lt1);
+        Assert.assertTrue(explainString.contains("`a` < 1"));
+
+        String lt2 = "explain select b from test.`prune0` where a < 2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, lt2);
+        Assert.assertFalse(explainString.contains("`a` < 2"));
+
+        String lt4 = "explain select b from test.`prune0` where a < 4";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, lt4);
+        Assert.assertFalse(explainString.contains("`a` < 4"));
+
+        String le0 = "explain select b from test.`prune0` where a <= 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, le0);
+        Assert.assertTrue(explainString.contains("`a` <= 0"));
+
+        String le1 = "explain select b from test.`prune0` where a <= 1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, le1);
+        Assert.assertTrue(explainString.contains("`a` <= 1"));
+
+        String le2 = "explain select b from test.`prune0` where a <= 2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, le2);
+        Assert.assertTrue(explainString.contains("`a` <= 2"));
+
+        String le4 = "explain select b from test.`prune0` where a <= 4";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, le4);
+        Assert.assertFalse(explainString.contains("`a` <= 4"));
+
+        String eq0 = "explain select b from test.`prune0` where a = 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, eq0);
+        Assert.assertTrue(explainString.contains("`a` = 0"));
+
+        String eq1 = "explain select b from test.`prune0` where a = 1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, eq1);
+        Assert.assertTrue(explainString.contains("`a` = 1"));
+
+        String eq2 = "explain select b from test.`prune0` where a = 2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, eq2);
+        Assert.assertTrue(explainString.contains("`a` = 2"));
+
+        String eq4 = "explain select b from test.`prune0` where a = 4";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, eq4);
+        Assert.assertTrue(explainString.contains("`a` = 4"));
+
+        String all = "explain select b from test.`prune0`;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, all);
+        Assert.assertFalse(explainString.contains("errCode"));
+
+        String none = "explain select b from test.`prune0` where a>=2 and a<2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, none);
+        Assert.assertTrue(explainString.contains("`a` >= 2") && explainString.contains("`a` < 2"));
+
+        String err = "explain select b from test.`prune0` where a>2 and a<2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, err);
+        Assert.assertTrue(explainString.contains("`a` > 2") && explainString.contains("`a` < 2"));
+
+    }
 }
