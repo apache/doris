@@ -26,15 +26,18 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class AfterRangePartitionPruningWhereExprEraser extends AbstractAfterPartitionPruningWhereExprEraser {
-    private static final Logger LOG = LogManager.getLogger(AfterRangePartitionPruningWhereExprEraser.class);
+public class RangePartitionWhereExprEraser extends AbstractWhereExprEraser {
+    private static final Logger LOG = LogManager.getLogger(RangePartitionWhereExprEraser.class);
 
     @Override
     protected void doExpand(List<PartitionItem> partitionItems) {
         for (PartitionItem partitionItem : partitionItems) {
-            Range<PartitionKey> range = partitionItem.getItems();
-            updateLowerBound(range.lowerEndpoint(), range.lowerBoundType());
-            updateUpperBound(range.upperEndpoint(), range.upperBoundType());
+            Range<PartitionKey> item = partitionItem.getItems();
+            if (range == null) {
+                range = Range.range(item.lowerEndpoint(), item.lowerBoundType(), item.upperEndpoint(), item.upperBoundType());
+            } else {
+                range = range.span(Range.range(item.lowerEndpoint(), item.lowerBoundType(), item.upperEndpoint(), item.upperBoundType()));
+            }
         }
     }
 }

@@ -419,22 +419,22 @@ public class OlapScanNode extends ScanNode {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
 
-        AbstractAfterPartitionPruningWhereExprEraser abstractAfterPartitionPruningWhereExprEraser = null;
+        AbstractWhereExprEraser abstractWhereExprEraser = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
             partitionPruner = new RangePartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
-            abstractAfterPartitionPruningWhereExprEraser = new AfterRangePartitionPruningWhereExprEraser();
+            abstractWhereExprEraser = new RangePartitionWhereExprEraser();
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
-            abstractAfterPartitionPruningWhereExprEraser = new AfterListPartitionPruningWhereExprEraser();
+            abstractWhereExprEraser = new ListPartitionWhereExprEraser();
         } else {
             throw new AnalysisException(partitionInfo.getType() + " does not match any partition type");
         }
         Collection<Long> longCollection = partitionPruner.prune();
         final List<PartitionItem> collect = longCollection.stream().map(keyItemMap::get).collect(Collectors.toList());
-        abstractAfterPartitionPruningWhereExprEraser.initial(collect);
-        abstractAfterPartitionPruningWhereExprEraser.eraseConjuncts(conjuncts, olapTable.getPartitionInfo().getPartitionColumns(), desc);
+        abstractWhereExprEraser.initial(collect);
+        abstractWhereExprEraser.eraseConjuncts(conjuncts, olapTable.getPartitionInfo().getPartitionColumns(), desc);
         return longCollection;
     }
 

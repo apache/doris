@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Range;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;

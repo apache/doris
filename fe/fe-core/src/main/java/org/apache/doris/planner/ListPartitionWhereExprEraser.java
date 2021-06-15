@@ -17,26 +17,29 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.BoundType;
-
+import com.google.common.collect.Range;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+
 import java.util.List;
 
-public class AfterListPartitionPruningWhereExprEraser extends AbstractAfterPartitionPruningWhereExprEraser {
-    private static final Logger LOG = LogManager.getLogger(AfterListPartitionPruningWhereExprEraser.class);
+public class ListPartitionWhereExprEraser extends AbstractWhereExprEraser {
+    private static final Logger LOG = LogManager.getLogger(ListPartitionWhereExprEraser.class);
 
     @Override
     protected void doExpand(List<PartitionItem> partitionItems) {
         for (PartitionItem partitionItem : partitionItems) {
             List<PartitionKey> items = partitionItem.getItems();
             for (PartitionKey item : items) {
-                updateLowerBound(item, BoundType.CLOSED);
-                updateUpperBound(item, BoundType.CLOSED);
+                if (range == null) {
+                    range = Range.closed(item, item);
+                } else {
+                    range = range.span(Range.closed(item, item));
+                }
             }
         }
     }

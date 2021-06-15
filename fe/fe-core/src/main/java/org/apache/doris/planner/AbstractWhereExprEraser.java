@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import com.google.common.collect.BoundType;
+import com.google.common.collect.Range;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
@@ -37,31 +38,31 @@ import org.apache.parquet.Preconditions;
 
 import java.util.List;
 
-public abstract class AbstractAfterPartitionPruningWhereExprEraser extends BoundExpander<PartitionKey> {
-    private static final Logger LOG = LogManager.getLogger(AbstractAfterPartitionPruningWhereExprEraser.class);
-
+public abstract class AbstractWhereExprEraser {
+    private static final Logger LOG = LogManager.getLogger(AbstractWhereExprEraser.class);
+    protected Range<PartitionKey> range;
     private int maxEqIndex = -1;
 
     public void initial(List<PartitionItem> partitionItems) throws AnalysisException {
-        lowerBound = null;
-        upperBound = null;
+        range = null;
         this.doExpand(partitionItems);
         maxEqIndex = -1;
-        if(lowerBound == null || upperBound == null) {
+        if(range == null) {
             return;
         }
-        int size = lowerBound.size();
-        Preconditions.checkState(size == upperBound.size(), "The size of two PartitionKey is not equal.");
+        int size = range.lowerEndpoint().size();
+        Preconditions.checkState(size == range.upperEndpoint().size(), "The size of two PartitionKey is not equal.");
         for (int index = 0; index < size; index++) {
-            LiteralExpr l = lowerBound.getKeyByIndex(index);
-            LiteralExpr u = upperBound.getKeyByIndex(index);
+            LiteralExpr l = range.lowerEndpoint().getKeyByIndex(index);
+            LiteralExpr u = range.upperEndpoint().getKeyByIndex(index);
             int ret = l.compareLiteral(u);
             if (ret < 0) {
                 break;
             } else if (ret == 0) {
                 maxEqIndex = index;
             } else {
-                throw new AnalysisException("");
+                LOG.warn("The lower is {}, the upper is {}. ", range.lowerEndpoint(), range.upperEndpoint());
+                throw new AnalysisException("The lowerEndpoint is larger than the upperEndpoint");
             }
         }
     }
@@ -85,7 +86,7 @@ public abstract class AbstractAfterPartitionPruningWhereExprEraser extends Bound
     }
 
     private boolean shouldErase(int index, SlotId slotId, BinaryPredicate binPredicate) {
-        if (index > maxEqIndex + 1 || lowerBound == null || index >= lowerBound.size() || upperBound == null) {
+        if (index > maxEqIndex + 1 || range == null || index >= range.lowerEndpoint().size()) {
             return false;
         }
         Expr slotBinding = binPredicate.getSlotBinding(slotId);
@@ -104,17 +105,20 @@ public abstract class AbstractAfterPartitionPruningWhereExprEraser extends Bound
 
         switch (op) {
             case EQ:
-                return lowerBound.getKeyByIndex(index).compareLiteral(literal) >=0 && upperBound.getKeyByIndex(index).compareLiteral(literal) <= 0;
+                return range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) >=0
+                    && range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) <= 0;
             case LE:
-                return upperBound.getKeyByIndex(index).compareLiteral(literal) <= 0;
+                return range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) <= 0;
             case LT:
-                return upperBound.getKeyByIndex(index).compareLiteral(literal) < 0 ||
-                    (index == maxEqIndex + 1 && upperBoundType == BoundType.OPEN && upperBound.getKeyByIndex(index).compareLiteral(literal) == 0);
+                return range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) < 0 ||
+                    (index == maxEqIndex + 1 && range.upperBoundType() == BoundType.OPEN
+                        && range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) == 0);
             case GE:
-                return lowerBound.getKeyByIndex(index).compareLiteral(literal) >= 0;
+                return range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) >= 0;
             case GT:
-                return lowerBound.getKeyByIndex(index).compareLiteral(literal) > 0 ||
-                    (index == maxEqIndex + 1 && lowerBoundType == BoundType.OPEN && lowerBound.getKeyByIndex(index).compareLiteral(literal) == 0);
+                return range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) > 0 ||
+                    (index == maxEqIndex + 1 && range.lowerBoundType() == BoundType.OPEN
+                        && range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) == 0);
             default:
                 break;
         }
