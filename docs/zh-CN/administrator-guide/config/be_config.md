@@ -317,7 +317,7 @@ BE创建tablet的工作线程数
 
 ### `cumulative_compaction_budgeted_bytes`
 
-默认值：
+默认值：104857600
 
 BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 
@@ -656,7 +656,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `inc_rowset_expired_sec`
 
+默认值：1800 （s）
 
+导入激活的数据，存储引擎保留的时间，用于增量克隆
 
 ### `index_stream_cache_capacity`
 
@@ -702,7 +704,7 @@ load错误日志将在此时间后删除
 
 默认值：false
 
-是否使用linux内存大页，默认不起用
+是否使用linux内存大页，默认不启用
 
 ### `make_snapshot_worker_count`
 
@@ -788,7 +790,7 @@ cumulative compaction策略：最大增量文件的数量
 
 默认值：100
 
-txn 管理器中每个 txn_partition_map 的最大 txns 数， 这是一种自我保护，以避免在经理中节省太多交易
+txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
 
 ### `max_tablet_num_per_shard`
 
@@ -823,6 +825,8 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数， 这是一种自�
 ### `memory_max_alignment`
 
 默认值：16
+
+最大校对内存
 
 ### `read_size`
 
@@ -1020,13 +1024,13 @@ pprof profile保存目录
 
 ### `report_task_interval_seconds`
 
-默认值：
+默认值：10
 
 代理向 FE 报告任务签名的间隔时间（秒）
 
 ### `result_buffer_cancelled_interval_time`
 
-默认值：
+默认值：300
 
 结果缓冲区取消时间（单位：秒）
 
@@ -1040,7 +1044,7 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 
 默认值：true
 
-检查 BE/CE 和架构更改的行号。 true 是打开的，false 是关闭的。
+检查 BE/CE 和schema更改的行号。 true 是打开的，false 是关闭的。
 
 ### `row_step_for_compaction_merge_log`
 
@@ -1088,7 +1092,7 @@ BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
 
 默认值：1073741824
 
-数据目录应该剩下的最小字节，默认1G
+数据目录应该剩下的最小存储空间，默认1G
 
 ### `storage_flood_stage_usage_percent`
 
@@ -1156,7 +1160,7 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 默认值：1200
 
-TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 频道将被删除。
+TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 通道将被删除。
 
 ### `sync_tablet_meta`
 
@@ -1180,13 +1184,13 @@ TabletsChannel 的存活时间。如果此时通道没有收到任何数据， �
 
 默认值：SIZE-MB-1024
 
-日志拆分的大小，每1G拆分一个日志
+日志拆分的大小，每1G拆分一个日志文件
 
 ### `sys_log_roll_num`
 
 默认值：10
 
-日志保留的数目
+日志文件保留的数目
 
 ### `sys_log_verbose_level`
 
