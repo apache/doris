@@ -147,13 +147,13 @@ public abstract class AbstractWhereExprEraser {
                 return range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) <= 0;
             case LT:
                 return range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) < 0 ||
-                    (index == maxEqIndex + 1 && range.upperBoundType() == BoundType.OPEN
+                    (index == range.upperEndpoint().size() - 1 && range.upperBoundType() == BoundType.OPEN
                         && range.upperEndpoint().getKeyByIndex(index).compareLiteral(literal) == 0);
             case GE:
                 return range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) >= 0;
             case GT:
                 return range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) > 0 ||
-                    (index == maxEqIndex + 1 && range.lowerBoundType() == BoundType.OPEN
+                    (index == range.lowerEndpoint().size() - 1 && range.lowerBoundType() == BoundType.OPEN
                         && range.lowerEndpoint().getKeyByIndex(index).compareLiteral(literal) == 0);
             default:
                 break;
