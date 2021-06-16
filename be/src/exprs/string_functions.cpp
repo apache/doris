@@ -23,6 +23,7 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
+#include "fmt/format.h"
 #include "math_functions.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
@@ -896,7 +897,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalValue rounded;
     DecimalValue::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalValue tmp(std::string("100"));
+    DecimalValue tmp(std::string_view("100"));
     DecimalValue result = rounded * tmp;
     return do_money_format(context, result.to_string());
 }
@@ -908,7 +909,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded;
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalV2Value tmp(std::string("100"));
+    DecimalV2Value tmp(std::string_view("100"));
     DecimalV2Value result = rounded * tmp;
     return do_money_format(context, result.to_string());
 }
@@ -918,8 +919,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVa
         return StringVal::null();
     }
 
-    std::string cent_money = std::to_string(v.val) + std::string("00");
-    return do_money_format(context, cent_money);
+    return do_money_format(context, fmt::format("{}00", v.val, "00"));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
@@ -927,9 +927,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const LargeInt
         return StringVal::null();
     }
 
-    std::stringstream ss;
-    ss << v.val << "00";
-    return do_money_format(context, ss.str());
+    return do_money_format(context, fmt::format("{}00", v.val, "00"));
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,

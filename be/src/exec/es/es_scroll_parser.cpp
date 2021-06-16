@@ -201,7 +201,7 @@ ScrollParser::~ScrollParser() {}
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     // rely on `_size !=0 ` to determine whether scroll ends
     _size = 0;
-    _document_node.Parse(scroll_result.c_str());
+    _document_node.Parse(scroll_result.c_str(), scroll_result.length());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
         ss << "Parsing json error, json is: " << scroll_result;

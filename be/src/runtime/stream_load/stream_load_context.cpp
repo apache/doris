@@ -93,39 +93,41 @@ std::string StreamLoadContext::to_json() const {
 
 std::string StreamLoadContext::prepare_stream_load_record(const std::string& stream_load_record) {
     rapidjson::Document document;
-    if (document.Parse(stream_load_record.data()).HasParseError()) {
-        LOG(WARNING) << "prepare stream load record failed. failed to parse json returned to client. label=" << label;
+    if (document.Parse(stream_load_record.data(), stream_load_record.length()).HasParseError()) {
+        LOG(WARNING) << "prepare stream load record failed. failed to parse json returned to "
+                        "client. label="
+                     << label;
         return "";
     }
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
 
     rapidjson::Value cluster_value(rapidjson::kStringType);
     cluster_value.SetString(auth.cluster.c_str(), auth.cluster.size());
-    if(!cluster_value.IsNull()) {
+    if (!cluster_value.IsNull()) {
         document.AddMember("cluster", cluster_value, allocator);
     }
 
     rapidjson::Value db_value(rapidjson::kStringType);
     db_value.SetString(db.c_str(), db.size());
-    if(!db_value.IsNull()) {
+    if (!db_value.IsNull()) {
         document.AddMember("Db", db_value, allocator);
     }
 
     rapidjson::Value table_value(rapidjson::kStringType);
     table_value.SetString(table.c_str(), table.size());
-    if(!table_value.IsNull()) {
+    if (!table_value.IsNull()) {
         document.AddMember("Table", table_value, allocator);
     }
 
     rapidjson::Value user_value(rapidjson::kStringType);
     user_value.SetString(auth.user.c_str(), auth.user.size());
-    if(!user_value.IsNull()) {
+    if (!user_value.IsNull()) {
         document.AddMember("User", user_value, allocator);
     }
 
     rapidjson::Value client_ip_value(rapidjson::kStringType);
     client_ip_value.SetString(auth.user_ip.c_str(), auth.user_ip.size());
-    if(!client_ip_value.IsNull()) {
+    if (!client_ip_value.IsNull()) {
         document.AddMember("ClientIp", client_ip_value, allocator);
     }
 
@@ -137,11 +139,11 @@ std::string StreamLoadContext::prepare_stream_load_record(const std::string& str
     return buffer.GetString();
 }
 
-void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_record, TStreamLoadRecord& stream_load_item) {
-
+void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_record,
+                                                 TStreamLoadRecord& stream_load_item) {
     rapidjson::Document document;
     std::stringstream ss;
-    if (document.Parse(stream_load_record.data()).HasParseError()) {
+    if (document.Parse(stream_load_record.data(), stream_load_record.length()).HasParseError()) {
         LOG(WARNING) << "failed to parse json from rocksdb.";
         return;
     }
