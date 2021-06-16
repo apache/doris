@@ -174,7 +174,7 @@ public class StatisticProcDir implements ProcDirInterface {
                 oneLine.add(unhealthyTabletIds.get(dbId).size());
                 oneLine.add(inconsistentTabletIds.get(dbId).size());
                 oneLine.add(cloningTabletIds.get(dbId).size());
-                oneLine.add(unhealthyTabletIds.get(dbId).size());
+                oneLine.add(unrecoverableTabletIds.get(dbId).size());
 
                 lines.add(oneLine);
 
