@@ -80,7 +80,6 @@ private:
 
     OLAPStatus _union_block(RowBlock** block);
     OLAPStatus _merge_block(RowBlock** block);
-    OLAPStatus _pull_next_row_for_merge_rowset(RowCursor** row);
     OLAPStatus _pull_next_block(AlphaMergeContext* merge_ctx);
 
     // Doris will split query predicates to several scan keys
@@ -89,8 +88,6 @@ private:
     OLAPStatus _pull_first_block(AlphaMergeContext* merge_ctx);
 
     // merge by priority queue(_merge_heap)
-    // this method has same function with _pull_next_row_for_merge_rowset, but using heap merge.
-    // and this should replace the _pull_next_row_for_merge_rowset later.
     OLAPStatus _pull_next_row_for_merge_rowset_v2(RowCursor** row);
     // init the merge heap, this should be call before calling _pull_next_row_for_merge_rowset_v2();
     OLAPStatus _init_merge_heap();
@@ -108,7 +105,10 @@ private:
     AlphaRowsetMeta* _alpha_rowset_meta;
     const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;
 
-    std::vector<AlphaMergeContext> _merge_ctxs;
+    // In '_union_block' mode, it has items to traverse.
+    // In '_merge_block' mode, it will be cleared after '_merge_heap' has been built.
+    std::list<AlphaMergeContext*> _sequential_ctxs;
+
     std::unique_ptr<RowBlock> _read_block;
     OLAPStatus (AlphaRowsetReader::*_next_block)(RowBlock** block) = nullptr;
     RowCursor* _dst_cursor = nullptr;
@@ -119,16 +119,15 @@ private:
     // into consideration deliberately.
     bool _is_segments_overlapping;
 
-    // ordinal of ColumnData upon reading
-    size_t _ordinal;
+    // Current AlphaMergeContext to read data, just valid in '_union_block' mode.
+    AlphaMergeContext* _cur_ctx = nullptr;
+    // A priority queue for merging rowsets, just valid in '_merge_block' mode.
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
+            _merge_heap;
 
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
-
-    // a priority queue for merging rowsets
-    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator>
-            _merge_heap;
 };
 
 } // namespace doris
