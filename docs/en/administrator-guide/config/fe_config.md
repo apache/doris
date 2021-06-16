@@ -130,7 +130,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.。 
+Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.. 
 
 ### grpc_max_message_size_bytes
 
@@ -167,7 +167,7 @@ IsMutable：true
 
 MasterOnly：true
 
-This config is used to solve fe heartbeat response read_timeout problem,  When config is set to be true, master will get fe heartbeat response by thrift protocol  instead of http protocol. In order to maintain compatibility with the old version,  the default is false, and the configuration cannot be changed to true until all fe are upgraded。
+This config is used to solve fe heartbeat response read_timeout problem,  When config is set to be true, master will get fe heartbeat response by thrift protocol  instead of http protocol. In order to maintain compatibility with the old version,  the default is false, and the configuration cannot be changed to true until all fe are upgraded.
 
 ### enable_alpha_rowset
 
@@ -480,7 +480,7 @@ IsMutable：true
 
 MasterOnly：true
 
- If the jvm memory used percent(heap or old mem pool) exceed this threshold, checkpoint thread will  not work to avoid OOM。
+ If the jvm memory used percent(heap or old mem pool) exceed this threshold, checkpoint thread will  not work to avoid OOM.
 
 ### max_distribution_pruner_recursion_depth
 
@@ -646,7 +646,7 @@ IsMutable：true
 
 MasterOnly：true
 
-if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets skip checking。
+if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets skip checking.
 
 ### disable_balance
 
@@ -910,7 +910,7 @@ Default：disable
 
 Default：true
 
-For forward compatibility, will be removed later. check token when download image file。
+For forward compatibility, will be removed later. check token when download image file.
 
 ### expr_depth_limit
 
@@ -926,7 +926,7 @@ Default：10000
 
 IsMutable：true
 
-Limit on the number of expr children of an expr tree.  Exceed this limit may cause long analysis time while holding database read lock.  Do not set this if you know what you are doing.。
+Limit on the number of expr children of an expr tree.  Exceed this limit may cause long analysis time while holding database read lock.  Do not set this if you know what you are doing.
 
 ### proxy_auth_magic_prefix
 
@@ -1051,7 +1051,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Maximal concurrency of broker scanners.  Do not set this if you know what you are doing。
+Maximal concurrency of broker scanners.  Do not set this if you know what you are doing.
 
 ### min_bytes_per_broker_scanner
 
@@ -1061,7 +1061,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Maximal bytes that a single broker scanner will read.  Do not set this if you know what you are doing。
+Maximal bytes that a single broker scanner will read.  Do not set this if you know what you are doing.
 
 ### catalog_trash_expire_second
 
@@ -1083,7 +1083,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 Default：HDD
 
-When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.。
+When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat..
 
 ### max_backend_down_time_second
 
@@ -1093,7 +1093,7 @@ IsMutable：true
 
 MasterOnly：true
 
-If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.  Do not set this if you know what you are doing.。
+If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.  Do not set this if you know what you are doing..
 
 ### alter_table_timeout_second
 
@@ -1262,7 +1262,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to disable show stream load and clear stream load records in memory.。
+Whether to disable show stream load and clear stream load records in memory..
 
 ### max_stream_load_record_size
 
@@ -1451,7 +1451,7 @@ Concurrency of delete jobs.
 
 Default：10
 
-Concurrency of NORMAL priority etl load jobs. Do not change this if you know what you are doing。
+Concurrency of NORMAL priority etl load jobs. Do not change this if you know what you are doing.
 
 ### load_etl_thread_num_high_priority
 
@@ -1576,7 +1576,7 @@ This variable is a session variable, and the session level takes effect.
 
 Default：-1
 
-node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.  Cluster id is usually a random integer generated when master FE start at first time. You can also specify one。
+node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.  Cluster id is usually a random integer generated when master FE start at first time. You can also specify one.
 
 ### auth_token
 
@@ -1593,7 +1593,7 @@ Cluster name will be shown as the title of web page
 
 Default：4
 
-When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect。
+When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
 
 ### mysql_service_nio_enabled
 
@@ -1696,13 +1696,13 @@ This is helpful when you try to stop the Master FE for a relatively long time fo
 
 Default：false
 
-If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)  and is supposed to start as Master.  If all the electable nodes can not start, we can copy the meta data to another node and set this config to true to try to restart the FE.。
+If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)  and is supposed to start as Master.  If all the electable nodes can not start, we can copy the meta data to another node and set this config to true to try to restart the FE..
 
 ### priority_networks
 
 Default：none
 
-Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly.。
+Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly..
 
 ### txn_rollback_limit
 
@@ -1724,7 +1724,7 @@ Default：1024
 
 MasterOnly：true
 
-blocking queue size to store heartbeat task in heartbeat_mgr。
+blocking queue size to store heartbeat task in heartbeat_mgr.
 
 ### heartbeat_mgr_threads_num
 
@@ -1732,7 +1732,7 @@ Default：8
 
 MasterOnly：true
 
-num of thread to handle heartbeat events in heartbeat_mgr。
+num of thread to handle heartbeat events in heartbeat_mgr.
 
 ### bdbje_replica_ack_timeout_second
 
@@ -1804,7 +1804,7 @@ Default：BDB
 
 Edit log type.
       BDB: write log to bdbje
-      LOCAL: deprecated.。
+      LOCAL: deprecated..
 
 ### tmp_dir
 
@@ -1827,7 +1827,7 @@ Default：PaloFe.DORIS_HOME_DIR + "/conf"
 
 Configure the location of the `fe_custom.conf` file. The default is in the `conf/` directory.
 
-In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `fe_custom.conf` in another specified directory to prevent the configuration file from being overwritten。
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `fe_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### log_roll_size_mb
 
@@ -1842,7 +1842,7 @@ Default：PaloFe.DORIS_HOME_DIR + "/log"
 sys_log_dir:
       This specifies FE log dir. FE will produces 2 log files:
        fe.log:      all logs of FE process.
-       fe.warn.log  all WARNING and ERROR log of FE process。
+       fe.warn.log  all WARNING and ERROR log of FE process.
 
 ### sys_log_level
 
@@ -1864,7 +1864,7 @@ sys_log_verbose_modules：
        Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
        eg：
             sys_log_verbose_modules = org.apache.doris.catalog
-            This will only print debug log of files in package org.apache.doris.catalog and all its sub packages。
+            This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
 
 ### sys_log_roll_interval
 
@@ -1893,7 +1893,7 @@ sys_log_delete_age:
 Default：DORIS_HOME_DIR + "/log"
 
 audit_log_dir：
-           This specifies FE audit log dir.。
+           This specifies FE audit log dir..
             Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc
 
 ### audit_log_roll_num
