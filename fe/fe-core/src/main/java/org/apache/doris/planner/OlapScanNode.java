@@ -795,9 +795,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     public DataPartition constructInputPartitionByDistributionInfo() {
-        if (getNumInstances() == 1) {
-            return DataPartition.UNPARTITIONED;
-        } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
             List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
