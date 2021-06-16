@@ -98,7 +98,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::vector<RowwiseIterator*> iterators;
+    std::list<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         // transfer ownership of segment iterator to `_iterator`
         iterators.push_back(owned_it.release());

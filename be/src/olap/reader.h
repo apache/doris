@@ -124,7 +124,9 @@ private:
 
     OLAPStatus _init_params(const ReaderParams& read_params);
 
-    OLAPStatus _capture_rs_readers(const ReaderParams& read_params);
+    OLAPStatus _capture_rs_readers(const ReaderParams& read_params, std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+
+    bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
     OLAPStatus _init_keys_param(const ReaderParams& read_params);
 
@@ -174,7 +176,6 @@ private:
     std::vector<uint32_t> _seek_columns;
 
     TabletSharedPtr _tablet;
-    std::vector<RowsetReaderSharedPtr> _rs_readers;
     RowsetReaderContext _reader_context;
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
