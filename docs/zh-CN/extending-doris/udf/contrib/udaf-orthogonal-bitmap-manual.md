@@ -35,7 +35,7 @@ Doris原有的Bitmap聚合函数设计比较通用，但对亿级别以上bitmap
 ## 使用指南
 
 1. 建表，增加hid列，表示bitmap列值id范围, 作为hash分桶列
-2. 数据罐库，load数据时，对bitmap列值range范围划分
+2. 数据灌库，load数据时，对bitmap列值range范围划分
 3. 编译UDAF，产出.so动态库
 4. 在DORIS中注册UDAF，DORIS在运行时加载.so库
 5. 使用场景
