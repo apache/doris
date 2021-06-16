@@ -103,6 +103,15 @@ OLAPStatus DeltaWriter::init() {
 
     _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
                                              _parent_mem_tracker);
+
+    if (config::max_tablet_size_mb > 0 &&
+        _tablet->tablet_footprint() / (1024 * 1024) > config::max_tablet_size_mb) {
+        LOG(WARNING) << "failed to init delta writer. tablet size: " << _tablet->tablet_footprint()
+                     << " Byte, exceed limit: " << config::max_tablet_size_mb
+                     << "MB. tablet: " << _tablet->full_name();
+        return OLAP_ERR_TOO_LARGE_TABLET;
+    }
+
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
