@@ -156,7 +156,7 @@ FE 的配置项有两种方式进行配置：
 
 默认值：false
 
-如果设置为 true，FE 将在 BDBJE 调试模式下启动，在 Web 页面 System->bdbje 可以查看相关信息，否则不可以查看
+如果设置为 true，FE 将在 BDBJE 调试模式下启动，在 Web 页面 `System->bdbje` 可以查看相关信息，否则不可以查看
 
 ### enable_fe_heartbeat_by_thrift
 
@@ -166,7 +166,7 @@ FE 的配置项有两种方式进行配置：
 
 是否为 Master FE 节点独有的配置项：true
 
-这个配置是用来解决 fe heartbeat response read_timeout 问题的，当 config 设置为 true 时，master 会通过 thrift 协议而不是 http 协议来获取 fe heartbeat response。 为了保持与旧版本的兼容性，默认为 false，在所有 fe 都升级之前不能将配置改为 true。
+这个配置是用来解决 fe 心跳响应读超时的问题，当 config 设置为 true 时，master 会通过 thrift 协议而不是 http 协议来获取 fe heartbeat response。 为了保持与旧版本的兼容性，默认为 false，在所有 fe 都升级之前不能将配置改为 true。
 
 ### enable_alpha_rowset
 
@@ -298,7 +298,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任务的最小和最大超时间。 一般情况下，克隆任务的超时时间是通过数据量和最小传输速度（5MB/s）来估计的。 但在特殊情况下，您可能需要手动设置这两个配置，以确保克隆任务不会因超时而失败。
+`min_clone_task_timeout_sec` 和 `max_clone_task_timeout_sec` 用于限制克隆任务的最小和最大超时间。 一般情况下，克隆任务的超时时间是通过数据量和最小传输速度（5MB/s）来估计的。 但在特殊情况下，您可能需要手动设置这两个配置，以确保克隆任务不会因超时而失败。
 
 ### agent_task_resend_wait_time_ms
 
@@ -314,8 +314,6 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 但同时会导致提交失败或者执行失败的代理任务再次被执行的时间延长。
 
-
-
 ### enable_odbc_table
 
 默认值：false
@@ -324,7 +322,9 @@ min_clone_task_timeout_sec 和 max_clone_task_timeout_sec 用于限制克隆任�
 
 是否为 Master FE 节点独有的配置项：true
 
-是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：ADMIN SET FRONTEND CONFIG(“key”=“value”) 方式进行设置
+是否启用 ODBC 表，默认不启用，在使用的时候需要手动配置启用，该参数可以通过：
+
+`ADMIN SET FRONTEND CONFIG(“key”=“value”) `方式进行设置
 
 ### enable_spark_load
 
@@ -527,7 +527,7 @@ SmallFileMgr 中存储的最大文件数
 
 是否为 Master FE 节点独有的配置项：true
 
-每个 BE 的最大并发例 Routine Load 任务数。 这是为了限制发送到 BE 的 Routine Load 任务的数量，并且它也应该小于 BE config 'routine_load_thread_pool_size'（默认 10），这是 BE 上的 Routine Load 任务线程池大小。
+每个 BE 的最大并发例 Routine Load 任务数。 这是为了限制发送到 BE 的 Routine Load 任务的数量，并且它也应该小于 BE config `routine_load_thread_pool_size`（默认 10），这是 BE 上的 Routine Load 任务线程池大小。
 
 ### max_routine_load_task_concurrent_num
 
@@ -619,7 +619,7 @@ rebalancer 类型（忽略大小写）：BeLoad、Partition。 如果类型解�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果 TabletScheduler 中的 balance tablet 数量超过 max_balancing_tablets，则不再进行 balance 检查 
+如果 TabletScheduler 中的 balance tablet 数量超过 `max_balancing_tablets`，则不再进行 balance 检查 
 
 ### max_scheduling_tablets
 
@@ -629,7 +629,7 @@ rebalancer 类型（忽略大小写）：BeLoad、Partition。 如果类型解�
 
 是否为 Master FE 节点独有的配置项：true
 
-如果 TabletScheduler 中调度的 tablet 数量超过 max_scheduling_tablets， 则跳过检查。
+如果 TabletScheduler 中调度的 tablet 数量超过 `max_scheduling_tablets`， 则跳过检查。
 
 ### disable_balance
 
@@ -696,7 +696,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否为 Master FE 节点独有的配置项：true
 
-一个主守护线程将每 db_used_data_quota_update_interval_secs 更新数据库 txn 管理器的数据库使用数据配额 
+一个主守护线程将每 `db_used_data_quota_update_interval_secs` 更新数据库 txn 管理器的数据库使用数据配额 
 
 为了更好的数据导入性能，在数据导入之前的数据库已使用的数据量是否超出配额的检查中，我们并不实时计算数据库已经使用的数据量，而是获取后台线程周期性更新的值。
 
@@ -738,7 +738,7 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 是否可以动态配置：true
 
-异步执行远程fragment的超时时间。 在正常情况下，异步远程 fragment 将在短时间内执行。 如果系统处于高负载状态，请尝试将此超时设置更长的时间。
+异步执行远程 fragment 的超时时间。 在正常情况下，异步远程 fragment 将在短时间内执行。 如果系统处于高负载状态，请尝试将此超时设置更长的时间。
 
 ### enable_local_replica_selection
 
@@ -831,10 +831,7 @@ tablet 状态更新间隔
 
 是否为 Master FE 节点独有的配置项：true
 
-`storage_high_watermark_usage_percent` 限制BE端存储路径的最大容量使用百分比。
- `storage_min_left_capacity_bytes`限制BE端存储路径的最小剩余容量。
- 如果达到这两个限制，则不能选择此存储路径作为 tablet 存储目的地。
- 但是对于 tablet 恢复，我们可能会超过这些限制以尽可能保持数据完整性。
+`storage_high_watermark_usage_percent` 限制BE端存储路径的最大容量使用百分比。  `storage_min_left_capacity_bytes`限制BE端存储路径的最小剩余容量。  如果达到这两个限制，则不能选择此存储路径作为 tablet 存储目的地。 但是对于 tablet 恢复，我们可能会超过这些限制以尽可能保持数据完整性。
 
 ### backup_job_default_timeout_ms
 
@@ -868,7 +865,7 @@ tablet 状态更新间隔
 
 默认值：{
            "hadoop_configs : '"
-             "mapred.job.priority=NORMAL;"
+            "mapred.job.priority=NORMAL;"
             "mapred.job.map.capacity=50;"
             "mapred.job.reduce.capacity=50;"
             "mapred.hce.replace.streaming=false;"
@@ -960,7 +957,7 @@ tablet 状态更新间隔
 
 是否可以动态配置：true
 
-colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num) 
+colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num) 
 
 ### max_connection_scheduler_threads_num
 
@@ -1186,9 +1183,7 @@ BE副本数的平衡阈值。
 
 是否为 Master FE 节点独有的配置项：true
 
-低优先级克隆作业的延迟触发时间。 克隆作业包含需要克隆（恢复或迁移）的tablet。
-如果优先级为 LOW，则会延迟  `clone_low_priority_delay_second `，在作业创建之后然后被执行。
-这是为了避免仅因为主机短时间停机而同时运行大量克隆作业。
+低优先级克隆作业的延迟触发时间。 克隆作业包含需要克隆（恢复或迁移）的tablet。 如果优先级为 LOW，则会延迟  `clone_low_priority_delay_second `，在作业创建之后然后被执行。 这是为了避免仅因为主机短时间停机而同时运行大量克隆作业。
 
 注意这个配置（还有 `clone_normal_priority_delay_second`） 如果它小于 `clone_checker_interval_second` 将不起作用
 
@@ -1462,26 +1457,25 @@ Load 作业输入的数据大小，默认是0，无限制
 
 默认值：10
 
-NORMAL 优先级 etl 加载作业的并发数。 如果您知道自己在做什么，请不要更改此设置。
+NORMAL 优先级 etl 加载作业的并发数。 
 
 ### load_etl_thread_num_high_priority
 
 默认值：3
 
-高优先级 etl 加载作业的并发数。 如果您知道自己在做什么，请不要更改此设置
+高优先级 etl 加载作业的并发数。
 
 ### load_pending_thread_num_normal_priority
 
 默认值：10
 
-NORMAL 优先级挂起加载作业的并发数。 如果您知道自己在做什么，请不要更改此设置
+NORMAL 优先级挂起加载作业的并发数。
 
 ### load_pending_thread_num_high_priority
 
 默认值：3
 
-高优先级挂起加载作业的并发数。 加载作业优先级定义为 HIGH 或 NORMAL。 所有小批量加载作业都是 HIGH 优先级，其他类型的加载作业是 NORMAL 优先级。 设置优先级是为了避免慢加载作业长时间占用线程。 这只是内部优化的调度策略。 目前，您无法手动指定作业优先级，
-如果您知道自己在做什么，请不要更改此设置。
+高优先级挂起加载作业的并发数。 加载作业优先级定义为 HIGH 或 NORMAL。 所有小批量加载作业都是 HIGH 优先级，其他类型的加载作业是 NORMAL 优先级。 设置优先级是为了避免慢加载作业长时间占用线程。 这只是内部优化的调度策略。 目前，您无法手动指定作业优先级。
 
 ### load_checker_interval_second
 
@@ -1498,7 +1492,7 @@ NORMAL 优先级挂起加载作业的并发数。 如果您知道自己在做什
 是否为 Master FE 节点独有的配置项：true
 
 一行的最大内存布局长度。 默认为 100 KB。
-在 BE 中，RowBlock 的最大大小为 100MB（在 be.conf 中配置为 max_unpacked_row_block_size）。
+在 BE 中，RowBlock 的最大大小为 100MB（在 be.conf 中配置为  `max_unpacked_row_block_size `）。
 每个 RowBlock 包含 1024 行。 因此，一行的最大大小约为 100 KB。
 
 例如。
@@ -1508,7 +1502,7 @@ NORMAL 优先级挂起加载作业的并发数。 如果您知道自己在做什
 查看所有类型的内存布局长度，在 mysql-client 中运行 `help create table`。
 
 如果要增加此数字以支持一行中的更多列，则还需要增加
-be.conf 中的 max_unpacked_row_block_size。 但性能影响未知。
+be.conf 中的  `max_unpacked_row_block_size `，但性能影响未知。
 
 ### load_straggler_wait_second
 
@@ -1519,12 +1513,7 @@ be.conf 中的 max_unpacked_row_block_size。 但性能影响未知。
 是否为 Master FE 节点独有的配置项：true
 
 负载中落后节点的最大等待秒数
-例如。
-      有 3 个副本 A、B、C
-      负载在 t1 时已完成仲裁（A，B）并且 C 未完成
-      如果 (current_time - t1) > 300s，则 palo 会将 C 视为故障节点
-      将调用事务管理器提交事务并告诉事务管理器
-      C失败了
+例如：有 3 个副本 A, B, C load 已经在 t1 时仲裁完成 (A,B) 并且 C 没有完成，如果 (current_time-t1)> 300s，那么 doris会将 C 视为故障节点，将调用事务管理器提交事务并告诉事务管理器 C 失败。
 
 这也用于等待发布任务时
 
@@ -1534,11 +1523,11 @@ be.conf 中的 max_unpacked_row_block_size。 但性能影响未知。
 
 该配置表示FE的Thrift服务使用的服务模型, 类型为string, 大小写不敏感。
 
-若该参数为`SIMPLE`, 则使用`TSimpleServer`模型, 该模型一般不适用于生产环境，仅限于测试使用。
+若该参数为 `SIMPLE`, 则使用 `TSimpleServer` 模型, 该模型一般不适用于生产环境，仅限于测试使用。
 
-若该参数为`THREADED`, 则使用`TThreadedSelectorServer`模型，该模型为非阻塞式I/O模型，即主从Reactor模型，该模型能及时响应大量的并发连接请求，在多数场景下有较好的表现。
+若该参数为 `THREADED`, 则使用 `TThreadedSelectorServer` 模型，该模型为非阻塞式I/O模型，即主从 Reactor 模型，该模型能及时响应大量的并发连接请求，在多数场景下有较好的表现。
 
-若该参数为`THREAD_POOL`, 则使用`TThreadPoolServer`模型，该模型为阻塞式I/O模型，使用线程池处理用户连接，并发连接数受限于线程池的数量，如果能提前预估并发请求的数量，并且能容忍足够多的线程资源开销，该模型会有较好的性能表现，默认使用该服务模型
+若该参数为 `THREAD_POOL`, 则使用 `TThreadPoolServer` 模型，该模型为阻塞式I/O模型，使用线程池处理用户连接，并发连接数受限于线程池的数量，如果能提前预估并发请求的数量，并且能容忍足够多的线程资源开销，该模型会有较好的性能表现，默认使用该服务模型
 
 ### thrift_server_max_worker_threads
 
@@ -1570,7 +1559,7 @@ Thrift Server最大工作线程数
 
 是否为 Master FE 节点独有的配置项：true
 
-为了不等待太久创建表（索引），设置一个最大超时时间
+为了在创建表（索引）不等待太久，设置一个最大超时时间
 
 ### tablet_create_timeout_second
 
@@ -1581,7 +1570,7 @@ Thrift Server最大工作线程数
 是否为 Master FE 节点独有的配置项：true
 
 创建单个副本的最长等待时间。
-  例如。
+ 例如。
        如果您为每个表创建一个包含 m 个 tablet 和 n 个副本的表，
        创建表请求将在超时前最多运行 (m * n * tablet_create_timeout_second)。
 
@@ -1785,13 +1774,13 @@ bdbje 的Follower FE 同步策略。
 
 选项：SYNC, NO_SYNC, WRITE_NO_SYNC
 
-Master FE的bdbje 同步策略。 如果您只部署一个 Follower FE，请将其设置为“SYNC”。 如果你部署了超过 3 个 Follower FE，你可以将这个和下面的'replica_sync_policy'设置为 WRITE_NO_SYNC。 更多信息，参见：http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
+Master FE 的 bdbje 同步策略。 如果您只部署一个 Follower FE，请将其设置为“SYNC”。 如果你部署了超过 3 个 Follower FE，你可以将这个和下面的 `replica_sync_policy ` 设置为 WRITE_NO_SYNC。 更多信息，参见：http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
 
 ### meta_delay_toleration_second
 
 默认值：300 （5分钟）
 
-如果元数据延迟间隔超过 *meta_delay_toleration_second*，非主 FE 将停止提供服务
+如果元数据延迟间隔超过  `meta_delay_toleration_second `，非主 FE 将停止提供服务
 
 ### edit_log_roll_num
 
@@ -1801,7 +1790,7 @@ Master FE的bdbje 同步策略。 如果您只部署一个 Follower FE，请将�
 
 是否为 Master FE 节点独有的配置项：true
 
-Master FE will save image every *edit_log_roll_num* meta journals.。
+Master FE will save image every  `edit_log_roll_num ` meta journals.。
 
 ### edit_log_port
 
@@ -1831,7 +1820,7 @@ Doris 元数据将保存在这里。 强烈建议将此目录的存储为：
 
 1. 高写入性能（SSD）
 
-                  2. 安全（RAID）
+2. 安全（RAID）
 
 ### custom_config_dir
 
@@ -1870,14 +1859,14 @@ sys_log_dir:
 
 默认值：10
 
-要保存在 sys_log_roll_interval 内的最大 FE 日志文件。 默认为 10，表示一天最多有 10 个日志文件
+要保存在  `sys_log_roll_interval ` 内的最大 FE 日志文件。 默认为 10，表示一天最多有 10 个日志文件
 
 ### sys_log_verbose_modules
 
 默认值：{}
 
 sys_log_verbose_modules：
-        详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
+     详细模块。 VERBOSE 级别由 log4j DEBUG 级别实现。
      例如：
             sys_log_verbose_modules = org.apache.doris.catalog
            这只会打印包 org.apache.doris.catalog 及其所有子包中文件的调试日志。
@@ -1908,13 +1897,13 @@ sys_log_delete_age:
 
 审计日志目录：
            这指定了 FE 审计日志目录。
-            审计日志 fe.audit.log 包含所有请求以及相关信息，如用户、主机、成本、状态等。
+           审计日志 fe.audit.log 包含所有请求以及相关信息，如  `user, host, cost, status ` 等。
 
 ### audit_log_roll_num
 
 默认值：90
 
-保留在 audit_log_roll_interval 内的最大 FE 审计日志文件。 
+保留在  `audit_log_roll_interval ` 内的最大 FE 审计日志文件。 
 
 ### audit_log_modules
 
@@ -1926,7 +1915,7 @@ sys_log_delete_age:
 
 默认值：5000 （5秒）
 
-如果查询的响应时间超过此阈值，则会在审计日志中记录为slow_query。
+如果查询的响应时间超过此阈值，则会在审计日志中记录为 slow_query。
 
 ### audit_log_roll_interval
 
@@ -1970,10 +1959,10 @@ HOUR: log前缀是：yyyyMMddHH
 
 是否为 Master FE 节点独有的配置项：true
 
-*label_keep_max_second* 后将删除已完成或取消的加载作业的标签
-       去除的标签可以重复使用。
-       设置较短的时间会降低 FE 内存使用量。
-      （因为所有加载作业的信息在被删除之前都保存在内存中）
+ `label_keep_max_second  `后将删除已完成或取消的加载作业的标签，
+
+1. 去除的标签可以重复使用。
+2. 设置较短的时间会降低 FE 内存使用量 （因为所有加载作业的信息在被删除之前都保存在内存中）
 
 在高并发写的情况下，如果出现大量作业积压，出现 `call frontend service failed`的情况，查看日志如果是元数据写占用锁的时间太长，可以将这个值调成12小时，或者更小6小时
 
