@@ -35,7 +35,7 @@ ESQueryBuilder::ESQueryBuilder(const ExtFunction& es_query) {
 // note: call this function must invoke BooleanQueryBuilder::check_es_query to check validation
 void ESQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document scratch_document;
-    scratch_document.Parse(_es_query_str.c_str());
+    scratch_document.Parse(_es_query_str.c_str(), _es_query_str.length());
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value query_key;
     rapidjson::Value query_value;
@@ -354,7 +354,7 @@ void BooleanQueryBuilder::must_not(QueryBuilder* filter) {
 Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
     const std::string& esquery_str = extFunction.values.front().to_string();
     rapidjson::Document scratch_document;
-    scratch_document.Parse(esquery_str.c_str());
+    scratch_document.Parse(esquery_str.c_str(), esquery_str.length());
     rapidjson::Document::AllocatorType& allocator = scratch_document.GetAllocator();
     rapidjson::Value query_key;
     // { "term": { "dv": "2" } }

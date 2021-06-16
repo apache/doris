@@ -332,7 +332,7 @@ Status JsonReader::init(const std::string& jsonpath, const std::string& json_roo
 Status JsonReader::_generate_json_paths(const std::string& jsonpath,
                                         std::vector<std::vector<JsonPath>>* vect) {
     rapidjson::Document jsonpaths_doc;
-    if (!jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
+    if (!jsonpaths_doc.Parse(jsonpath.c_str(), jsonpath.length()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
             return Status::InvalidArgument("Invalid json path: " + jsonpath);
         } else {
