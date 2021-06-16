@@ -72,7 +72,7 @@ static std::shared_ptr<MemTracker> root_tracker;
 static GoogleOnceType root_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::CreateRootTracker() {
-    root_tracker.reset(new MemTracker(-1, "Root"));
+    root_tracker.reset(new MemTracker(nullptr, -1, "Root", nullptr, true, MemTrackerLevel::OVERVIEW));
     root_tracker->Init();
 }
 
@@ -143,7 +143,7 @@ std::shared_ptr<MemTracker> MemTracker::CreateTracker(int64_t byte_limit, const 
 }
 
 MemTracker::MemTracker(int64_t byte_limit, const std::string& label)
-        : MemTracker(nullptr, byte_limit, label, std::shared_ptr<MemTracker>(), true, MemTrackerLevel::RELEASE) {}
+        : MemTracker(nullptr, byte_limit, label, std::shared_ptr<MemTracker>(), true, MemTrackerLevel::VERBOSE) {}
 
 MemTracker::MemTracker(RuntimeProfile* profile, int64_t byte_limit, const string& label,
                        const std::shared_ptr<MemTracker>& parent, bool log_usage_if_zero, MemTrackerLevel level)

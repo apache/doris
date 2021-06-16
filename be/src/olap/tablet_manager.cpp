@@ -71,7 +71,7 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 }
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletManager", nullptr, false)),
+        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false, MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1),
           _last_update_stat_ms(0) {
