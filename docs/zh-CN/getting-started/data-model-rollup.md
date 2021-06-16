@@ -76,9 +76,9 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
 )
-AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
+AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) COMMENT "用户地址",
     `register_time` DATETIME COMMENT "用户注册时间"
 )
-UNIQUE KEY(`user_id`, `user_name`)
+UNIQUE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
@@ -293,7 +293,7 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `address` VARCHAR(500) REPLACE COMMENT "用户地址",
     `register_time` DATETIME REPLACE COMMENT "用户注册时间"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
+AGGREGATE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
 ；
 ```
