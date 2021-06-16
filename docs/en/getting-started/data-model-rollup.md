@@ -76,9 +76,9 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
 )
-AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
+AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
 ... /* ignore Partition and Distribution */
 ;
 ```
@@ -240,10 +240,10 @@ In some multi-dimensional analysis scenarios, users are more concerned with how 
 |---|---|---|---|
 | user_id | BIGINT | Yes | user id|
 | username | VARCHAR (50) | Yes | User nickname|
-| City | VARCHAR (20) | No | User City|
+| city | VARCHAR (20) | No | User City|
 | age | SMALLINT | No | User Age|
 | sex | TINYINT | No | User Gender|
-| Phone | LARGEINT | No | User Phone|
+| phone | LARGEINT | No | User Phone|
 | address | VARCHAR (500) | No | User Address|
 | register_time | DATETIME | No | user registration time|
 
@@ -253,16 +253,16 @@ This is a typical user base information table. There is no aggregation requireme
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) COMMENT `User City',
-"Age" SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
+`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
+`city` VARCHAR (20) COMMENT `User City',
+`age` SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
 `sex` TINYINT COMMENT "用户性别",
 `phone` LARGEINT COMMENT "用户电话",
-'address ` VARCHAR (500) COMMENT'25143;',
-'register 'or'time' DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
+`address` VARCHAR (500) COMMENT'25143;',
+`register_time` DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
 )
-Unique Key ("User", "User", "Name")
-... /* 省略 Partition 和 Distribution 信息 */
+Unique Key (`user_id`, `username`)
+... /* ignore Partition and Distribution  */
 ;
 ```
 
@@ -285,16 +285,15 @@ And table-building statements:
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) REPLACE COMMENT `User City',
-What do you say when you are young?
+`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
+`city` VARCHAR (20) REPLACE COMMENT `User City',
 `sex` TINYINT REPLACE COMMENT "用户性别",
-"phone" LARGEINT REPLACE COMMENT "25143;"
+`phone` LARGEINT REPLACE COMMENT "25143;"
 `address` VARCHAR(500) REPLACE COMMENT "用户地址",
-'register 'or'time' DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
+`register_time` DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
-... /* 省略 Partition 和 Distribution 信息 */
+AGGREGATE KEY(`user_id`, `username`)
+... /* ignore Partition and Distribution */
 ;
 ```
 
