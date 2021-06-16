@@ -113,8 +113,13 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
 //      }
 class MergeIteratorContext {
 public:
-    // This class don't take iter's ownership, client should delete it
-    MergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent) : _iter(iter), _block(iter->schema(), 1024, std::move(parent)) {}
+    MergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent)
+            : _iter(iter), _block(iter->schema(), 1024, std::move(parent)) {}
+
+    ~MergeIteratorContext() {
+        delete _iter;
+        _iter = nullptr;
+    }
 
     // Initialize this context and will prepare data for current_row()
     Status init(const StorageReadOptions& opts);
@@ -199,16 +204,15 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
+    MergeIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
         // use for count the mem use of Block use in Merge
         _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", parent, false);
     }
 
     ~MergeIterator() override {
-        for (auto iter : _origin_iters) {
-            delete iter;
-        }
-        for (auto ctx : _merge_ctxs) {
+        while (!_merge_heap->empty()) {
+            auto ctx = _merge_heap->top();
+            _merge_heap->pop();
             delete ctx;
         }
     }
@@ -218,8 +222,8 @@ public:
     const Schema& schema() const override { return *_schema; }
 
 private:
-    std::vector<RowwiseIterator*> _origin_iters;
-    std::vector<MergeIteratorContext*> _merge_ctxs;
+    // It will be released after '_merge_heap' has been built.
+    std::list<RowwiseIterator*> _origin_iters;
 
     std::unique_ptr<Schema> _schema;
 
@@ -247,18 +251,18 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    _schema.reset(new Schema(_origin_iters[0]->schema()));
-    _merge_heap.reset(new MergeHeap);
+    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
 
+    _merge_heap.reset(new MergeHeap);
     for (auto iter : _origin_iters) {
         std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter, _mem_tracker));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
         }
-        _merge_heap->push(ctx.get());
-        _merge_ctxs.push_back(ctx.release());
+        _merge_heap->push(ctx.release());
     }
+    _origin_iters.clear();
     return Status::OK();
 }
 
@@ -279,6 +283,9 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
             _merge_heap->push(ctx);
+        } else {
+            // Release ctx earlier to reduce resource consumed
+            delete ctx;
         }
     }
     block->set_num_rows(row_idx);
@@ -296,7 +303,8 @@ public:
     // Iterators' ownership it transfered to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
-    UnionIterator(std::vector<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
+    UnionIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent)
+            : _origin_iters(std::move(iters)) {
         _mem_tracker = MemTracker::CreateTracker(-1, "UnionIterator", parent, false);
     }
 
@@ -308,46 +316,54 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* block) override;
 
-    const Schema& schema() const override { return _origin_iters[0]->schema(); }
+    const Schema& schema() const override { return *_schema; }
 
 private:
-    std::vector<RowwiseIterator*> _origin_iters;
-    size_t _iter_idx = 0;
+    std::unique_ptr<Schema> _schema;
+    RowwiseIterator* _cur_iter = nullptr;
+    std::list<RowwiseIterator*> _origin_iters;
 };
 
 Status UnionIterator::init(const StorageReadOptions& opts) {
+    if (_origin_iters.empty()) {
+        return Status::OK();
+    }
+
     for (auto iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }
+    _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
+    _cur_iter = *(_origin_iters.begin());
     return Status::OK();
 }
 
 Status UnionIterator::next_batch(RowBlockV2* block) {
-    if (_iter_idx >= _origin_iters.size()) {
-        return Status::EndOfFile("End of UnionIterator");
-    }
-    do {
-        auto iter = _origin_iters[_iter_idx];
-        auto st = iter->next_batch(block);
+    while (_cur_iter != nullptr) {
+        auto st = _cur_iter->next_batch(block);
         if (st.is_end_of_file()) {
-            _iter_idx++;
+            delete _cur_iter;
+            _cur_iter = nullptr;
+            _origin_iters.pop_front();
+            if (!_origin_iters.empty()) {
+                _cur_iter = *(_origin_iters.begin());
+            }
         } else {
             return st;
         }
-    } while (_iter_idx < _origin_iters.size());
+    }
     return Status::EndOfFile("End of UnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_merge_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
     if (inputs.size() == 1) {
-        return inputs[0];
+        return *(inputs.begin());
     }
     return new MergeIterator(std::move(inputs), parent);
 }
 
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_union_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
     if (inputs.size() == 1) {
-        return inputs[0];
+        return *(inputs.begin());
     }
     return new UnionIterator(std::move(inputs), parent);
 }
