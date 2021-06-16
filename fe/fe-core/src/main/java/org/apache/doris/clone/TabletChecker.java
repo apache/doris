@@ -329,6 +329,11 @@ public class TabletChecker extends MasterDaemon {
                     // Only set last status check time when status is healthy.
                     tablet.setLastStatusCheckTime(startTime);
                     continue;
+                } else if (statusWithPrio.first == TabletStatus.UNRECOVERABLE) {
+                    // This tablet is not recoverable, do not set it into tablet scheduler
+                    // all UNRECOVERABLE tablet can be seen from "show proc '/statistic'"
+                    counter.unhealthyTabletNum++;
+                    continue;
                 } else if (isInPrios) {
                     statusWithPrio.second = TabletSchedCtx.Priority.VERY_HIGH;
                     prioPartIsHealthy = false;
