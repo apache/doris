@@ -801,7 +801,9 @@ public class OlapScanNode extends ScanNode {
         when data partition of fragment is UNPARTITION.
      */
     public DataPartition constructInputPartitionByDistributionInfo() {
-        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())
+                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapTable.getPartitions().size() == 1) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
             List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
