@@ -988,7 +988,7 @@ public class DistributedPlanner {
     private boolean canColocateAgg(AggregateInfo aggregateInfo, List<DataPartition> childFragmentDataPartition) {
         // Condition1
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
-            LOG.debug("Agg node is not colocate in:" + ConnectContext.get().getQueryDetail().getQueryId()
+            LOG.debug("Agg node is not colocate in:" + ConnectContext.get().queryId()
                     + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
