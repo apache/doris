@@ -794,6 +794,12 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    /*
+    Although sometimes the scan range only involves one instance,
+        the data distribution cannot be set to UNPARTITION here.
+    The reason is that @coordicator will not set the scan range for the fragment,
+        when data partition of fragment is UNPARTITION.
+     */
     public DataPartition constructInputPartitionByDistributionInfo() {
         if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
