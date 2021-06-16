@@ -617,25 +617,22 @@ The above two parameters are to set the number of query threads. By default, a m
 
 ### `ignore_broken_disk`
 
-当BE启动时，会检查``storage_root_path`` 配置下的所有路径。
+Default：false
 
- - `ignore_broken_disk=true`
-
-   如果路径不存在或路径下无法进行读写文件(坏盘)，将忽略此路径，如果有其他可用路径则不中断启动。
-
- - `ignore_broken_disk=false`
-
-   如果路径不存在或路径下无法进行读写文件(坏盘)，将中断启动失败退出。
-
-​    默认为false
+When BE start, If there is a broken disk, BE process will exit by default.Otherwise, we will ignore the broken disk
 
 ### `ignore_load_tablet_failure`
-* Type: bool
-* Description: Used to decide whether to ignore the error in the case of tablet loading failure and continue to start be
-* Default value: false
+When BE starts, it will check all the paths under the storage_root_path in configuration.
 
-When BE starts, it will start a separate thread for each data directory to load the tablet header meta-information. In the default configuration, if a tablet fails to load in a data directory, the startup process will be terminated. At the same time, you will see the following error message in the `be.INFO` log:
+`ignore_broken_disk=true`
 
+If the path does not exist or the file under the path cannot be read or written (broken disk), it will be ignored. If there are any other available paths, the startup will not be interrupted.
+
+`ignore_broken_disk=false`
+
+If the path does not exist or the file under the path cannot be read or written (bad disk), the startup will fail and exit.
+
+The default value is false.
 ```
 load tablets from header failed, failed tablets size: xxx, path=xxx
 ```

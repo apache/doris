@@ -179,7 +179,7 @@ Whether to support the creation of alpha rowset tables.  The default is false an
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
 
-HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface
+HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
 
 ### http_max_file_size
 
@@ -187,7 +187,7 @@ HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separa
 
 Default：100M
 
-The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100M, you can modify it according to your needs
+The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100M, you can modify it according to your needs.
 
 ### frontend_address
 
@@ -926,7 +926,7 @@ Default：10000
 
 IsMutable：true
 
-Limit on the number of expr children of an expr tree.  Exceed this limit may cause long analysis time while holding database read lock.  Do not set this if you know what you are doing.
+Limit on the number of expr children of an expr tree.  Exceed this limit may cause long analysis time while holding database read lock.  
 
 ### proxy_auth_magic_prefix
 
@@ -1051,7 +1051,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Maximal concurrency of broker scanners.  Do not set this if you know what you are doing.
+Maximal concurrency of broker scanners.  
 
 ### min_bytes_per_broker_scanner
 
@@ -1061,7 +1061,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Maximal bytes that a single broker scanner will read.  Do not set this if you know what you are doing.
+Maximal bytes that a single broker scanner will read.  
 
 ### catalog_trash_expire_second
 
@@ -1083,7 +1083,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 Default：HDD
 
-When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat..
+When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.
 
 ### max_backend_down_time_second
 
@@ -1093,7 +1093,7 @@ IsMutable：true
 
 MasterOnly：true
 
-If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.  Do not set this if you know what you are doing..
+If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered. 
 
 ### alter_table_timeout_second
 
@@ -1262,7 +1262,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to disable show stream load and clear stream load records in memory..
+Whether to disable show stream load and clear stream load records in memory.
 
 ### max_stream_load_record_size
 
@@ -1292,7 +1292,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Default number of waiting jobs for routine load and version 2 of load ， This is a desired number.  In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs
+Default number of waiting jobs for routine load and version 2 of load ， This is a desired number.  In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs.
 
 ### yarn_config_dir
 
@@ -1951,7 +1951,7 @@ Whether the plug-in is enabled, enabled by default
 
 ### label_keep_max_second
 
-Default：3 * 24 * 3600  (3天)
+Default：3 * 24 * 3600  (3day)
 
 IsMutable：true
 
