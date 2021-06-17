@@ -31,7 +31,7 @@ union TypeConverter {
     int32_t i32[2];
     uint8_t u8[8];
     float flt[2];
-    double db;
+    double dbl;
 };
 
 template <typename C0, typename C1, typename T0, typename T1>
@@ -59,18 +59,18 @@ To binary_cast(From from) {
     if constexpr (from_u64_to_db) {
         TypeConverter conv;
         conv.u64 = from;
-        return conv.db;
+        return conv.dbl;
     } else if constexpr (from_i64_to_db) {
         TypeConverter conv;
         conv.i64 = from;
-        return conv.db;
+        return conv.dbl;
     } else if constexpr (from_db_to_i64) {
         TypeConverter conv;
-        conv.db = from;
+        conv.dbl = from;
         return conv.i64;
     } else if constexpr (from_db_to_u64) {
         TypeConverter conv;
-        conv.db = from;
+        conv.dbl = from;
         return conv.u64;
     } else if constexpr (from_decv2_to_packed128) {
         DecimalInt128Union conv;
