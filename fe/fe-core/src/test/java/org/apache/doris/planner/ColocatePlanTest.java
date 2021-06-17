@@ -56,6 +56,7 @@ public class ColocatePlanTest {
         CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
         String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
+                + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
