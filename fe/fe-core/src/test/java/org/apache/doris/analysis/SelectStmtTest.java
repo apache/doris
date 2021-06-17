@@ -584,15 +584,19 @@ public class SelectStmtTest {
     public void testOutfile() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         Config.enable_outfile_to_local = true;
-        String sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int32,siteid;required,byte_array,username;\");";
+        String sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,col0\");";
         dorisAssert.query(sql).explainQuery();
-        // must contains schema
+        // if shema not set, gen schema
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET;";
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+            Assert.assertEquals(1, stmt.getOutFileClause().getSchema().size());
+            Assert.assertEquals(Lists.newArrayList("required", "byte_array", "col0"),
+                    stmt.getOutFileClause().getSchema().get(0));
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("schema is required for parquet file"));
+            Assert.fail(e.getMessage());
         }
+
         // schema must contains 3 fields
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"int32,siteid;\");";
         try {
@@ -600,6 +604,7 @@ public class SelectStmtTest {
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("must only contains repetition type/column type/column name"));
         }
+
         // unknown repetition type
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeat, int32,siteid;\");";
         try {
@@ -607,6 +612,7 @@ public class SelectStmtTest {
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("unknown repetition type"));
         }
+
         // only support required type
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeated,int32,siteid;\");";
         try {
@@ -614,6 +620,7 @@ public class SelectStmtTest {
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("currently only support required type"));
         }
+
         // unknown data type
         sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int128,siteid;\");";
         try {
@@ -621,26 +628,57 @@ public class SelectStmtTest {
         } catch (Exception e) {
             Assert.assertTrue(e.getMessage().contains("data type is not supported"));
         }
+
         // contains parquet properties
-        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int32,siteid;\", 'parquet.compression'='snappy');";
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,siteid;\", 'parquet.compression'='snappy');";
         dorisAssert.query(sql).explainQuery();
         // support parquet for broker
-        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET " +
+                "PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                "\"broker.kerberos_principal\" = \"test\",     " +
+                "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                "\"schema\"=\"required,byte_array,siteid;\");";
+        dorisAssert.query(sql).explainQuery();
 
         // do not support large int type
         try {
-            sql = "SELECT k5 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+            sql = "SELECT k5 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET " +
+                    "PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" ," +
+                    " \"schema\"=\"required,int32,siteid;\");";
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("currently parquet do not support largeint type"));
+            e.printStackTrace();
+            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
         }
 
         // do not support large int type, contains function
         try {
-            sql = "SELECT sum(k5) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     \"broker.hadoop.security.authentication\" = \"kerberos\",     \"broker.kerberos_principal\" = \"test\",     \"broker.kerberos_keytab_content\" = \"test\" , \"schema\"=\"required,int32,siteid;\");";
+            sql = "SELECT sum(k5) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" " +
+                    "FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                    "\"schema\"=\"required,int32,siteid;\");";
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("currently parquet do not support largeint type"));
+            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+        }
+
+        // support cast
+        try {
+            sql = "SELECT cast(sum(k5) as bigint) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" " +
+                    "FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                    "\"schema\"=\"required,int64,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
         }
     }
 }

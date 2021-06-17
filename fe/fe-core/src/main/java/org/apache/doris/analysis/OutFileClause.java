@@ -34,8 +34,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.spark.sql.catalyst.expressions.Exp;
-import org.checkerframework.checker.units.qual.A;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -144,6 +142,10 @@ public class OutFileClause {
         return brokerDesc;
     }
 
+    public List<List<String>> getSchema() {
+        return schema;
+    }
+
     private void analyze(Analyzer analyzer) throws AnalysisException {
         analyzeFilePath();
 
@@ -190,41 +192,41 @@ public class OutFileClause {
 
         // check type
         for (int i = 0; i < this.schema.size(); ++i) {
-            String type = this.schema.get(i).get(2);
+            String type = this.schema.get(i).get(1);
             Type resultType = resultExprs.get(i).getType();
             switch (resultType.getPrimitiveType()) {
                 case BOOLEAN:
                     if (!type.equals("boolean")) {
-                        throw new AnalysisException("project field type is boolean, but the type of column "
-                                + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
+                                + i + " is " + type);
                     }
                     break;
                 case TINYINT:
                 case SMALLINT:
                 case INT:
                     if (!type.equals("int32")) {
-                        throw new AnalysisException("project field type is tiny int/small int/int, should use int32, "
-                                + "but the definition type of column " + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
+                                + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case BIGINT:
                 case DATE:
                 case DATETIME:
                     if (!type.equals("int64")) {
-                        throw new AnalysisException("project field type is bigint/date/datetime, should use int64, " +
-                                "but the definition type of column " + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
+                                "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case FLOAT:
                     if (!type.equals("float")) {
-                        throw new AnalysisException("project field type is float, but the definition type of column "
-                                + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
+                                + i + " is " + type);
                     }
                     break;
                 case DOUBLE:
                     if (!type.equals("double")) {
-                        throw new AnalysisException("project field type is double, but the definition type of column "
-                                + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
+                                + i + " is " + type);
                     }
                     break;
                 case CHAR:
@@ -232,12 +234,12 @@ public class OutFileClause {
                 case DECIMAL:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
-                        throw new AnalysisException("project field type is char/varchar/decimal, but the definition type of column "
-                                + i + " is " + resultType.getPrimitiveType());
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
+                                "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 default:
-                    throw new AnalysisException("currently parquet do not support column type: " + resultType.getPrimitiveType());
+                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
             }
         }
     }
