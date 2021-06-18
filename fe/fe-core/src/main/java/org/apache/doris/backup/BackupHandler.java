@@ -681,14 +681,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
     public void write(DataOutput out) throws IOException {
         repoMgr.write(out);
 
-        jobLock.lock();
-        List<AbstractJob> jobs;
-        try {
-            jobs = dbIdToBackupOrRestoreJobs.values().stream().flatMap(Deque::stream).collect(Collectors.toList());
-        } finally {
-            jobLock.unlock();
-        }
-
+        List<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.values().stream().flatMap(Deque::stream).collect(Collectors.toList());
         out.writeInt(jobs.size());
         for (AbstractJob job : jobs) {
             job.write(out);
