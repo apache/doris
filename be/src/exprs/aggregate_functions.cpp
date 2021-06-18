@@ -1650,7 +1650,7 @@ public:
     BigIntVal count_finalize() { return BigIntVal(_set.size()); }
 
     DecimalV2Val sum_finalize() {
-        DecimalV2Value sum;
+        DecimalV2Value sum(0);
         for (auto& value : _set) {
             sum += value;
         }
