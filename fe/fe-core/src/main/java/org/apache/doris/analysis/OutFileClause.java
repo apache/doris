@@ -32,6 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -393,10 +394,13 @@ public class OutFileClause {
 
         // check schema. if schema is not set, Doris will gen schema by select items
         String schema = properties.get(SCHEMA);
-        if (schema == null || schema.isEmpty()) {
-           return;
+        if (schema == null) {
+            return;
         }
-        schema = schema.replace(" ","");
+        if (schema.isEmpty()) {
+            throw new AnalysisException("Parquet schema property should not be empty");
+        }
+        schema = schema.replace(" ", "");
         schema = schema.toLowerCase();
         String[] schemas = schema.split(";");
         for (String item : schemas) {
@@ -418,7 +422,6 @@ public class OutFileClause {
             this.schema.add(column);
         }
         processedPropKeys.add(SCHEMA);
-
     }
 
     private boolean isCsvFormat() {
