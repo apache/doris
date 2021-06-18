@@ -72,8 +72,7 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
 
-    std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(-1, "ColumnIteratorOptionsDefault", nullptr, false);
+    std::shared_ptr<MemTracker> mem_tracker;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
