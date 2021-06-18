@@ -119,6 +119,7 @@ You can try to compile Doris directly in your own Linux environment.
        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
        sudo apt update
        sudo apt install gcc-10 g++-10 
+       sudo apt-get install autoconf automake libtool autopoint
        ```
         If you are using CentOS you can use the following command to install the dependencies
     
@@ -137,9 +138,9 @@ You can try to compile Doris directly in your own Linux environment.
        gpgcheck=1
        enabled=1
        ```
-    After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
-    Doris 0.14.0 will use gcc7 env to compile.
-
+       After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+       Doris 0.14.0 will use gcc7 env to compile.
+    
 2. Compile Doris
 
     ```
@@ -152,7 +153,6 @@ You can try to compile Doris directly in your own Linux environment.
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
     If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
-	
 ## Special statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.
