@@ -127,7 +127,6 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    _cancelled = true;
     LOG(WARNING) << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
@@ -135,6 +134,7 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
             _cancel_msg = msg;
         }
     }
+    _cancelled = true;
 }
 
 Status NodeChannel::open_wait() {
