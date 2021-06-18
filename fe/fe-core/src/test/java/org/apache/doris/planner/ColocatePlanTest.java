@@ -50,8 +50,14 @@ public class ColocatePlanTest {
         // create table test_colocate (k1 int ,k2 int, k3 int, k4 int)
         // distributed by hash(k1, k2) buckets 10
         // properties ("replication_num" = "2");
-        String createTblStmtStr = "create table db1.test_colocate(k1 int, k2 int, k3 int, k4 int) "
-                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2');";
+        String createColocateTblStmtStr = "create table db1.test_colocate(k1 int, k2 int, k3 int, k4 int) "
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+                + "'colocate_with' = 'group1');";
+        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
+        String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
+                + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
+                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -117,5 +123,18 @@ public class ColocatePlanTest {
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
+    }
+
+    // without:
+    // 1. agg columns = distributed columns
+    // 2. table is not in colocate group
+    // 3. more then 1 instances
+    // Fixed #6028
+    @Test
+    public void sqlAggWithNonColocateTable() throws Exception {
+        String sql = "explain select k1, k2 from db1.test group by k1, k2";
+        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
+        Assert.assertFalse(plan1.contains(COLOCATE_ENABLE));
     }
 }

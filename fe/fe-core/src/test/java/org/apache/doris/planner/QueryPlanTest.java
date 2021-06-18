@@ -1359,7 +1359,7 @@ public class QueryPlanTest {
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+        Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
     public void testLeadAndLagFunction() throws Exception {
