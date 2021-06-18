@@ -907,7 +907,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
         return StringVal::null();
     }
 
-    DecimalV2Value rounded;
+    DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
     DecimalV2Value tmp(std::string_view("100"));
     DecimalV2Value result = rounded * tmp;

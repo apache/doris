@@ -112,7 +112,7 @@ TEST_F(DecimalV2ValueTest, negative_zero) {
 }
 
 TEST_F(DecimalV2ValueTest, int_to_decimal) {
-    DecimalV2Value value1;
+    DecimalV2Value value1(0);
     ASSERT_EQ("0", value1.to_string(3));
 
     DecimalV2Value value2(111111111, 0); // 9 digits
@@ -308,7 +308,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     // less than 5
     DecimalV2Value value(std::string("1.249"));
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, -1, HALF_UP);
         ASSERT_EQ("0", dst.to_string());
 
@@ -322,7 +322,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
         ASSERT_EQ("0", dst.to_string());
     }
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 0, HALF_UP);
         ASSERT_EQ("1", dst.to_string());
 
@@ -337,7 +337,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 1, HALF_UP);
         ASSERT_EQ("1.2", dst.to_string());
 
@@ -352,7 +352,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 2, HALF_UP);
         ASSERT_EQ("1.25", dst.to_string());
 
@@ -367,7 +367,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 3, HALF_UP);
         ASSERT_EQ("1.249", dst.to_string());
 
@@ -382,7 +382,7 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 4, HALF_UP);
         ASSERT_EQ("1.249", dst.to_string());
 
@@ -402,7 +402,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     // less than 5
     DecimalV2Value value(std::string("-1.249"));
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, -1, HALF_UP);
         ASSERT_EQ("0", dst.to_string());
 
@@ -416,7 +416,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
         ASSERT_EQ("0", dst.to_string());
     }
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 0, HALF_UP);
         ASSERT_EQ("-1", dst.to_string());
 
@@ -431,7 +431,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 1, HALF_UP);
         ASSERT_EQ("-1.2", dst.to_string());
 
@@ -446,7 +446,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 2, HALF_UP);
         ASSERT_EQ("-1.25", dst.to_string());
 
@@ -461,7 +461,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 3, HALF_UP);
         ASSERT_EQ("-1.249", dst.to_string());
 
@@ -476,7 +476,7 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     }
 
     {
-        DecimalV2Value dst;
+        DecimalV2Value dst(0);
         value.round(&dst, 4, HALF_UP);
         ASSERT_EQ("-1.249", dst.to_string());
 

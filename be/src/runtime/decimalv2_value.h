@@ -60,7 +60,7 @@ public:
     static const int128_t MAX_DECIMAL_VALUE =
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
-    DecimalV2Value() : _value(0) {}
+    DecimalV2Value() = default;
     inline const int128_t& value() const { return _value; }
     inline int128_t& value() { return _value; }
 
