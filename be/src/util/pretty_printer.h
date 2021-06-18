@@ -26,6 +26,7 @@
 #include "gen_cpp/RuntimeProfile_types.h"
 #include "util/cpu_info.h"
 #include "util/template_util.h"
+#include "util/binary_cast.hpp"
 
 /// Truncate a double to offset decimal places.
 #define DOUBLE_TRUNCATE(val, offset) floor(val* pow(10, offset)) / pow(10, offset)
@@ -140,7 +141,7 @@ public:
 
         /// TODO: Remove DOUBLE_VALUE. IMPALA-1649
         case TUnit::DOUBLE_VALUE: {
-            double output = *reinterpret_cast<double*>(&value);
+            double output = binary_cast<T, double>(value);
             ss << std::setprecision(PRECISION) << output << " ";
             break;
         }

@@ -1145,12 +1145,6 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 }
 
                 switch (slot->type().type) {
-                case TYPE_TINYINT: {
-                    int32_t v = *reinterpret_cast<int8_t*>(value);
-                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(&v));
-                    break;
-                }
 
                 case TYPE_DATE: {
                     DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
@@ -1165,6 +1159,7 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                                      *reinterpret_cast<T*>(&date_value));
                     break;
                 }
+                case TYPE_TINYINT:
                 case TYPE_DECIMAL:
                 case TYPE_DECIMALV2:
                 case TYPE_CHAR:
@@ -1174,15 +1169,10 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_SMALLINT:
                 case TYPE_INT:
                 case TYPE_BIGINT:
-                case TYPE_LARGEINT: {
+                case TYPE_LARGEINT:
+                case TYPE_BOOLEAN: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(value));
-                    break;
-                }
-                case TYPE_BOOLEAN: {
-                    bool v = *reinterpret_cast<bool*>(value);
-                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
-                                     *reinterpret_cast<T*>(&v));
                     break;
                 }
 
