@@ -794,15 +794,27 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
+    /*
+    Although sometimes the scan range only involves one instance,
+        the data distribution cannot be set to UNPARTITION here.
+    The reason is that @coordicator will not set the scan range for the fragment,
+        when data partition of fragment is UNPARTITION.
+     */
     public DataPartition constructInputPartitionByDistributionInfo() {
-        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-        Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
-        List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
-        List<Expr> dataDistributeExprs = Lists.newArrayList();
-        for (Column column : distributeColumns) {
-            SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
-            dataDistributeExprs.add(slotRef);
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())
+                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapTable.getPartitions().size() == 1) {
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
+            List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            List<Expr> dataDistributeExprs = Lists.newArrayList();
+            for (Column column : distributeColumns) {
+                SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
+                dataDistributeExprs.add(slotRef);
+            }
+            return DataPartition.hashPartitioned(dataDistributeExprs);
+        } else {
+            return DataPartition.RANDOM;
         }
-        return DataPartition.hashPartitioned(dataDistributeExprs);
     }
 }
