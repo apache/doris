@@ -571,9 +571,6 @@ IsMutable：true
 
 MasterOnly：true
 
-
-### `max_running_txn_num_per_db`
-
 This configuration is mainly used to control the number of concurrent load jobs of the same database.
 
 When there are too many load jobs running in the cluster, the newly submitted load jobs may report errors:
