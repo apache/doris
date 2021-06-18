@@ -287,13 +287,13 @@ public class ShowDataStmt extends ShowStmt {
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                         + tableSizePair.second;
                     if (index == 0) {
-                        result = Arrays.asList(tableName, String.valueOf(1),
-                            readableSize, String.valueOf(3),
-                            String.valueOf(row.get(4)));
+                        result = Arrays.asList(tableName, String.valueOf(row.get(1)),
+                                readableSize, String.valueOf(row.get(3)),
+                                String.valueOf(row.get(4)));
                     } else {
-                        result = Arrays.asList("", String.valueOf(1),
-                            readableSize, String.valueOf(3),
-                            String.valueOf(row.get(4)));
+                        result = Arrays.asList("", String.valueOf(row.get(1)),
+                                readableSize, String.valueOf(row.get(3)),
+                                String.valueOf(row.get(4)));
                     }
                     totalRows.add(result);
                 }
