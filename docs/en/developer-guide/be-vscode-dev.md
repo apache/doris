@@ -200,7 +200,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
 }
 ```
 
-In the configuration **"request": "attach",** **"processId":17016**, these two configuration sections are the key points: set the debug mode of gdb to attach and attach the processId of the process, otherwise it will fail. How to find the process id, you can enter the following command in the command line:
+In the configuration **"request": "attach", "processId": PID**, these two configurations are the key points: set the debug mode of gdb to attach and attach the processId of the process, otherwise it will fail. To find the process id, you can enter the following command in the command line:
 
 ```
 ps -ef | grep palo*

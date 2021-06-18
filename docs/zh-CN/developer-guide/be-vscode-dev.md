@@ -202,7 +202,7 @@ mkdir -p /soft/be/storage
 }
 ```
 
-配置中 **"request": "attach",**   **"processId":17016**，这两个配置节是重点： 分别设置 gdb 的调试模式为 attach，附加进程的processId，否则会失败。如何查找进程id，可以在命令行中输入以下命令：
+配置中 **"request": "attach"，   "processId":PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的processId，否则会失败。如何查找进程id，可以在命令行中输入以下命令：
 
 ```
 ps -ef | grep palo*
