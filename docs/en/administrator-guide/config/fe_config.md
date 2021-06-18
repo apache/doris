@@ -496,7 +496,9 @@ This will limit the max recursion depth of hash distribution pruner.
       So that distribution pruner will no work and just return all buckets.
       Increase the depth can support distribution pruning for more elements, but may cost more CPU.
 
-### `max_backup_restore_job_num_per_db`
+### max_backup_restore_job_num_per_db
+
+Default: 10
 
 This configuration is mainly used to control the number of backup/restore tasks recorded in each database.
 
@@ -507,7 +509,6 @@ Default：false
 IsMutable：true
 
 MasterOnly：true
-
 
 If set to true, the insert stmt with processing error will still return a label to user.  And user can use this label to check the load job's status. The default value is false, which means if insert operation encounter errors,  exception will be thrown to user client directly without load label.
 
