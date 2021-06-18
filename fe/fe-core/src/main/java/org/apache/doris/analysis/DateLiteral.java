@@ -28,10 +28,6 @@ import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
@@ -39,6 +35,10 @@ import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -265,7 +265,8 @@ public class DateLiteral extends LiteralExpr {
             if (type.equals(Type.DATE)) {
                 if (s.split("-")[0].length() == 2) {
                     dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
-                } else if(s.length() == DATEKEY_LENGTH) {
+                } else if (s.length() == DATEKEY_LENGTH && !s.contains("-")) {
+                    // handle format like 20210106, but should not handle 2021-1-6
                     dateTime = DATEKEY_FORMATTER.parseLocalDateTime(s);
                 } else {
                     dateTime = DATE_FORMATTER.parseLocalDateTime(s);

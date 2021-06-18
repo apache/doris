@@ -33,11 +33,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 // Show view statement, used to show view information of one table.
@@ -114,19 +112,22 @@ public class ShowViewStmt extends ShowStmt {
 
         for (Table table : database.getViews()) {
             View view = (View) table;
-            Map<Long, Table> tableMap = Maps.newHashMap();
-            // get tables from view sql
-            getTables(analyzer, view, tableMap);
-            if (tableMap.containsKey(showTable.getId())) {
-                matchViews.add(view);
+            List<TableRef> tblRefs = Lists.newArrayList();
+            // get table refs instead of get tables because it don't need to check table's validity
+            getTableRefs(view, tblRefs);
+            for (TableRef tblRef : tblRefs) {
+                tblRef.analyze(analyzer);
+                if (tblRef.getName().equals(tbl)) {
+                    matchViews.add(view);
+                }
             }
         }
     }
 
-    private void getTables(Analyzer analyzer, View view, Map<Long, Table> tableMap) throws UserException {
+    private void getTableRefs(View view, List<TableRef> tblRefs) {
         Set<String> parentViewNameSet = Sets.newHashSet();
         QueryStmt queryStmt = view.getQueryStmt();
-        queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+        queryStmt.getTableRefs(tblRefs, parentViewNameSet);
     }
 
     @Override

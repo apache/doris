@@ -127,8 +127,22 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
                 return Status::NotSupported(
                         "When create ArrayColumnVectorBatch, `Field` is indispensable");
             }
+
+            std::unique_ptr<ColumnVectorBatch> elements;
+            auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+            RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity * 2, field->get_sub_field(0)->is_nullable(),
+                    array_type_info->item_type_info(), field->get_sub_field(0), &elements));
+
+            std::unique_ptr<ColumnVectorBatch> offsets;
+            TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
+            RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false,
+                                      bigint_type_info, nullptr, &offsets));
+
             std::unique_ptr<ColumnVectorBatch> local(
-                    new ArrayColumnVectorBatch(type_info, is_nullable, init_capacity, field));
+                    new ArrayColumnVectorBatch(type_info,
+                            is_nullable,
+                            reinterpret_cast<ScalarColumnVectorBatch<uint64_t>*>(offsets.release()),
+                            elements.release()));
             RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
@@ -158,13 +172,12 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
 }
 
 ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
-                                               size_t init_capacity, Field* field)
-        : ColumnVectorBatch(type_info, is_nullable), _data(0), _item_offsets(1) {
-    auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
-    _item_offsets[0] = 0;
-    ColumnVectorBatch::create(init_capacity * 2, field->get_sub_field(0)->is_nullable(),
-                              array_type_info->item_type_info(), field->get_sub_field(0),
-                              &_elements);
+                                               ScalarColumnVectorBatch<uint64_t>* offsets,
+                                               ColumnVectorBatch* elements)
+        : ColumnVectorBatch(type_info, is_nullable), _data(0) {
+    _offsets.reset(offsets);
+    *(_offsets->scalar_cell_ptr(0)) = 0;
+    _elements.reset(elements);
 }
 
 ArrayColumnVectorBatch::~ArrayColumnVectorBatch() = default;
@@ -173,31 +186,32 @@ Status ArrayColumnVectorBatch::resize(size_t new_cap) {
     if (capacity() < new_cap) {
         RETURN_IF_ERROR(ColumnVectorBatch::resize(new_cap));
         _data.resize(new_cap);
-        _item_offsets.resize(new_cap + 1);
+        _offsets->resize(new_cap + 1);
     }
     return Status::OK();
 }
 
-void ArrayColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx,
-                                              size_t size) {
-    size_t first_offset = _item_offsets[start_idx];
-    segment_v2::ordinal_t first_ordinal = ordinals[0];
-    size_t i = 0;
-    while (++i < size) {
-        _item_offsets[start_idx + i] = first_offset + (ordinals[i] - first_ordinal);
+void ArrayColumnVectorBatch::get_offset_by_length(size_t start_idx, size_t size) {
+    DCHECK(start_idx >= 0);
+    DCHECK(start_idx + size < _offsets->capacity());
+
+    for (size_t i = start_idx; i < start_idx + size; ++i) {
+        *(_offsets->scalar_cell_ptr(i + 1)) =
+                *(_offsets->scalar_cell_ptr(i)) + *(_offsets->scalar_cell_ptr(i + 1));
     }
 }
 
-void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t end_idx,
-                                              bool item_has_null) {
-    for (size_t idx = start_idx; idx < end_idx; ++idx) {
-        if (!is_null_at(idx)) {
-            _data[idx] = Collection(
-                    _elements->mutable_cell_ptr(_item_offsets[idx]),
-                    _item_offsets[idx + 1] - _item_offsets[idx], item_has_null,
+void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t size, bool item_has_null) {
+    DCHECK(start_idx + size <= capacity());
+    for (size_t i = 0; i < size; ++i) {
+        if (!is_null_at(start_idx + i)) {
+            _data[start_idx + i] = Collection(
+                    _elements->mutable_cell_ptr(*(_offsets->scalar_cell_ptr(start_idx + i))),
+                    *(_offsets->scalar_cell_ptr(start_idx + i + 1)) - *(_offsets->scalar_cell_ptr(start_idx + i)),
+                    item_has_null,
                     _elements->is_nullable()
-                            ? const_cast<bool*>(&_elements->null_signs()[_item_offsets[idx]])
-                            : nullptr);
+                    ? const_cast<bool*>(&_elements->null_signs()[*(_offsets->scalar_cell_ptr(start_idx + i))])
+                    : nullptr);
         }
     }
 }

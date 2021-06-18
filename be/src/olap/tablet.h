@@ -272,6 +272,10 @@ private:
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     const uint32_t _calc_base_compaction_score() const;
 
+    // When the proportion of empty edges in the adjacency matrix used to represent the version graph
+    // in the version tracker is greater than the threshold, rebuild the version tracker
+    bool _reconstruct_version_tracker_if_necessary();
+
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 

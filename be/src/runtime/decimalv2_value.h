@@ -25,6 +25,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "common/logging.h"
 #include "runtime/decimal_value.h"
@@ -50,7 +51,7 @@ public:
     static const int64_t MAX_INT_VALUE = 999999999999999999;
     static const int32_t MAX_FRAC_VALUE = 999999999;
     static const int64_t MAX_INT64 = 9223372036854775807ll;
-    // In sqrt, the integer part and the decimal part of the square root to be solved separately are 
+    // In sqrt, the integer part and the decimal part of the square root to be solved separately are
     // multiplied by the PRECISION/2 power of 10, so that they can be placed in an int128_t variable
     static const int128_t SQRT_MOLECULAR_MAGNIFICATION;
     // sqrt(ONE_BILLION) * pow(10, PRECISION/2 - SCALE), it is used to calculate SCALE of the sqrt result
@@ -59,7 +60,7 @@ public:
     static const int128_t MAX_DECIMAL_VALUE =
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
-    DecimalV2Value() : _value(0) {}
+    DecimalV2Value() = default;
     inline const int128_t& value() const { return _value; }
     inline int128_t& value() { return _value; }
 
@@ -67,6 +68,9 @@ public:
         parse_from_str(decimal_str.c_str(), decimal_str.size());
     }
 
+    DecimalV2Value(const std::string_view& decimal_str) {
+        parse_from_str(decimal_str.data(), decimal_str.size());
+    }
     // Construct from olap engine
     DecimalV2Value(int64_t int_value, int64_t frac_value) {
         from_olap_decimal(int_value, frac_value);

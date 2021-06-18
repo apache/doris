@@ -91,14 +91,14 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _rowset->_segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(schema, read_options, &iter);
+        auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return OLAP_ERR_ROWSET_READER_INIT;
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::vector<RowwiseIterator*> iterators;
+    std::list<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         // transfer ownership of segment iterator to `_iterator`
         iterators.push_back(owned_it.release());

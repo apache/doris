@@ -123,7 +123,7 @@ Status BrokerReader::open() {
 
 //not support
 Status BrokerReader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
-    return Status::NotSupported("Not support");
+    return Status::NotSupported("broker reader doesn't support read_one_message interface");
 }
 
 Status BrokerReader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {

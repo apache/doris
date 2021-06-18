@@ -70,7 +70,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
                 options.getTableIdentifier().split("\\.")[1],
                 options.getUsername(),
                 options.getPassword());
-        LOG.info("Steamload BE:{}",dorisStreamLoad.getLoadUrlStr());
+        LOG.info("Streamload BE:{}",dorisStreamLoad.getLoadUrlStr());
     }
 
     @Override

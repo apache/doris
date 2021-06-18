@@ -127,6 +127,11 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
+        // TODO: Here is weird use float to represent TIME type
+        // rethink whether it is reasonable to use this way
+        if (type.equals(Type.TIME)) {
+            return timeStrFromFloat(value);
+        }
         return Double.toString(value);
     }
 
@@ -195,5 +200,20 @@ public class FloatLiteral extends LiteralExpr {
     public int hashCode() {
         return 31 * super.hashCode() + Double.hashCode(value);
     }
+
+    private String timeStrFromFloat (double time) {
+        String timeStr = "";
+
+        if (time < 0) {
+            timeStr += "-";
+            time = -time;
+        }
+        int hour = (int) (time / 60 / 60);
+        int minute = (int)((time / 60)) % 60;
+        int second = (int) (time) % 60;
+
+        return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
+    }
+
 }
 

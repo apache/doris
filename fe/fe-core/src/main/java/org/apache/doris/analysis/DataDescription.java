@@ -120,6 +120,7 @@ public class DataDescription {
     private String jsonRoot = "";
     private boolean fuzzyParse = false;
     private boolean readJsonByLine = false;
+    private boolean numAsString = false;
 
     private String sequenceCol;
 
@@ -137,6 +138,7 @@ public class DataDescription {
 
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
     private final Expr deleteCondition;
+    private Map<String, String> properties;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -147,7 +149,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null);
+                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
@@ -163,7 +165,8 @@ public class DataDescription {
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
                            Expr deleteCondition,
-                           String sequenceColName) {
+                           String sequenceColName,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = filePaths;
@@ -179,6 +182,7 @@ public class DataDescription {
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
+        this.properties = properties;
     }
 
     // data from table external_hive_table
@@ -189,7 +193,8 @@ public class DataDescription {
                            List<Expr> columnMappingList,
                            Expr whereExpr,
                            LoadTask.MergeType mergeType,
-                           Expr deleteCondition) {
+                           Expr deleteCondition,
+                           Map<String, String> properties) {
         this.tableName = tableName;
         this.partitionNames = partitionNames;
         this.filePaths = null;
@@ -204,6 +209,7 @@ public class DataDescription {
         this.srcTableName = srcTableName;
         this.mergeType = mergeType;
         this.deleteCondition = deleteCondition;
+        this.properties = properties;
     }
 
     public static void validateMappingFunction(String functionName, List<String> args,
@@ -499,12 +505,12 @@ public class DataDescription {
         this.fuzzyParse = fuzzyParse;
     }
 
-    public boolean isReadJsonByLine() {
-        return readJsonByLine;
+    public boolean isNumAsString() {
+        return numAsString;
     }
 
-    public void setReadJsonByLine(boolean readJsonByLine) {
-        this.readJsonByLine = readJsonByLine;
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {
@@ -755,6 +761,36 @@ public class DataDescription {
         }
     }
 
+    private void analyzeProperties() throws AnalysisException {
+        Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        analysisMap.putAll(properties);
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
+            lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
+            lineDelimiter.analyze();
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE)) {
+            fuzzyParse = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_FUZZY_PARSE));
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY)) {
+            stripOuterArray = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY));
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONPATHS)) {
+            jsonPaths = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONPATHS);
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_JSONROOT)) {
+            jsonRoot = analysisMap.get(LoadStmt.KEY_IN_PARAM_JSONROOT);
+        }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
+            numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
+        }
+    }
+
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
@@ -817,6 +853,10 @@ public class DataDescription {
         analyzeColumns();
         analyzeMultiLoadColumns();
         analyzeSequenceCol(fullDbName);
+
+        if (properties != null) {
+            analyzeProperties();
+        }
     }
 
     /*

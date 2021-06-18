@@ -1361,7 +1361,7 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
 }
 
 SchemaChangeHandler::SchemaChangeHandler()
-        : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange")) {
+        : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange", StorageEngine::instance()->schema_change_mem_tracker())) {
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
 }
@@ -1474,7 +1474,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     reader_context.seek_columns = &return_columns;
 
     auto mem_tracker = MemTracker::CreateTracker(-1, "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-"
-        + std::to_string(new_tablet->tablet_id()), _mem_tracker, true, false, MemTrackerLevel::DEBUG);
+        + std::to_string(new_tablet->tablet_id()), _mem_tracker, true, false, MemTrackerLevel::TASK);
 
     do {
         // get history data to be converted and it will check if there is hold in base tablet

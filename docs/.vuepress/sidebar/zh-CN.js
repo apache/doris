@@ -142,6 +142,7 @@ module.exports = [
         title: "运维操作",
         directoryPath: "operation/",
         children: [
+          "doris-error-code",
           "disk-capacity",
           "metadata-operation",
           "monitor-alert",
@@ -255,6 +256,7 @@ module.exports = [
               "from_days",
               "from_unixtime",
               "hour",
+              "makedate",
               "minute",
               "month",
               "monthname",
@@ -268,8 +270,10 @@ module.exports = [
               "to_days",
               "unix_timestamp",
               "utc_timestamp",
+              "week",
               "weekofyear",
               "year",
+              "yearweek",
             ],
           },
           {

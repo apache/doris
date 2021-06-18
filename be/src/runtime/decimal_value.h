@@ -25,6 +25,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "common/logging.h"
 #include "gutil/strings/numbers.h"
@@ -104,7 +105,11 @@ public:
     DecimalValue() : _buffer_length(DECIMAL_BUFF_LENGTH) { set_to_zero(); }
 
     DecimalValue(const std::string& decimal_str) : _buffer_length(DECIMAL_BUFF_LENGTH) {
-        parse_from_str(decimal_str.c_str(), decimal_str.size());
+        parse_from_str(decimal_str.data(), decimal_str.size());
+    }
+
+    DecimalValue(const std::string_view& decimal_str) : _buffer_length(DECIMAL_BUFF_LENGTH) {
+        parse_from_str(decimal_str.data(), decimal_str.size());
     }
 
     // Construct from olap engine

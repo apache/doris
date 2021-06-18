@@ -532,15 +532,28 @@ void Tablet::delete_expired_stale_rowset() {
         }
         to_delete_iter++;
     }
+
+    bool reconstructed = _reconstruct_version_tracker_if_necessary();
+
     LOG(INFO) << "delete stale rowset _stale_rs_version_map tablet=" << full_name()
               << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
               << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
               << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
-              << expired_stale_sweep_endtime;
+              << expired_stale_sweep_endtime  << ", reconstructed=" << reconstructed;
 
 #ifndef BE_TEST
     save_meta();
 #endif
+}
+
+bool Tablet::_reconstruct_version_tracker_if_necessary() {
+    double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
+    if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
+                _tablet_meta->all_stale_rs_metas());
+        return true;
+    }
+    return false;
 }
 
 OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,

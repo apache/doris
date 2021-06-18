@@ -57,7 +57,7 @@ DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(FunctionContext* context,
     if (val.is_null) {
         return DecimalV2Val::null();
     }
-    DecimalV2Value dv;
+    DecimalV2Value dv(0);
     dv.assign_from_float(val.val);
     DecimalV2Val result;
     dv.to_decimal_val(&result);
@@ -69,7 +69,7 @@ DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(FunctionContext* context,
     if (val.is_null) {
         return DecimalV2Val::null();
     }
-    DecimalV2Value dv;
+    DecimalV2Value dv(0);
     dv.assign_from_double(val.val);
     DecimalV2Val result;
     dv.to_decimal_val(&result);
@@ -94,7 +94,7 @@ DecimalV2Val DecimalV2Operators::cast_to_decimalv2_val(FunctionContext* context,
     if (val.is_null) {
         return DecimalV2Val::null();
     }
-    DecimalV2Value dv;
+    DecimalV2Value dv(0);
     if (dv.parse_from_str((const char*)val.ptr, val.len)) {
         return DecimalV2Val::null();
     }

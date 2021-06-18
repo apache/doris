@@ -129,7 +129,8 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                  "       data-search='true' "
                  "       class='table table-striped'>\n";
     (*output) << "<thead><tr>"
-                 "<th>Id</th>"
+                 "<th data-sortable='true' "
+                 ">Id</th>"
                  "<th>Parent</th>"
                  "<th>Limit</th>"
                  "<th data-sorter='bytesSorter' "
@@ -137,7 +138,9 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
                  ">Current Consumption</th>"
                  "<th data-sorter='bytesSorter' "
                  "    data-sortable='true' "
-                 ">Peak Consumption</th>";
+                 ">Peak Consumption</th>"
+                 "<th data-sortable='true' "
+                 ">Use Count</th></tr></thead>";
     (*output) << "<tbody>\n";
 
     std::vector<shared_ptr<MemTracker>> trackers;
@@ -147,10 +150,11 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string limit_str = tracker->limit() == -1 ? "none" : ItoaKMGT(tracker->limit());
         string current_consumption_str = ItoaKMGT(tracker->consumption());
         string peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
+        int64_t use_count = tracker.use_count();
         (*output) << strings::Substitute(
                 "<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit
-                "<td>$3</td><td>$4</td></tr>\n",        // current, peak
-                tracker->label(), parent, limit_str, current_consumption_str, peak_consumption_str);
+                "<td>$3</td><td>$4</td><td>$5</td></tr>\n",        // current, peak
+                tracker->label(), parent, limit_str, current_consumption_str, peak_consumption_str, use_count);
     }
     (*output) << "</tbody></table>\n";
 }

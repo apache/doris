@@ -40,7 +40,6 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
@@ -324,6 +323,22 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
+    @Override
+    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+        for (TableRef tblRef : fromClause_) {
+            if (tblRef instanceof InlineViewRef) {
+                QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
+                inlineStmt.getTableRefs(tblRefs, parentViewNameSet);
+            } else {
+                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
+                    continue;
+                }
+                tblRefs.add(tblRef);
+            }
+        }
+    }
+
     // if tableName in parentViewNameSetor tableName in withClause views
     // means this tableref is inlineview, no need check dbname again
     private boolean isViewTableRef(String tblName, Set<String> parentViewNameSet) {
@@ -513,6 +528,9 @@ public class SelectStmt extends QueryStmt {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("post-analysis " + aggInfo.debugString());
             }
+        }
+        if (hasOutFileClause()) {
+            outFileClause.analyze(analyzer, this);
         }
     }
 
@@ -971,7 +989,9 @@ public class SelectStmt extends QueryStmt {
             if (analyzer.isSemiJoined(tableRef.getId())) {
                 continue;
             }
-            expandStar(new TableName(null, tableRef.getAlias()), tableRef.getDesc());
+            expandStar(new TableName(tableRef.getAliasAsName().getDb(),
+                            tableRef.getAliasAsName().getTbl()),
+                    tableRef.getDesc());
         }
     }
 

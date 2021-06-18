@@ -377,7 +377,12 @@ bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
         return false;
     }
     for (auto& item : ctx->kafka_info->properties) {
-        if (_custom_properties.find(item.first) == _custom_properties.end()) {
+        std::unordered_map<std::string, std::string>::const_iterator itr =_custom_properties.find(item.first);
+        if (itr == _custom_properties.end()) {
+            return false;
+        }
+
+        if (itr->second != item.second) {
             return false;
         }
     }

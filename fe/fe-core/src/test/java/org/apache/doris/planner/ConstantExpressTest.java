@@ -110,6 +110,18 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select curdate();",
                 "");
+
+        testConstantExpressResult(
+                "select current_timestamp();",
+                "");
+
+        testConstantExpressResult(
+                "select curtime();",
+                "");
+
+        testConstantExpressResult(
+                "select current_time();",
+                "");
     }
 
     @Test

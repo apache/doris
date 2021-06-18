@@ -103,9 +103,6 @@ inline uint64 ghtonll(uint64 x) {
 
 // ntoh* and hton* are the same thing for any size and bytesex,
 // since the function is an involution, i.e., its own inverse.
-#define gntohl(x) ghtonl(x)
-#define gntohs(x) ghtons(x)
-#define gntohll(x) ghtonll(x)
 #if !defined(__APPLE__)
 // This one is safe to take as it's an extension
 #define htonll(x) ghtonll(x)
