@@ -545,7 +545,7 @@ SmallFileMgr 中存储的最大文件数
 
 最大 Routine Load 作业数，包括 NEED_SCHEDULED, RUNNING, PAUSE
 
-### `max_backup_restore_job_num_per_db`
+### max_backup_restore_job_num_per_db
 
 默认值：10
 
@@ -558,7 +558,6 @@ SmallFileMgr 中存储的最大文件数
 是否可以动态配置：true
 
 是否为 Master FE 节点独有的配置项：true
-
 
 这个配置主要是用来控制同一个 db 的并发导入个数的。
 
