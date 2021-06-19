@@ -259,8 +259,6 @@ Status ExportSink::close(RuntimeState* state, Status exec_status) {
         COUNTER_UPDATE(_bytes_written_counter, _parquet_writer->written_len());
         delete _parquet_writer;
         _parquet_writer = nullptr;
-        // _file_writer has closed in parquet_writer.cpp
-        _file_writer = nullptr;
     }
     if (_file_writer != nullptr) {
         _file_writer->close();

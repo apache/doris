@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
@@ -28,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ParquetPropertyAnalyzer;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -36,15 +38,12 @@ import org.apache.doris.thrift.TFileFormatType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -65,9 +64,6 @@ public class ExportStmt extends StatementBase {
     private static final String DEFAULT_COLUMNS = "";
     private static final String FILE_FORMAT = "format";
     private static final String SCHEMA = "schema";
-    private static final String PARQUET_PROP_PREFIX = "parquet.";
-    private static final List<String> PARQUET_REPETITION_TYPES = Lists.newArrayList();
-    private static final List<String> PARQUET_DATA_TYPES = Lists.newArrayList();
 
     private TableName tblName;
     private List<String> partitions;
@@ -84,20 +80,7 @@ public class ExportStmt extends StatementBase {
 
     private TableRef tableRef;
 
-    static {
-        PARQUET_REPETITION_TYPES.add("required");
-        PARQUET_REPETITION_TYPES.add("repeated");
-        PARQUET_REPETITION_TYPES.add("optional");
 
-        PARQUET_DATA_TYPES.add("boolean");
-        PARQUET_DATA_TYPES.add("int32");
-        PARQUET_DATA_TYPES.add("int64");
-        PARQUET_DATA_TYPES.add("int96");
-        PARQUET_DATA_TYPES.add("byte_array");
-        PARQUET_DATA_TYPES.add("float");
-        PARQUET_DATA_TYPES.add("double");
-        PARQUET_DATA_TYPES.add("fixed_len_byte_array");
-    }
 
     public ExportStmt(TableRef tableRef, Expr whereExpr, String path,
                       Map<String, String> properties, BrokerDesc brokerDesc) {
@@ -345,6 +328,58 @@ public class ExportStmt extends StatementBase {
             properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
         }
 
+        this.format = parsetFormat();
+
+        if (this.format == TFileFormatType.FORMAT_PARQUET) {
+            parseParquetProperties();
+        }
+    }
+
+    private void parseParquetProperties() throws AnalysisException {
+        // generate schema for user, when schema is not defined
+        String schema = properties.get(SCHEMA);
+        if (schema == null) {
+            // generate schema through user defined columns
+            if (this.columns != null) {
+                List<Column> tableColumns = getColumnFromDefinedColumns();
+                this.schema = ParquetPropertyAnalyzer.genSchema(tableColumns);
+            } else {
+                // generate schema through table's all columns
+                this.schema = ParquetPropertyAnalyzer.genSchema(this.tableRef.getTable());
+            }
+        } else {
+            this.schema = ParquetPropertyAnalyzer.parseSchema(properties.get(SCHEMA));
+            if (this.columns != null) {
+                List<Column> cols = getColumnFromDefinedColumns();
+                ParquetPropertyAnalyzer.checkProjectionFieldAndSchema(this.schema, cols);
+            } else {
+                ParquetPropertyAnalyzer.checkProjectionFieldAndSchema(this.schema, this.tableRef.getTable());
+            }
+        }
+        this.fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties);
+    }
+
+    private List<Column> getColumnFromDefinedColumns() throws AnalysisException {
+        List<Column> tableColumns = new ArrayList<>();
+        this.columns = this.columns.replace(" ", "");
+        String[] cols = this.columns.split(",");
+        for (int i = 0; i < cols.length; i++) {
+            this.tableRef.getTable().readLock();
+            try {
+                Column tableColumn = this.tableRef.getTable().getColumn(cols[i]);
+                if (tableColumn == null) {
+                    throw new AnalysisException("column: " + cols[i] + " not exist in table: " +
+                            this.tableRef.getTable().getName());
+                }
+                tableColumns.add(tableColumn);
+            } finally {
+                this.tableRef.getTable().readUnlock();
+            }
+        }
+        return tableColumns;
+    }
+
+    private TFileFormatType parsetFormat() throws AnalysisException {
         // parse format, default format is csv
         String format = "";
         if (properties.containsKey(FILE_FORMAT)) {
@@ -355,64 +390,11 @@ public class ExportStmt extends StatementBase {
 
         switch (format) {
             case "csv":
-                this.format = TFileFormatType.FORMAT_CSV_PLAIN;
-                break;
+                return TFileFormatType.FORMAT_CSV_PLAIN;
             case "parquet":
-                this.format = TFileFormatType.FORMAT_PARQUET;
-                break;
+                return TFileFormatType.FORMAT_PARQUET;
             default:
                 throw new AnalysisException("format:" + format + " is not supported.");
-        }
-
-        if (this.format == TFileFormatType.FORMAT_PARQUET) {
-            getParquetProperties();
-        }
-    }
-
-    /**
-     * example:
-     * EXPORT TABLE table1 to "file:///root/doris/"
-     * PROPERTIES ("format"="parquet", "schema"="required,int32,siteid;", "parquet.compression"="snappy");
-     *
-     * schema: it defined the schema of parquet file, it consists of 3 field: competition type, data type, column name
-     * multiple columns is split by `;`
-     *
-     * prefix with 'parquet.' defines the properties of parquet file,
-     * currently only supports: compression, disable_dictionary, version
-     */
-    private void getParquetProperties() throws AnalysisException {
-        String schema = properties.get(SCHEMA);
-        if (schema == null || schema.length() <= 0) {
-            throw new AnalysisException("schema is required for parquet file");
-        }
-        schema = schema.replace(" ","");
-        schema = schema.toLowerCase();
-        String[] schemas = schema.split(";");
-        for (String item:schemas) {
-            String[] properties = item.split(",");
-            if (properties.length != 3) {
-                throw new AnalysisException("must only contains repetition type/column type/column name");
-            }
-            if (!PARQUET_REPETITION_TYPES.contains(properties[0])) {
-                throw new AnalysisException("unknown repetition type");
-            }
-            if (!properties[0].equalsIgnoreCase("required")) {
-                throw new AnalysisException("currently only support required type");
-            }
-            if (!PARQUET_DATA_TYPES.contains(properties[1])) {
-                throw new AnalysisException("data type is not supported:"+properties[1]);
-            }
-            List<String> column = new ArrayList<>();
-            column.addAll(Arrays.asList(properties));
-            this.schema.add(column);
-        }
-
-        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<String, String> entry = iter.next();
-            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
-                fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
-            }
         }
     }
 
