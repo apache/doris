@@ -326,6 +326,12 @@ public class Config extends ConfigBase {
     @ConfField public static int http_backlog_num = 1024;
 
     /**
+     *Maximum file limit for single upload of web request, default value: 100M
+     */
+    @ConfField public static String http_max_file_size = "100M";
+    @ConfField public static String http_max_request_size = "100M";
+
+    /**
      * The backlog_num for mysql nio server
      * When you enlarge this backlog_num, you should enlarge the value in
      * the linux /proc/sys/net/core/somaxconn file at the same time
