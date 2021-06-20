@@ -78,7 +78,7 @@ public class BackendProcNode implements ProcNodeInterface {
             if (totalB <= 0) {
                 used = 0.0;
             } else {
-                used = (double) otherB * 100 / totalB;
+                used = (double) (totalB - availB) * 100 / totalB;
             }
             info.add(String.format("%.2f", used) + " %");
 
