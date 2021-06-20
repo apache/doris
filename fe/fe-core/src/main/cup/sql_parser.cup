@@ -3998,7 +3998,13 @@ order_by_elements ::=
 
 order_by_element ::=
   expr:e opt_order_param:o opt_nulls_order_param:n
-  {: RESULT = new OrderByElement(e, o, n); :}
+  {:
+    if (n == null) {
+      RESULT = new OrderByElement(e, o, o);
+    } else {
+      RESULT = new OrderByElement(e, o, n);
+    }
+  :}
   ;
 
 opt_order_param ::=
