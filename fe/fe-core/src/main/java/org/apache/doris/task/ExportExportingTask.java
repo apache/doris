@@ -246,6 +246,8 @@ public class ExportExportingTask extends MasterTask {
         isCancelled = true;
         this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
+        String failMsg = "export exporting job timeout.";
+        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
         LOG.warn("export exporting job timeout. job: {}", job);
     }
 
