@@ -65,6 +65,8 @@ public:
 
     bool check_path(const std::string& path) override;
 
+    bool check_file_exist() override;
+
     // when convert from old be, should set row num, index size, data size
     // info by using segment's info
     OLAPStatus reset_sizeinfo();

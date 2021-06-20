@@ -22,6 +22,7 @@
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "util/hash_util.hpp"
+#include <util/file_utils.h>
 
 namespace doris {
 
@@ -278,6 +279,24 @@ bool AlphaRowset::check_path(const std::string& path) {
         }
     }
     return valid_paths.find(path) != valid_paths.end();
+}
+
+bool AlphaRowset::check_file_exist() {
+    for (auto& segment_group : _segment_groups) {
+        for (int i = 0; i < segment_group->num_segments(); ++i) {
+            std::string data_path = segment_group->construct_data_file_path(i);
+            if (!FileUtils::check_exist(data_path)) {
+                LOG(WARNING) << "data file not existed: " << data_path << " for rowset_id: " << rowset_id();
+                return false;
+            }
+            std::string index_path = segment_group->construct_index_file_path(i);
+            if (!FileUtils::check_exist(index_path)) {
+                LOG(WARNING) << "index file not existed: " << index_path << " for rowset_id: " << rowset_id();
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 OLAPStatus AlphaRowset::init() {
