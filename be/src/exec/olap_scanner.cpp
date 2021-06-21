@@ -409,15 +409,6 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             slot->len = slice->size;
             break;
         }
-        case TYPE_DECIMAL: {
-            DecimalValue* slot = tuple->get_decimal_slot(slot_desc->tuple_offset());
-
-            // TODO(lingbin): should remove this assign, use set member function
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
-            *slot = DecimalValue(int_value, frac_value);
-            break;
-        }
         case TYPE_DECIMALV2: {
             DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
 

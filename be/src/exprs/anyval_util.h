@@ -69,11 +69,6 @@ public:
         return tv.hash(seed);
     }
 
-    static uint32_t hash(const doris_udf::DecimalVal& v, int seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return tv.hash(seed);
-    }
-
     static uint32_t hash(const doris_udf::DecimalV2Val& v, int seed) {
         return HashUtil::hash(&v.val, 16, seed);
     }
@@ -117,13 +112,6 @@ public:
     static uint64_t hash64(const doris_udf::DateTimeVal& v, int64_t seed) {
         DateTimeValue tv = DateTimeValue::from_datetime_val(v);
         return HashUtil::fnv_hash64(&tv, 12, seed);
-    }
-
-    // TODO(lingbin): fix this method. can not use sizeof directly, because there are a lot of
-    // storage way for one value.
-    static uint64_t hash64(const doris_udf::DecimalVal& v, int64_t seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return HashUtil::fnv_hash64(&tv, sizeof(DecimalValue), seed);
     }
 
     static uint64_t hash64(const doris_udf::DecimalV2Val& v, int64_t seed) {
@@ -171,11 +159,6 @@ public:
         return HashUtil::murmur_hash64A(&tv, 12, seed);
     }
 
-    static uint64_t hash64_murmur(const doris_udf::DecimalVal& v, int64_t seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return HashUtil::murmur_hash64A(&tv, sizeof(DecimalValue), seed);
-    }
-
     static uint64_t hash64_murmur(const doris_udf::DecimalV2Val& v, int64_t seed) {
         return HashUtil::murmur_hash64A(&v.val, 16, seed);
     }
@@ -221,9 +204,6 @@ public:
         case TYPE_DATETIME:
             return sizeof(doris_udf::DateTimeVal);
 
-        case TYPE_DECIMAL:
-            return sizeof(doris_udf::DecimalVal);
-
         case TYPE_DECIMALV2:
             return sizeof(doris_udf::DecimalV2Val);
 
@@ -260,8 +240,6 @@ public:
         case TYPE_DATETIME:
         case TYPE_DATE:
             return alignof(DateTimeVal);
-        case TYPE_DECIMAL:
-            return alignof(DecimalVal);
         case TYPE_DECIMALV2:
             return alignof(DecimalV2Val);
         default:
@@ -355,10 +333,6 @@ public:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
             return;
-        case TYPE_DECIMAL:
-            reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-                    reinterpret_cast<doris_udf::DecimalVal*>(dst));
-            return;
         case TYPE_DECIMALV2:
             reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
                     reinterpret_cast<const PackedInt128*>(slot)->value;
@@ -427,13 +401,6 @@ inline bool AnyValUtil::equals_internal(const DateTimeVal& x, const DateTimeVal&
     DateTimeValue x_tv = DateTimeValue::from_datetime_val(x);
     DateTimeValue y_tv = DateTimeValue::from_datetime_val(y);
     return x_tv == y_tv;
-}
-
-template <>
-inline bool AnyValUtil::equals_internal(const DecimalVal& x, const DecimalVal& y) {
-    DCHECK(!x.is_null);
-    DCHECK(!y.is_null);
-    return x == y;
 }
 
 template <>

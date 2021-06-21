@@ -202,25 +202,6 @@ void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val)
         col_val->__set_double_val(*reinterpret_cast<double*>(value));
         break;
 #if 0
-    case TYPE_DECIMAL:
-        switch (_root->_type.GetByteSize()) {
-        case 4:
-            col_val->string_val =
-                reinterpret_cast<Decimal4Value*>(value)->ToString(_root->_type);
-            break;
-        case 8:
-            col_val->string_val =
-                reinterpret_cast<Decimal8Value*>(value)->ToString(_root->_type);
-            break;
-        case 16:
-            col_val->string_val =
-                reinterpret_cast<Decimal16Value*>(value)->ToString(_root->_type);
-            break;
-        default:
-            DCHECK(false) << "Bad Type: " << _root->_type;
-        }
-        col_val->__isset.string_val = true;
-        break;
     case TYPE_VARCHAR:
         string_val = reinterpret_cast<StringValue*>(value);
         tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
@@ -357,14 +338,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
         return &_result.datetime_val;
     }
-    case TYPE_DECIMAL: {
-        DecimalVal v = e->get_decimal_val(this, row);
-        if (v.is_null) {
-            return NULL;
-        }
-        _result.decimal_val = DecimalValue::from_decimal_val(v);
-        return &_result.decimal_val;
-    }
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
@@ -444,10 +417,6 @@ StringVal ExprContext::get_string_val(TupleRow* row) {
 
 DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
     return _root->get_datetime_val(this, row);
-}
-
-DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
-    return _root->get_decimal_val(this, row);
 }
 
 DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {

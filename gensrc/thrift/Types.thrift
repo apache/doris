@@ -66,7 +66,7 @@ enum TPrimitiveType {
   DATE,
   DATETIME,
   BINARY,
-  DECIMAL,
+  DECIMAL_DEPRACTED, // not used now, only for place holder
   // CHAR(n). Currently only supported in UDAs
   CHAR,
   LARGEINT,

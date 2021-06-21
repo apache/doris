@@ -41,8 +41,7 @@ const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile,
-                                   BufferControlBlock* sinker)
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker)
         : _file_opts(file_opts),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
@@ -89,11 +88,11 @@ Status FileResultWriter::_get_success_file_name(std::string* file_name) {
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
         if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name
-                    + ". Host: " + BackendOptions::get_localhost());
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
         }
     }
-        
+
     return Status::OK();
 }
 
@@ -125,7 +124,8 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
                 strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
-              << ". query id: " << print_id(_state->query_id()) << " format:" << _file_opts->file_format;
+              << ". query id: " << print_id(_state->query_id())
+              << " format:" << _file_opts->file_format;
     return Status::OK();
 }
 
@@ -141,11 +141,11 @@ Status FileResultWriter::_get_next_file_name(std::string* file_name) {
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
         if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name
-                    + ". Host: " + BackendOptions::get_localhost());
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
         }
     }
-        
+
     return Status::OK();
 }
 
@@ -270,18 +270,6 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 }
                 break;
             }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                _plain_text_outstream << decimal_str;
-                break;
-            }
             case TYPE_DECIMALV2: {
                 const DecimalV2Value decimal_val(
                         reinterpret_cast<const PackedInt128*>(item)->value);
@@ -375,7 +363,7 @@ Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
         // All data is written to file, send statistic result
         if (_file_opts->success_file_name != "") {
             // write success file, just need to touch an empty file
-            RETURN_IF_ERROR(_create_success_file()); 
+            RETURN_IF_ERROR(_create_success_file());
         }
         RETURN_IF_ERROR(_send_result());
     }
@@ -393,9 +381,9 @@ Status FileResultWriter::_send_result() {
     // The type of these field should be conssitent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
-    row_buffer.push_int(_file_idx); // file number
+    row_buffer.push_int(_file_idx);                         // file number
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
-    row_buffer.push_bigint(_written_data_bytes->value()); // file size
+    row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string localhost = BackendOptions::get_localhost();
     row_buffer.push_string(localhost.c_str(), localhost.length()); // url
 

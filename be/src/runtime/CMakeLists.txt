@@ -48,7 +48,6 @@ set(RUNTIME_FILES
     string_value.cpp
     thread_resource_mgr.cpp
     #  timestamp_value.cpp
-    decimal_value.cpp
     decimalv2_value.cpp
     large_int_value.cpp
     tuple.cpp

@@ -23,7 +23,6 @@
 
 #include "common/logging.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "udf/udf.h"
@@ -40,20 +39,14 @@ public:
 
     Counter(const std::string& item, uint64_t count) : _item(item), _count(count) {}
 
-    uint64_t get_count() const {
-        return _count;
-    }
+    uint64_t get_count() const { return _count; }
 
-    const std::string& get_item() const {
-        return _item;
-    }
+    const std::string& get_item() const { return _item; }
 
-    void add_count(uint64_t count) {
-        _count += count;
-    }
+    void add_count(uint64_t count) { _count += count; }
 
-    bool operator == (const Counter& other) {
-        if(_item.compare(other._item) != 0) {
+    bool operator==(const Counter& other) {
+        if (_item.compare(other._item) != 0) {
             return false;
         }
         if (_count != other._count) {
@@ -67,21 +60,26 @@ private:
     uint64_t _count;
 };
 
-
 // Refer to TopNCounter.java in https://github.com/apache/kylin
 // Based on the Space-Saving algorithm and the Stream-Summary data structure as described in:
 // Efficient Computation of Frequent and Top-k Elements in Data Streams by Metwally, Agrawal, and Abbadi
 class TopNCounter {
 public:
-    TopNCounter(uint32_t space_expand_rate = DEFAULT_SPACE_EXPAND_RATE) :
-            _top_num(0), _space_expand_rate(space_expand_rate), _capacity(0), _ordered(false),
-            _counter_map(new std::unordered_map<std::string, Counter>(_capacity)),
-            _counter_vec(new std::vector<Counter>(_capacity)){}
+    TopNCounter(uint32_t space_expand_rate = DEFAULT_SPACE_EXPAND_RATE)
+            : _top_num(0),
+              _space_expand_rate(space_expand_rate),
+              _capacity(0),
+              _ordered(false),
+              _counter_map(new std::unordered_map<std::string, Counter>(_capacity)),
+              _counter_vec(new std::vector<Counter>(_capacity)) {}
 
-    TopNCounter(const Slice& src) :
-            _top_num(0), _space_expand_rate(0), _capacity(0), _ordered(false),
-            _counter_map(new std::unordered_map<std::string, Counter>(_capacity)),
-            _counter_vec(new std::vector<Counter>(_capacity)) {
+    TopNCounter(const Slice& src)
+            : _top_num(0),
+              _space_expand_rate(0),
+              _capacity(0),
+              _ordered(false),
+              _counter_map(new std::unordered_map<std::string, Counter>(_capacity)),
+              _counter_vec(new std::vector<Counter>(_capacity)) {
         bool res = deserialize(src);
         DCHECK(res);
     }
@@ -118,7 +116,7 @@ public:
         add_item_numeric(item, incrementCount);
     }
     void add_item(const StringVal& item, uint64_t incrementCount) {
-        add_item(std::string((char*) item.ptr, item.len), incrementCount);
+        add_item(std::string((char*)item.ptr, item.len), incrementCount);
     }
     void add_item(const DateTimeVal& item, uint64_t incrementCount) {
         char str[MAX_DTVALUE_STR_LEN];
@@ -127,9 +125,6 @@ public:
     }
     void add_item(const LargeIntVal& item, uint64_t incrementCount) {
         add_item(LargeIntValue::to_string(item.val), incrementCount);
-    }
-    void add_item(const DecimalVal& item, uint64_t incrementCount) {
-        add_item(DecimalValue::from_decimal_val(item).to_string(), incrementCount);
     }
     void add_item(const DecimalV2Val& item, uint64_t incrementCount) {
         add_item(DecimalV2Value::from_decimal_val(item).to_string(), incrementCount);
@@ -169,14 +164,12 @@ private:
     std::vector<Counter>* _counter_vec;
 };
 
-class TopNComparator
-{
+class TopNComparator {
 public:
-    bool operator () (const Counter& s1, const Counter& s2)
-    {
+    bool operator()(const Counter& s1, const Counter& s2) {
         return s1.get_count() > s2.get_count();
     }
 };
-}
+} // namespace doris
 
 #endif //DORIS_BE_SRC_UTI_TOPN_COUNTER_H

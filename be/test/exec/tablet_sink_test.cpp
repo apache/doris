@@ -23,7 +23,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/bufferpool/reservation_tracker.h"
-#include "runtime/decimal_value.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
@@ -936,8 +936,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 12;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue(std::string("12.3"));
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("12.3"));
         batch.commit_last_row();
     }
     // 13, 123.123456789
@@ -947,8 +947,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 13;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue(std::string("123.123456789"));
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("123.123456789"));
 
         batch.commit_last_row();
     }
@@ -959,8 +959,8 @@ TEST_F(OlapTableSinkTest, decimal) {
         memset(tuple, 0, tuple_desc->byte_size());
 
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 14;
-        DecimalValue* dec_val = reinterpret_cast<DecimalValue*>(tuple->get_slot(16));
-        *dec_val = DecimalValue(std::string("123456789123.1234"));
+        DecimalV2Value* dec_val = reinterpret_cast<DecimalV2Value*>(tuple->get_slot(16));
+        *dec_val = DecimalV2Value(std::string("123456789123.1234"));
 
         batch.commit_last_row();
     }
