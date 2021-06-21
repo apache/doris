@@ -184,9 +184,9 @@ HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只�
 
 ### http_max_request_size
 
-默认值：100M
+默认值：100MB
 
-以上两个参数是http v2版本，web最大上传文件限制，默认100M，可以根据自己需要修改
+以上两个参数是http v2版本，web最大上传文件限制，默认100MB，可以根据自己需要修改
 
 ### default_max_filter_ratio
 

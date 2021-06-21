@@ -185,9 +185,9 @@ HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separa
 
 ### http_max_request_size
 
-Default：100M
+Default：100MB
 
-The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100M, you can modify it according to your needs.
+The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100MB, you can modify it according to your needs.
 
 ### frontend_address
 
