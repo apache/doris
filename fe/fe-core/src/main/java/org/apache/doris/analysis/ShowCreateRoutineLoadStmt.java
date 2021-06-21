@@ -20,88 +20,46 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-<<<<<<< HEAD
-=======
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
->>>>>>> 624de0704 (ADD: show create routine load)
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE ROUTINE LOAD statement.
 public class ShowCreateRoutineLoadStmt extends ShowStmt {
-    
+
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-<<<<<<< HEAD
                     .addColumn(new Column("Routine Load Id", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Routine Load Name", ScalarType.createVarchar(20)))
-=======
-                    .addColumn(new Column("Routine Load", ScalarType.createVarchar(20)))
->>>>>>> 624de0704 (ADD: show create routine load)
                     .addColumn(new Column("Create Routine Load", ScalarType.createVarchar(30)))
                     .build();
-    
+
     private final LabelName labelName;
-<<<<<<< HEAD
 
     private final boolean includeHistory;
 
     public ShowCreateRoutineLoadStmt(LabelName labelName, boolean includeHistory) {
         this.labelName = labelName;
         this.includeHistory = includeHistory;
-=======
-    
-    public ShowCreateRoutineLoadStmt(LabelName labelName) {
-        this.labelName = labelName;
->>>>>>> 624de0704 (ADD: show create routine load)
     }
-    
+
     public String getDb() {
         return labelName.getDbName();
     }
-    
+
     public String getLabel() {
         return labelName.getLabelName();
     }
-<<<<<<< HEAD
 
     public boolean isIncludeHistory() {
         return includeHistory;
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-=======
-    
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (labelName == null) {
-            // todo:errorCode?
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
->>>>>>> 624de0704 (ADD: show create routine load)
         labelName.analyze(analyzer);
     }
-    
-    @Override
-<<<<<<< HEAD
-    public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
-    }
-}
-=======
-    public String toSql() {
-        return "SHOW CREATE ROUTINE LOAD " + labelName;
-    }
-    
-    @Override
-    public String toString() {
-        return toSql();
-    }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
     }
 }
->>>>>>> 624de0704 (ADD: show create routine load)

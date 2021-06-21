@@ -1082,7 +1082,7 @@ alter_system_clause ::=
     | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
-    :} 
+    :}
     ;
 
 // Sync Stmt
@@ -1566,16 +1566,16 @@ opt_broker ::=
     :}
     ;
 
-resource_desc ::=                                                               
-    KW_WITH KW_RESOURCE ident_or_text:resourceName                                 
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, null);                               
-    :}                                                                               
+resource_desc ::=
+    KW_WITH KW_RESOURCE ident_or_text:resourceName
+    {:
+        RESULT = new ResourceDesc(resourceName, null);
+    :}
     | KW_WITH KW_RESOURCE ident_or_text:resourceName LPAREN key_value_map:properties RPAREN
-    {:                                                                               
-        RESULT = new ResourceDesc(resourceName, properties);                         
-    :}                                                                               
-    ; 
+    {:
+        RESULT = new ResourceDesc(resourceName, properties);
+    :}
+    ;
 
 // Routine load statement
 create_routine_load_stmt ::=
@@ -1683,7 +1683,6 @@ show_routine_load_task_stmt ::=
     :}
     ;
 
-<<<<<<< HEAD
 show_create_routine_load_stmt ::=
     KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -1692,12 +1691,6 @@ show_create_routine_load_stmt ::=
     | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
-=======
-show_routine_load_task_stmt ::=
-    KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel);
->>>>>>> 624de0704 (ADD: show create routine load)
     :}
     ;
 

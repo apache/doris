@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import java.util.HashMap;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
@@ -64,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -97,7 +97,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     public KafkaRoutineLoadJob(Long id, String name, String clusterName,
-                               long dbId, long tableId, String brokerList, String topic) {
+            long dbId, long tableId, String brokerList, String topic) {
         super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
@@ -225,8 +225,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // Through the transaction status and attachment information, to determine whether the progress needs to be updated.
     @Override
     protected boolean checkCommitInfo(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment,
-                                      TransactionState txnState,
-                                      TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
+            TransactionState txnState,
+            TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
         if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             // For committed txn, update the progress.
             return true;
@@ -479,7 +479,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String dataSourcePropertiesJsonToString() {
-        Map<String, String> dataSourceProperties = getDataSourceProperties();
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("brokerList", brokerList);
+        dataSourceProperties.put("topic", topic);
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
@@ -489,11 +494,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
     }
-    
+
     @Override
     protected Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
-<<<<<<< HEAD
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
         return dataSourceProperties;
@@ -505,15 +509,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         customProperties.forEach((k, v) -> ret.put("property." + k, v));
         return ret;
     }
-=======
-        dataSourceProperties.put("brokerList", brokerList);
-        dataSourceProperties.put("topic", topic);
-        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
-        Collections.sort(sortedPartitions);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
-        return dataSourceProperties;
-    }
->>>>>>> 624de0704 (ADD: show create routine load)
 
     @Override
     public void write(DataOutput out) throws IOException {
@@ -591,7 +586,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
-                                          RoutineLoadDataSourceProperties dataSourceProperties)
+            RoutineLoadDataSourceProperties dataSourceProperties)
             throws DdlException {
 
         List<Pair<Integer, Long>> kafkaPartitionOffsets = Lists.newArrayList();

@@ -352,7 +352,7 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
         List<Function> functions = showStmt.getIsBuiltin() ? ctx.getCatalog().getBuiltinFunctions() :
-            db.getFunctions();
+                db.getFunctions();
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
         for (Function function : functions) {
@@ -386,8 +386,8 @@ public class ShowExecutor {
 
         // Only success
         ShowResultSetMetaData showMetaData = showStmt.getIsVerbose() ? showStmt.getMetaData() :
-            ShowResultSetMetaData.builder()
-                .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
+                ShowResultSetMetaData.builder()
+                        .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
@@ -417,7 +417,7 @@ public class ShowExecutor {
         // if this is superuser, hide ip and host info form backends info proc
         if (procNode instanceof BackendsProcDir) {
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                       PrivPredicate.OPERATOR)) {
+                    PrivPredicate.OPERATOR)) {
                 // hide host info
                 for (List<String> row : finalRows) {
                     row.remove(BackendsProcDir.HOSTNAME_INDEX);
@@ -458,7 +458,7 @@ public class ShowExecutor {
         for (BaseParam param : infos) {
             final int percent = (int) (param.getFloatParam(0) * 100f);
             rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                                        String.valueOf(percent + "%")));
+                    String.valueOf(percent + "%")));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -546,7 +546,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
-                                                        CaseSensibility.DATABASE.getCaseSensibility());
+                    CaseSensibility.DATABASE.getCaseSensibility());
         }
         Set<String> dbNameSet = Sets.newTreeSet();
         for (String fullName : dbNames) {
@@ -557,7 +557,7 @@ public class ShowExecutor {
             }
 
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
-                                                                   PrivPredicate.SHOW)) {
+                    PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -654,7 +654,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                        CaseSensibility.VARIABLES.getCaseSensibility());
+                    CaseSensibility.VARIABLES.getCaseSensibility());
         }
         List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -705,7 +705,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                                                        showStmt.getTable(), "VIEW");
+                            showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -871,7 +871,7 @@ public class ShowExecutor {
             } else if (categories.size() > 1) {
                 // Send category list
                 resultSet = new ShowResultSet(helpStmt.getCategoryMetaData(),
-                                              Lists.<List<String>>newArrayList(categories));
+                        Lists.<List<String>>newArrayList(categories));
             } else {
                 // Send topic list and sub-category list
                 List<List<String>> rows = Lists.newArrayList();
@@ -902,15 +902,15 @@ public class ShowExecutor {
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
-                                                                    showStmt.getLabelValue(),
-                                                                    showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates());
+                showStmt.getLabelValue(),
+                showStmt.isAccurateMatch(),
+                showStmt.getStates());
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
         loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                                                                      showStmt.isAccurateMatch(),
-                                                                      statesValue));
+                showStmt.isAccurateMatch(),
+                statesValue));
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1050,20 +1050,20 @@ public class ShowExecutor {
         if (tableNames.isEmpty()) {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                                                                   PrivPredicate.SHOW)) {
+                    PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    db.getFullName());
+                        ConnectContext.get().getQualifiedUser(),
+                        db.getFullName());
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                                                        tblName, PrivPredicate.SHOW)) {
+                        tblName, PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                                        "SHOW LOAD WARNING",
-                                                        ConnectContext.get().getQualifiedUser(),
-                                                        ConnectContext.get().getRemoteIP(),
-                                                        tblName);
+                            "SHOW LOAD WARNING",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(),
+                            tblName);
                 }
             }
         }
@@ -1156,21 +1156,21 @@ public class ShowExecutor {
                     tableName = routineLoadJob.getTableName();
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("error_msg", "The table metadata of job has been changed. "
-                                             + "The job will be cancelled automatically")
-                                     .build(), e);
+                            .add("error_msg", "The table metadata of job has been changed. "
+                                    + "The job will be cancelled automatically")
+                            .build(), e);
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                        dbFullName,
-                                                                        tableName,
-                                                                        PrivPredicate.LOAD)) {
+                        dbFullName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("operator", "show routine load job")
-                                     .add("user", ConnectContext.get().getQualifiedUser())
-                                     .add("remote_ip", ConnectContext.get().getRemoteIP())
-                                     .add("db_full_name", dbFullName)
-                                     .add("table_name", tableName)
-                                     .add("error_msg", "The table access denied"));
+                            .add("operator", "show routine load job")
+                            .add("user", ConnectContext.get().getQualifiedUser())
+                            .add("remote_ip", ConnectContext.get().getRemoteIP())
+                            .add("db_full_name", dbFullName)
+                            .add("table_name", tableName)
+                            .add("error_msg", "The table access denied"));
                     continue;
                 }
 
@@ -1182,7 +1182,7 @@ public class ShowExecutor {
         if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
-                                                + " in db " + showRoutineLoadStmt.getDbFullName()
+                    + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
@@ -1195,14 +1195,14 @@ public class ShowExecutor {
         RoutineLoadJob routineLoadJob;
         try {
             routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadTaskStmt.getDbFullName(),
-                                                                                        showRoutineLoadTaskStmt.getJobName());
+                    showRoutineLoadTaskStmt.getJobName());
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
         }
         if (routineLoadJob == null) {
             throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
-                                                + "or job state is stopped or cancelled");
+                    + "or job state is stopped or cancelled");
         }
 
         // check auth
@@ -1214,13 +1214,13 @@ public class ShowExecutor {
             throw new AnalysisException("The table metadata of job has been changed. The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
+                dbFullName,
+                tableName,
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tableName);
         }
 
         // get routine load task info
@@ -1266,7 +1266,7 @@ public class ShowExecutor {
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows;
-        //Only SchemaChangeProc support where/order by/limit syntax 
+        //Only SchemaChangeProc support where/order by/limit syntax
         if (procNodeI instanceof SchemaChangeProcDir) {
             rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
@@ -1305,7 +1305,7 @@ public class ShowExecutor {
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-            showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -1386,11 +1386,11 @@ public class ShowExecutor {
             } while (false);
 
             String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
-                                             dbId, tableId, partitionId, indexId, tabletId);
+                    dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
-                                        dbId.toString(), tableId.toString(),
-                                        partitionId.toString(), indexId.toString(),
-                                        isSync.toString(), detailCmd));
+                    dbId.toString(), tableId.toString(),
+                    partitionId.toString(), indexId.toString(),
+                    isSync.toString(), detailCmd));
         } else {
             Database db = catalog.getDb(showStmt.getDbName());
             if (db == null) {
@@ -1506,8 +1506,8 @@ public class ShowExecutor {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
         List<List<Comparable>> resourcesInfos = Catalog.getCurrentCatalog().getResourceMgr()
                 .getResourcesInfo(showStmt.getNameValue(),
-                                showStmt.isAccurateMatch(),
-                                showStmt.getTypeSet());
+                        showStmt.isAccurateMatch(),
+                        showStmt.getTypeSet());
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1831,11 +1831,10 @@ public class ShowExecutor {
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
-    
+
     private void handleShowCreateRoutineLoad() throws AnalysisException {
         ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-<<<<<<< HEAD
         String dbName = showCreateRoutineLoadStmt.getDb();
         String labelName = showCreateRoutineLoadStmt.getLabel();
         // if include history return all create load
@@ -1855,36 +1854,12 @@ public class ShowExecutor {
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
                             .add("error_msg", "The table name for this routine load does not exist")
-=======
-        // if job exists
-        RoutineLoadJob routineLoadJob;
-        try {
-            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager()
-                    .getJob(showCreateRoutineLoadStmt.getDb(),
-                            showCreateRoutineLoadStmt.getLabel());
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        
-        if (routineLoadJob != null) {
-            String dbName = showCreateRoutineLoadStmt.getDb();
-            String tableName = null;
-                // check auth
-                try {
-                    tableName = routineLoadJob.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("error_msg", "The table metadata of job has been changed. "
-                                    + "The job will be cancelled automatically")
->>>>>>> 624de0704 (ADD: show create routine load)
                             .build(), e);
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                         dbName,
                         tableName,
                         PrivPredicate.LOAD)) {
-<<<<<<< HEAD
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
@@ -1902,21 +1877,11 @@ public class ShowExecutor {
             } catch (Exception e) {
                 LOG.warn(e.getMessage(), e);
                 throw new AnalysisException(e.getMessage());
-=======
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("operator", "show create routine load job")
-                            .add("user", ConnectContext.get().getQualifiedUser())
-                            .add("remote_ip", ConnectContext.get().getRemoteIP())
-                            .add("db_name", dbName)
-                            .add("table_name", tableName)
-                            .add("error_msg", "The table access denied"));
-                // get routine load info
-                rows.add(Lists.newArrayList(showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
->>>>>>> 624de0704 (ADD: show create routine load)
             }
         }
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
+
 }
 
 
