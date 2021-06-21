@@ -184,6 +184,10 @@ public class OlapTable extends Table {
         this.tableProperty = tableProperty;
     }
 
+	public void setTableDefaultDistributionInfo(DistributionInfo distributionInfo) {
+		this.defaultDistributionInfo = distributionInfo;
+	}
+
     public TableProperty getTableProperty() {
         return this.tableProperty;
     }

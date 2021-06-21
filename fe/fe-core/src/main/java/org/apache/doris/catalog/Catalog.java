@@ -174,6 +174,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTableDefaultDistributionInfoOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -5572,6 +5573,64 @@ public class Catalog {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
                 }
             }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
+
+    public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
+		if (table.isColocateTable()) {
+			throw new DdlException("Cannot change default bucket number of colocate table.");
+		}
+
+        DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+		if(defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
+			throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
+		}
+
+        DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
+
+        DistributionInfo distributionInfo = null;
+
+        if (distributionDesc != null) {
+			distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                // for now. we only support modify distribution's bucket num
+            if (distributionInfo.getType() != DistributionInfoType.HASH) {
+				throw new DdlException("Cannot change distribution type to " + distributionInfo.getType());
+            }
+
+            HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+            List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
+            List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+            if (!newDistriCols.equals(defaultDistriCols)) {
+                throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                            + "default is: " + defaultDistriCols);
+            }
+            if (hashDistributionInfo.getBucketNum() <= 0) {
+                throw new DdlException("Cannot assign hash distribution buckets less than 1");
+            }
+
+			olapTable.setDefaultDistributionInfo(distributionInfo);
+
+            ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), table.getId(), hashDistributionInfo.getBucketNum());
+            editLog.logModifyDefaultDistributionBucketNum(info);
+            LOG.info("modify table[{}] default bucket num to {}", table.getName(), hashDistributionInfo.getBucketNum());
+        }
+	}
+
+    public void replayModifyTableDefaultDistributionBucketNum(short opCode, ModifyTableDefaultDistributionBucketNumOperationLog info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+		int bucketNum = info.getBucketNum();
+
+        Database db = getDb(dbId);
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        olapTable.writeLock();
+        try {
+			DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+			defaultDistributionInfo.setBucketNum(bucketNum);
         } finally {
             olapTable.writeUnlock();
         }

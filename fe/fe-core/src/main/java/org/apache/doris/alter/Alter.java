@@ -26,6 +26,7 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
@@ -179,6 +180,8 @@ public class Alter {
                     }
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideTableLock = true;
+                } else if (alterClause instanceof ModifyDistributionClause) {
+                    Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
                 } else {
                     throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
                 }
