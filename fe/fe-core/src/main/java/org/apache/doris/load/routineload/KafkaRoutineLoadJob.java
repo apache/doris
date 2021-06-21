@@ -478,12 +478,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String dataSourcePropertiesJsonToString() {
-        Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("brokerList", brokerList);
-        dataSourceProperties.put("topic", topic);
-        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
-        Collections.sort(sortedPartitions);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        Map<String, String> dataSourceProperties = getDataSourceProperties();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
@@ -492,6 +487,17 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
+    }
+    
+    @Override
+    protected Map<String, String> getDataSourceProperties() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("brokerList", brokerList);
+        dataSourceProperties.put("topic", topic);
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        return dataSourceProperties;
     }
 
     @Override
