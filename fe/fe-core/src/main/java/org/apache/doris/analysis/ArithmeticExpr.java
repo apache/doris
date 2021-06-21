@@ -108,10 +108,6 @@ public class ArithmeticExpr extends Expr {
                 Type.DOUBLE));
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMAL, Type.DECIMAL),
-                Type.DECIMAL));
-        functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
                 Type.DECIMALV2));
 
@@ -167,7 +163,7 @@ public class ArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
-        if (!type.isDecimal() && !type.isDecimalV2()) {
+        if (!type.isDecimalV2()) {
             msg.setOpcode(op.getOpcode());
             msg.setOutputColumn(outputColumn);
         }
@@ -203,8 +199,6 @@ public class ArithmeticExpr extends Expr {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
             return Type.DECIMALV2;
-        } else if (pt1 == PrimitiveType.DECIMAL || pt2 == PrimitiveType.DECIMAL) {
-            return Type.DECIMAL;
         } else if (pt1 == PrimitiveType.LARGEINT || pt2 == PrimitiveType.LARGEINT) {
             return Type.LARGEINT;
         } else {

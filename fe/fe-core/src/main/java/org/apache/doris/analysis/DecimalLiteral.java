@@ -130,7 +130,6 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
                 buffer.putLong(value.longValue());
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -234,7 +233,7 @@ public class DecimalLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimal() || targetType.isDecimalV2()) {
+        if (targetType.isDecimalV2()) {
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);

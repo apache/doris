@@ -333,8 +333,7 @@ public class Column implements Writable {
         }
 
         // now we support convert decimal to varchar type
-        if ((getDataType() == PrimitiveType.DECIMAL && other.getDataType() == PrimitiveType.VARCHAR)
-                || (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR)) {
+        if (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR) {
             return;
         }
 
@@ -548,7 +547,6 @@ public class Column implements Writable {
             case VARCHAR:
                 sb.append(String.format(typeStringMap.get(dataType), getStrLen()));
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 sb.append(String.format(typeStringMap.get(dataType), getPrecision(), getScale()));
                 break;
