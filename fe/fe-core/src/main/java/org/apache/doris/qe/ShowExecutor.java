@@ -1835,6 +1835,7 @@ public class ShowExecutor {
     private void handleShowCreateRoutineLoad() throws AnalysisException {
         ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
+<<<<<<< HEAD
         String dbName = showCreateRoutineLoadStmt.getDb();
         String labelName = showCreateRoutineLoadStmt.getLabel();
         // if include history return all create load
@@ -1854,12 +1855,36 @@ public class ShowExecutor {
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
                             .add("error_msg", "The table name for this routine load does not exist")
+=======
+        // if job exists
+        RoutineLoadJob routineLoadJob;
+        try {
+            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager()
+                    .getJob(showCreateRoutineLoadStmt.getDb(),
+                            showCreateRoutineLoadStmt.getLabel());
+        } catch (MetaNotFoundException e) {
+            LOG.warn(e.getMessage(), e);
+            throw new AnalysisException(e.getMessage());
+        }
+        
+        if (routineLoadJob != null) {
+            String dbName = showCreateRoutineLoadStmt.getDb();
+            String tableName = null;
+                // check auth
+                try {
+                    tableName = routineLoadJob.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                            .add("error_msg", "The table metadata of job has been changed. "
+                                    + "The job will be cancelled automatically")
+>>>>>>> 624de0704 (ADD: show create routine load)
                             .build(), e);
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
                         dbName,
                         tableName,
                         PrivPredicate.LOAD)) {
+<<<<<<< HEAD
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
@@ -1877,6 +1902,17 @@ public class ShowExecutor {
             } catch (Exception e) {
                 LOG.warn(e.getMessage(), e);
                 throw new AnalysisException(e.getMessage());
+=======
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                            .add("operator", "show create routine load job")
+                            .add("user", ConnectContext.get().getQualifiedUser())
+                            .add("remote_ip", ConnectContext.get().getRemoteIP())
+                            .add("db_name", dbName)
+                            .add("table_name", tableName)
+                            .add("error_msg", "The table access denied"));
+                // get routine load info
+                rows.add(Lists.newArrayList(showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+>>>>>>> 624de0704 (ADD: show create routine load)
             }
         }
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);

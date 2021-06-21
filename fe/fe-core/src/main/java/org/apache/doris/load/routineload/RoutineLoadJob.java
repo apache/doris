@@ -1339,12 +1339,19 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("WITH ").append(mergeType.toString()).append("\n");
         // 4.load_properties
         // 4.1.column_separator
+<<<<<<< HEAD
         if (columnSeparator != null) {
             sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getSeparator()).append("\",\n");
         }
         // 4.2.columns_mapping
         if (columnDescs != null) {
             sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs.descs)).append("),\n");
+=======
+        sb.append("COLUMNS TERMINATED BY ").append(columnSeparator.toString()).append(",\n");
+        // 4.2.columns_mapping
+        if (columnDescs != null) {
+            sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs)).append("),\n");
+>>>>>>> 624de0704 (ADD: show create routine load)
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
@@ -1366,6 +1373,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (precedingFilter != null) {
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
+<<<<<<< HEAD
         // remove the last ,
         sb.replace(sb.length() - 2, sb.length() - 1, "");
         // 5.job_properties
@@ -1381,13 +1389,31 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
         appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
+=======
+        // 5.job_properties
+        sb.append("PROPERTIES\n(");
+        appendProperties(sb, "desired_concurrent_number", desireTaskConcurrentNum, false);
+        appendProperties(sb, "max_batch_interval", maxBatchIntervalS, false);
+        appendProperties(sb, "max_batch_rows", maxBatchRows, false);
+        appendProperties(sb, "max_batch_size", maxBatchSizeBytes, false);
+        appendProperties(sb, "max_error_number", maxErrorNum, false);
+        appendProperties(sb, "strict_mode", isStrictMode(), false);
+        appendProperties(sb, "timezone", getTimezone(), false);
+        appendProperties(sb, "format", getFormat(), false);
+        appendProperties(sb, "jsonpaths", getJsonPaths(), false);
+        appendProperties(sb, "strip_outer_array", isStripOuterArray(), false);
+        appendProperties(sb, "json_root", getJsonRoot(), true);
+>>>>>>> 624de0704 (ADD: show create routine load)
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
         // 7. data_source_properties
         sb.append("(\n");
         getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+<<<<<<< HEAD
         getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+=======
+>>>>>>> 624de0704 (ADD: show create routine load)
         // remove the last ,
         sb.replace(sb.length() - 2, sb.length() - 1, "");
         sb.append(");");
@@ -1462,8 +1488,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     abstract String customPropertiesJsonToString();
     
     abstract Map<String, String> getDataSourceProperties();
+<<<<<<< HEAD
 
     abstract Map<String, String> getCustomProperties();
+=======
+>>>>>>> 624de0704 (ADD: show create routine load)
 
     public boolean needRemove() {
         if (!isFinal()) {

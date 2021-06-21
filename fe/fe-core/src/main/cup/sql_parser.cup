@@ -1683,6 +1683,7 @@ show_routine_load_task_stmt ::=
     :}
     ;
 
+<<<<<<< HEAD
 show_create_routine_load_stmt ::=
     KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
@@ -1691,6 +1692,12 @@ show_create_routine_load_stmt ::=
     | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
+=======
+show_routine_load_task_stmt ::=
+    KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowCreateRoutineLoadStmt(jobLabel);
+>>>>>>> 624de0704 (ADD: show create routine load)
     :}
     ;
 

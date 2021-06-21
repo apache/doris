@@ -479,12 +479,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String dataSourcePropertiesJsonToString() {
-        Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("brokerList", brokerList);
-        dataSourceProperties.put("topic", topic);
-        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
-        Collections.sort(sortedPartitions);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        Map<String, String> dataSourceProperties = getDataSourceProperties();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
@@ -498,6 +493,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
+<<<<<<< HEAD
         dataSourceProperties.put("kafka_broker_list", brokerList);
         dataSourceProperties.put("kafka_topic", topic);
         return dataSourceProperties;
@@ -509,6 +505,15 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         customProperties.forEach((k, v) -> ret.put("property." + k, v));
         return ret;
     }
+=======
+        dataSourceProperties.put("brokerList", brokerList);
+        dataSourceProperties.put("topic", topic);
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        return dataSourceProperties;
+    }
+>>>>>>> 624de0704 (ADD: show create routine load)
 
     @Override
     public void write(DataOutput out) throws IOException {
