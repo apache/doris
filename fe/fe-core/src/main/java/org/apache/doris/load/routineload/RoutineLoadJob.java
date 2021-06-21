@@ -1319,6 +1319,77 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             readUnlock();
         }
     }
+    
+    public String getShowCreateInfo() {
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Table tbl = (db == null) ? null : db.getTable(tableId);
+        StringBuilder sb = new StringBuilder();
+        // 1.job_name
+        sb.append("CREATE ROUTINE LOAD ").append(name);
+        // 2.tbl_name
+        sb.append(" ON ").append(tbl == null ? String.valueOf(tableId) : tbl.getName()).append("\n");
+        // 3.merge_type
+        sb.append("WITH ").append(mergeType.toString()).append("\n");
+        // 4.load_properties
+        // 4.1.column_separator
+        sb.append("COLUMNS TERMINATED BY ").append(columnSeparator.toString()).append(",\n");
+        // 4.2.columns_mapping
+        if (columnDescs != null) {
+            sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs)).append("),\n");
+        }
+        // 4.3.where_predicates
+        if (whereExpr != null) {
+            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+        }
+        // 4.4.partitions
+        if (partitions != null) {
+            sb.append("PARTITION(").append(Joiner.on(",").join(partitions.getPartitionNames())).append("),\n");
+        }
+        // 4.5.delete_on_predicates
+        if (deleteCondition != null) {
+            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+        }
+        // 4.6.source_sequence
+        if (sequenceCol != null) {
+            sb.append("ORDER BY ").append(sequenceCol).append(",\n");
+        }
+        // 4.7.preceding_predicates
+        if (precedingFilter != null) {
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+        }
+        // 5.job_properties
+        sb.append("PROPERTIES\n(");
+        appendProperties(sb, "desired_concurrent_number", desireTaskConcurrentNum, false);
+        appendProperties(sb, "max_batch_interval", maxBatchIntervalS, false);
+        appendProperties(sb, "max_batch_rows", maxBatchRows, false);
+        appendProperties(sb, "max_batch_size", maxBatchSizeBytes, false);
+        appendProperties(sb, "max_error_number", maxErrorNum, false);
+        appendProperties(sb, "strict_mode", isStrictMode(), false);
+        appendProperties(sb, "timezone", getTimezone(), false);
+        appendProperties(sb, "format", getFormat(), false);
+        appendProperties(sb, "jsonpaths", getJsonPaths(), false);
+        appendProperties(sb, "strip_outer_array", isStripOuterArray(), false);
+        appendProperties(sb, "json_root", getJsonRoot(), true);
+        sb.append(")\n");
+        // 6. data_source
+        sb.append("FROM ").append(dataSourceType).append("\n");
+        // 7. data_source_properties
+        sb.append("(\n");
+        getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+        // remove the last ,
+        sb.replace(sb.length() - 2, sb.length() - 1, "");
+        sb.append(");");
+        return sb.toString();
+    }
+    
+    public void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
+        sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
+        if (!end) {
+            sb.append(",\n");
+        } else {
+            sb.append("\n");
+        }
+    }
 
     public List<List<String>> getTasksShowInfo() {
         List<List<String>> rows = Lists.newArrayList();
@@ -1377,6 +1448,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     abstract String dataSourcePropertiesJsonToString();
 
     abstract String customPropertiesJsonToString();
+    
+    abstract Map<String, String> getDataSourceProperties();
 
     public boolean needRemove() {
         if (!isFinal()) {
