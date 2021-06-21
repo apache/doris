@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import java.util.HashMap;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
