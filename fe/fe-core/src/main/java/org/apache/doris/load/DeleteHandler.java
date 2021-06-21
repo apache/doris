@@ -95,7 +95,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class DeleteHandler implements Writable {
