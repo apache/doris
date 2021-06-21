@@ -197,21 +197,21 @@ struct FileDescriptorMetrics {
 #define DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(metric) \
     DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_average_##metric, MetricUnit::NOUNIT, "", load_average, \
                                          Labels({{"mode", #metric}}));
-DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(1_minute);
-DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(5_minute);
-DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(15_minute);
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(1_minutes);
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(5_minutes);
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(15_minutes);
 
 struct LoadAverageMetrics {
     LoadAverageMetrics(MetricEntity* ent) : entity(ent) {
-        INT_DOUBLE_METRIC_REGISTER(entity, load_average_1_minute);
-        INT_DOUBLE_METRIC_REGISTER(entity, load_average_5_minute);
-        INT_DOUBLE_METRIC_REGISTER(entity, load_average_15_minute);
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_1_minutes);
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_5_minutes);
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_15_minutes);
     }
 
     MetricEntity* entity = nullptr;
-    DoubleGauge* load_average_1_minute;
-    DoubleGauge* load_average_5_minute;
-    DoubleGauge* load_average_15_minute;
+    DoubleGauge* load_average_1_minutes;
+    DoubleGauge* load_average_5_minutes;
+    DoubleGauge* load_average_15_minutes;
 };
 
 const char* SystemMetrics::_s_hook_name = "system_metrics";
@@ -651,9 +651,9 @@ void SystemMetrics::_update_load_avg_metrics() {
         memset(values, 0, sizeof(values));
         int num = sscanf(_line_ptr, "%lf %lf %lf", &values[0], &values[1], &values[2]);
         if (num == 3) {
-            _load_average_metrics->load_average_1_minute->set_value(values[0]);
-            _load_average_metrics->load_average_5_minute->set_value(values[1]);
-            _load_average_metrics->load_average_15_minute->set_value(values[2]);
+            _load_average_metrics->load_average_1_minutes->set_value(values[0]);
+            _load_average_metrics->load_average_5_minutes->set_value(values[1]);
+            _load_average_metrics->load_average_15_minutes->set_value(values[2]);
         }
     }
 
