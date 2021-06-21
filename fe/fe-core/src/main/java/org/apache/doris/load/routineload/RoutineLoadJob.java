@@ -1339,10 +1339,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("WITH ").append(mergeType.toString()).append("\n");
         // 4.load_properties
         // 4.1.column_separator
-        sb.append("COLUMNS TERMINATED BY ").append(columnSeparator.toString()).append(",\n");
+        if (columnSeparator != null) {
+            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getSeparator()).append("\",\n");
+        }
         // 4.2.columns_mapping
         if (columnDescs != null) {
-            sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs)).append("),\n");
+            sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs.descs)).append("),\n");
         }
         // 4.3.where_predicates
         if (whereExpr != null) {
@@ -1364,25 +1366,28 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (precedingFilter != null) {
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
+        // remove the last ,
+        sb.replace(sb.length() - 2, sb.length() - 1, "");
         // 5.job_properties
-        sb.append("PROPERTIES\n(");
-        appendProperties(sb, "desired_concurrent_number", desireTaskConcurrentNum, false);
-        appendProperties(sb, "max_batch_interval", maxBatchIntervalS, false);
-        appendProperties(sb, "max_batch_rows", maxBatchRows, false);
-        appendProperties(sb, "max_batch_size", maxBatchSizeBytes, false);
-        appendProperties(sb, "max_error_number", maxErrorNum, false);
-        appendProperties(sb, "strict_mode", isStrictMode(), false);
-        appendProperties(sb, "timezone", getTimezone(), false);
-        appendProperties(sb, "format", getFormat(), false);
-        appendProperties(sb, "jsonpaths", getJsonPaths(), false);
-        appendProperties(sb, "strip_outer_array", isStripOuterArray(), false);
-        appendProperties(sb, "json_root", getJsonRoot(), true);
+        sb.append("PROPERTIES\n(\n");
+        appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
+        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
+        appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
         // 7. data_source_properties
         sb.append("(\n");
         getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+        getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         // remove the last ,
         sb.replace(sb.length() - 2, sb.length() - 1, "");
         sb.append(");");
@@ -1457,6 +1462,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     abstract String customPropertiesJsonToString();
     
     abstract Map<String, String> getDataSourceProperties();
+
+    abstract Map<String, String> getCustomProperties();
 
     public boolean needRemove() {
         if (!isFinal()) {

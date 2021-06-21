@@ -1855,26 +1855,27 @@ public class ShowExecutor {
         if (routineLoadJob != null) {
             String dbName = showCreateRoutineLoadStmt.getDb();
             String tableName = null;
-                // check auth
-                try {
-                    tableName = routineLoadJob.getTableName();
-                } catch (MetaNotFoundException e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("error_msg", "The table metadata of job has been changed. "
+            // check auth
+            try {
+                tableName = routineLoadJob.getTableName();
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                        .add("error_msg", "The table metadata of job has been changed. "
                                     + "The job will be cancelled automatically")
-                            .build(), e);
-                }
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                        dbName,
-                        tableName,
-                        PrivPredicate.LOAD)) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                            .add("operator", "show create routine load job")
-                            .add("user", ConnectContext.get().getQualifiedUser())
-                            .add("remote_ip", ConnectContext.get().getRemoteIP())
-                            .add("db_name", dbName)
-                            .add("table_name", tableName)
-                            .add("error_msg", "The table access denied"));
+                        .build(), e);
+            }
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                    dbName,
+                    tableName,
+                    PrivPredicate.LOAD)) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                        .add("operator", "show create routine load job")
+                        .add("user", ConnectContext.get().getQualifiedUser())
+                        .add("remote_ip", ConnectContext.get().getRemoteIP())
+                        .add("db_name", dbName)
+                        .add("table_name", tableName)
+                        .add("error_msg", "The table access denied"));
+            } else {
                 // get routine load info
                 rows.add(Lists.newArrayList(showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
             }

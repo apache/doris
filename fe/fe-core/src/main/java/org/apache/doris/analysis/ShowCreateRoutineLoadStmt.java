@@ -58,7 +58,7 @@ public class ShowCreateRoutineLoadStmt extends ShowStmt {
     
     @Override
     public String toSql() {
-        return "SHOW CREATE ROUTINE LOAD " + labelName;
+        return "SHOW CREATE ROUTINE LOAD FOR " + labelName;
     }
     
     @Override

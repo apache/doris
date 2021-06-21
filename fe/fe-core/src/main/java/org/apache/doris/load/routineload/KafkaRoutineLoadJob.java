@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.routineload;
 
+import java.util.HashMap;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
@@ -478,7 +479,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String dataSourcePropertiesJsonToString() {
-        Map<String, String> dataSourceProperties = getDataSourceProperties();
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("brokerList", brokerList);
+        dataSourceProperties.put("topic", topic);
+        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
+        Collections.sort(sortedPartitions);
+        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
@@ -492,12 +498,16 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     protected Map<String, String> getDataSourceProperties() {
         Map<String, String> dataSourceProperties = Maps.newHashMap();
-        dataSourceProperties.put("brokerList", brokerList);
-        dataSourceProperties.put("topic", topic);
-        List<Integer> sortedPartitions = Lists.newArrayList(currentKafkaPartitions);
-        Collections.sort(sortedPartitions);
-        dataSourceProperties.put("currentKafkaPartitions", Joiner.on(",").join(sortedPartitions));
+        dataSourceProperties.put("kafka_broker_list", brokerList);
+        dataSourceProperties.put("kafka_topic", topic);
         return dataSourceProperties;
+    }
+
+    @Override
+    protected Map<String, String> getCustomProperties() {
+        Map<String, String> ret = new HashMap<>();
+        customProperties.forEach((k, v) -> ret.put("property." + k, v));
+        return ret;
     }
 
     @Override
