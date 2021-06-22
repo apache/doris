@@ -62,6 +62,7 @@ public class Tablet extends MetaObject implements Writable {
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
+        UNRECOVERABLE   // non of replicas are healthy
     }
 
     @SerializedName(value = "id")
@@ -455,7 +456,9 @@ public class Tablet extends MetaObject implements Writable {
 
         // 1. alive replicas are not enough
         int aliveBackendsNum = aliveBeIdsInCluster.size();
-        if (alive < replicationNum && replicas.size() >= aliveBackendsNum
+        if (alive == 0) {
+            return Pair.create(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
+        } else if (alive < replicationNum && replicas.size() >= aliveBackendsNum
                 && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
@@ -473,7 +476,9 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 2. version complete replicas are not enough
-        if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
+        if (aliveAndVersionComplete == 0) {
+            return Pair.create(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
+        } else if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.HIGH);
         } else if (aliveAndVersionComplete < replicationNum) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
