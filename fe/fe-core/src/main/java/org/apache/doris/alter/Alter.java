@@ -180,8 +180,6 @@ public class Alter {
                     }
                 } else if (alterClause instanceof AddPartitionClause) {
                     needProcessOutsideTableLock = true;
-                } else if (alterClause instanceof ModifyDistributionClause) {
-                    Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
                 } else {
                     throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
                 }
@@ -194,6 +192,10 @@ public class Alter {
             processReplaceTable(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
         } else {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
