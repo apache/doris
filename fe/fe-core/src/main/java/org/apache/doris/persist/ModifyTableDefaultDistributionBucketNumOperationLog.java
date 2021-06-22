@@ -33,12 +33,12 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
     @SerializedName(value = "tableId")
     private long tableId;
     @SerializedName(value = "bucketNum")
-	private int bucketNum;
+    private int bucketNum;
 
     public ModifyTableDefaultDistributionBucketNumOperationLog(long dbId, long tableId, int bucketNum) {
         this.dbId = dbId;
         this.tableId = tableId;
-		this.bucketNum = bucketNum;
+        this.bucketNum = bucketNum;
     }
 
     public long getDbId() {
@@ -50,7 +50,7 @@ public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writ
     }
 
     public int getBucketNum() {
-		return bucketNum;
+        return bucketNum;
     }
 
     @Override

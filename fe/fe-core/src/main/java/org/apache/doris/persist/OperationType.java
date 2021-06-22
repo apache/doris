@@ -182,8 +182,8 @@ public class OperationType {
     // set table in memory
     public static final short OP_MODIFY_IN_MEMORY = 267;
 
-	// set table default distribution bucket num
-	public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
+    // set table default distribution bucket num
+    public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;

@@ -33,7 +33,7 @@ public class ModifyDistributionClause extends AlterTableClause {
     public ModifyDistributionClause(DistributionDesc distributionDesc) {
         super(AlterOpType.MODIFY_DISTRIBUTION);
         this.distributionDesc = distributionDesc;
-		this.needTableStable = false;
+        this.needTableStable = false;
     }
 
     @Override

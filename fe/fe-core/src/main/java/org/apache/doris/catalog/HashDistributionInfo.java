@@ -61,7 +61,7 @@ public class HashDistributionInfo extends DistributionInfo {
 
     @Override
     public void setBucketNum(int bucketNum) {
-		this.bucketNum = bucketNum;
+        this.bucketNum = bucketNum;
     }
 
     public void write(DataOutput out) throws IOException {
