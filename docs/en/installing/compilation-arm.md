@@ -1,7 +1,7 @@
 ---
 {
     "title": "Compile on ARM platform",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
