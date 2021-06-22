@@ -496,6 +496,11 @@ This will limit the max recursion depth of hash distribution pruner.
       So that distribution pruner will no work and just return all buckets.
       Increase the depth can support distribution pruning for more elements, but may cost more CPU.
 
+### max_backup_restore_job_num_per_db
+
+Default: 10
+
+This configuration is mainly used to control the number of backup/restore tasks recorded in each database.
 
 ### using_old_load_usage_pattern
 
