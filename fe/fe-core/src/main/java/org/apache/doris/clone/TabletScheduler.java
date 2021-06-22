@@ -575,17 +575,19 @@ public class TabletScheduler extends MasterDaemon {
             case FORCE_REDUNDANT:
                 handleRedundantReplica(tabletCtx, true);
                 break;
-            case REPLICA_MISSING_IN_CLUSTER:
-                handleReplicaClusterMigration(tabletCtx, batchTask);
-                break;
-            case COLOCATE_MISMATCH:
-                handleColocateMismatch(tabletCtx, batchTask);
-                break;
-            case COLOCATE_REDUNDANT:
-                handleColocateRedundant(tabletCtx);
-                break;
-            default:
-                break;
+                case REPLICA_MISSING_IN_CLUSTER:
+                    handleReplicaClusterMigration(tabletCtx, batchTask);
+                    break;
+                case COLOCATE_MISMATCH:
+                    handleColocateMismatch(tabletCtx, batchTask);
+                    break;
+                case COLOCATE_REDUNDANT:
+                    handleColocateRedundant(tabletCtx);
+                    break;
+                case UNRECOVERABLE:
+                    throw new SchedException(Status.UNRECOVERABLE, "tablet is unrecoverable");
+                default:
+                    break;
             }
         } else {
             // balance

@@ -1014,7 +1014,8 @@ public class ReportHandler extends Daemon {
                     db.getClusterName(), visibleVersion, visibleVersionHash,
                     replicationNum, aliveBeIdsInCluster);
 
-            if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING) {
+            if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING
+                    || status.first == TabletStatus.UNRECOVERABLE) {
                 long lastFailedVersion = -1L;
                 long lastFailedVersionHash = 0L;
 

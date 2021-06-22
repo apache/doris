@@ -65,6 +65,9 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.force", true);
         properties.put("spring.servlet.multipart.max-file-size", this.maxFileSize);
         properties.put("spring.servlet.multipart.max-request-size", this.maxRequestSize);
+        // This is to disable the spring-boot-devtools restart feature.
+        // To avoid some unexpected behavior.
+        System.setProperty("spring.devtools.restart.enabled", "false");
         properties.put("logging.config", dorisHome + "/conf/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
