@@ -82,6 +82,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
@@ -174,7 +175,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
-import org.apache.doris.persist.ModifyTableDefaultDistributionInfoOperationLog;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -5578,10 +5579,8 @@ public class Catalog {
         }
     }
 
-                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
-
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
-		if (table.isColocateTable()) {
+		if (olapTable.isColocateTable()) {
 			throw new DdlException("Cannot change default bucket number of colocate table.");
 		}
 
@@ -5593,6 +5592,8 @@ public class Catalog {
         DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
 
         DistributionInfo distributionInfo = null;
+
+        List<Column> baseSchema = olapTable.getBaseSchema();
 
         if (distributionDesc != null) {
 			distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
@@ -5612,11 +5613,11 @@ public class Catalog {
                 throw new DdlException("Cannot assign hash distribution buckets less than 1");
             }
 
-			olapTable.setDefaultDistributionInfo(distributionInfo);
+			olapTable.setTableDefaultDistributionInfo(distributionInfo);
 
-            ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), table.getId(), hashDistributionInfo.getBucketNum());
+            ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), hashDistributionInfo.getBucketNum());
             editLog.logModifyDefaultDistributionBucketNum(info);
-            LOG.info("modify table[{}] default bucket num to {}", table.getName(), hashDistributionInfo.getBucketNum());
+            LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), hashDistributionInfo.getBucketNum());
         }
 	}
 

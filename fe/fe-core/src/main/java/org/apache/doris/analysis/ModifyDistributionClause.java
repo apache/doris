@@ -20,8 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
-import java.util.Map;
-
 // clause which is used to modify the default bucket number of hash distribution
 // MODIFY DISTRIBUTION DISTRIBUTED BY HASH('key') BUCKETS number;
 public class ModifyDistributionClause extends AlterTableClause {
@@ -35,7 +33,7 @@ public class ModifyDistributionClause extends AlterTableClause {
     public ModifyDistributionClause(DistributionDesc distributionDesc) {
         super(AlterOpType.MODIFY_DISTRIBUTION);
         this.distributionDesc = distributionDesc;
-		this.needTableState = false;
+		this.needTableStable = false;
     }
 
     @Override

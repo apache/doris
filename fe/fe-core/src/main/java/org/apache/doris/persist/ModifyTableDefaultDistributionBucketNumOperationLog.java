@@ -25,19 +25,17 @@ import org.apache.doris.persist.gson.GsonUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
-public class ModifyTablePropertyOperationLog implements Writable {
+public class ModifyTableDefaultDistributionBucketNumOperationLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
     private long tableId;
     @SerializedName(value = "bucketNum")
-	private int bucketNum
+	private int bucketNum;
 
-    public ModifyTablePropertyOperationLog(long dbId, long tableId, int bucketNum) {
+    public ModifyTableDefaultDistributionBucketNumOperationLog(long dbId, long tableId, int bucketNum) {
         this.dbId = dbId;
         this.tableId = tableId;
 		this.bucketNum = bucketNum;
@@ -60,7 +58,7 @@ public class ModifyTablePropertyOperationLog implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static ModifyTablePropertyOperationLog read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), ModifyTablePropertyOperationLog.class);
+    public static ModifyTableDefaultDistributionBucketNumOperationLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), ModifyTableDefaultDistributionBucketNumOperationLog.class);
     }
 }
