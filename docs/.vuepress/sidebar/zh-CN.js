@@ -486,6 +486,7 @@ module.exports = [
               "SHOW ALTER",
               "SHOW BACKUP",
               "SHOW CREATE FUNCTION",
+              "SHOW CREATE ROUTINE LOAD",
               "SHOW DATA",
               "SHOW DATABASES",
               "SHOW DELETE",
