@@ -545,6 +545,12 @@ SmallFileMgr 中存储的最大文件数
 
 最大 Routine Load 作业数，包括 NEED_SCHEDULED, RUNNING, PAUSE
 
+### max_backup_restore_job_num_per_db
+
+默认值：10
+
+此配置用于控制每个 DB 能够记录的 backup/restore 任务的数量
+
 ### max_running_txn_num_per_db
 
 默认值：100
