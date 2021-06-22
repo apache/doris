@@ -75,8 +75,21 @@ public class RangePartitionPruner implements PartitionPruner {
         Column keyColumn = partitionColumns.get(columnIdx);
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
-            int pushMinCount = minKey.fillWithInfinity(partitionColumns, false);
-            int pushMaxCount = maxKey.fillWithInfinity(partitionColumns, true);
+            // If there is no condition in the first column, there is no need to add the infinity range for all columns.
+            int pushMinCount;
+            int pushMaxCount;
+            if (columnIdx == 0) {
+                minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
+                    keyColumn.getDataType());
+                maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
+                    keyColumn.getDataType());
+                pushMinCount = 1;
+                pushMaxCount = 1;
+            }
+            else {
+                pushMinCount = minKey.fillWithInfinity(partitionColumns, false);
+                pushMaxCount = maxKey.fillWithInfinity(partitionColumns, true);
+            }
             Collection<Long> result = null;
             try {
                 result = Lists.newArrayList(
