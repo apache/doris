@@ -300,6 +300,11 @@ public:
         return (value + (factor - 1)) & ~(factor - 1);
     }
 
+    // speed up function compute for SIMD
+    static inline size_t RoundUpToPowerOf2Int32(size_t value, size_t factor) {
+        return (value + (factor - 1)) & ~(factor - 1);
+    }
+
     // Returns the ceil of value/divisor
     static inline int Ceil(int value, int divisor) {
         return value / divisor + (value % divisor != 0);
