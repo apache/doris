@@ -85,8 +85,7 @@ public class RangePartitionPruner implements PartitionPruner {
                     keyColumn.getDataType());
                 pushMinCount = 1;
                 pushMaxCount = 1;
-            }
-            else {
+            } else {
                 pushMinCount = minKey.fillWithInfinity(partitionColumns, false);
                 pushMaxCount = maxKey.fillWithInfinity(partitionColumns, true);
             }
