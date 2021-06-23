@@ -44,24 +44,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * This rule extracts common predicate from multiple disjunctions when it is applied
+ * recursively bottom-up to a tree of CompoundPredicates.
+ * There are two common predicate that will be extracted as following:
+ * 1. Common Factors: (a and b) or (a and c) -> a and (b or c)
+ * 2. Wide common factors: (1<k1<3 and k2 in ('Marry')) or (2<k1<4 and k2 in ('Tom'))
+ *        -> (1<k1<4) and k2 in('Marry','Tom') and (1<k1<3 and k2 in ('Marry')) or (2<k1<4 and k2 in ('Tom'))
+ *
+ * The second rewriting can be controlled by session variable 'extract_wide_range_expr'
+ */
 public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private final static Logger LOG = LogManager.getLogger(ExtractCommonFactorsRule.class);
     public static ExtractCommonFactorsRule INSTANCE = new ExtractCommonFactorsRule();
 
-    /**
-     * This function attempts to apply the inverse OR distributive law:
-     * ((A AND B) OR (A AND C))  =>  (A AND (B OR C))
-     * Situation1: locate OR clauses in which every sub clause contains an
-     * identical term, and pull out the duplicated terms.
-     * Situation2: find wide range of expr
-     */
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
                 && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
-            Expr rewrittenExpr = processDuplicateOrs(exprFormatting((CompoundPredicate) expr), analyzer);
+            Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer);
             if (rewrittenExpr != null) {
                 return rewrittenExpr;
             }
@@ -77,12 +80,20 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     }
 
     /**
-     * the input is a list of list, the inner list is and connected exprs, the outer list is or connected
-     * for example clause (a and b and c) or (a and e and f) after extractDuplicateOrs will be [[a, b, c], [a, e, f]]
-     * this is the input of this function, first step is deduplicate [[a, b, c], [a, e, f]] => [[a], [b, c], [e, f]]
-     * then rebuild the expr to a and ((b and c) or (e and f))
+     * The input is a list of list, the inner list is and connected exprs, the outer list is or connected.
+     * For example: Origin expr: (a and b and b) or (a and e and f)
+     * @param exprs: [[a, b, b], [a, e, f]]
+     * 1. First step is deduplicate:
+     *    @code clearExprs: [[a, b, b], [a, e, f]] => [[a, b], [a, e, f]]
+     * 2. Extract common factors:
+     *    @code commonFactorList: [a]
+     *    @code clearExprs: [[b], [e, f]]
+     * 3. Extract wide common factors:
+     *    @code commonFactorList: [a, b']
+     * 4. Construct new expr:
+     *    @return: a and b' and (b or (e and f))
      */
-    private Expr processDuplicateOrs(List<List<Expr>> exprs, Analyzer analyzer) {
+    private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer) {
         if (exprs.size() < 2) {
             return null;
         }
@@ -159,11 +170,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         return result;
     }
 
-    // The wide range of expr must satisfy two conditions as following:
-    // 1. the expr is a constant filter for single column in single table.
-    // 2. the single column of expr must appear in all clauses.
-    // The expr extracted here is a wider range of expressions, similar to a pre-filtering.
-    // But pre-filtering does not necessarily mean that it must have a positive impact on performance.
+    /**
+     * The wide range of expr must satisfy two conditions as following:
+     * 1. the expr is a constant filter for single column in single table.
+     * 2. the single column of expr must appear in all clauses.
+     * The expr extracted here is a wider range of expressions, similar to a pre-filtering.
+     * But pre-filtering does not necessarily mean that it must have a positive impact on performance.
+     */
     private Expr findWideRangeExpr(List<List<Expr>> exprList) {
         // 1. construct map <column, range/list>
         List<Map<SlotRef, Range<LiteralExpr>>> columnNameToRangeList = Lists.newArrayList();
@@ -238,7 +251,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         List<Expr> wideRangeExprList = Lists.newArrayList();
         if (!resultRangeMap.isEmpty()) {
             for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> entry : resultRangeMap.entrySet()) {
-                wideRangeExprList.add(rangeToCompound(entry.getKey(), entry.getValue()));
+                wideRangeExprList.add(rangeSetToCompoundPredicate(entry.getKey(), entry.getValue()));
             }
         }
         if (!resultInMap.isEmpty()) {
@@ -251,11 +264,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
     }
 
-    /*
-    An expression that meets the following three conditions will return true:
-    1. single column from single table
-    2. in or binary predicate
-    3. one child of predicate is constant
+    /**
+     * An expression that meets the following three conditions will return true:
+     * 1. single column from single table
+     * 2. in or binary predicate
+     * 3. one child of predicate is constant
      */
     private boolean singleColumnPredicate(Expr expr) {
         List<SlotRef> slotRefs = Lists.newArrayList();
@@ -287,6 +300,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
     }
 
+    /**
+     * RangeSet1: 1<k1<3, k2<4
+     * RangeSet2: 2<k1<4
+     * Result: 1<k1<4
+     */
     private Map<SlotRef, RangeSet<LiteralExpr>> mergeTwoClauseRange(Map<SlotRef, RangeSet<LiteralExpr>> clause1,
                                                                     Map<SlotRef, Range<LiteralExpr>> clause2) {
         Map<SlotRef, RangeSet<LiteralExpr>> result = Maps.newHashMap();
@@ -308,6 +326,11 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         return result;
     }
 
+    /**
+     * InPredicate1: k1 in (a), k2 in (b)
+     * InPredicate2: k1 in (b)
+     * Result: k1 in (a, b)
+     */
     private Map<SlotRef, InPredicate> mergeTwoClauseIn(Map<SlotRef, InPredicate> clause1,
                                                        Map<SlotRef, InPredicate> clause2) {
         Map<SlotRef, InPredicate> result = Maps.newHashMap();
@@ -377,7 +400,13 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         return result;
     }
 
-    public Expr rangeToCompound(SlotRef slotRef, RangeSet<LiteralExpr> rangeSet) {
+    /**
+     * Convert RangeSet to Compound Predicate
+     * @param slotRef: <k1>
+     * @param rangeSet: {(1,3), (6,7)}
+     * @return: (k1>1 and k1<3) or (k1>6 and k1<7)
+     */
+    public Expr rangeSetToCompoundPredicate(SlotRef slotRef, RangeSet<LiteralExpr> rangeSet) {
         List<Expr> compoundList = Lists.newArrayList();
         for (Range<LiteralExpr> range : rangeSet.asRanges()) {
             LiteralExpr lowerBound = null;
