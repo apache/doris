@@ -82,16 +82,18 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     /**
      * The input is a list of list, the inner list is and connected exprs, the outer list is or connected.
      * For example: Origin expr: (a and b and b) or (a and e and f)
+     *
      * @param exprs: [[a, b, b], [a, e, f]]
-     * 1. First step is deduplicate:
-     *    @code clearExprs: [[a, b, b], [a, e, f]] => [[a, b], [a, e, f]]
+     *               1. First step is deduplicate:
+     * @code clearExprs: [[a, b, b], [a, e, f]] => [[a, b], [a, e, f]]
      * 2. Extract common factors:
-     *    @code commonFactorList: [a]
-     *    @code clearExprs: [[b], [e, f]]
+     * @code commonFactorList: [a]
+     * @code clearExprs: [[b], [e, f]]
      * 3. Extract wide common factors:
-     *    @code commonFactorList: [a, b']
+     * @code wideCommonExpr: b'
+     * @code commonFactorList: [a, b']
      * 4. Construct new expr:
-     *    @return: a and b' and (b or (e and f))
+     * @return: a and b' and (b or (e and f))
      */
     private Expr extractCommonFactors(List<List<Expr>> exprs, Analyzer analyzer) {
         if (exprs.size() < 2) {
@@ -145,20 +147,23 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         // 3. find merge cross the clause
         if (analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
-            commonFactorList.add(findWideRangeExpr(clearExprs));
+            Expr wideCommonExpr = findWideRangeExpr(clearExprs);
+            if (wideCommonExpr != null) {
+                commonFactorList.add(wideCommonExpr);
+            }
         }
 
         // 4. construct new expr
         // rebuild CompoundPredicate if found duplicate predicate will build （predicate) and (.. or ..)  predicate in
         // step 1: will build (.. or ..)
         List<Expr> remainingOrClause = Lists.newArrayList();
-        for (List<Expr> clearExpr: clearExprs) {
-            remainingOrClause.add(makeCompound(clearExpr,CompoundPredicate.Operator.AND));
+        for (List<Expr> clearExpr : clearExprs) {
+            remainingOrClause.add(makeCompound(clearExpr, CompoundPredicate.Operator.AND));
         }
         Expr result = null;
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                    makeCompound(commonFactorList,CompoundPredicate.Operator.AND),
+                    makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
                     makeCompound(remainingOrClause, CompoundPredicate.Operator.OR));
             result.setPrintSqlInParens(true);
         } else {

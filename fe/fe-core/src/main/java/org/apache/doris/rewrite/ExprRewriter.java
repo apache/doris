@@ -17,12 +17,13 @@
 
 package org.apache.doris.rewrite;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /**
  * Helper class that drives the transformation of Exprs according to a given list of
@@ -70,6 +71,9 @@ public class ExprRewriter {
 
     private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer) throws AnalysisException {
         Expr rewrittenExpr = rule.apply(expr, analyzer);
+        if (rewrittenExpr != expr) {
+            numChanges_++;
+        }
         return rewrittenExpr;
     }
 
