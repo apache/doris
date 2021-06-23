@@ -40,7 +40,6 @@ set(EXEC_FILES
     hash_join_node.cpp
     hash_join_node_ir.cpp
     hash_table.cpp
-    hdfs_file_reader.cpp
     local_file_reader.cpp
     merge_node.cpp
     merge_join_node.cpp
@@ -106,6 +105,13 @@ set(EXEC_FILES
     s3_reader.cpp
     s3_writer.cpp
 )
+
+if (ARCH_AMD64)
+    set(EXEC_FILES
+        ${EXEC_FILES}
+        hdfs_file_reader.cpp
+        )
+endif()
 
 if (WITH_MYSQL)
     set(EXEC_FILES
