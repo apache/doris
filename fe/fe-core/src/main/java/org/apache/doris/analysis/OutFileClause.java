@@ -232,7 +232,6 @@ public class OutFileClause {
                     break;
                 case CHAR:
                 case VARCHAR:
-                case DECIMAL:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
                         throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
@@ -273,7 +272,6 @@ public class OutFileClause {
                     break;
                 case CHAR:
                 case VARCHAR:
-                case DECIMAL:
                 case DECIMALV2:
                     column.add("byte_array");
                     break;
