@@ -26,12 +26,16 @@ import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
+
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -139,7 +143,11 @@ public class OutFileClause {
         return brokerDesc;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public List<List<String>> getSchema() {
+        return schema;
+    }
+
+    private void analyze(Analyzer analyzer) throws AnalysisException {
         analyzeFilePath();
 
         if (Strings.isNullOrEmpty(filePath)) {
@@ -167,11 +175,111 @@ public class OutFileClause {
 
     public void analyze(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
         analyze(analyzer);
-        List<SelectListItem> items = stmt.getSelectList().getItems();
-        for (SelectListItem item:items) {
-            if (item.getExpr().getType() == Type.LARGEINT && isParquetFormat()) {
-                throw new AnalysisException("currently parquet do not support largeint type");
+
+        if (isParquetFormat()) {
+            analyzeForParquetFormat(stmt.getResultExprs());
+        }
+    }
+
+    private void analyzeForParquetFormat(List<Expr> resultExprs) throws AnalysisException {
+        if (this.schema.isEmpty()) {
+            genParquetSchema(resultExprs);
+        }
+
+        // check schema number
+        if (resultExprs.size() != this.schema.size()) {
+            throw new AnalysisException("Parquet schema number does not equal to select item number");
+        }
+
+        // check type
+        for (int i = 0; i < this.schema.size(); ++i) {
+            String type = this.schema.get(i).get(1);
+            Type resultType = resultExprs.get(i).getType();
+            switch (resultType.getPrimitiveType()) {
+                case BOOLEAN:
+                    if (!type.equals("boolean")) {
+                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                    if (!type.equals("int32")) {
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
+                                + "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case BIGINT:
+                case DATE:
+                case DATETIME:
+                    if (!type.equals("int64")) {
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case FLOAT:
+                    if (!type.equals("float")) {
+                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case DOUBLE:
+                    if (!type.equals("double")) {
+                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case DECIMALV2:
+                    if (!type.equals("byte_array")) {
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
             }
+        }
+    }
+
+    private void genParquetSchema(List<Expr> resultExprs) throws AnalysisException {
+        Preconditions.checkState(this.schema.isEmpty());
+        for (int i = 0; i < resultExprs.size(); ++i) {
+            Expr expr = resultExprs.get(i);
+            List<String> column = new ArrayList<>();
+            column.add("required");
+            switch (expr.getType().getPrimitiveType()) {
+                case BOOLEAN:
+                    column.add("boolean");
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                    column.add("int32");
+                    break;
+                case BIGINT:
+                case DATE:
+                case DATETIME:
+                    column.add("int64");
+                    break;
+                case FLOAT:
+                    column.add("float");
+                    break;
+                case DOUBLE:
+                    column.add("double");
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case DECIMALV2:
+                    column.add("byte_array");
+                    break;
+                default:
+                    throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
+            }
+            column.add("col" + i);
+            this.schema.add(column);
         }
     }
 
@@ -238,7 +346,6 @@ public class OutFileClause {
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
                     .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
-
     }
 
     private void getBrokerProperties(Set<String> processedPropKeys) {
@@ -273,14 +380,28 @@ public class OutFileClause {
      * currently only supports: compression, disable_dictionary, version
      */
     private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
-        String schema = properties.get(SCHEMA);
-        if (schema == null || schema.length() <= 0) {
-            throw new AnalysisException("schema is required for parquet file");
+        // save all parquet prefix property
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
+                processedPropKeys.add(entry.getKey());
+                fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
+            }
         }
-        schema = schema.replace(" ","");
+
+        // check schema. if schema is not set, Doris will gen schema by select items
+        String schema = properties.get(SCHEMA);
+        if (schema == null) {
+            return;
+        }
+        if (schema.isEmpty()) {
+            throw new AnalysisException("Parquet schema property should not be empty");
+        }
+        schema = schema.replace(" ", "");
         schema = schema.toLowerCase();
         String[] schemas = schema.split(";");
-        for (String item:schemas) {
+        for (String item : schemas) {
             String[] properties = item.split(",");
             if (properties.length != 3) {
                 throw new AnalysisException("must only contains repetition type/column type/column name");
@@ -299,14 +420,6 @@ public class OutFileClause {
             this.schema.add(column);
         }
         processedPropKeys.add(SCHEMA);
-        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<String, String> entry = iter.next();
-            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
-                processedPropKeys.add(entry.getKey());
-                fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
-            }
-        }
     }
 
     private boolean isCsvFormat() {
