@@ -24,7 +24,6 @@
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/exec_node.h"
-#include "exec/hdfs_file_reader.h"
 #include "exec/local_file_reader.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/s3_reader.h"
@@ -39,6 +38,10 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
+
+#if defined(__x86_64__)
+    #include "exec/hdfs_file_reader.h"
+#endif
 
 namespace doris {
 
@@ -163,12 +166,16 @@ Status BrokerScanner::open_file_reader() {
         break;
     }
     case TFileType::FILE_HDFS: {
+#if defined(__x86_64__)
         BufferedReader* file_reader =
                 new BufferedReader(new HdfsFileReader(range.hdfs_params, range.path, start_offset),
                                    config::remote_storage_read_buffer_mb * 1024 * 1024);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;
         break;
+#else
+        return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
     }
     case TFileType::FILE_BROKER: {
         BrokerReader* broker_reader =

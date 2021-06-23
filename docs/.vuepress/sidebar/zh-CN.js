@@ -28,6 +28,7 @@ module.exports = [
     directoryPath: "installing/",
     children: [
       "compilation",
+      "compilation-arm",
       "install-deploy",
       "upgrade",
     ],
