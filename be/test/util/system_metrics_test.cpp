@@ -172,16 +172,18 @@ TEST_F(SystemMetricsTest, normal) {
         ASSERT_STREQ("12712", tcp_in_errs->to_string().c_str());
 
         // load average
-        Metric* load_average_1_minutes = entity->get_metric("load_average_1_minutes", "load_average");
+        Metric* load_average_1_minutes =
+                entity->get_metric("load_average_1_minutes", "load_average");
         ASSERT_TRUE(fd_metric != nullptr);
         ASSERT_STREQ("1.090000", load_average_1_minutes->to_string().c_str());
-        Metric* load_average_5_minutes = entity->get_metric("load_average_5_minutes", "load_average");
+        Metric* load_average_5_minutes =
+                entity->get_metric("load_average_5_minutes", "load_average");
         ASSERT_TRUE(fd_metric != nullptr);
         ASSERT_STREQ("1.400000", load_average_5_minutes->to_string().c_str());
-        Metric* load_average_15_minutes = entity->get_metric("load_average_15_minutes", "load_average");
+        Metric* load_average_15_minutes =
+                entity->get_metric("load_average_15_minutes", "load_average");
         ASSERT_TRUE(fd_metric != nullptr);
         ASSERT_STREQ("2.020000", load_average_15_minutes->to_string().c_str());
-
     }
 }
 

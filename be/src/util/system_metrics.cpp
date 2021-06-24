@@ -194,9 +194,9 @@ struct FileDescriptorMetrics {
     IntGauge* fd_num_used;
 };
 
-#define DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(metric) \
-    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_average_##metric, MetricUnit::NOUNIT, "", load_average, \
-                                         Labels({{"mode", #metric}}));
+#define DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(metric)                                     \
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_average_##metric, MetricUnit::NOUNIT, "", \
+                                       load_average, Labels({{"mode", #metric}}));
 DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(1_minutes);
 DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(5_minutes);
 DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(15_minutes);
