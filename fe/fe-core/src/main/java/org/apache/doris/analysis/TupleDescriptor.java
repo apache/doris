@@ -203,10 +203,7 @@ public class TupleDescriptor {
             }
             if (slotSize > 1) {
                 // insert padding
-                int alignTo = Math.min(slotSize, 8);
-                if (slotSize == 40) {
-                    alignTo = 4;
-                }
+                int alignTo = slotSize;
                 offset = (offset + alignTo - 1) / alignTo * alignTo;
             }
 
@@ -233,7 +230,7 @@ public class TupleDescriptor {
         }
 
         this.byteSize = offset;
-        // LOG.debug("tuple is {}", byteSize);
+        LOG.info("tuple is {}", byteSize);
     }
 
     /**
