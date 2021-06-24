@@ -30,12 +30,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
+
+import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -237,7 +237,7 @@ public class FEFunctions {
 
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static DateLiteral curDate() throws AnalysisException {
-        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
+        return new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
     }
 
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIME")
@@ -285,6 +285,30 @@ public class FEFunctions {
     public static IntLiteral weekMode(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof IntLiteral) {
             return (IntLiteral) arg;
+        }
+        return null;
+    }
+
+    @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntLiteral hour(LiteralExpr arg) throws AnalysisException {
+        if (arg instanceof DateLiteral) {
+            return new IntLiteral(((DateLiteral) arg).getHour());
+        }
+        return null;
+    }
+
+    @FEFunction(name = "minute", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntLiteral minute(LiteralExpr arg) throws AnalysisException {
+        if (arg instanceof DateLiteral) {
+            return new IntLiteral(((DateLiteral) arg).getMinute());
+        }
+        return null;
+    }
+
+    @FEFunction(name = "second", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntLiteral second(LiteralExpr arg) throws AnalysisException {
+        if (arg instanceof DateLiteral) {
+            return new IntLiteral(((DateLiteral) arg).getSecond());
         }
         return null;
     }

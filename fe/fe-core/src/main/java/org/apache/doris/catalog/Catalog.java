@@ -216,6 +216,11 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.codehaus.jackson.map.ObjectMapper;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -228,11 +233,6 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -5706,6 +5706,10 @@ public class Catalog {
 
     public boolean isNonNullResultWithNullParamFunction(String funcName) {
         return functionSet.isNonNullResultWithNullParamFunctions(funcName);
+    }
+
+    public boolean isNondeterministicFunction(String funcName) {
+        return functionSet.isNondeterministicFunction(funcName);
     }
 
     /**

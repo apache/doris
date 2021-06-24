@@ -29,10 +29,10 @@ import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
@@ -103,6 +103,9 @@ public class ConnectContext {
     // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail;
 
+    // If set to true, the nondeterministic function will not be rewrote to constant.
+    private boolean notEvalNondeterministicFunction = false;
+
     public static ConnectContext get() {
         return threadLocalInfo.get();
     }
@@ -117,6 +120,14 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
+        this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
+    }
+
+    public boolean notEvalNondeterministicFunction() {
+        return notEvalNondeterministicFunction;
     }
 
     public ConnectContext() {

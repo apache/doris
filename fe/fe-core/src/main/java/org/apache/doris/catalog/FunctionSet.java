@@ -25,13 +25,13 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -59,6 +59,9 @@ public class FunctionSet {
     // cmy: This does not contain any user defined functions. All UDFs handle null values by themselves.
     private ImmutableSet<String> nonNullResultWithNullParamFunctions;
 
+    // Including now(), curdate(), etc..
+    private ImmutableSet<String> nondeterministicFunctions;
+
     public FunctionSet() {
         functions = Maps.newHashMap();
     }
@@ -84,8 +87,21 @@ public class FunctionSet {
         this.nonNullResultWithNullParamFunctions = setBuilder.build();
     }
 
+    public void buildNondeterministicFunctions(Set<String> funcNames) {
+        ImmutableSet.Builder<String> setBuilder = new ImmutableSet.Builder<String>();
+        for (String funcName : funcNames) {
+            setBuilder.add(funcName);
+        }
+        this.nondeterministicFunctions = setBuilder.build();
+    }
+
+
     public boolean isNonNullResultWithNullParamFunctions(String funcName) {
         return nonNullResultWithNullParamFunctions.contains(funcName);
+    }
+
+    public boolean isNondeterministicFunction(String funcName) {
+        return nondeterministicFunctions.contains(funcName);
     }
 
     private static final Map<Type, String> MIN_UPDATE_SYMBOL =

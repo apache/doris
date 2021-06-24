@@ -24,10 +24,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
 
 import java.util.List;
 
@@ -61,6 +61,11 @@ public class CreateViewStmt extends BaseViewStmt {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                                                                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
+        }
+
+        // Do not rewrite nondeterministic functions to constant in create view's def stmt
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setNotEvalNondeterministicFunction(true);
         }
 
         if (cols != null) {

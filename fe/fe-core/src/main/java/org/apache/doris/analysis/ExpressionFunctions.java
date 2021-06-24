@@ -27,14 +27,14 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
 import org.apache.doris.rewrite.FEFunctions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -81,6 +81,14 @@ public enum ExpressionFunctions {
                         return new NullLiteral();
                     }
                 }
+            }
+
+            // In some cases, non-deterministic functions should not be rewritten as constants,
+            // such as non-deterministic functions in the create view statement.
+            // eg: create view v1 as select rand();
+            if (Catalog.getCurrentCatalog().isNondeterministicFunction(fn.getFunctionName().getFunction())
+                    && ConnectContext.get() != null && ConnectContext.get().notEvalNondeterministicFunction()) {
+                return constExpr;
             }
 
             List<ScalarType> argTypes = new ArrayList<>();
