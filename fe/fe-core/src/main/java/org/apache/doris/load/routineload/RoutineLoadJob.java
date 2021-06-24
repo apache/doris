@@ -215,24 +215,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long pauseTimestamp = -1;
     protected long endTimestamp = -1;
 
-    /*
-     * The following variables are for statistics
-     * currentErrorRows/currentTotalRows: the row statistics of current sampling period
-     * errorRows/totalRows/receivedBytes: cumulative measurement
-     * totalTaskExcutorTimeMs: cumulative execution time of tasks
-     */
-    /*
-     * Rows will be updated after txn state changed when txn state has been successfully changed.
-     */
-    protected long currentErrorRows = 0;
-    protected long currentTotalRows = 0;
-    protected long errorRows = 0;
-    protected long totalRows = 0;
-    protected long unselectedRows = 0;
-    protected long receivedBytes = 0;
-    protected long totalTaskExcutionTimeMs = 1; // init as 1 to avoid division by zero
-    protected long committedTaskNum = 0;
-    protected long abortedTaskNum = 0;
+    protected RoutineLoadStatistic jobStatistic = new RoutineLoadStatistic();
 
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
@@ -715,11 +698,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void updateNumOfData(long numOfTotalRows, long numOfErrorRows, long unselectedRows, long receivedBytes,
             long taskExecutionTime, boolean isReplay) throws UserException {
-        this.totalRows += numOfTotalRows;
-        this.errorRows += numOfErrorRows;
-        this.unselectedRows += unselectedRows;
-        this.receivedBytes += receivedBytes;
-        this.totalTaskExcutionTimeMs += taskExecutionTime;
+        this.jobStatistic.totalRows += numOfTotalRows;
+        this.jobStatistic.errorRows += numOfErrorRows;
+        this.jobStatistic.unselectedRows += unselectedRows;
+        this.jobStatistic.receivedBytes += receivedBytes;
+        this.jobStatistic.totalTaskExcutionTimeMs += taskExecutionTime;
 
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
@@ -728,16 +711,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // check error rate
-        currentErrorRows += numOfErrorRows;
-        currentTotalRows += numOfTotalRows;
-        if (currentTotalRows > maxBatchRows * 10) {
-            if (currentErrorRows > maxErrorNum) {
+        this.jobStatistic.currentErrorRows += numOfErrorRows;
+        this.jobStatistic.currentTotalRows += numOfTotalRows;
+        this.jobStatistic.errorRowsAfterResumed = this.jobStatistic.currentErrorRows;
+        if (this.jobStatistic.currentTotalRows > maxBatchRows * 10) {
+            if (this.jobStatistic.currentErrorRows > maxErrorNum) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                 .add("current_total_rows", currentTotalRows)
-                                 .add("current_error_rows", currentErrorRows)
-                                 .add("max_error_num", maxErrorNum)
-                                 .add("msg", "current error rows is more than max error num, begin to pause job")
-                                 .build());
+                        .add("current_total_rows", this.jobStatistic.currentTotalRows)
+                        .add("current_error_rows", this.jobStatistic.currentErrorRows)
+                        .add("max_error_num", maxErrorNum)
+                        .add("msg", "current error rows is more than max error num, begin to pause job")
+                        .build());
                 // if this is a replay thread, the update state should already be replayed by OP_CHANGE_ROUTINE_LOAD_JOB
                 if (!isReplay) {
                     // remove all of task in jobs and change job state to paused
@@ -749,23 +733,23 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                  .add("current_total_rows", currentTotalRows)
-                                  .add("current_error_rows", currentErrorRows)
-                                  .add("max_error_num", maxErrorNum)
-                                  .add("msg", "reset current total rows and current error rows "
-                                          + "when current total rows is more than base")
-                                  .build());
+                        .add("current_total_rows", this.jobStatistic.currentTotalRows)
+                        .add("current_error_rows", this.jobStatistic.currentErrorRows)
+                        .add("max_error_num", maxErrorNum)
+                        .add("msg", "reset current total rows and current error rows "
+                                + "when current total rows is more than base")
+                        .build());
             }
             // reset currentTotalNum and currentErrorNum
-            currentErrorRows = 0;
-            currentTotalRows = 0;
-        } else if (currentErrorRows > maxErrorNum) {
+            this.jobStatistic.currentErrorRows = 0;
+            this.jobStatistic.currentTotalRows = 0;
+        } else if (this.jobStatistic.currentErrorRows > maxErrorNum) {
             LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                             .add("current_total_rows", currentTotalRows)
-                             .add("current_error_rows", currentErrorRows)
-                             .add("max_error_num", maxErrorNum)
-                             .add("msg", "current error rows is more than max error rows, begin to pause job")
-                             .build());
+                    .add("current_total_rows", this.jobStatistic.currentTotalRows)
+                    .add("current_error_rows", this.jobStatistic.currentErrorRows)
+                    .add("max_error_num", maxErrorNum)
+                    .add("msg", "current error rows is more than max error rows, begin to pause job")
+                    .build());
             if (!isReplay) {
                 // remove all of task in jobs and change job state to paused
                 updateState(JobState.PAUSED,
@@ -773,8 +757,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                         isReplay);
             }
             // reset currentTotalNum and currentErrorNum
-            currentErrorRows = 0;
-            currentTotalRows = 0;
+            this.jobStatistic.currentErrorRows = 0;
+            this.jobStatistic.currentTotalRows = 0;
         }
     }
 
@@ -904,7 +888,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
                 taskBeId = routineLoadTaskInfo.getBeId();
                 executeTaskOnTxnStatusChanged(routineLoadTaskInfo, txnState, TransactionStatus.COMMITTED, null);
-                ++committedTaskNum;
+                ++this.jobStatistic.committedTaskNum;
                 LOG.debug("routine load task committed. task id: {}, job id: {}", txnState.getLabel(), id);
             }
         } catch (Throwable e) {
@@ -923,7 +907,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public void replayOnCommitted(TransactionState txnState) {
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
-        this.committedTaskNum++;
+        this.jobStatistic.committedTaskNum++;
         LOG.debug("replay on committed: {}", txnState);
     }
 
@@ -1014,7 +998,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                                       .add("msg", "txn abort with reason " + txnStatusChangeReasonString)
                                       .build());
                 }
-                ++abortedTaskNum;
+                ++this.jobStatistic.abortedTaskNum;
                 TransactionState.TxnStatusChangeReason txnStatusChangeReason = null;
                 if (txnStatusChangeReasonString != null) {
                     txnStatusChangeReason =
@@ -1058,7 +1042,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (txnState.getTxnCommitAttachment() != null) {
             replayUpdateProgress((RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment());
         }
-        this.abortedTaskNum++;
+        this.jobStatistic.abortedTaskNum++;
         LOG.debug("replay on aborted: {}, has attachment: {}", txnState, txnState.getTxnCommitAttachment() == null);
     }
 
@@ -1518,15 +1502,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(pauseTimestamp);
         out.writeLong(endTimestamp);
 
-        out.writeLong(currentErrorRows);
-        out.writeLong(currentTotalRows);
-        out.writeLong(errorRows);
-        out.writeLong(totalRows);
-        out.writeLong(unselectedRows);
-        out.writeLong(receivedBytes);
-        out.writeLong(totalTaskExcutionTimeMs);
-        out.writeLong(committedTaskNum);
-        out.writeLong(abortedTaskNum);
+        this.jobStatistic.write(out);
+
         origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
@@ -1573,15 +1550,20 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         pauseTimestamp = in.readLong();
         endTimestamp = in.readLong();
 
-        currentErrorRows = in.readLong();
-        currentTotalRows = in.readLong();
-        errorRows = in.readLong();
-        totalRows = in.readLong();
-        unselectedRows = in.readLong();
-        receivedBytes = in.readLong();
-        totalTaskExcutionTimeMs = in.readLong();
-        committedTaskNum = in.readLong();
-        abortedTaskNum = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_101) {
+            this.jobStatistic.currentErrorRows = in.readLong();
+            this.jobStatistic.currentTotalRows = in.readLong();
+            this.jobStatistic.errorRows = in.readLong();
+            this.jobStatistic.totalRows = in.readLong();
+            this.jobStatistic.errorRowsAfterResumed = 0;
+            this.jobStatistic.unselectedRows = in.readLong();
+            this.jobStatistic.receivedBytes = in.readLong();
+            this.jobStatistic.totalTaskExcutionTimeMs = in.readLong();
+            this.jobStatistic.committedTaskNum = in.readLong();
+            this.jobStatistic.abortedTaskNum = in.readLong();
+        } else {
+            this.jobStatistic = RoutineLoadStatistic.read(in);
+        }
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
             String stmt = Text.readString(in);
             origStmt = new OriginStatement(stmt, 0);

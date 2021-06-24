@@ -362,8 +362,8 @@ public class GlobalTransactionMgrTest {
         Table testTable1 = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
-        Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
-        Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
+        Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "jobStatistic.currentTotalRows"));
+        Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(routineLoadJob, "jobStatistic.currentErrorRows"));
         Assert.assertEquals(Long.valueOf(101L), ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(1, routineLoadManager.getNeedScheduleTasksQueue().size());
@@ -430,8 +430,8 @@ public class GlobalTransactionMgrTest {
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
         // current total rows and error rows will be reset after job pause, so here they should be 0.
-        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
-        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
+        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "jobStatistic.currentTotalRows"));
+        Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "jobStatistic.currentErrorRows"));
         Assert.assertEquals(Long.valueOf(111L),
                 ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
