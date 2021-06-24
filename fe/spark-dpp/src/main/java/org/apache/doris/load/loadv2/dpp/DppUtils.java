@@ -185,6 +185,7 @@ public class DppUtils {
                 throw new RuntimeException(e);
             }
         }
+        buffer.flip();
         return buffer;
     }
 
