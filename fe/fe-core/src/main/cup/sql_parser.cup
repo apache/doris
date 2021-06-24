@@ -1415,9 +1415,10 @@ data_desc ::=
     where_clause:whereExpr
     delete_on_clause:deleteExpr
     sequence_col_clause:sequenceColName
+    opt_properties:properties
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
-        columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName);
+        columnsFromPath, isNeg, colMappingList, preFilterExpr, whereExpr, mergeType, deleteExpr, sequenceColName, properties);
     :}
     | opt_merge_type:mergeType KW_DATA KW_FROM KW_TABLE ident:srcTableName
     opt_negative:isNeg
@@ -1426,9 +1427,10 @@ data_desc ::=
     opt_col_mapping_list:colMappingList
     where_clause:whereExpr
     delete_on_clause:deleteExpr
+    opt_properties:properties
     {:
         RESULT = new DataDescription(tableName, partitionNames, srcTableName, isNeg, colMappingList, whereExpr,
-        mergeType, deleteExpr);
+        mergeType, deleteExpr, properties);
     :}
     ;
 
@@ -2507,9 +2509,9 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(user, parser.wild);
     :}
-    | KW_BACKUP opt_db:db
+    | KW_BACKUP opt_db:db opt_wild_where
     {:
-        RESULT = new ShowBackupStmt(db);
+        RESULT = new ShowBackupStmt(db, parser.where);
     :}
     | KW_RESTORE opt_db:db opt_wild_where
     {:
@@ -3996,7 +3998,13 @@ order_by_elements ::=
 
 order_by_element ::=
   expr:e opt_order_param:o opt_nulls_order_param:n
-  {: RESULT = new OrderByElement(e, o, n); :}
+  {:
+    if (n == null) {
+      RESULT = new OrderByElement(e, o, o);
+    } else {
+      RESULT = new OrderByElement(e, o, n);
+    }
+  :}
   ;
 
 opt_order_param ::=

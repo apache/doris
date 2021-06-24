@@ -63,6 +63,7 @@ public final class MetricRepo {
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
+    public static LongCounterMetric COUNTER_QUERY_BEGIN;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
@@ -237,6 +238,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
         COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
+        COUNTER_QUERY_BEGIN = new LongCounterMetric("query_begin", MetricUnit.REQUESTS, "query begin");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_BEGIN);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
         COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS, "total load submit");

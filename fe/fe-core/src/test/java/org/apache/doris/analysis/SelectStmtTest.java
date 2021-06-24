@@ -26,6 +26,9 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -33,6 +36,8 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import mockit.Mock;
@@ -55,8 +60,8 @@ public class SelectStmtTest {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createMinDorisCluster(runningDir);
-        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
+                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
                 + "buckets 3 properties('replication_num' = '1');";
         String createPratitionTableStr = "CREATE TABLE db1.partition_table (\n" +
@@ -561,5 +566,130 @@ public class SelectStmtTest {
     public void testWithInNestedQueryStmt() throws Exception {
         String sql = "select 1 from (with w as (select 1 from db1.table1) select 1 from w) as tt";
         dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testGetTableRefs() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "SELECT * FROM db1.table1 JOIN db1.table2 ON db1.table1.siteid = db1.table2.siteid;";
+        dorisAssert.query(sql).explainQuery();
+        QueryStmt stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        List<TableRef> tblRefs = Lists.newArrayList();
+        Set<String> parentViewNameSet = Sets.newHashSet();
+        stmt.getTableRefs(tblRefs, parentViewNameSet);
+
+        Assert.assertEquals(2, tblRefs.size());
+        Assert.assertEquals("table1", tblRefs.get(0).getName().getTbl());
+        Assert.assertEquals("table2", tblRefs.get(1).getName().getTbl());
+    }
+
+    @Test
+    public void testOutfile() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        Config.enable_outfile_to_local = true;
+        String sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,col0\");";
+        dorisAssert.query(sql).explainQuery();
+        // if shema not set, gen schema
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET;";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+            Assert.assertEquals(1, stmt.getOutFileClause().getSchema().size());
+            Assert.assertEquals(Lists.newArrayList("required", "byte_array", "col0"),
+                    stmt.getOutFileClause().getSchema().get(0));
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+
+        // schema can not be empty
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Parquet schema property should not be empty"));
+        }
+
+        // schema must contains 3 fields
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("must only contains repetition type/column type/column name"));
+        }
+
+        // unknown repetition type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeat, int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("unknown repetition type"));
+        }
+
+        // only support required type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"repeated,int32,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("currently only support required type"));
+        }
+
+        // unknown data type
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,int128,siteid;\");";
+        try {
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("data type is not supported"));
+        }
+
+        // contains parquet properties
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"file:///root/doris/\" FORMAT AS PARQUET PROPERTIES (\"schema\"=\"required,byte_array,siteid;\", 'parquet.compression'='snappy');";
+        dorisAssert.query(sql).explainQuery();
+        // support parquet for broker
+        sql = "SELECT k1 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET " +
+                "PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                "\"broker.kerberos_principal\" = \"test\",     " +
+                "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                "\"schema\"=\"required,byte_array,siteid;\");";
+        dorisAssert.query(sql).explainQuery();
+
+        // do not support large int type
+        try {
+            sql = "SELECT k5 FROM db1.tbl1 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" FORMAT AS PARQUET " +
+                    "PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" ," +
+                    " \"schema\"=\"required,int32,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            e.printStackTrace();
+            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+        }
+
+        // do not support large int type, contains function
+        try {
+            sql = "SELECT sum(k5) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" " +
+                    "FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                    "\"schema\"=\"required,int32,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("Parquet format does not support column type: LARGEINT"));
+        }
+
+        // support cast
+        try {
+            sql = "SELECT cast(sum(k5) as bigint) FROM db1.tbl1 group by k5 INTO OUTFILE \"hdfs://test/test_sql_prc_2019_02_19/\" " +
+                    "FORMAT AS PARQUET PROPERTIES (     \"broker.name\" = \"hdfs_broker\",     " +
+                    "\"broker.hadoop.security.authentication\" = \"kerberos\",     " +
+                    "\"broker.kerberos_principal\" = \"test\",     " +
+                    "\"broker.kerberos_keytab_content\" = \"test\" , " +
+                    "\"schema\"=\"required,int64,siteid;\");";
+            SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
     }
 }

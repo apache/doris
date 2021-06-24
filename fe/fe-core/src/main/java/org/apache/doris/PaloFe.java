@@ -129,6 +129,8 @@ public class PaloFe {
             } else {
                 org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
                 httpServer2.setPort(Config.http_port);
+                httpServer2.setMaxFileSize(Config.http_max_file_size);
+                httpServer2.setMaxRequestSize(Config.http_max_file_size);
                 httpServer2.start(dorisHomeDir);
             }
 

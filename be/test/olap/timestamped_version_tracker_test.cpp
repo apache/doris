@@ -826,6 +826,26 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc_empty) {
 
     ASSERT_EQ(expect_result, json_result);
 }
+
+TEST_F(TestTimestampedVersionTracker, get_version_graph_orphan_vertex_ratio) {
+    VersionGraph version_graph;
+
+    Version version0(0, 5);
+    Version version1(6, 8);
+    Version version2(9, 10);
+    Version version3(11, 12);
+
+    version_graph.add_version_to_graph(version0);
+    version_graph.add_version_to_graph(version1);
+    version_graph.add_version_to_graph(version2);
+    version_graph.add_version_to_graph(version3);
+    version_graph.delete_version_from_graph(version2);
+    version_graph.delete_version_from_graph(version3);
+
+    ASSERT_EQ(5, version_graph._version_graph.size());
+    ASSERT_EQ(0.4, version_graph.get_orphan_vertex_ratio());
+}
+
 } // namespace doris
 
 // @brief Test Stub

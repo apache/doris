@@ -60,7 +60,7 @@ struct ExprValue {
               string_val(NULL, 0),
               datetime_val(),
               decimal_val(),
-              decimalv2_val() {}
+              decimalv2_val(0) {}
 
     ExprValue(bool v) : bool_val(v) {}
     ExprValue(int8_t v) : tinyint_val(v) {}

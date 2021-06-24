@@ -50,7 +50,7 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> p
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(seg_path, seg_id, _schema, parent, &segment);
+        auto s = segment_v2::Segment::open(seg_path, seg_id, _schema, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment " << seg_path << " under rowset " << unique_id()
                          << " : " << s.to_string();
@@ -155,6 +155,17 @@ bool BetaRowset::check_path(const std::string& path) {
         valid_paths.insert(segment_file_path(_rowset_path, rowset_id(), i));
     }
     return valid_paths.find(path) != valid_paths.end();
+}
+
+bool BetaRowset::check_file_exist() {
+    for (int i = 0; i < num_segments(); ++i) {
+        std::string data_file = segment_file_path(_rowset_path, rowset_id(), i);
+        if (!FileUtils::check_exist(data_file)) {
+            LOG(WARNING) << "data file not existed: " << data_file << " for rowset_id: " << rowset_id();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris

@@ -80,7 +80,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
                 options.getTableIdentifier().split("\\.")[1],
                 options.getUsername(),
                 options.getPassword());
-        LOG.info("Steamload BE:{}",dorisStreamLoad.getLoadUrlStr());
+        LOG.info("Streamload BE:{}",dorisStreamLoad.getLoadUrlStr());
 
         if (executionOptions.getBatchIntervalMs() != 0 && executionOptions.getBatchSize() != 1) {
             this.scheduler = Executors.newScheduledThreadPool(1, new ExecutorThreadFactory("doris-streamload-output-format"));

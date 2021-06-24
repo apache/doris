@@ -1614,16 +1614,13 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        AbstractJob jobI = Catalog.getCurrentCatalog().getBackupHandler().getJob(db.getId());
-        if (!(jobI instanceof BackupJob)) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), EMPTY_SET);
-            return;
-        }
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
 
-        BackupJob backupJob = (BackupJob) jobI;
-        List<String> info = backupJob.getInfo();
-        List<List<String>> infos = Lists.newArrayList();
-        infos.add(info);
+        List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
+                .map(job -> (BackupJob) job).collect(Collectors.toList());
+
+        List<List<String>> infos = backupJobs.stream().map(BackupJob::getInfo).collect(Collectors.toList());
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
@@ -1634,16 +1631,13 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        AbstractJob jobI = Catalog.getCurrentCatalog().getBackupHandler().getJob(db.getId());
-        if (!(jobI instanceof RestoreJob)) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), EMPTY_SET);
-            return;
-        }
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
 
-        RestoreJob restoreJob = (RestoreJob) jobI;
-        List<String> info = restoreJob.getInfo();
-        List<List<String>> infos = Lists.newArrayList();
-        infos.add(info);
+        List<RestoreJob> restoreJobs = jobs.stream().filter(job -> job instanceof RestoreJob)
+                .map(job -> (RestoreJob) job).collect(Collectors.toList());
+
+        List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 

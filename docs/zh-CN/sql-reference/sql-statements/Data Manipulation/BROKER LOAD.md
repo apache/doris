@@ -73,6 +73,7 @@ under the License.
             [WHERE predicate]
             [DELETE ON label=true]
             [ORDER BY source_sequence]
+            [read_properties]
 
         说明：
             file_path: 
@@ -131,6 +132,34 @@ under the License.
             ORDER BY:
             
             只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
+
+            read_properties:
+
+            用于指定一些特殊参数。
+            语法：
+            [PROPERTIES ("key"="value", ...)]
+        
+            可以指定如下参数：
+                
+              line_delimiter： 用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
+
+              fuzzy_parse： 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json格式。
+            
+              jsonpaths: 导入json方式分为：简单模式和匹配模式。
+              简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
+              {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
+              匹配模式：用于json数据相对复杂，需要通过jsonpaths参数匹配对应的value。
+            
+              strip_outer_array: 布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。例如：
+                [
+                  {"k1" : 1, "v1" : 2},
+                  {"k1" : 3, "v1" : 4}
+                ]
+              当strip_outer_array为true，最后导入到doris中会生成两行数据。
+           
+              json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+           
+              num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
 
     3. broker_name
 
@@ -506,6 +535,18 @@ under the License.
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
          
+     15. 导入json文件中数据  指定FORMAT为json， 默认是通过文件后缀判断，设置读取数据的参数
+
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (k1, k2, k3)
+        properties("fuzzy_parse"="true", "strip_outer_array"="true")
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
 ## keyword
 
     BROKER,LOAD

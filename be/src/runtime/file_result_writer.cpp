@@ -112,20 +112,20 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
                                  _file_opts->broker_properties, file_name, 0 /*start offset*/);
     }
     RETURN_IF_ERROR(_file_writer->open());
-
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
+        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
+                                                   _file_opts->file_properties, _file_opts->schema);
         break;
     default:
         return Status::InternalError(
                 strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
-              << ". query id: " << print_id(_state->query_id());
+              << ". query id: " << print_id(_state->query_id()) << " format:" << _file_opts->file_format;
     return Status::OK();
 }
 
@@ -167,12 +167,19 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 
     SCOPED_TIMER(_append_row_batch_timer);
     if (_parquet_writer != nullptr) {
-        RETURN_IF_ERROR(_parquet_writer->write(*batch));
+        RETURN_IF_ERROR(_write_parquet_file(*batch));
     } else {
         RETURN_IF_ERROR(_write_csv_file(*batch));
     }
 
     _written_rows += batch->num_rows();
+    return Status::OK();
+}
+
+Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
+    RETURN_IF_ERROR(_parquet_writer->write(batch));
+    // split file if exceed limit
+    RETURN_IF_ERROR(_create_new_file_if_exceed_size());
     return Status::OK();
 }
 
@@ -345,11 +352,12 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
 Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
+        _current_written_bytes = _parquet_writer->written_len();
+        COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;
-        if (!done) {
-            //TODO(cmy): implement parquet writer later
-        }
+        delete _file_writer;
+        _file_writer = nullptr;
     } else if (_file_writer != nullptr) {
         _file_writer->close();
         delete _file_writer;

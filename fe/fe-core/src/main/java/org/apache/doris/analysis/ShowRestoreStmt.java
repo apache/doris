@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -30,6 +33,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+
+import java.util.function.Predicate;
 
 public class ShowRestoreStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -42,7 +47,8 @@ public class ShowRestoreStmt extends ShowStmt {
 
     private String dbName;
     private Expr where;
-    private String label;
+    private String labelValue;
+    private boolean isAccurateMatch;
 
     public ShowRestoreStmt(String dbName, Expr where) {
         this.dbName = dbName;
@@ -53,8 +59,8 @@ public class ShowRestoreStmt extends ShowStmt {
         return dbName;
     }
 
-    public String getLabel() {
-        return label;
+    public String getLabelValue() {
+        return labelValue;
     }
 
     @Override
@@ -74,6 +80,56 @@ public class ShowRestoreStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
                     ConnectContext.get().getQualifiedUser(), dbName);
         }
+
+        if (where == null) {
+            return;
+        }
+        boolean valid = analyzeWhereClause();
+        if (!valid) {
+            throw new AnalysisException("Where clause should like: LABEL = \"your_label_name\", "
+                    + " or LABEL LIKE \"matcher\"");
+        }
+    }
+
+    private boolean analyzeWhereClause() {
+        if (!(where instanceof LikePredicate) && !(where instanceof BinaryPredicate)) {
+            return false;
+        }
+
+        if (where instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) where;
+            if (BinaryPredicate.Operator.EQ != binaryPredicate.getOp()) {
+                return false;
+            }
+            isAccurateMatch = true;
+        }
+
+        if (where instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) where;
+            if (LikePredicate.Operator.LIKE != likePredicate.getOp()) {
+                return false;
+            }
+        }
+
+        // left child
+        if (!(where.getChild(0) instanceof SlotRef)) {
+            return false;
+        }
+        String leftKey = ((SlotRef) where.getChild(0)).getColumnName();
+        if (!"label".equalsIgnoreCase(leftKey)) {
+            return false;
+        }
+
+        // right child
+        if (!(where.getChild(1) instanceof StringLiteral)) {
+            return false;
+        }
+        labelValue = ((StringLiteral) where.getChild(1)).getStringValue();
+        if (Strings.isNullOrEmpty(labelValue)) {
+            return false;
+        }
+
+        return true;
     }
 
     @Override
@@ -105,6 +161,26 @@ public class ShowRestoreStmt extends ShowStmt {
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_NO_SYNC;
+    }
+
+    public boolean isAccurateMatch() {
+        return isAccurateMatch;
+    }
+
+    public Expr getWhere() {
+        return where;
+    }
+
+    public Predicate<String> getLabelPredicate() throws AnalysisException {
+        if (null == where) {
+            return label -> true;
+        }
+        if (isAccurateMatch) {
+            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+        } else {
+            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            return patternMatcher::match;
+        }
     }
 }
 

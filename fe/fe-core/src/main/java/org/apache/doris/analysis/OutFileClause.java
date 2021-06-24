@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -26,14 +27,18 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.clearspring.analytics.util.Lists;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +51,8 @@ public class OutFileClause {
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
     public static final List<PrimitiveType> RESULT_COL_TYPES = Lists.newArrayList();
+    public static final List<String> PARQUET_REPETITION_TYPES = Lists.newArrayList();
+    public static final List<String> PARQUET_DATA_TYPES = Lists.newArrayList();
 
     static {
         RESULT_COL_NAMES.add("FileNumber");
@@ -57,6 +64,19 @@ public class OutFileClause {
         RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
         RESULT_COL_TYPES.add(PrimitiveType.BIGINT);
         RESULT_COL_TYPES.add(PrimitiveType.VARCHAR);
+
+        PARQUET_REPETITION_TYPES.add("required");
+        PARQUET_REPETITION_TYPES.add("repeated");
+        PARQUET_REPETITION_TYPES.add("optional");
+
+        PARQUET_DATA_TYPES.add("boolean");
+        PARQUET_DATA_TYPES.add("int32");
+        PARQUET_DATA_TYPES.add("int64");
+        PARQUET_DATA_TYPES.add("int96");
+        PARQUET_DATA_TYPES.add("byte_array");
+        PARQUET_DATA_TYPES.add("float");
+        PARQUET_DATA_TYPES.add("double");
+        PARQUET_DATA_TYPES.add("fixed_len_byte_array");
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
@@ -66,10 +86,13 @@ public class OutFileClause {
     private static final String PROP_LINE_DELIMITER = "line_delimiter";
     private static final String PROP_MAX_FILE_SIZE = "max_file_size";
     private static final String PROP_SUCCESS_FILE_NAME = "success_file_name";
+    private static final String PARQUET_PROP_PREFIX = "parquet.";
+    private static final String SCHEMA = "schema";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
     private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
+
 
     private String filePath;
     private String format;
@@ -85,6 +108,8 @@ public class OutFileClause {
     // If set to true, the brokerDesc must be null.
     private boolean isLocalOutput = false;
     private String successFileName = "";
+    private List<List<String>> schema = new ArrayList<>();
+    private Map<String, String> fileProperties = new HashMap<>();
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -118,13 +143,26 @@ public class OutFileClause {
         return brokerDesc;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public List<List<String>> getSchema() {
+        return schema;
+    }
+
+    private void analyze(Analyzer analyzer) throws AnalysisException {
         analyzeFilePath();
 
-        if (!format.equals("csv")) {
-            throw new AnalysisException("Only support CSV format");
+        if (Strings.isNullOrEmpty(filePath)) {
+            throw new AnalysisException("Must specify file in OUTFILE clause");
         }
-        fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        switch (this.format) {
+            case "csv":
+                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "parquet":
+                fileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            default:
+                throw new AnalysisException("format:" + this.format + " is not supported.");
+        }
 
         analyzeProperties();
 
@@ -132,6 +170,116 @@ public class OutFileClause {
             throw new AnalysisException("No need to specify BROKER properties in OUTFILE clause for local file output");
         } else if (brokerDesc == null && !isLocalOutput) {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
+        }
+    }
+
+    public void analyze(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+        analyze(analyzer);
+
+        if (isParquetFormat()) {
+            analyzeForParquetFormat(stmt.getResultExprs());
+        }
+    }
+
+    private void analyzeForParquetFormat(List<Expr> resultExprs) throws AnalysisException {
+        if (this.schema.isEmpty()) {
+            genParquetSchema(resultExprs);
+        }
+
+        // check schema number
+        if (resultExprs.size() != this.schema.size()) {
+            throw new AnalysisException("Parquet schema number does not equal to select item number");
+        }
+
+        // check type
+        for (int i = 0; i < this.schema.size(); ++i) {
+            String type = this.schema.get(i).get(1);
+            Type resultType = resultExprs.get(i).getType();
+            switch (resultType.getPrimitiveType()) {
+                case BOOLEAN:
+                    if (!type.equals("boolean")) {
+                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                    if (!type.equals("int32")) {
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
+                                + "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case BIGINT:
+                case DATE:
+                case DATETIME:
+                    if (!type.equals("int64")) {
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case FLOAT:
+                    if (!type.equals("float")) {
+                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case DOUBLE:
+                    if (!type.equals("double")) {
+                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case DECIMALV2:
+                    if (!type.equals("byte_array")) {
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+            }
+        }
+    }
+
+    private void genParquetSchema(List<Expr> resultExprs) throws AnalysisException {
+        Preconditions.checkState(this.schema.isEmpty());
+        for (int i = 0; i < resultExprs.size(); ++i) {
+            Expr expr = resultExprs.get(i);
+            List<String> column = new ArrayList<>();
+            column.add("required");
+            switch (expr.getType().getPrimitiveType()) {
+                case BOOLEAN:
+                    column.add("boolean");
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                    column.add("int32");
+                    break;
+                case BIGINT:
+                case DATE:
+                case DATETIME:
+                    column.add("int64");
+                    break;
+                case FLOAT:
+                    column.add("float");
+                    break;
+                case DOUBLE:
+                    column.add("double");
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case DECIMALV2:
+                    column.add("byte_array");
+                    break;
+                default:
+                    throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
+            }
+            column.add("col" + i);
+            this.schema.add(column);
         }
     }
 
@@ -166,7 +314,7 @@ public class OutFileClause {
             columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
             processedPropKeys.add(PROP_COLUMN_SEPARATOR);
         }
-        
+
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
@@ -189,6 +337,10 @@ public class OutFileClause {
             processedPropKeys.add(PROP_SUCCESS_FILE_NAME);
         }
 
+        if (this.fileFormatType == TFileFormatType.FORMAT_PARQUET) {
+            getParquetProperties(processedPropKeys);
+        }
+
         if (processedPropKeys.size() != properties.size()) {
             LOG.debug("{} vs {}", processedPropKeys, properties);
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
@@ -202,7 +354,7 @@ public class OutFileClause {
         }
         String brokerName = properties.get(PROP_BROKER_NAME);
         processedPropKeys.add(PROP_BROKER_NAME);
-        
+
         Map<String, String> brokerProps = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
@@ -216,6 +368,60 @@ public class OutFileClause {
         brokerDesc = new BrokerDesc(brokerName, brokerProps);
     }
 
+    /**
+     * example:
+     * SELECT citycode FROM table1 INTO OUTFILE "file:///root/doris/"
+     * FORMAT AS PARQUET PROPERTIES ("schema"="required,int32,siteid;", "parquet.compression"="snappy");
+     *
+     * schema: it defined the schema of parquet file, it consists of 3 field: competition type, data type, column name
+     * multiple columns is split by `;`
+     *
+     * prefix with 'parquet.' defines the properties of parquet file,
+     * currently only supports: compression, disable_dictionary, version
+     */
+    private void getParquetProperties(Set<String> processedPropKeys) throws AnalysisException {
+        // save all parquet prefix property
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
+                processedPropKeys.add(entry.getKey());
+                fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
+            }
+        }
+
+        // check schema. if schema is not set, Doris will gen schema by select items
+        String schema = properties.get(SCHEMA);
+        if (schema == null) {
+            return;
+        }
+        if (schema.isEmpty()) {
+            throw new AnalysisException("Parquet schema property should not be empty");
+        }
+        schema = schema.replace(" ", "");
+        schema = schema.toLowerCase();
+        String[] schemas = schema.split(";");
+        for (String item : schemas) {
+            String[] properties = item.split(",");
+            if (properties.length != 3) {
+                throw new AnalysisException("must only contains repetition type/column type/column name");
+            }
+            if (!PARQUET_REPETITION_TYPES.contains(properties[0])) {
+                throw new AnalysisException("unknown repetition type");
+            }
+            if (!properties[0].equalsIgnoreCase("required")) {
+                throw new AnalysisException("currently only support required type");
+            }
+            if (!PARQUET_DATA_TYPES.contains(properties[1])) {
+                throw new AnalysisException("data type is not supported:"+properties[1]);
+            }
+            List<String> column = new ArrayList<>();
+            column.addAll(Arrays.asList(properties));
+            this.schema.add(column);
+        }
+        processedPropKeys.add(SCHEMA);
+    }
+
     private boolean isCsvFormat() {
         return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
                 || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
@@ -224,6 +430,10 @@ public class OutFileClause {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    private boolean isParquetFormat() {
+        return fileFormatType == TFileFormatType.FORMAT_PARQUET;
     }
 
     @Override
@@ -256,6 +466,10 @@ public class OutFileClause {
         }
         if (!Strings.isNullOrEmpty(successFileName)) {
             sinkOptions.setSuccessFileName(successFileName);
+        }
+        if (isParquetFormat()) {
+            sinkOptions.setSchema(this.schema);
+            sinkOptions.setFileProperties(this.fileProperties);
         }
         return sinkOptions;
     }

@@ -57,6 +57,8 @@ public class QueryState {
         infoMessage = null;
         serverStatus = 0;
         isQuery = false;
+        affectedRows = 0;
+        warningRows = 0;
     }
 
     public MysqlStateType getStateType() {

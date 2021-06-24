@@ -179,6 +179,9 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
+    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
+    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -306,6 +309,7 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    std::shared_ptr<MemTracker> _tablet_mem_tracker;
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;

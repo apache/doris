@@ -135,7 +135,10 @@ public class ExportExportingTask extends MasterTask {
                         DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
             }
 
-            coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
+            RuntimeProfile queryProfile = coord.getQueryProfile();
+            if (queryProfile != null) {
+                queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(job.getStartTimeMs()));
+            }
             coord.endProfile();
             fragmentProfiles.add(coord.getQueryProfile());
         }
@@ -243,13 +246,14 @@ public class ExportExportingTask extends MasterTask {
         isCancelled = true;
         this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
+        String failMsg = "export exporting job timeout.";
+        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
         LOG.warn("export exporting job timeout. job: {}", job);
     }
 
     private void initProfile() {
         profile = new RuntimeProfile("Query");
-        RuntimeProfile summaryProfile = new RuntimeProfile("Query");
-        summaryProfile = new RuntimeProfile("Summary");
+        RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(job.getId()));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
 

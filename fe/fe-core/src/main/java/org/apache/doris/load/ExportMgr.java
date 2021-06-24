@@ -215,7 +215,7 @@ public class ExportMgr {
 
                 exportJobInfos.add(jobInfo);
 
-                if (counter++ >= resultNum) {
+                if (++counter >= resultNum) {
                     break;
                 }
             }

@@ -256,6 +256,7 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     //  IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
@@ -283,6 +284,7 @@ public class StmtExecutor implements ProfileWriter {
 
             if (parsedStmt instanceof QueryStmt) {
                 context.getState().setIsQuery(true);
+                MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
                     try {

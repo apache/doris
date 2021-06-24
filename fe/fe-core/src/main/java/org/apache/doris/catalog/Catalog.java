@@ -4481,6 +4481,13 @@ public class Catalog {
     public void replayDropTable(Database db, long tableId, boolean isForceDrop) {
         Table table = db.getTable(tableId);
         // delete from db meta
+        if (table == null) {
+            /**
+             * Same as replayUpdateReplica()
+             */
+            LOG.warn("Olap table is null when the drop table log is replayed, tableId: {}", tableId);
+            return;
+        }
         db.writeLock();
         table.writeLock();
         try {
@@ -6702,12 +6709,13 @@ public class Catalog {
             if (db == null) {
                 continue;
             }
-            db.writeLock();
+            OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+            if (tbl == null) {
+                continue;
+            }
+            tbl.writeLock();
             try {
-                OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
-                if (tbl == null) {
-                    continue;
-                }
+
                 Partition partition = tbl.getPartition(info.getPartitionId());
                 if (partition == null) {
                     continue;
@@ -6727,7 +6735,7 @@ public class Catalog {
                             info.getReplicaId(), info.getTabletId(), info.getBackendId());
                 }
             } finally {
-                db.writeUnlock();
+                tbl.writeUnlock();
             }
         }
     }
@@ -6867,7 +6875,7 @@ public class Catalog {
     }
 
     // Set specified replica's status. If replica does not exist, just ignore it.
-    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) {
+    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) throws MetaNotFoundException {
         long tabletId = stmt.getTabletId();
         long backendId = stmt.getBackendId();
         ReplicaStatus status = stmt.getStatus();
@@ -6875,33 +6883,33 @@ public class Catalog {
     }
 
     public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) {
-        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+        try {
+            setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("replay setReplicaStatus failed", e);
+        }
     }
 
-    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) {
+    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) throws MetaNotFoundException {
         TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
         if (meta == null) {
-            LOG.info("tablet {} does not exist", tabletId);
-            return;
+            throw new MetaNotFoundException(String.format("tablet %d does not exist", tabletId));
         }
         long dbId = meta.getDbId();
         Database db = getDb(dbId);
         if (db == null) {
-            LOG.info("tablet {} in database does not exist", tabletId, dbId);
-            return;
+            throw new MetaNotFoundException(String.format("tablet %d in database %d does not exist", tabletId, dbId));
         }
         long tableId = meta.getTableId();
         Table table = db.getTable(tableId);
         if (table == null) {
-            LOG.info("tablet {} of table {} in database {} does not exist", tabletId, tableId, dbId);
-            return;
+            throw new MetaNotFoundException(String.format("tablet %d of table %d in database %d does not exist", tabletId, tableId, dbId));
         }
         table.writeLock();
         try {
             Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
             if (replica == null) {
-                LOG.info("replica of tablet {} does not exist", tabletId);
-                return;
+                throw new MetaNotFoundException(String.format("replica of tablet %d on backend %d does not exist", tabletId, backendId));
             }
             if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
                 if (replica.setBad(status == ReplicaStatus.BAD)) {

@@ -97,12 +97,18 @@ public:
             (bytes & 1) ? (h1 = _mm_crc32_u8(h1, *s)) : (h2 = _mm_crc32_u8(h2, *s));
             ++s;
         }
+        union {
+            uint64_t u64;
+            uint32_t u32[2];
+        } converter;
+        converter.u64 = hash;
 
         h1 = (h1 << 16) | (h1 >> 16);
         h2 = (h2 << 16) | (h2 >> 16);
-        ((uint32_t*)(&hash))[0] = h1;
-        ((uint32_t*)(&hash))[1] = h2;
-        return hash;
+        converter.u32[0] = h1;
+        converter.u32[1] = h2;
+
+        return converter.u64;
     }
 #else
     static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {

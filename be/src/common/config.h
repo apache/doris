@@ -517,7 +517,7 @@ CONF_mInt32(path_scan_interval_second, "86400");
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
 // The percent of max used capacity of a data dir
-CONF_mInt32(storage_flood_stage_usage_percent, "95"); // 95%
+CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 // The min bytes that should be left of a data dir
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
@@ -604,6 +604,16 @@ CONF_mInt32(remote_storage_read_buffer_mb, "256");
 //      DEBUG: 1
 // the level equal or lower than mem_tracker_level will show in web page
 CONF_Int16(mem_tracker_level, "0");
+
+// The version information of the tablet will be stored in the memory
+// in an adjacency graph data structure.
+// And as the new version is written and the old version is deleted,
+// the data structure will begin to have empty vertex with no edge associations(orphan vertex).
+// This config is used to control that when the proportion of orphan vertex is greater than the threshold,
+// the adjacency graph will be rebuilt to ensure that the data structure will not expand indefinitely.
+// This config usually only needs to be modified during testing.
+// In most cases, it does not need to be modified.
+CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 } // namespace config
 
 } // namespace doris

@@ -457,7 +457,7 @@ public class QueryPlanTest {
     public void testBitmapQuery() throws Exception {
         testBitmapQueryPlan(
                 "select * from test.bitmap_table;",
-                "OUTPUT EXPRS:`default_cluster:test.bitmap_table`.`id` | `default_cluster:test.bitmap_table`.`id2`"
+                "OUTPUT EXPRS:`default_cluster:test`.`bitmap_table`.`id` | `default_cluster:test`.`bitmap_table`.`id2`"
         );
 
         testBitmapQueryPlan(
@@ -511,7 +511,7 @@ public class QueryPlanTest {
     public void testHLLTypeQuery() throws Exception {
         testHLLQueryPlan(
                 "select * from test.hll_table;",
-                "OUTPUT EXPRS:`default_cluster:test.hll_table`.`id` | `default_cluster:test.hll_table`.`id2`"
+                "OUTPUT EXPRS:`default_cluster:test`.`hll_table`.`id` | `default_cluster:test`.`hll_table`.`id2`"
         );
 
         testHLLQueryPlan(
@@ -1359,7 +1359,7 @@ public class QueryPlanTest {
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+        Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
     public void testLeadAndLagFunction() throws Exception {
@@ -1432,6 +1432,19 @@ public class QueryPlanTest {
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
+
+        sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
+
+        sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
+
+        sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
+        Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
     }
 
     @Test
@@ -1581,5 +1594,13 @@ public class QueryPlanTest {
         sql = "select day from tbl_int_date where date = '1604031150000'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("EMPTYSET"));
+
+        String queryStr = "explain select count(*) from test.baseall where k11 > to_date(now())";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k11` > to_date"));
+
+        queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
     }
 }
