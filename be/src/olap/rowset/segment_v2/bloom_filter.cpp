@@ -46,7 +46,7 @@ uint32_t BloomFilter::_optimal_bit_num(uint64_t n, double fpp) {
     }
 
     // Get closest power of 2 if bits is not power of 2.
-    if ((num_bits && (num_bits - 1)) != 0) {
+    if ((num_bits & (num_bits - 1)) != 0) {
         num_bits = 1 << ser::used_bits(num_bits);
     }
     if (num_bits < MINIMUM_BYTES << 3) {
