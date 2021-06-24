@@ -197,7 +197,7 @@ public:
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         Slice* out = reinterpret_cast<Slice*>(dst->data());
-        std::vector<size_t> mem_len(max_fetch);
+        size_t mem_len[max_fetch];
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
             *out = string_at_index(_cur_idx);
             mem_len[i] = out->size;

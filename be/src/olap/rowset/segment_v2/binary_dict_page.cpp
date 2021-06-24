@@ -251,7 +251,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     const auto len = *n;
 
-    std::vector<size_t> mem_len(len);
+    size_t mem_len[len];
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder

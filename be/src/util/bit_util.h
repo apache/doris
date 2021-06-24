@@ -302,6 +302,7 @@ public:
 
     // speed up function compute for SIMD
     static inline size_t RoundUpToPowerOf2Int32(size_t value, size_t factor) {
+        DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
         return (value + (factor - 1)) & ~(factor - 1);
     }
 
