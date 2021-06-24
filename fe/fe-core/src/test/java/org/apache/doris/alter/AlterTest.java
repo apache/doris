@@ -645,12 +645,12 @@ public class AlterTest {
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
 
         String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
-        alterTable(replaceStmt, false);
+        alterTable(modifyBucketNumStmt, false);
         OlapTable bucket = (OlapTable) db.getTable("bucket");
         Assert.assertEquals(1, bucket.getDefaultDistributionInfo().getBucketNum());
 
         modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 30;";
-        alterTable(replaceStmt, false);
+        alterTable(modifyBucketNumStmt, false);
         bucket = (OlapTable) db.getTable("bucket");
         Assert.assertEquals(30, bucket.getDefaultDistributionInfo().getBucketNum());
 
