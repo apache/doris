@@ -1411,3 +1411,10 @@ webserver默认工作线程数
     DEBUG = 1
   ```
 * 默认值: 0
+
+### `doris_scan_range_max_mb`
+
+* 类型: int32
+* 描述: 每个OlapScanner 读取的最大数据量，当磁盘为SSD盘时可以适当调小这个值到512或者256 
+
+* 默认值: 1024

@@ -404,6 +404,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.stats = &_stats;
     _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.use_page_cache = read_params.use_page_cache;
+    _reader_context.segments = read_params.segments;
     for (auto& rs_reader : *rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         OLAPStatus res = _collect_iter->add_child(rs_reader);

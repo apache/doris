@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <map>
 #include <set>
+#include <tuple>
 
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
@@ -37,6 +38,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/scan_range.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
 #include "util/path_util.h"
@@ -539,7 +541,7 @@ void Tablet::delete_expired_stale_rowset() {
               << " current_size=" << _stale_rs_version_map.size() << " old_size=" << old_size
               << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
               << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
-              << expired_stale_sweep_endtime  << ", reconstructed=" << reconstructed;
+              << expired_stale_sweep_endtime << ", reconstructed=" << reconstructed;
 
 #ifndef BE_TEST
     save_meta();
@@ -549,8 +551,8 @@ void Tablet::delete_expired_stale_rowset() {
 bool Tablet::_reconstruct_version_tracker_if_necessary() {
     double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
     if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
-        _timestamped_version_tracker.construct_versioned_tracker(_tablet_meta->all_rs_metas(),
-                _tablet_meta->all_stale_rs_metas());
+        _timestamped_version_tracker.construct_versioned_tracker(
+                _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
         return true;
     }
     return false;
@@ -592,7 +594,8 @@ bool Tablet::check_version_exist(const Version& version) const {
 }
 
 // The meta read lock should be held before calling
-void Tablet::acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
+void Tablet::acquire_version_and_rowsets(
+        std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
     for (const auto& it : _rs_version_map) {
         version_rowsets->emplace_back(it.first, it.second);
     }
@@ -602,8 +605,7 @@ OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
                                               std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
-    return OLAP_SUCCESS;
+    return _capture_consistent_rowsets_unlocked(version_path, rowsets);
 }
 
 OLAPStatus Tablet::_capture_consistent_rowsets_unlocked(
@@ -642,8 +644,7 @@ OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
                                       std::shared_ptr<MemTracker> parent_tracker) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
-    RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers, parent_tracker));
-    return OLAP_SUCCESS;
+    return capture_rs_readers(version_path, rs_readers, parent_tracker);
 }
 
 OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
@@ -675,6 +676,62 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
     return OLAP_SUCCESS;
 }
 
+OLAPStatus Tablet::capture_rs_readers_by_range(const Version& spec_version,
+                                               vector<RowsetReaderSharedPtr>* rs_readers,
+                                               const std::vector<OlapScanRange*>& key_ranges,
+                                               std::shared_ptr<MemTracker> parent_tracker) {
+    std::set<RowsetId> rowsets;
+    bool has_segment_range = false;
+    for (auto key_range : key_ranges) {
+        if (key_range->range_type == ScanRangeType::SEGMENT) {
+            for (const auto& s : key_range->segments) {
+                rowsets.emplace(s.first);
+            }
+            has_segment_range = true;
+        }
+    }
+    if (!has_segment_range) {
+        return capture_rs_readers(spec_version, rs_readers, parent_tracker);
+    }
+    std::vector<Version> version_path;
+    RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
+    return capture_rs_readers_by_rowsets(version_path, rs_readers, rowsets, parent_tracker);
+}
+
+OLAPStatus Tablet::capture_rs_readers_by_rowsets(const std::vector<Version>& version_path,
+                                                 std::vector<RowsetReaderSharedPtr>* rs_readers,
+                                                 const std::set<RowsetId>& segments,
+                                                 std::shared_ptr<MemTracker> parent_tracker) const {
+    DCHECK(rs_readers != nullptr && rs_readers->empty());
+    if (segments.empty()) {
+        return capture_rs_readers(version_path, rs_readers, parent_tracker);
+    }
+    for (auto version : version_path) {
+        auto it = _rs_version_map.find(version);
+        if (it == _rs_version_map.end()) {
+            VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet=" << full_name()
+                        << ", version='" << version.first << "-" << version.second;
+
+            it = _stale_rs_version_map.find(version);
+            if (it == _rs_version_map.end()) {
+                LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
+                             << full_name() << ", version='" << version.first << "-"
+                             << version.second;
+                return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+            }
+        }
+        if (segments.find(it->second->rowset_id()) != segments.end()) {
+            RowsetReaderSharedPtr rs_reader;
+            auto res = it->second->create_reader(parent_tracker, &rs_reader);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
+                return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+            }
+            rs_readers->push_back(std::move(rs_reader));
+        }
+    }
+    return OLAP_SUCCESS;
+}
 void Tablet::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
     _tablet_meta->add_delete_predicate(delete_predicate, version);
 }
@@ -861,7 +918,8 @@ void Tablet::calculate_cumulative_point() {
 }
 
 OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                               uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
+                               uint64_t request_block_row_count, ScanRange* ranges,
+                               const Version& version) {
     DCHECK(ranges != nullptr);
 
     RowCursor start_key;
@@ -908,6 +966,57 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
         end_key.build_max_key();
     }
 
+    if (all_beta() && !contains_delete() && keys_type() == KeysType::DUP_KEYS) {
+        ranges->key_range.emplace_back(start_key.to_tuple());
+        ranges->key_range.emplace_back(end_key.to_tuple());
+        ranges->range_type = ScanRangeType::SEGMENT;
+        std::vector<std::tuple<RowsetId, uint64_t, uint64_t>> all_segments;
+        std::vector<Version> version_path;
+        RETURN_NOT_OK(capture_consistent_versions(version, &version_path));
+
+        // get all segments
+        uint64_t max_scan_bytes = config::doris_scan_range_max_mb << 20; /* * 1024 * 1024 */
+        uint64_t total_bytes = 0;
+        for (auto version : version_path) {
+            auto it = _rs_version_map.find(version);
+            if (it == _rs_version_map.end()) {
+                VLOG_NOTICE << "fail to find Rowset in rs_version for version. tablet="
+                            << full_name() << ", version='" << version.first << "-"
+                            << version.second;
+
+                it = _stale_rs_version_map.find(version);
+                if (it == _rs_version_map.end()) {
+                    LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
+                                 << full_name() << ", version='" << version.first << "-"
+                                 << version.second;
+                    return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+                }
+            }
+            for (int i = 0; i < it->second->num_segments(); ++i) {
+                all_segments.emplace_back(
+                        it->second->rowset_id(), i,
+                        it->second->data_disk_size() / it->second->num_segments());
+            }
+            total_bytes += it->second->data_disk_size();
+        }
+        // split range
+        uint64_t current_bytes = 0;
+        std::vector<std::pair<RowsetId, uint64_t>> sub_range;
+        for (size_t i = 0; i < all_segments.size(); i++) {
+            current_bytes += std::get<2>(all_segments[i]);
+            if (current_bytes > max_scan_bytes && sub_range.size() > 0) {
+                ranges->segments.push_back(sub_range);
+                sub_range.clear();
+                current_bytes = std::get<2>(all_segments[i]);
+            }
+            sub_range.emplace_back(std::get<0>(all_segments[i]), std::get<1>(all_segments[i]));
+        }
+        if (sub_range.size() > 0) {
+            ranges->segments.push_back(sub_range);
+            sub_range.clear();
+        }
+        return OLAP_SUCCESS;
+    }
     ReadLock rdlock(&_meta_lock);
     RowsetSharedPtr rowset = _rowset_with_largest_size();
 
@@ -915,8 +1024,9 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
     if (rowset == nullptr) {
         VLOG_NOTICE << "there is no base file now, may be tablet is empty.";
         // it may be right if the tablet is empty, so we return success.
-        ranges->emplace_back(start_key.to_tuple());
-        ranges->emplace_back(end_key.to_tuple());
+        ranges->range_type = ScanRangeType::KEY;
+        ranges->key_range.emplace_back(start_key.to_tuple());
+        ranges->key_range.emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
     return rowset->split_range(start_key, end_key, request_block_row_count, ranges);

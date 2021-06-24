@@ -116,8 +116,6 @@ CONF_mInt32(download_low_speed_limit_kbps, "50");
 CONF_mInt32(download_low_speed_time, "300");
 // sleep time for one second
 CONF_Int32(sleep_one_second, "1");
-// sleep time for five seconds
-CONF_Int32(sleep_five_seconds, "5");
 
 // log dir
 CONF_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -134,9 +132,6 @@ CONF_Strings(sys_log_verbose_modules, "");
 CONF_Int32(sys_log_verbose_level, "10");
 // log buffer level
 CONF_String(log_buffer_level, "");
-
-// Pull load task dir
-CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
 
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
@@ -160,14 +155,14 @@ CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 CONF_Int32(etl_thread_pool_size, "8");
 // number of etl thread pool size
 CONF_Int32(etl_thread_pool_queue_size, "256");
-// port on which to run Doris test backend
-CONF_Int32(port, "20001");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)
 CONF_mInt64(thrift_client_retry_interval_ms, "1000");
-// max row count number for single scan range
+// max row count number for single scan range, used in segmentv1
 CONF_mInt32(doris_scan_range_row_count, "524288");
+// max bytes number for single scan range, used in segmentv2
+CONF_mInt32(doris_scan_range_max_mb, "1024");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
 // single read execute fragment row size
@@ -367,10 +362,6 @@ CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 CONF_Int32(fragment_pool_thread_num_min, "64");
 CONF_Int32(fragment_pool_thread_num_max, "512");
 CONF_Int32(fragment_pool_queue_size, "2048");
-
-// Spill to disk when query
-// Writable scratch directories, split by ";"
-CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 CONF_Int32(num_disks, "0");

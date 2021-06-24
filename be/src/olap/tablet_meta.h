@@ -130,6 +130,12 @@ public:
 
     inline TabletSchema* mutable_tablet_schema();
 
+    inline bool contains_delete() const;
+    inline bool contains_delete(const Version& version) const;
+
+    inline bool all_beta() const;
+    inline bool all_beta(const Version& version) const;
+
     inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
@@ -243,6 +249,38 @@ inline int64_t TabletMeta::cumulative_layer_point() const {
 
 inline void TabletMeta::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_layer_point = new_point;
+}
+
+inline bool TabletMeta::contains_delete(const Version& version) const {
+    for (auto& rs : _rs_metas) {
+        if (rs->end_version() > version.second) {
+            break;
+        }
+        if (rs->delete_flag()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline bool TabletMeta::all_beta(const Version& version) const {
+    for (auto& rs : _rs_metas) {
+        if (rs->end_version() > version.second) {
+            break;
+        }
+        if (rs->rowset_type() != RowsetTypePB::BETA_ROWSET) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline bool TabletMeta::contains_delete() const {
+    return contains_delete(max_version());
+}
+
+inline bool TabletMeta::all_beta() const {
+    return all_beta(max_version());
 }
 
 inline size_t TabletMeta::num_rows() const {

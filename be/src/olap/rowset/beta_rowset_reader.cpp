@@ -31,8 +31,8 @@ namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
                                    std::shared_ptr<MemTracker> parent_tracker)
-        : _context(nullptr),
-          _rowset(std::move(rowset)),
+        : _rowset(std::move(rowset)),
+          _context(nullptr),
           _stats(&_owned_stats),
           _parent_tracker(std::move(parent_tracker)) {
     _rowset->aquire();
@@ -89,14 +89,37 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
-    for (auto& seg_ptr : _rowset->_segments) {
-        std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
+    if (!_context->segments.empty() &&
+        _context->segments.find(_rowset->rowset_id()) != _context->segments.end()) {
+        if (_context->segments.find(_rowset->rowset_id())->second.size() >
+            _rowset->_segments.size()) {
+            LOG(WARNING) << "failed to init beta rowset reader, actrual segments number is "
+                         << _rowset->_segments.size() << ", excepted is "
+                         << _context->segments.find(_rowset->rowset_id())->second.size();
             return OLAP_ERR_ROWSET_READER_INIT;
         }
-        seg_iterators.push_back(std::move(iter));
+        for (auto segment_id : _context->segments.find(_rowset->rowset_id())->second) {
+            std::unique_ptr<RowwiseIterator> iter;
+            auto s = _rowset->_segments[segment_id]->new_iterator(schema, read_options,
+                                                                  _parent_tracker, &iter);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to create iterator[" << segment_id
+                             << "]: " << s.to_string();
+                return OLAP_ERR_ROWSET_READER_INIT;
+            }
+            seg_iterators.push_back(std::move(iter));
+        }
+    } else {
+        for (auto& seg_ptr : _rowset->_segments) {
+            std::unique_ptr<RowwiseIterator> iter;
+            auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
+            if (!s.ok()) {
+                LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
+                             << "]: " << s.to_string();
+                return OLAP_ERR_ROWSET_READER_INIT;
+            }
+            seg_iterators.push_back(std::move(iter));
+        }
     }
     std::list<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {

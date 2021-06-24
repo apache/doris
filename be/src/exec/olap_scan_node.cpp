@@ -659,13 +659,15 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                               bool is_begin_include, bool is_end_include,
-                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                               RuntimeProfile* profile) {
+static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
+                        bool is_begin_include, bool is_end_include,
+                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                        bool* segment_split, RuntimeProfile* profile) {
     auto tablet_id = scan_range.tablet_id;
     int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), NULL, 10);
+    int64_t end_verison = strtoul(scan_range.version.c_str(), nullptr, 10);
+    Version version(0, end_verison);
     std::string err;
     TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
             tablet_id, schema_hash, true, &err);
@@ -678,8 +680,10 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
     }
 
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
-    std::vector<std::vector<OlapTuple>> ranges;
+    std::vector<ScanRange> ranges;
     bool have_valid_range = false;
+    bool have_key_range = false;
+    bool have_segment_range = false;
     for (auto& key_range : scan_key_range) {
         if (key_range->begin_scan_range.size() == 1 &&
             key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
@@ -688,48 +692,73 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
         SCOPED_TIMER(show_hints_timer);
 
         OLAPStatus res = OLAP_SUCCESS;
-        std::vector<OlapTuple> range;
+        ScanRange range;
         res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
-                                 block_row_count, &range);
+                                 block_row_count, &range, version);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
+        }
+        if (range.range_type == ScanRangeType::KEY) {
+            have_key_range = true;
+        } else {
+            have_segment_range = true;
         }
         ranges.emplace_back(std::move(range));
         have_valid_range = true;
     }
 
+    if (have_key_range && have_segment_range) {
+        return Status::InternalError(
+                "fail to show hints by split range, mixed key range and segment range is not "
+                "supported.");
+    }
+    *segment_split = have_segment_range;
+
     if (!have_valid_range) {
-        std::vector<OlapTuple> range;
-        auto res = table->split_range({}, {}, block_row_count, &range);
+        ScanRange range;
+        auto res = table->split_range({}, {}, block_row_count, &range, version);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
     }
+    for (const auto& r : ranges) {
+        if (r.range_type == ScanRangeType::KEY) {
+            for (size_t j = 0; j < r.size(); j += 2) {
+                std::unique_ptr<OlapScanRange> range(new OlapScanRange);
+                range->begin_scan_range.reset();
+                range->begin_scan_range = (r.key_range)[j];
+                range->end_scan_range.reset();
+                range->end_scan_range = (r.key_range)[j + 1];
+                range->range_type = ScanRangeType::KEY;
 
-    for (int i = 0; i < ranges.size(); ++i) {
-        for (int j = 0; j < ranges[i].size(); j += 2) {
-            std::unique_ptr<OlapScanRange> range(new OlapScanRange);
-            range->begin_scan_range.reset();
-            range->begin_scan_range = ranges[i][j];
-            range->end_scan_range.reset();
-            range->end_scan_range = ranges[i][j + 1];
+                if (0 == j) {
+                    range->begin_include = is_begin_include;
+                } else {
+                    range->begin_include = true;
+                }
 
-            if (0 == j) {
-                range->begin_include = is_begin_include;
-            } else {
-                range->begin_include = true;
+                if (j + 2 == r.size()) {
+                    range->end_include = is_end_include;
+                } else {
+                    range->end_include = false;
+                }
+
+                sub_scan_range->emplace_back(std::move(range));
             }
-
-            if (j + 2 == ranges[i].size()) {
-                range->end_include = is_end_include;
-            } else {
-                range->end_include = false;
+        } else if (r.range_type == ScanRangeType::SEGMENT) {
+            for (const auto& s : r.segments) {
+                std::unique_ptr<OlapScanRange> range(new OlapScanRange);
+                range->begin_scan_range.reset();
+                range->end_scan_range.reset();
+                range->begin_scan_range = (r.key_range)[0];
+                range->end_scan_range = (r.key_range)[1];
+                range->segments = s;
+                range->range_type = ScanRangeType::SEGMENT;
+                sub_scan_range->emplace_back(std::move(range));
             }
-
-            sub_scan_range->emplace_back(std::move(range));
         }
     }
 
@@ -750,47 +779,41 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         cond_ranges.emplace_back(new OlapScanRange());
     }
 
-    bool need_split = true;
-    // If we have ranges more than 64, there is no need to call
-    // ShowHint to split ranges
-    if (limit() != -1 || cond_ranges.size() > 64) {
-        need_split = false;
-    }
-
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
         std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
         std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
-        if (need_split) {
+        bool segment_split = false;
+        if (limit() == -1) {
             auto st = get_hints(*scan_range, config::doris_scan_range_row_count,
                                 _scan_keys.begin_include(), _scan_keys.end_include(), cond_ranges,
-                                &split_ranges, _runtime_profile.get());
+                                &split_ranges, &segment_split, _runtime_profile.get());
             if (st.ok()) {
                 ranges = &split_ranges;
             }
         }
-
         int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
         int num_ranges = ranges->size();
         for (int i = 0; i < num_ranges;) {
             std::vector<OlapScanRange*> scanner_ranges;
             scanner_ranges.push_back((*ranges)[i].get());
             ++i;
-            for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
-                            (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
-                 ++j, ++i) {
-                scanner_ranges.push_back((*ranges)[i].get());
+            if (!segment_split) {
+                for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
+                                (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
+                     ++j, ++i) {
+                    scanner_ranges.push_back((*ranges)[i].get());
+                }
             }
             OlapScanner* scanner = new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                   _need_agg_finalize, *scan_range, scanner_ranges);
+                                                   _need_agg_finalize);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool->add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter,
                                              _bloom_filters_push_down));
-
             _olap_scanners.push_back(scanner);
             disk_set.insert(scanner->scan_disk());
         }

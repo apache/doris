@@ -46,8 +46,7 @@ public:
                                          int segment_id);
 
     OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count,
-                           std::vector<OlapTuple>* ranges) override;
+                           uint64_t request_block_row_count, ScanRange* ranges) override;
 
     OLAPStatus remove() override;
 

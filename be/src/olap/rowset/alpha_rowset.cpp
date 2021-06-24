@@ -21,8 +21,9 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/scan_range.h"
+#include "util/file_utils.h"
 #include "util/hash_util.hpp"
-#include <util/file_utils.h>
 
 namespace doris {
 
@@ -65,8 +66,9 @@ OLAPStatus AlphaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_
 }
 
 OLAPStatus AlphaRowset::remove() {
-    VLOG_NOTICE << "begin to remove files in rowset " << unique_id() << ", version:" << start_version()
-            << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+    VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
+                << ", version:" << start_version() << "-" << end_version()
+                << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -162,21 +164,20 @@ OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remo
 }
 
 OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                    uint64_t request_block_row_count,
-                                    std::vector<OlapTuple>* ranges) {
+                                    uint64_t request_block_row_count, ScanRange* ranges) {
     EntrySlice entry;
     RowBlockPosition start_pos;
     RowBlockPosition end_pos;
     RowBlockPosition step_pos;
-
+    ranges->range_type = ScanRangeType::KEY;
     std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
     if (largest_segment_group == nullptr ||
         largest_segment_group->current_num_rows_per_row_block() == 0) {
         VLOG_NOTICE << "failed to get largest_segment_group. is null: "
-                     << (largest_segment_group == nullptr) << ". version: " << start_version()
-                     << "-" << end_version() << ". tablet: " << rowset_meta()->tablet_id();
-        ranges->emplace_back(start_key.to_tuple());
-        ranges->emplace_back(end_key.to_tuple());
+                    << (largest_segment_group == nullptr) << ". version: " << start_version() << "-"
+                    << end_version() << ". tablet: " << rowset_meta()->tablet_id();
+        ranges->key_range.emplace_back(start_key.to_tuple());
+        ranges->key_range.emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
     uint64_t expected_rows =
@@ -240,7 +241,7 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     last_start_key.allocate_memory_for_string_type(*_schema);
     direct_copy_row(&last_start_key, cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
-    ranges->emplace_back(start_key.to_tuple());
+    ranges->key_range.emplace_back(start_key.to_tuple());
 
     while (end_pos > step_pos) {
         res = largest_segment_group->advance_row_block(expected_rows, &step_pos);
@@ -258,13 +259,13 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
         cur_start_key.attach(entry.data);
 
         if (!equal_row(cids, cur_start_key, last_start_key)) {
-            ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
-            ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
+            ranges->key_range.emplace_back(cur_start_key.to_tuple()); // end of last section
+            ranges->key_range.emplace_back(cur_start_key.to_tuple()); // start a new section
             direct_copy_row(&last_start_key, cur_start_key);
         }
     }
 
-    ranges->emplace_back(end_key.to_tuple());
+    ranges->key_range.emplace_back(end_key.to_tuple());
     return OLAP_SUCCESS;
 }
 
@@ -286,12 +287,14 @@ bool AlphaRowset::check_file_exist() {
         for (int i = 0; i < segment_group->num_segments(); ++i) {
             std::string data_path = segment_group->construct_data_file_path(i);
             if (!FileUtils::check_exist(data_path)) {
-                LOG(WARNING) << "data file not existed: " << data_path << " for rowset_id: " << rowset_id();
+                LOG(WARNING) << "data file not existed: " << data_path
+                             << " for rowset_id: " << rowset_id();
                 return false;
             }
             std::string index_path = segment_group->construct_index_file_path(i);
             if (!FileUtils::check_exist(index_path)) {
-                LOG(WARNING) << "index file not existed: " << index_path << " for rowset_id: " << rowset_id();
+                LOG(WARNING) << "index file not existed: " << index_path
+                             << " for rowset_id: " << rowset_id();
                 return false;
             }
         }
@@ -349,7 +352,8 @@ OLAPStatus AlphaRowset::init() {
             // table value column, so when first start the two number is not the same,
             // it causes start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start after upgrade
             if (expect_zone_maps_num > zone_maps_size) {
-                VLOG_CRITICAL << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
+                VLOG_CRITICAL
+                        << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
                         << expect_zone_maps_num << ", actual num is " << zone_maps_size
                         << ". If this is not the first start after upgrade, please pay attention!";
             }

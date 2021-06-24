@@ -37,6 +37,7 @@
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/scan_range.h"
 #include "olap/tablet.h"
 #include "util/runtime_profile.h"
 
@@ -77,6 +78,9 @@ struct ReaderParams {
     std::vector<uint32_t> return_columns;
     RuntimeProfile* profile = nullptr;
     RuntimeState* runtime_state = nullptr;
+
+    ScanRangeType range_type;
+    std::map<RowsetId, std::set<uint64_t>> segments;
 
     void check_validation() const;
 

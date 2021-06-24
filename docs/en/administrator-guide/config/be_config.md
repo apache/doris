@@ -1396,3 +1396,10 @@ The size of the buffer before flashing
     DEBUG = 1
   ```
 * Default: 0
+
+### `doris_scan_range_max_mb`
+
+* Type: int32
+* Description: The maximum amount of data read by each OlapScanner. When the disk is an SSD disk, this value can be appropriately reduced to 512 or 256
+
+* Default: 1024

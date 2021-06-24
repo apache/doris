@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "exec/olap_utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -117,7 +118,8 @@ public:
                                            std::vector<Version>* version_path) const;
     OLAPStatus check_version_integrity(const Version& version);
     bool check_version_exist(const Version& version) const;
-    void acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
+    void acquire_version_and_rowsets(
+            std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const;
@@ -129,6 +131,15 @@ public:
                                   std::vector<RowsetReaderSharedPtr>* rs_readers,
                                   std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
 
+    OLAPStatus capture_rs_readers_by_range(const Version& spec_version,
+                                           vector<RowsetReaderSharedPtr>* rs_readers,
+                                           const std::vector<OlapScanRange*>& key_ranges,
+                                           std::shared_ptr<MemTracker> parent_tracker = nullptr);
+
+    OLAPStatus capture_rs_readers_by_rowsets(
+            const vector<Version>& version_path, vector<RowsetReaderSharedPtr>* rs_readers,
+            const std::set<RowsetId>& segments,
+            std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
@@ -176,7 +187,8 @@ public:
 
     // operation for query
     OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                           uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
+                           uint64_t request_block_row_count, ScanRange* ranges,
+                           const Version& version);
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
@@ -201,6 +213,13 @@ public:
     }
 
     void delete_all_files();
+
+    inline bool contains_delete() const { return _tablet_meta->contains_delete(); }
+    inline bool all_beta() const { return _tablet_meta->all_beta(); }
+    inline bool contains_delete(const Version& version) const {
+        return _tablet_meta->contains_delete(version);
+    }
+    inline bool all_beta(const Version& version) const { return _tablet_meta->all_beta(version); }
 
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);

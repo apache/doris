@@ -25,6 +25,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/scan_range.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -76,10 +77,10 @@ OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_t
 }
 
 OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count,
-                                   std::vector<OlapTuple>* ranges) {
-    ranges->emplace_back(start_key.to_tuple());
-    ranges->emplace_back(end_key.to_tuple());
+                                   uint64_t request_block_row_count, ScanRange* ranges) {
+    ranges->range_type = ScanRangeType::KEY;
+    ranges->key_range.emplace_back(start_key.to_tuple());
+    ranges->key_range.emplace_back(end_key.to_tuple());
     return OLAP_SUCCESS;
 }
 
@@ -161,7 +162,8 @@ bool BetaRowset::check_file_exist() {
     for (int i = 0; i < num_segments(); ++i) {
         std::string data_file = segment_file_path(_rowset_path, rowset_id(), i);
         if (!FileUtils::check_exist(data_file)) {
-            LOG(WARNING) << "data file not existed: " << data_file << " for rowset_id: " << rowset_id();
+            LOG(WARNING) << "data file not existed: " << data_file
+                         << " for rowset_id: " << rowset_id();
             return false;
         }
     }

@@ -57,6 +57,7 @@ struct RowsetReaderContext {
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     bool use_page_cache = false;
+    std::map<RowsetId, std::set<uint64_t>> segments;
 };
 
 } // namespace doris

@@ -22,7 +22,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/Opcodes_types.h"
-#include "olap/tuple.h"
+#include "olap/scan_range.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 
@@ -80,8 +80,7 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
 static const char* NEGATIVE_INFINITY = "-oo";
 static const char* POSITIVE_INFINITY = "+oo";
 
-typedef struct OlapScanRange {
-public:
+struct OlapScanRange {
     OlapScanRange() : begin_include(true), end_include(true) {
         begin_scan_range.add_value(NEGATIVE_INFINITY);
         end_scan_range.add_value(POSITIVE_INFINITY);
@@ -92,12 +91,29 @@ public:
               end_include(end),
               begin_scan_range(begin_range),
               end_scan_range(end_range) {}
+    std::string to_string() {
+        std::stringstream ss;
+        ss << "begin_include: " << begin_include << "\n"
+           << "end_include: " << end_include << "\n"
+           << "begin_scan_range: " << begin_scan_range << "\n"
+           << "end_scan_range: " << end_scan_range << "\n"
+           << "range_type: " << range_type << "\n"
+           << "segments:[";
+        for (auto p : segments) {
+            ss << "(" << p.first.to_string() << "," << p.second << ") ";
+        }
+        ss << "]\n";
+        return ss.str();
+    }
 
     bool begin_include;
     bool end_include;
     OlapTuple begin_scan_range;
     OlapTuple end_scan_range;
-} OlapScanRange;
+    ScanRangeType range_type;
+    // only used for range_type == SEGMENT
+    std::vector<std::pair<RowsetId, uint64_t>> segments;
+};
 
 static char encoding_table[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
                                 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
