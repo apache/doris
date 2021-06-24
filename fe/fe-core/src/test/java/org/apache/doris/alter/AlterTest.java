@@ -627,6 +627,35 @@ public class AlterTest {
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
     }
 
+    @Test
+    public void testModifyBucketNum() throws Exception {
+        String stmt = "CREATE TABLE test.bucket\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "AGGREGATE KEY(k1, k2)\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "rollup (\n" +
+                "r1(k1),\n" +
+                "r2(k2, k3)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
+        alterTable(replaceStmt, false);
+        OlapTable bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(1, bucket.getDefaultDistributionInfo().getBucketNum());
+
+        modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 30;";
+        alterTable(replaceStmt, false);
+        bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(30, bucket.getDefaultDistributionInfo().getBucketNum());
+
+    }
+
     private boolean checkAllTabletsExists(List<Long> tabletIds) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
         for (long tabletId : tabletIds) {

@@ -5580,8 +5580,14 @@ public class Catalog {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
+        Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
+
         if (olapTable.isColocateTable()) {
             throw new DdlException("Cannot change default bucket number of colocate table.");
+        }
+
+        if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+            throw new DdlException("Only support change partitioned table's distribution.");
         }
 
         DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
@@ -5609,15 +5615,17 @@ public class Catalog {
                 throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                             + "default is: " + defaultDistriCols);
             }
-            if (hashDistributionInfo.getBucketNum() <= 0) {
+
+            int bucketNum = hashDistributionInfo.getBucketNum();
+            if (bucketNum <= 0) {
                 throw new DdlException("Cannot assign hash distribution buckets less than 1");
             }
 
-            olapTable.setTableDefaultDistributionInfo(distributionInfo);
+            defaultDistributionInfo.setBucketNum(bucketNum);
 
-            ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), hashDistributionInfo.getBucketNum());
+            ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), bucketNum);
             editLog.logModifyDefaultDistributionBucketNum(info);
-            LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), hashDistributionInfo.getBucketNum());
+            LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
         }
     }
 
