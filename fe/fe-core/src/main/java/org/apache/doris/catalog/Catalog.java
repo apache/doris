@@ -5580,7 +5580,7 @@ public class Catalog {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
-        Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
+        olapTable.writeLock();
 
         if (olapTable.isColocateTable()) {
             throw new DdlException("Cannot change default bucket number of colocate table.");
@@ -5627,6 +5627,8 @@ public class Catalog {
             editLog.logModifyDefaultDistributionBucketNum(info);
             LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
         }
+        olapTable.writeUnlock();
+
     }
 
     public void replayModifyTableDefaultDistributionBucketNum(short opCode, ModifyTableDefaultDistributionBucketNumOperationLog info) {

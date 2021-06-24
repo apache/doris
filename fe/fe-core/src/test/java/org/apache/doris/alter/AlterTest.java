@@ -633,12 +633,14 @@ public class AlterTest {
                 "(\n" +
                 "    k1 int, k2 int, k3 int sum\n" +
                 ")\n" +
-                "AGGREGATE KEY(k1, k2)\n" +
-                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
-                "rollup (\n" +
-                "r1(k1),\n" +
-                "r2(k2, k3)\n" +
+                "ENGINE = OLAP\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"100000\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"200000\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"300000\")\n" +
                 ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
                 "PROPERTIES(\"replication_num\" = \"1\");";
 
         createTable(stmt);
