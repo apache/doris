@@ -1841,43 +1841,48 @@ public class ShowExecutor {
     private void handleShowCreateRoutineLoad() throws AnalysisException {
         ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        RoutineLoadJob routineLoadJob;
-        try {
-            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager()
-                    .getJob(showCreateRoutineLoadStmt.getDb(),
-                            showCreateRoutineLoadStmt.getLabel());
-        } catch (MetaNotFoundException e) {
-            LOG.warn(e.getMessage(), e);
-            throw new AnalysisException(e.getMessage());
-        }
-        
-        if (routineLoadJob != null) {
-            String dbName = showCreateRoutineLoadStmt.getDb();
-            String tableName = null;
-            // check auth
+        String dbName = showCreateRoutineLoadStmt.getDb();
+        String labelName = showCreateRoutineLoadStmt.getLabel();
+        // if include history return all create load
+        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
+            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
             try {
-                tableName = routineLoadJob.getTableName();
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
             } catch (MetaNotFoundException e) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                        .add("error_msg", "The table metadata of job has been changed. "
-                                    + "The job will be cancelled automatically")
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
+                        .add("error_msg", "Routine load cannot be found by this name")
                         .build(), e);
             }
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                    dbName,
-                    tableName,
-                    PrivPredicate.LOAD)) {
-                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                        .add("operator", "show create routine load job")
-                        .add("user", ConnectContext.get().getQualifiedUser())
-                        .add("remote_ip", ConnectContext.get().getRemoteIP())
-                        .add("db_name", dbName)
-                        .add("table_name", tableName)
-                        .add("error_msg", "The table access denied"));
-            } else {
+            for (RoutineLoadJob job : routineLoadJobList) {
+                String tableName = "";
+                try {
+                    tableName = job.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
+                            .add("error_msg", "The table name for this routine load does not exist")
+                            .build(), e);
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        dbName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(),
+                            tableName);
+                }
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+            }
+        } else {
+            // if job exists
+            RoutineLoadJob routineLoadJob;
+            try {
+                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
                 // get routine load info
-                rows.add(Lists.newArrayList(showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+            } catch (Exception e) {
+                LOG.warn(e.getMessage(), e);
+                throw new AnalysisException(e.getMessage());
             }
         }
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);

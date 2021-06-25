@@ -20,8 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW CREATE ROUTINE LOAD statement.
@@ -29,14 +27,18 @@ public class ShowCreateRoutineLoadStmt extends ShowStmt {
     
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Routine Load", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Routine Load Id", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Routine Load Name", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Create Routine Load", ScalarType.createVarchar(30)))
                     .build();
     
     private final LabelName labelName;
-    
-    public ShowCreateRoutineLoadStmt(LabelName labelName) {
+
+    private final boolean includeHistory;
+
+    public ShowCreateRoutineLoadStmt(LabelName labelName, boolean includeHistory) {
         this.labelName = labelName;
+        this.includeHistory = includeHistory;
     }
     
     public String getDb() {
@@ -46,24 +48,14 @@ public class ShowCreateRoutineLoadStmt extends ShowStmt {
     public String getLabel() {
         return labelName.getLabelName();
     }
+
+    public boolean isIncludeHistory() {
+        return includeHistory;
+    }
     
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (labelName == null) {
-            // todo:errorCode?
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
         labelName.analyze(analyzer);
-    }
-    
-    @Override
-    public String toSql() {
-        return "SHOW CREATE ROUTINE LOAD FOR " + labelName;
-    }
-    
-    @Override
-    public String toString() {
-        return toSql();
     }
     
     @Override

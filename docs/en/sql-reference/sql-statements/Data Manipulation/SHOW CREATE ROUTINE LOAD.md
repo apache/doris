@@ -28,9 +28,10 @@ under the License.
 ## description
     The statement is used to show the routine load job creation statement of user-defined
     grammar：
-        SHOW CREATE ROUTINE LOAD for load_name;
+        SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         
     Description：
+       `ALL`: optional，Is for getting all jobs, including history jobs
        `load_name`: routine load name
         
 ## example

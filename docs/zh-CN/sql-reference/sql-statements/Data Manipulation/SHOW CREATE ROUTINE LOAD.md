@@ -28,9 +28,10 @@ under the License.
 ## description
     该语句用于展示用户自定义例行导入作业的创建语句
     语法：
-        SHOW CREATE ROUTINE LOAD for load_name;
+        SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         
     说明：
+       `ALL`: 可选参数，代表获取所有作业，包括历史作业
        `load_name`: 例行导入作业名称
         
 ## example

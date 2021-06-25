@@ -1686,7 +1686,11 @@ show_routine_load_task_stmt ::=
 show_create_routine_load_stmt ::=
     KW_SHOW KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowCreateRoutineLoadStmt(jobLabel);
+        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, false);
+    :}
+    | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
     :}
     ;
 
