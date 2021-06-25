@@ -29,6 +29,7 @@
 #pragma once
 
 #include "common/logging.h"
+#include "gutil/strings/substitute.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
@@ -193,18 +194,33 @@ public:
             *n = 0;
             return Status::OK();
         }
-        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         Slice* out = reinterpret_cast<Slice*>(dst->data());
-
+        size_t mem_len[max_fetch];
         for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
-            Slice elem(string_at_index(_cur_idx));
-            out->size = elem.size;
-            if (elem.size != 0) {
-                out->data =
-                        reinterpret_cast<char*>(dst->pool()->allocate(elem.size * sizeof(uint8_t)));
-                memcpy(out->data, elem.data, elem.size);
-            }
+            *out = string_at_index(_cur_idx);
+            mem_len[i] = out->size;
+        }
+
+        // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
+        auto mem_size = 0;
+        for (int i = 0; i < max_fetch; ++i) {
+            mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
+            mem_size += mem_len[i];
+        }
+
+        // allocate a batch of memory and do memcpy
+        out = reinterpret_cast<Slice*>(dst->data());
+        char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
+        if (destination == nullptr) {
+            return Status::MemoryAllocFailed(
+                strings::Substitute("memory allocate failed, size:$0", mem_size));
+        }
+        for (int i = 0; i < max_fetch; ++i) {
+            out->relocate(destination);
+            destination += mem_len[i];
+            ++out;
         }
 
         *n = max_fetch;
