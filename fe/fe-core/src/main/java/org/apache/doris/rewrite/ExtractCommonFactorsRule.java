@@ -26,6 +26,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -138,6 +139,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             }
         }
         if (isReturnCommonFactorExpr) {
+            Preconditions.checkState(!commonFactorList.isEmpty());
             Expr result = makeCompound(commonFactorList, CompoundPredicate.Operator.AND);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("equal ors: " + result.toSql());
@@ -158,6 +160,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         // step 1: will build (.. or ..)
         List<Expr> remainingOrClause = Lists.newArrayList();
         for (List<Expr> clearExpr : clearExprs) {
+            Preconditions.checkState(!clearExpr.isEmpty());
             remainingOrClause.add(makeCompound(clearExpr, CompoundPredicate.Operator.AND));
         }
         Expr result = null;
@@ -254,19 +257,14 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         // 3. construct wide range expr
         List<Expr> wideRangeExprList = Lists.newArrayList();
-        if (!resultRangeMap.isEmpty()) {
-            for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> entry : resultRangeMap.entrySet()) {
-                wideRangeExprList.add(rangeSetToCompoundPredicate(entry.getKey(), entry.getValue()));
+        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> entry : resultRangeMap.entrySet()) {
+            Expr wideRangeExpr = rangeSetToCompoundPredicate(entry.getKey(), entry.getValue());
+            if (wideRangeExpr != null) {
+                wideRangeExprList.add(wideRangeExpr);
             }
         }
-        if (!resultInMap.isEmpty()) {
-            wideRangeExprList.addAll(resultInMap.values());
-        }
-        if (wideRangeExprList.isEmpty()) {
-            return null;
-        } else {
-            return makeCompound(wideRangeExprList, CompoundPredicate.Operator.AND);
-        }
+        wideRangeExprList.addAll(resultInMap.values());
+        return makeCompound(wideRangeExprList, CompoundPredicate.Operator.AND);
     }
 
     /**
