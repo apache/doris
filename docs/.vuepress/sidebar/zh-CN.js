@@ -173,7 +173,7 @@ module.exports = [
         sidebarDepth: 1,
       },
       "window-function",
-	  "backup-restore",
+      "backup-restore",
       "broker",
       "colocation-join",
       "bucket-shuffle-join",
