@@ -558,6 +558,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
+    -lstdc++fs
 )
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
