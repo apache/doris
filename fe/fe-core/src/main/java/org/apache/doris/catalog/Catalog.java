@@ -40,15 +40,18 @@ import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
@@ -62,7 +65,10 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -76,12 +82,15 @@ import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
+import org.apache.doris.analysis.SelectListItem;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -249,6 +258,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -3084,6 +3094,65 @@ public class Catalog {
             createTable(parsedCreateTableStmt);
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
+        }
+    }
+    
+    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
+        try {
+            SelectStmt selectStmt = stmt.getSelectStmt();
+            List<String> columnNames = stmt.getColumnNames();
+            CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
+            List<SelectListItem> items = selectStmt.getSelectList().getItems();
+            ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
+            int size = items.size();
+            // Check columnNames
+            if (columnNames != null && columnNames.size() != size) {
+                ErrorReport.report(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
+            } else {
+                int colNameIndex = 0;
+                for (int i = 0; i < size; ++i) {
+                    String name;
+                    if (columnNames != null) {
+                        // use custom column names
+                        name = columnNames.get(i);
+                    } else {
+                        SelectListItem selectListItem = items.get(i);
+                        Expr expr = selectListItem.getExpr();
+                        if (expr instanceof FunctionCallExpr) {
+                            // function use alias or generate name
+                            String alias = selectListItem.getAlias();
+                            if (StringUtils.isNotEmpty(alias)) {
+                                name = alias;
+                            } else {
+                                name = "_col" + (colNameIndex++);
+                            }
+                        } else {
+                            name = selectStmt.getColLabels().get(i);
+                        }
+                    }
+                    TypeDef typeDef;
+                    Expr resultExpr = resultExprs.get(i);
+                    // varchar/char transfer to string
+                    if (resultExpr.getType().isStringType()) {
+                        typeDef = new TypeDef(Type.STRING);
+                    } else {
+                        typeDef = new TypeDef(resultExpr.getType());
+                    }
+                    createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
+                            null, true,
+                            new ColumnDef.DefaultValue(false, null),
+                            ""));
+                    // set first column as default distribution
+                    if (createTableStmt.getDistributionDesc() == null && i == 0) {
+                        createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
+                    }
+                }
+            }
+            Analyzer dummyRootAnalyzer = new Analyzer(this, ConnectContext.get());
+            createTableStmt.analyze(dummyRootAnalyzer);
+            createTable(createTableStmt);
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute CREATE TABLE AS SELECT Reason: " + e.getMessage());
         }
     }
 
