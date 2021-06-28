@@ -49,6 +49,7 @@ public class RangePartitionInfo extends PartitionInfo {
         this.isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
+    @Override
     public PartitionItem createAndCheckPartitionItem(SinglePartitionDesc desc, boolean isTemp) throws DdlException {
         Range<PartitionKey> newRange = null;
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
@@ -90,6 +91,8 @@ public class RangePartitionInfo extends PartitionInfo {
             if (upperKey.compareTo(newRangeUpper) >= 0) {
                 newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, currentRange);
                 break;
+            } else if (partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED) {
+                newRange = checkNewRange(partKeyDesc, newRangeUpper, lastRange, currentRange);
             } else {
                 lastRange = currentRange;
             }
