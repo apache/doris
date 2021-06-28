@@ -230,7 +230,6 @@ public class TupleDescriptor {
         }
 
         this.byteSize = offset;
-        LOG.info("tuple is {}", byteSize);
     }
 
     /**
