@@ -46,6 +46,7 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -3140,7 +3141,7 @@ public class Catalog {
                     }
                     createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
                             null, true,
-                            new ColumnDef.DefaultValue(false, null),
+                            new DefaultValue(false, null),
                             ""));
                     // set first column as default distribution
                     if (createTableStmt.getDistributionDesc() == null && i == 0) {
