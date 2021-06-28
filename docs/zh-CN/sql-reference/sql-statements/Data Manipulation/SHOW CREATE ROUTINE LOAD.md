@@ -26,7 +26,7 @@ under the License.
 
 # SHOW CREATE ROUTINE LOAD
 ## description
-    该语句用于展示用户自定义例行导入作业的创建语句
+    该语句用于展示例行导入作业的创建语句
     语法：
         SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         

@@ -1847,6 +1847,10 @@ public class ShowExecutor {
                         .add("error_msg", "Routine load cannot be found by this name")
                         .build(), e);
             }
+            if (routineLoadJobList == null) {
+                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                return;
+            }
             for (RoutineLoadJob job : routineLoadJobList) {
                 String tableName = "";
                 try {
@@ -1860,10 +1864,8 @@ public class ShowExecutor {
                         dbName,
                         tableName,
                         PrivPredicate.LOAD)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(),
-                            tableName);
+                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                    return;
                 }
                 rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
             }
@@ -1874,7 +1876,7 @@ public class ShowExecutor {
                 routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
                 // get routine load info
                 rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
-            } catch (Exception e) {
+            } catch (MetaNotFoundException | DdlException e) {
                 LOG.warn(e.getMessage(), e);
                 throw new AnalysisException(e.getMessage());
             }
