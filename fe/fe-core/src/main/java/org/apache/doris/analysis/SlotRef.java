@@ -134,10 +134,18 @@ public class SlotRef extends Expr {
             srcTableName = srcSlotRef.getTableName();
         }
         TableName thisTableName = tblName;
-        if (thisTableName == null && desc != null) {
-            thisTableName = getTableName();
+        if (desc != null && desc.getParent() != null && desc.getParent().getRef() != null) {
+            thisTableName = desc.getParent().getRef().getName();
+        } else if (!desc.getSourceExprs().isEmpty()) {
+            List<Expr> sourceExprs = desc.getSourceExprs();
+            Expr sourceExpr = sourceExprs.get(0);
+            if (((SlotRef) sourceExpr).desc != null && ((SlotRef) sourceExpr).desc.getParent() != null) {
+                if (((SlotRef) sourceExpr).desc.getParent().getRef() != null) {
+                    thisTableName = ((SlotRef) sourceExpr).desc.getParent().getRef().getName();
+                }
+            }
         }
-        if ((thisTableName == null) != (srcTableName == null)) {
+	if ((thisTableName == null) != (srcTableName == null)) {
             return false;
         }
         if (thisTableName != null && !thisTableName.equals(srcTableName)) {
