@@ -346,7 +346,7 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
         if (status == DORIS_SUCCESS) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                    local_path, _clone_req.tablet_id, _clone_req.schema_hash);
+                    local_path, _clone_req.tablet_id, _clone_req.replica_id, _clone_req.schema_hash);
             if (olap_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                              << ", tablet_id=" << _clone_req.tablet_id

@@ -61,7 +61,7 @@ public:
 
     static SnapshotManager* instance();
 
-    OLAPStatus convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
+    OLAPStatus convert_rowset_ids(const string& clone_dir, int64_t tablet_id, int64_t replica_id,
                                   const int32_t& schema_hash);
 
 private:
