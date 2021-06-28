@@ -1342,7 +1342,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         // 2.tbl_name
         sb.append(" ON ").append(tbl == null ? String.valueOf(tableId) : tbl.getName()).append("\n");
         // 3.merge_type
-        sb.append("WITH ").append(mergeType.toString()).append("\n");
+        sb.append("WITH ").append(mergeType.name()).append("\n");
         // 4.load_properties
         // 4.1.column_separator
         if (columnSeparator != null) {
@@ -1373,7 +1373,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
         // remove the last ,
-        sb.replace(sb.length() - 2, sb.length() - 1, "");
+        if (",".equals(sb.charAt(sb.length() - 2))) {
+            sb.replace(sb.length() - 2, sb.length() - 1, "");
+        }
         // 5.job_properties
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
@@ -1400,7 +1402,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return sb.toString();
     }
 
-    public void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
+    private static void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
         sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
         if (!end) {
             sb.append(",\n");
