@@ -1,0 +1,46 @@
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+## DataX Extension Directory
+
+This directory is the doriswriter plug-in development environment of Alibaba DataX.
+
+Because the doriswriter plug-in depends on some modules in the DataX code base, and these module dependencies are not submitted to the official Maven repository, when we develop the doriswriter plug-in, we need to download the complete DataX code base to facilitate our development and compilation of the doriswriter plug-in.
+
+### Directory structure
+
+1. `doriswriter/`
+
+     This directory is the code directory of doriswriter, and this part of the code should be in the Doris code base.
+    
+2. `init_env.sh`
+
+     The script mainly performs the following steps:
+    
+     1. Git clone the DataX code base to the local
+     2. Softlink the `doriswriter/` directory to `DataX/doriswriter`.
+     3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
+    
+     After that, developers can enter `DataX/` for development. And the changes in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code.
+
+### How to build
+
+1. Run `init_env.sh`
+2. Modify code of doriswriter in `DataX/doriswriter`
+3. Commit code of doriswriter in `doriswriter`
