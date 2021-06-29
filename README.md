@@ -172,7 +172,15 @@ some features of Doris to be complied with Apache 2.0 License. Details can be fo
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 7. Links
+## 7. Contact Us
+
+### Mailing lists
+
+| Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
+|:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
+| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
+
+## 8. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
