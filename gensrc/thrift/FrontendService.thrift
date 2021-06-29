@@ -317,6 +317,9 @@ struct TTableStatus {
     8: optional i64 update_time
     9: optional i64 check_time
     10: optional string collation
+    11: optional i64 rows;
+    12: optional i64 avg_row_length
+    13: optional i64 data_length;
 }
 
 struct TListTableStatusResult {

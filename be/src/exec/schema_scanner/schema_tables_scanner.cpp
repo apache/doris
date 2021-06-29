@@ -143,12 +143,26 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // row_format
     { tuple->set_null(_tuple_desc->slots()[6]->null_indicator_offset()); }
     // rows
-    { tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset()); }
+    if (tbl_status.__isset.rows) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.rows;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[7]->null_indicator_offset());
+    }
     // avg_row_length
-    { tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset()); }
+    if (tbl_status.__isset.avg_row_length) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.avg_row_length;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
+    }
     // data_length
-    { tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset()); }
-    // max_data_length
+    if (tbl_status.__isset.avg_row_length) {
+        void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+        *(reinterpret_cast<int64_t*>(slot)) = tbl_status.data_length;
+    } else {
+        tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
+    } // max_data_length
     { tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset()); }
     // index_length
     { tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset()); }

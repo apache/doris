@@ -933,12 +933,37 @@ public class OlapTable extends Table {
         return tTableDescriptor;
     }
 
+    @Override
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        long rowCount = 0;
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    public long getDataLength() {
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        return dataSize;
     }
 
     @Override

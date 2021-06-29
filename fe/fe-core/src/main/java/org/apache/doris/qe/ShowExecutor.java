@@ -640,11 +640,11 @@ public class ShowExecutor {
                 // Row_format
                 row.add(null);
                 // Rows
-                row.add(null);
+                row.add(String.valueOf(table.getRowCount()));
                 // Avg_row_length
-                row.add(null);
+                row.add(String.valueOf(table.getAvgRowLength()));
                 // Data_length
-                row.add(null);
+                row.add(String.valueOf(table.getDataLength()));
                 // Max_data_length
                 row.add(null);
                 // Index_length
