@@ -285,6 +285,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setComment(table.getComment());
                     status.setCreateTime(table.getCreateTime());
                     status.setLastCheckTime(table.getLastCheckTime());
+                    status.setUpdateTime(table.getUpdateTime()/1000);
+                    status.setCheckTime(table.getLastCheckTime());
+                    status.setCollation("utf-8");
                     tablesResult.add(status);
                 } finally {
                     table.readUnlock();
