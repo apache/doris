@@ -2198,6 +2198,8 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     }
 
     std::vector<Version> new_tablet_versions;
+    // lock so that list_versions() and get_rowset_by_version() can be done atomically.
+    ReadLock lock(new_tablet->get_header_lock_ptr());
     new_tablet->list_versions(&new_tablet_versions);
     for (auto& version : new_tablet_versions) {
         RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
