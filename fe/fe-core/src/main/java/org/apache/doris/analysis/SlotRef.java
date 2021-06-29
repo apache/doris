@@ -145,7 +145,7 @@ public class SlotRef extends Expr {
                 }
             }
         }
-	if ((thisTableName == null) != (srcTableName == null)) {
+        if ((thisTableName == null) != (srcTableName == null)) {
             return false;
         }
         if (thisTableName != null && !thisTableName.equals(srcTableName)) {
