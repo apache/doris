@@ -289,7 +289,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     status.setCheckTime(table.getLastCheckTime());
                     status.setCollation("utf-8");
                     status.setRows(table.getRowCount());
-                    status.dataLength(table.getDataLength());
+                    status.setDataLength(table.getDataLength());
                     status.setAvgRowLength(table.getAvgRowLength());
                     tablesResult.add(status);
                 } finally {
