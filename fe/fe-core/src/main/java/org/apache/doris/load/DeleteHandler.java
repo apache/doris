@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -526,12 +527,16 @@ public class DeleteHandler implements Writable {
                     // if a bool cond passed to be, be's zone_map cannot handle bool correctly,
                     // change it to a tinyint type here;
                     value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
-                    if (column.getDataType() == PrimitiveType.BOOLEAN ) {
+                    if (column.getDataType() == PrimitiveType.BOOLEAN) {
                         if (value.toLowerCase().equals("true")) {
                             binaryPredicate.setChild(1, LiteralExpr.create("1", Type.TINYINT));
                         } else if (value.toLowerCase().equals("false")) {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
+                    } else if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
+                        DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                        value = dateLiteral.getStringValue();
+                        binaryPredicate.setChild(1, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
                     }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
@@ -544,7 +549,13 @@ public class DeleteHandler implements Writable {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                         value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
-                        LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                        if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
+                            DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                            value = dateLiteral.getStringValue();
+                            inPredicate.setChild(i, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
+                        } else {
+                            LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                        }
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException("Invalid column value[" + value + "] for column " + columnName);
