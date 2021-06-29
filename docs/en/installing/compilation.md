@@ -45,7 +45,7 @@ This document focuses on how to code Doris through source code.
     apache/incubator-doris   build-env-1.3           ca207367c09f        21 hours ago        3.28GB
     ```
 
-Note: For different versions of Oris, you need to download the corresponding mirror version.
+Note: For different versions of Doris, you need to download the corresponding mirror version.
 
 | image version | commit id | release version |
 |---|---|---|
@@ -54,7 +54,27 @@ Note: For different versions of Oris, you need to download the corresponding mir
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
 
-Warning: Doris 0.14.0 still used apache/incubator-doris:build-env-1.2 to compile.  After thie version, the code will use apache/incubator-doris:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11, Otherwise unexpected running errors may be caused. **
+**note**:
+
+> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.
+
+> 2. In the docker image of build-env-1.3, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
+>
+>   Switch to JDK 8:
+>   
+>   ```
+>   $ alternatives --set java java-1.8.0-openjdk.x86_64
+>   $ alternatives --set javac java-1.8.0-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+>   ```
+>   
+>   Switch to JDK 11:
+>   
+>   ```
+>   $ alternatives --set java java-11-openjdk.x86_64
+>   $ alternatives --set javac java-11-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-11
+>   ```
 
 2. Running Mirror
 
