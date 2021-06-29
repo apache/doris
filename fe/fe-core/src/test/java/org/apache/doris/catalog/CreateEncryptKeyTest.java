@@ -76,7 +76,7 @@ public class CreateEncryptKeyTest {
         Assert.assertEquals(1, encryptKeys.size());
         Assert.assertEquals("beijing", encryptKeys.get(0).getKeyString());
 
-        String queryStr = "SELECT HEX(AES_ENCRYPT(\"Doris is Great\", \"key:db1.my_key\"));";
+        String queryStr = "SELECT HEX(AES_ENCRYPT(\"Doris is Great\", key db1.my_key));";
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
