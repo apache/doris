@@ -387,6 +387,17 @@ public class OlapTable extends Table {
         return null;
     }
 
+    @Override
+    public long getUpdateTime() {
+        long updateTime = tempPartitions.getUpdateTime();
+        for (Partition p : idToPartition.values()) {
+            if (p.getVisibleVersionTime() > updateTime) {
+                updateTime = p.getVisibleVersionTime();
+            }
+        }
+        return updateTime;
+    }
+
     // this is only for schema change.
     public void renameIndexForSchemaChange(String name, String newName) {
         long idxId = indexNameToId.remove(name);

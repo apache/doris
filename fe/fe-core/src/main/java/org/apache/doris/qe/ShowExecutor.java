@@ -154,10 +154,12 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -628,16 +630,42 @@ public class ShowExecutor {
                         PrivPredicate.SHOW)) {
                     continue;
                 }
-
                 List<String> row = Lists.newArrayList();
                 // Name
                 row.add(table.getName());
                 // Engine
                 row.add(table.getEngine());
-                // version, ra
-                for (int i = 0; i < 15; ++i) {
-                    row.add(null);
-                }
+                // version
+                row.add(null);
+                // Row_format
+                row.add(null);
+                // Rows
+                row.add(null);
+                // Avg_row_length
+                row.add(null);
+                // Data_length
+                row.add(null);
+                // Max_data_length
+                row.add(null);
+                // Index_length
+                row.add(null);
+                // Data_free
+                row.add(null);
+                // Auto_increment
+                row.add(null);
+                // Create_time
+                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getCreateTime() * 1000)));
+                // Update_time
+                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime() * 1000)));
+                // Check_time
+                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getLastCheckTime() * 1000)));
+                // Collation
+                row.add("utf-8");
+                // Checksum
+                row.add(null);
+                // Create_options
+                row.add(null);
+
                 row.add(table.getComment());
                 rows.add(row);
             }

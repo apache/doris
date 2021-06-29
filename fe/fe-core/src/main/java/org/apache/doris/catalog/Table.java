@@ -232,6 +232,10 @@ public class Table extends MetaObject implements Writable {
         return createTime;
     }
 
+    public long getUpdateTime() {
+        return -1L;
+    }
+
     public TTableDescriptor toThrift() {
         return null;
     }
