@@ -656,7 +656,7 @@ public class ShowExecutor {
                 // Create_time
                 row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getCreateTime() * 1000)));
                 // Update_time
-                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime() * 1000)));
+                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime())));
                 // Check_time
                 row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getLastCheckTime() * 1000)));
                 // Collation
