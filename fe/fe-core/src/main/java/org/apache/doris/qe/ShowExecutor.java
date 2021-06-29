@@ -656,9 +656,17 @@ public class ShowExecutor {
                 // Create_time
                 row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getCreateTime() * 1000)));
                 // Update_time
-                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime())));
+                if (table.getUpdateTime() > 0) {
+                    row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime())));
+                } else {
+                    row.add(null);
+                }
                 // Check_time
-                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getLastCheckTime() * 1000)));
+                if (table.getLastCheckTime() > 0) {
+                    row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getLastCheckTime() * 1000)));
+                } else {
+                    row.add(null);
+                }
                 // Collation
                 row.add("utf-8");
                 // Checksum
