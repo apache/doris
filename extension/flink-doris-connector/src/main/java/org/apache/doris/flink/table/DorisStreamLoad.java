@@ -134,7 +134,7 @@ public class DorisStreamLoad implements Serializable{
 
     private LoadResponse loadBatch(String value) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+        String label = String.format("flink_connector_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 UUID.randomUUID().toString().replaceAll("-", ""));
