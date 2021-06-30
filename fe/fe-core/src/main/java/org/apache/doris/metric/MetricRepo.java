@@ -54,7 +54,7 @@ public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
 
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
-    private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
+    public static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
     public static volatile boolean isInit = false;
     public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
