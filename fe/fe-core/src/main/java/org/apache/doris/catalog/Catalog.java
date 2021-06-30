@@ -5592,7 +5592,7 @@ public class Catalog {
             }
     
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
-            if(defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
+            if (defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
                 throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
             }
     
@@ -7095,4 +7095,3 @@ public class Catalog {
         }
     }
 }
-
