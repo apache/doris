@@ -3849,7 +3849,7 @@ public class Catalog {
                 // register or remove table from DynamicPartition after table created
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                        tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+                        tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
@@ -5439,7 +5439,7 @@ public class Catalog {
 
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+                table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
     }
