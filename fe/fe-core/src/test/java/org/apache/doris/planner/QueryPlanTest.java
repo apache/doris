@@ -1377,26 +1377,26 @@ public class QueryPlanTest {
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     
-        // 测试colocate join是否能够colocate agg
+        // test colocate join can colocate agg
         sql = "SELECT count(1) FROM agg1 a join agg2 b on a.k1 = b.k1 and a.k2 = b.k2 group by a.k1,a.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));	    
 
-        // 测试假名的影响(因为colocate agg中使用的name判等)
+        // test alias (because the check of colocate agg use name to judge)
         sql = "SELECT count(1) FROM agg1 join agg2 on agg1.k1 = agg2.k1 and agg1.k2 = agg2.k2 group by agg1.k1,agg1.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
 
-        // 测试Group by + scan得到的colocate join是否能够实现colocate agg.
+        // test colocate join (Group by join scan) can colocate agg.
         sql = "SELECT count(1) FROM (SELECT agg1.k1,agg1.k2 from agg1 group by agg1.k1,agg1.k2)" +
                 " a join agg2 b on a.k1 = b.k1 and a.k2 = b.k2 group by a.k1,a.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertEquals(2, StringUtils.countMatches(explainString, "AGGREGATE (update finalize)"));
 
-        // 测试嵌套colocate join是否能够实现colocate agg
+        // test nested colocate join can colocate agg
         sql = "SELECT count(1) FROM (SELECT a.k1,a.k2 from agg1 a join agg2 b on a.k1 = b.k1 and a.k2 = b.k2 group by a.k1,a.k2)" +
                 " c join agg2 d on c.k1 = d.k1 and c.k2 = d.k2 group by c.k1,c.k2";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
