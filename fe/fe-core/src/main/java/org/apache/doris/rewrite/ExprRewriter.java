@@ -33,10 +33,19 @@ import java.util.List;
  * - the rule list is applied repeatedly until no rule has made any changes
  * - the rules are applied in the order they appear in the rule list
  * Keeps track of how many transformations were applied.
+ *
+ * There are two types of Rewriter, the first is Repeat Rewriter,
+ * and the other is Once Rewriter.
+ * The Repeat Rewriter framework will call Rule repeatedly
+ * until the entire expression does not change.
+ * The Once Rewriter framework will only call Rule once.
+ * According to different Rule strategies,
+ * Doris match different Rewriter framework execution.
  */
 public class ExprRewriter {
     private int numChanges_ = 0;
     private final List<ExprRewriteRule> rules_;
+    // Once-only Rules
     private List<ExprRewriteRule> onceRules_ = Lists.newArrayList();
 
     public ExprRewriter(List<ExprRewriteRule> rules) {
