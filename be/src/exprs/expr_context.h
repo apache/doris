@@ -81,23 +81,6 @@ public:
     /// result in result_.
     void* get_value(TupleRow* row);
 
-    /// Convenience function: extract value into col_val and sets the
-    /// appropriate __isset flag.
-    /// If the value is NULL and as_ascii is false, nothing is set.
-    /// If 'as_ascii' is true, writes the value in ascii into stringVal
-    /// (nulls turn into "NULL");
-    /// if it is false, the specific field in col_val that receives the value is
-    /// based on the type of the expr:
-    /// TYPE_BOOLEAN: boolVal
-    /// TYPE_TINYINT/SMALLINT/INT: intVal
-    /// TYPE_BIGINT: longVal
-    /// TYPE_FLOAT/DOUBLE: doubleVal
-    /// TYPE_STRING: stringVal
-    /// TYPE_TIMESTAMP: stringVal
-    /// Note: timestamp is converted to string via RawValue::PrintValue because HiveServer2
-    /// requires timestamp in a string format.
-    void get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val);
-
     /// Convenience functions: print value into 'str' or 'stream'.  NULL turns into "NULL".
     void print_value(TupleRow* row, std::string* str);
     void print_value(void* value, std::string* str);

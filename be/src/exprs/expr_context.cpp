@@ -165,66 +165,6 @@ void ExprContext::free_local_allocations(const std::vector<FunctionContext*>& fn
     }
 }
 
-void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val) {
-#if 0
-    void* value = get_value(row);
-    if (as_ascii) {
-        RawValue::print_value(value, _root->_type, _root->_output_scale, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        return;
-    }
-    if (value == NULL) {
-        return;
-    }
-
-    StringValue* string_val = NULL;
-    std::string tmp;
-    switch (_root->_type.type) {
-    case TYPE_BOOLEAN:
-        col_val->__set_bool_val(*reinterpret_cast<bool*>(value));
-        break;
-    case TYPE_TINYINT:
-        col_val->__set_byte_val(*reinterpret_cast<int8_t*>(value));
-        break;
-    case TYPE_SMALLINT:
-        col_val->__set_short_val(*reinterpret_cast<int16_t*>(value));
-        break;
-    case TYPE_INT:
-        col_val->__set_int_val(*reinterpret_cast<int32_t*>(value));
-        break;
-    case TYPE_BIGINT:
-        col_val->__set_long_val(*reinterpret_cast<int64_t*>(value));
-        break;
-    case TYPE_FLOAT:
-        col_val->__set_double_val(*reinterpret_cast<float*>(value));
-        break;
-    case TYPE_DOUBLE:
-        col_val->__set_double_val(*reinterpret_cast<double*>(value));
-        break;
-#if 0
-    case TYPE_VARCHAR:
-        string_val = reinterpret_cast<StringValue*>(value);
-        tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_CHAR:
-        tmp.assign(StringValue::CharSlotToPtr(value, _root->_type), _root->_type.len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_TIMESTAMP:
-        RawValue::print_value(
-            value, _root->_type, _root->_output_scale_, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        break;
-#endif
-    default:
-        DCHECK(false) << "bad get_value() type: " << _root->_type;
-    }
-#endif
-}
-
 bool ExprContext::is_nullable() {
     if (_root->is_slotref()) {
         return SlotRef::is_nullable(_root);
