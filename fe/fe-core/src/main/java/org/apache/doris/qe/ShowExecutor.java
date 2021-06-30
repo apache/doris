@@ -1729,7 +1729,7 @@ public class ShowExecutor {
                 olapTable.readLock();
                 try {
                     if (!olapTable.dynamicPartitionExists()) {
-                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
+                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getId());
                         continue;
                     }
 
@@ -1753,11 +1753,11 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
                             String.valueOf(replicationNum),
                             dynamicPartitionProperty.getStartOfInfo(),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG)));
                 } finally {
                     olapTable.readUnlock();
                 }

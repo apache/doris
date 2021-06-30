@@ -19,23 +19,20 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
-
 import com.clearspring.analytics.util.Lists;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Collections;
@@ -1016,5 +1013,28 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"-1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testRuntimeInfo() throws Exception {
+        DynamicPartitionScheduler scheduler = new DynamicPartitionScheduler("test", 10);
+        long tableId = 1001;
+        String key1 = "key1";
+        String value1 = "value1";
+        String key2 = "key2";
+        String value2 = "value2";
+        // add
+        scheduler.createOrUpdateRuntimeInfo(tableId, key1, value1);
+        scheduler.createOrUpdateRuntimeInfo(tableId, key2, value2);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value1);
+
+        // modify
+        String value3 = "value2";
+        scheduler.createOrUpdateRuntimeInfo(tableId, key1, value3);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value3);
+
+        // remove
+        scheduler.removeRuntimeInfo(tableId);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == FeConstants.null_string);
     }
 }
