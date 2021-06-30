@@ -19,11 +19,12 @@ package org.apache.doris.common;
 
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricRepo;
+
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.List;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThreadPoolManagerTest {
 
@@ -68,10 +69,10 @@ public class ThreadPoolManagerTest {
         for (int i = 0; i < 4; i++) {
             testFixedThreaddPool.submit(task);
         }
-
+        
+        Assert.assertTrue(testFixedThreaddPool.getActiveCount() <= 2);
+        Assert.assertTrue(testFixedThreaddPool.getQueue().size() > 0);
         Assert.assertEquals(2, testFixedThreaddPool.getPoolSize());
-        Assert.assertEquals(2, testFixedThreaddPool.getActiveCount());
-        Assert.assertEquals(2, testFixedThreaddPool.getQueue().size());
         Assert.assertEquals(0, testFixedThreaddPool.getCompletedTaskCount());
 
         Thread.sleep(2000);
