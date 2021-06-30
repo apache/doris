@@ -24,15 +24,21 @@ import org.apache.doris.flink.exception.StreamLoadException;
 import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.io.RichOutputFormat;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.runtime.util.ExecutorThreadFactory;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.StringJoiner;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -50,6 +56,10 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     private final String lineDelimiter = "\n";
     private final List<String> batch = new ArrayList<>();
     private transient volatile boolean closed = false;
+
+    private transient ScheduledExecutorService scheduler;
+    private transient ScheduledFuture<?> scheduledFuture;
+    private transient volatile Exception flushException;
 
     public DorisDynamicOutputFormat(DorisOptions option,DorisReadOptions readOptions,DorisExecutionOptions executionOptions) {
         this.options = option;
@@ -71,10 +81,33 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
                 options.getUsername(),
                 options.getPassword());
         LOG.info("Streamload BE:{}",dorisStreamLoad.getLoadUrlStr());
+
+        if (executionOptions.getBatchIntervalMs() != 0 && executionOptions.getBatchSize() != 1) {
+            this.scheduler = Executors.newScheduledThreadPool(1, new ExecutorThreadFactory("doris-streamload-output-format"));
+            this.scheduledFuture = this.scheduler.scheduleWithFixedDelay(() -> {
+                synchronized (DorisDynamicOutputFormat.this) {
+                    if (!closed) {
+                        try {
+                            flush();
+                        } catch (Exception e) {
+                            flushException = e;
+                        }
+                    }
+                }
+            }, executionOptions.getBatchIntervalMs(), executionOptions.getBatchIntervalMs(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    private void checkFlushException() {
+        if (flushException != null) {
+            throw new RuntimeException("Writing records to streamload failed.", flushException);
+        }
     }
 
     @Override
-    public  void writeRecord(RowData row) throws IOException {
+    public synchronized void writeRecord(RowData row) throws IOException {
+        checkFlushException();
+
         addBatch(row);
         if (executionOptions.getBatchSize() > 0 && batch.size() >= executionOptions.getBatchSize()) {
             flush();
@@ -91,22 +124,30 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     }
 
     @Override
-    public  void close() throws IOException {
+    public synchronized void close() throws IOException {
         if (!closed) {
             closed = true;
-            if (batch.size() > 0) {
-                try {
-                    flush();
-                } catch (Exception e) {
-                    LOG.warn("Writing records to doris failed.", e);
-                    throw new RuntimeException("Writing records to doris failed.", e);
-                }
+
+            if (this.scheduledFuture != null) {
+                scheduledFuture.cancel(false);
+                this.scheduler.shutdown();
+            }
+
+            try {
+                flush();
+            } catch (Exception e) {
+                LOG.warn("Writing records to doris failed.", e);
+                throw new RuntimeException("Writing records to doris failed.", e);
             }
         }
+        checkFlushException();
     }
 
-
-    public  void flush() throws IOException {
+    public synchronized void flush() throws IOException {
+        checkFlushException();
+        if(batch.isEmpty()){
+            return;
+        }
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
                 dorisStreamLoad.load(String.join(lineDelimiter,batch));
@@ -128,6 +169,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
             }
         }
     }
+
 
     private String getBackend() throws IOException{
         try {
