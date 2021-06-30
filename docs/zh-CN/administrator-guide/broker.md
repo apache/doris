@@ -119,8 +119,8 @@ Broker 在 Doris 系统架构中的位置如下：
     PROPERTIES
     (
         "bos_endpoint" = "http://gz.bcebos.com",
-        "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
-        "bos_secret_accesskey" = "70999999999999de274d59eaa980a"
+        "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyy"
     );
     ```
     
