@@ -2197,7 +2197,10 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
     }
 
     std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
-    new_tablet->acquire_version_and_rowsets(&version_rowsets);
+    {
+        ReadLock rdlock(new_tablet->get_header_lock_ptr());
+        new_tablet->acquire_version_and_rowsets(&version_rowsets);
+    }
     for (auto& pair : version_rowsets) {
         RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {

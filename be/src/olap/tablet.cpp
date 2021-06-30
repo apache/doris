@@ -591,8 +591,8 @@ bool Tablet::check_version_exist(const Version& version) const {
     return false;
 }
 
+// The meta read lock should be held before calling
 void Tablet::acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
-    ReadLock rdlock(&_meta_lock);
     for (const auto& it : _rs_version_map) {
         version_rowsets->emplace_back(it.first, it.second);
     }
