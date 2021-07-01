@@ -90,6 +90,7 @@ under the License.
     ```
 
     agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
+    
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
        * BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)、
