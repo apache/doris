@@ -40,6 +40,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
@@ -56,7 +57,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -480,8 +480,7 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-        // do this before whereClause.analyze , some expr is not analyzed, this may cause some
-        // function not work as expected such as equals;
+
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -579,162 +578,6 @@ public class SelectStmt extends QueryStmt {
                 whereClause = new BoolLiteral(true);
             }
         }
-        Expr deDuplicatedWhere = deduplicateOrs(whereClause);
-        if (deDuplicatedWhere != null) {
-            whereClause = deDuplicatedWhere;
-        }
-    }
-
-    /**
-     * this function only process (a and b and c) or (d and e and f) like clause,
-     * this function will extract this to [[a, b, c], [d, e, f]]
-     */
-    private List<List<Expr>> extractDuplicateOrs(CompoundPredicate expr) {
-        List<List<Expr>> orExprs = new ArrayList<>();
-        for (Expr child : expr.getChildren()) {
-            if (child instanceof CompoundPredicate) {
-                CompoundPredicate childCp = (CompoundPredicate) child;
-                if (childCp.getOp() == CompoundPredicate.Operator.OR) {
-                    orExprs.addAll(extractDuplicateOrs(childCp));
-                    continue;
-                } else if (childCp.getOp() == CompoundPredicate.Operator.AND) {
-                    orExprs.add(flatAndExpr(child));
-                    continue;
-                }
-            }
-            orExprs.add(Arrays.asList(child));
-        }
-        return orExprs;
-    }
-
-    /**
-     * This function attempts to apply the inverse OR distributive law:
-     * ((A AND B) OR (A AND C))  =>  (A AND (B OR C))
-     * That is, locate OR clauses in which every subclause contains an
-     * identical term, and pull out the duplicated terms.
-     */
-    private Expr deduplicateOrs(Expr expr) {
-        if (expr == null) {
-            return null;
-        } else if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
-            Expr rewritedExpr = processDuplicateOrs(extractDuplicateOrs((CompoundPredicate) expr));
-            if (rewritedExpr != null) {
-                return rewritedExpr;
-            }
-        } else {
-            for (int i = 0; i < expr.getChildren().size(); i++) {
-                Expr rewritedExpr = deduplicateOrs(expr.getChild(i));
-                if (rewritedExpr != null) {
-                    expr.setChild(i, rewritedExpr);
-                }
-            }
-        }
-        return expr;
-    }
-
-    /**
-     * try to flat and , a and b and c => [a, b, c]
-     */
-    private List<Expr> flatAndExpr(Expr expr) {
-        List<Expr> andExprs = new ArrayList<>();
-        if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.AND) {
-            andExprs.addAll(flatAndExpr(expr.getChild(0)));
-            andExprs.addAll(flatAndExpr(expr.getChild(1)));
-        } else {
-            andExprs.add(expr);
-        }
-        return andExprs;
-    }
-
-    /**
-     * the input is a list of list, the inner list is and connected exprs, the outer list is or connected
-     * for example clause (a and b and c) or (a and e and f) after extractDuplicateOrs will be [[a, b, c], [a, e, f]]
-     * this is the input of this function, first step is deduplicate [[a, b, c], [a, e, f]] => [[a], [b, c], [e, f]]
-     * then rebuild the expr to a and ((b and c) or (e and f))
-     */
-    private Expr processDuplicateOrs(List<List<Expr>> exprs) {
-        if (exprs.size() < 2) {
-            return null;
-        }
-        // 1. remove duplicated elements [[a,a], [a, b], [a,b]] => [[a], [a,b]]
-        Set<Set<Expr>> set = new LinkedHashSet<>();
-        for (List<Expr> ex : exprs) {
-            Set<Expr> es = new LinkedHashSet<>();
-            es.addAll(ex);
-            set.add(es);
-        }
-        List<List<Expr>> clearExprs = new ArrayList<>();
-        for (Set<Expr> es : set) {
-            List<Expr> el = new ArrayList<>();
-            el.addAll(es);
-            clearExprs.add(el);
-        }
-        if (clearExprs.size() == 1) {
-            return makeCompound(clearExprs.get(0), CompoundPredicate.Operator.AND);
-        }
-        // 2. find duplicate cross the clause
-        List<Expr> cloneExprs = new ArrayList<>(clearExprs.get(0));
-        for (int i = 1; i < clearExprs.size(); ++i) {
-            cloneExprs.retainAll(clearExprs.get(i));
-        }
-        List<Expr> temp = new ArrayList<>();
-        if (CollectionUtils.isNotEmpty(cloneExprs)) {
-            temp.add(makeCompound(cloneExprs, CompoundPredicate.Operator.AND));
-        }
-
-        Expr result;
-        boolean isReturnCommonFactorExpr = false;
-        for (List<Expr> exprList : clearExprs) {
-            exprList.removeAll(cloneExprs);
-            if (exprList.size() == 0) {
-                // For example, the sql is "where (a = 1) or (a = 1 and B = 2)"
-                // if "(a = 1)" is extracted as a common factor expression, then the first expression "(a = 1)" has no expression
-                // other than a common factor expression, and the second expression "(a = 1 and B = 2)" has an expression of "(B = 2)"
-                //
-                // In this case, the common factor expression ("a = 1") can be directly used to replace the whole CompoundOrPredicate.
-                // In Fact, the common factor expression is actually the parent set of expression "(a = 1)" and expression "(a = 1 and B = 2)"
-                //
-                // exprList.size() == 0 means one child of CompoundOrPredicate has no expression other than a common factor expression.
-                isReturnCommonFactorExpr = true;
-                break;
-            }
-            temp.add(makeCompound(exprList, CompoundPredicate.Operator.AND));
-        }
-        if (isReturnCommonFactorExpr) {
-            result = temp.get(0);
-        } else {
-            // rebuild CompoundPredicate if found duplicate predicate will build （predicate) and (.. or ..)  predicate in
-            // step 1: will build (.. or ..)
-            if (CollectionUtils.isNotEmpty(cloneExprs)) {
-                result = new CompoundPredicate(CompoundPredicate.Operator.AND, temp.get(0),
-                        makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR));
-                result.setPrintSqlInParens(true);
-            } else {
-                result = makeCompound(temp, CompoundPredicate.Operator.OR);
-            }
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("equal ors: " + result.toSql());
-        }
-        return result;
-    }
-
-    /**
-     * Rebuild CompoundPredicate, [a, e, f] AND => a and e and f
-     */
-    private Expr makeCompound(List<Expr> exprs, CompoundPredicate.Operator op) {
-        if (CollectionUtils.isEmpty(exprs)) {
-            return null;
-        }
-        if (exprs.size() == 1) {
-            return exprs.get(0);
-        }
-        CompoundPredicate result = new CompoundPredicate(op, exprs.get(0), exprs.get(1));
-        for (int i = 2; i < exprs.size(); ++i) {
-            result = new CompoundPredicate(op, result.clone(), exprs.get(i));
-        }
-        result.setPrintSqlInParens(true);
-        return result;
     }
 
     /**

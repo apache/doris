@@ -29,19 +29,18 @@ import org.apache.doris.utframe.UtFrameUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import mockit.Mock;
 import mockit.MockUp;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -270,16 +269,22 @@ public class SelectStmtTest {
                 "   );";
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3`) " +
+        String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3` " +
+                "AND ((`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') " +
+                "AND (`t4`.`k3` = '2 yr Degree' OR `t4`.`k3` = 'Advanced Degree' OR `t4`.`k3` = 'Secondary') " +
+                "AND (`t4`.`k4` = 1 OR `t4`.`k4` = 3))) " +
                 "AND ((`t3`.`k1` = 'D' AND `t4`.`k3` = '2 yr Degree' " +
                 "AND `t1`.`k4` >= 100.00 AND `t1`.`k4` <= 150.00 AND `t4`.`k4` = 3) " +
                 "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50.00 " +
                 "AND `t1`.`k4` <= 100.00 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
                 "AND `t1`.`k4` >= 150.00 AND `t1`.`k4` <= 200.00 AND `t4`.`k4` = 1)))";
-        String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States') " +
+        String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States' " +
+                "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) " +
+                "AND `t5`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI'))) " +
                 "AND ((`t5`.`k3` IN ('CO', 'IL', 'MN') AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 200) " +
                 "OR (`t5`.`k3` IN ('OH', 'MT', 'NM') AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 300) OR (`t5`.`k3` IN " +
                 "('TX', 'MO', 'MI') AND `t1`.`k4` >= 50 AND `t1`.`k4` <= 250)))";
+        System.out.println(stmt.toSql());
         Assert.assertTrue(stmt.toSql().contains(rewritedFragment1));
         Assert.assertTrue(stmt.toSql().contains(rewritedFragment2));
 

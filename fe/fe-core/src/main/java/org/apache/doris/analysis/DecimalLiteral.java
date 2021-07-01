@@ -157,7 +157,17 @@ public class DecimalLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        return this.value.compareTo(((DecimalLiteral) expr).value);
+        if (expr instanceof DecimalLiteral) {
+            return this.value.compareTo(((DecimalLiteral) expr).value);
+        } else {
+            try {
+                DecimalLiteral decimalLiteral = new DecimalLiteral(expr.getStringValue());
+                return this.compareLiteral(decimalLiteral);
+            } catch (AnalysisException e) {
+                throw new ClassCastException("Those two values cannot be compared: " + value
+                        + " and " + expr.toSqlImpl());
+            }
+        }
     }
 
     @Override
