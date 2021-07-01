@@ -53,7 +53,7 @@ sudo apt install -y openssl-devel
 
 ## Compile
 
-The following steps are carried out in the /home/zhangfeng directory
+The following steps are carried out in the /home/workspace directory
 
 1. dowload source
 
@@ -64,14 +64,14 @@ git clone https://github.com/apache/incubator-doris.git
 2. Compile third-party dependency packages
 
 ```
- cd /home/zhangfeng/incubator-doris/thirdparty
+ cd /home/workspace/incubator-doris/thirdparty
  ./build-thirdparty.sh
 ```
 
 3. Compile doris product code
 
 ```
-cd /home/zhangfeng/incubator-doris
+cd /home/workspace/incubator-doris
 ./build.sh
 ```
 
@@ -94,14 +94,14 @@ If nothing happens, the compilation should be successful, and the final deployme
 1. Authorize be compilation result files
 
 ```
-chmod  /home/zhangfeng/incubator-doris/output/be/lib/palo_be
+chmod  /home/workspace/incubator-doris/output/be/lib/palo_be
 ```
 
-Note: /home/zhangfeng/incubator-doris/output/be/lib/palo_be is the executable file of be.
+Note: /home/workspace/incubator-doris/output/be/lib/palo_be is the executable file of be.
 
 2. Create a data storage directory
 
-By viewing /home/zhangfeng/incubator-doris/output/be/conf/be.conf
+By viewing /home/workspace/incubator-doris/output/be/conf/be.conf
 
 ```
 # INFO, WARNING, ERROR, FATAL
@@ -152,10 +152,10 @@ mkdir -p /soft/be/storage
             "args": [],
             "stopAtEntry": false,
             "cwd": "/home/workspace/incubator-doris/",
-            "environment": [{"name":"PALO_HOME","value":"/home/zhangfeng/incubator-doris/output/be/"},
-                            {"name":"UDF_RUNTIME_DIR","value":"/home/zhangfeng/incubator-doris/output/be/lib/udf-runtime"},
-                            {"name":"LOG_DIR","value":"/home/zhangfeng/incubator-doris/output/be/log"},
-                            {"name":"PID_DIR","value":"/home/zhangfeng/incubator-doris/output/be/bin"}
+            "environment": [{"name":"PALO_HOME","value":"/home/workspace/incubator-doris/output/be/"},
+                            {"name":"UDF_RUNTIME_DIR","value":"/home/workspace/incubator-doris/output/be/lib/udf-runtime"},
+                            {"name":"LOG_DIR","value":"/home/workspace/incubator-doris/output/be/log"},
+                            {"name":"PID_DIR","value":"/home/workspace/incubator-doris/output/be/bin"}
                            ],
             "externalConsole": true,
             "MIMode": "gdb",
@@ -183,7 +183,7 @@ Among them, environment defines several environment variables DORIS_HOME UDF_RUN
           "name": "(gdb) Launch",
           "type": "cppdbg",
           "request": "attach",
-          "program": "/home/zhangfeng/incubator-doris/output/lib/palo_be",
+          "program": "/home/workspace/incubator-doris/output/lib/palo_be",
           "processId":,
           "MIMode": "gdb",
           "internalConsoleOptions":"openOnSessionStart",
@@ -221,7 +221,7 @@ An example of a complete lainch.json is as follows:
             "name": "(gdb) Attach",
             "type": "cppdbg",
             "request": "attach",
-            "program": "/home/zhangfeng/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
             "processId": 17016,
             "MIMode": "gdb",
             "setupCommands": [
@@ -236,26 +236,26 @@ An example of a complete lainch.json is as follows:
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "/home/zhangfeng/incubator-doris/output/be/lib/palo_be",
+            "program": "/home/workspace/incubator-doris/output/be/lib/palo_be",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "/home/zhangfeng/incubator-doris/output/be",
+            "cwd": "/home/workspace/incubator-doris/output/be",
             "environment": [
                 {
                     "name": "DORIS_HOME",
-                    "value": "/home/zhangfeng/incubator-doris/output/be"
+                    "value": "/home/workspace/incubator-doris/output/be"
                 },
                 {
                     "name": "UDF_RUNTIME_DIR",
-                    "value": "/home/zhangfeng/incubator-doris/output/be/lib/udf-runtime"
+                    "value": "/home/workspace/incubator-doris/output/be/lib/udf-runtime"
                 },
                 {
                     "name": "LOG_DIR",
-                    "value": "/home/zhangfeng/incubator-doris/output/be/log"
+                    "value": "/home/workspace/incubator-doris/output/be/log"
                 },
                 {
                     "name": "PID_DIR",
-                    "value": "/home/zhangfeng/incubator-doris/output/be/bin"
+                    "value": "/home/workspace/incubator-doris/output/be/bin"
                 }
             ],
             "externalConsole": false,
