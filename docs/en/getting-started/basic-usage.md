@@ -249,7 +249,7 @@ Streaming import transfers data to Doris via HTTP protocol. It can import local 
 Example 1: With "table1_20170707" as Label, import table1 tables using the local file table1_data.
 
 ```
-curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
+curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
 ```
 
 > 1. FE_HOST is the IP of any FE node and 8030 is http_port in fe.conf.

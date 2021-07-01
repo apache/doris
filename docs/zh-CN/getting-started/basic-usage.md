@@ -248,7 +248,7 @@ Doris 支持多种数据导入方式。具体可以参阅数据导入文档。�
 示例1：以 "table1_20170707" 为 Label，使用本地文件 table1_data 导入 table1 表。
 
 ```
-curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
+curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
 ```
 
 > 1. FE_HOST 是任一 FE 所在节点 IP，8030 为 fe.conf 中的 http_port。
