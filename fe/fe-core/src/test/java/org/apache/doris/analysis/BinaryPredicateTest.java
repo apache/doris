@@ -21,14 +21,20 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import com.google.common.collect.Lists;
 
-import org.junit.Assert;
-import org.junit.Test;
+import com.google.common.collect.BoundType;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
+
+import java.util.List;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class BinaryPredicateTest {
 
@@ -105,4 +111,16 @@ public class BinaryPredicateTest {
         } catch (AnalysisException e) {
         }
     }
+
+    @Test
+    public void testConvertToRange() {
+        SlotRef slotRef = new SlotRef(new TableName("db1", "tb1"), "k1");
+        LiteralExpr literalExpr = new IntLiteral(1);
+        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.LE, slotRef, literalExpr);
+        Range<LiteralExpr> range = binaryPredicate.convertToRange();
+        Assert.assertEquals(literalExpr, range.upperEndpoint());
+        Assert.assertEquals(BoundType.CLOSED, range.upperBoundType());
+        Assert.assertFalse(range.hasLowerBound());
+    }
+
 }

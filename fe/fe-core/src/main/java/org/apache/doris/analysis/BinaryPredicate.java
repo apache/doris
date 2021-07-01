@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -465,7 +466,28 @@ public class BinaryPredicate extends Predicate implements Writable {
         Preconditions.checkState(slotIsleft != null);
         return slotIsleft;
     }
-    
+
+    public Range<LiteralExpr> convertToRange() {
+        Preconditions.checkState(getChild(0) instanceof SlotRef);
+        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        switch (op) {
+            case EQ:
+                return Range.singleton(literalExpr);
+            case GE:
+                return Range.atLeast(literalExpr);
+            case GT:
+                return Range.greaterThan(literalExpr);
+            case LE:
+                return Range.atMost(literalExpr);
+            case LT:
+                return Range.lessThan(literalExpr);
+            case NE:
+            default:
+                return null;
+        }
+    }
+
     //    public static enum Operator2 {
     //        EQ("=", FunctionOperator.EQ, FunctionOperator.FILTER_EQ),
     //        NE("!=", FunctionOperator.NE, FunctionOperator.FILTER_NE),
