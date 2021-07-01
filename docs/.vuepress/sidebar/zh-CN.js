@@ -375,6 +375,7 @@ module.exports = [
             directoryPath: "hash-functions/",
             children: ["murmur_hash3_32"],
           },
+          "window-function",
           "cast",
         ],
       },
