@@ -17,42 +17,33 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.EncryptKeyName;
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import com.google.gson.annotations.SerializedName;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentMap;
 
-// used to search a EncryptKey
-public class EncryptKeySearchDesc implements Writable {
-    @SerializedName(value = "encryptKeyName")
-    private EncryptKeyName encryptKeyName;
+/**
+ * user define encryptKey in current db.
+ */
+public class DatabaseEncryptKey implements Writable {
+    private static final Logger LOG = LogManager.getLogger(DatabaseEncryptKey.class);
+    // user define encryptKey
+    // keyName -> encryptKey
+    @SerializedName(value = "name2EncryptKey")
+    private ConcurrentMap<String, EncryptKey> name2EncryptKey = Maps.newConcurrentMap();
 
-    public EncryptKeySearchDesc(EncryptKeyName encryptKeyName) {
-        this.encryptKeyName = encryptKeyName;
-    }
-
-    public EncryptKeyName getKeyEncryptKeyName() {
-        return encryptKeyName;
-    }
-
-    public boolean isIdentical(EncryptKey encryptKey) {
-        if (encryptKeyName.equals(encryptKey.getEncryptKeyName())) {
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append(encryptKeyName.toString());
-        return stringBuilder.toString();
+    public ConcurrentMap<String, EncryptKey> getName2EncryptKey() {
+        return name2EncryptKey;
     }
 
     @Override
@@ -61,8 +52,8 @@ public class EncryptKeySearchDesc implements Writable {
         Text.writeString(out, json);
     }
 
-    public static EncryptKeySearchDesc read(DataInput input) throws IOException {
-        String json = Text.readString(input);
-        return GsonUtils.GSON.fromJson(json, EncryptKeySearchDesc.class);
+    public static DatabaseEncryptKey read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DatabaseEncryptKey.class);
     }
 }

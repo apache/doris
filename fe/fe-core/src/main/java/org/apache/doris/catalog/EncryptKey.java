@@ -17,10 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -28,10 +31,10 @@ import java.io.IOException;
 import java.util.List;
 
 public class EncryptKey implements Writable {
+    @SerializedName(value = "encryptKeyName")
     private EncryptKeyName encryptKeyName;
+    @SerializedName(value = "keyString")
     private String keyString;
-
-    private EncryptKey() {}
 
     public EncryptKey(EncryptKeyName encryptKeyname, String keyString) {
         this.encryptKeyName = encryptKeyname;
@@ -48,19 +51,13 @@ public class EncryptKey implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        encryptKeyName.write(out);
-        Text.writeString(out, keyString);
-    }
-
-    private void readFields(DataInput input) throws IOException {
-        encryptKeyName = EncryptKeyName.read(input);
-        keyString = Text.readString(input);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static EncryptKey read(DataInput input) throws IOException {
-        EncryptKey encryptKey = new EncryptKey();
-        encryptKey.readFields(input);
-        return encryptKey;
+        String json = Text.readString(input);
+        return GsonUtils.GSON.fromJson(json, EncryptKey.class);
     }
 
     public boolean isIdentical(EncryptKey other) {

@@ -105,9 +105,9 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropFunctionStmt) {
             catalog.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
-            catalog.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
+            catalog.getEncryptKeyManager().createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropEncryptKeyStmt) {
-            catalog.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
+            catalog.getEncryptKeyManager().dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {

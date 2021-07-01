@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -42,6 +41,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
@@ -76,7 +76,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Repository of analysis state for single select block.
@@ -270,6 +269,7 @@ public class Analyzer {
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteEncryptKeyRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
@@ -1886,22 +1886,5 @@ public class Analyzer {
             }
         }
         return false;
-    public List<EncryptKey> getEncryptKeysFromDb(String dbName) throws AnalysisException {
-        List<EncryptKey> retEncryptKeys = new ArrayList<>();
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = getDefaultDb();
-        }
-        if ("".equals(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-            ConcurrentHashMap<String, Database> fullName2Db = getCatalog().getFullNameToDb();
-            Database database = fullName2Db.get(dbName);
-            if (null == database) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-            retEncryptKeys.addAll(database.getEncryptKeys());
-        }
-        return retEncryptKeys;
     }
 }

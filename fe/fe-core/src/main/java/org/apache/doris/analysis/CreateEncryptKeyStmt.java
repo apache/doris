@@ -17,12 +17,28 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+
+import com.google.common.base.Strings;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * create a encryptKey
+ *
+ * The syntax is:
+ * CREATE ENCRYPTKEY key_name
+ *     AS "key_string";
+ * `key_name`: The name of the key to be created, which can include the name of the database. For example: `db1.my_key`.
+ * `key_string`: The string to create the key
+ *
+ * for example:
+ *     CREATE ENCRYPTKEY test.key1 AS "beijing";
  */
 public class CreateEncryptKeyStmt extends DdlStmt{
     private final EncryptKeyName encryptKeyName;
@@ -50,8 +66,15 @@ public class CreateEncryptKeyStmt extends DdlStmt{
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
-        encryptKeyName.analyze(analyzer);
+        // check operation privilege
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
 
+        encryptKeyName.analyze(analyzer);
+        if (Strings.isNullOrEmpty(keyString)) {
+            throw new AnalysisException("keyString can not be null or empty string.");
+        }
         encryptKey = new EncryptKey(encryptKeyName, keyString);
     }
 

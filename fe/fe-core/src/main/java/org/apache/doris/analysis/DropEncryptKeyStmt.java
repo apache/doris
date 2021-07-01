@@ -17,9 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 public class DropEncryptKeyStmt extends DdlStmt {
     private final EncryptKeyName encryptKeyName;
@@ -40,6 +45,12 @@ public class DropEncryptKeyStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+
+        // check operation privilege
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
         // analyze encryptkey name
         encryptKeyName.analyze(analyzer);
         encryptKeySearchDesc = new EncryptKeySearchDesc(encryptKeyName);

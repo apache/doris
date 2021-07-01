@@ -372,15 +372,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throw new AnalysisException("analyzer is null.");
         }
 
-        // analyze encryptKey for children
-        // if has encryptKey, replace encryptKeyRef with LiteralExpr
-        for (int i = 0; i < children.size(); i++) {
-            if (children.get(i) instanceof EncryptKeyRef) {
-                LiteralExpr literalExpr = ((EncryptKeyRef) children.get(i)).analyzeEncryptKey(analyzer);
-                setChild(i, literalExpr);
-            }
-        }
-
         for (Expr child: children) {
             child.analyze(analyzer);
         }

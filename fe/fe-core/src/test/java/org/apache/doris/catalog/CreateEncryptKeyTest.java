@@ -70,7 +70,7 @@ public class CreateEncryptKeyTest {
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
 
         CreateEncryptKeyStmt createFunctionStmt = (CreateEncryptKeyStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
-        Catalog.getCurrentCatalog().createEncryptKey(createFunctionStmt);
+        Catalog.getCurrentCatalog().getEncryptKeyManager().createEncryptKey(createFunctionStmt);
 
         List<EncryptKey> encryptKeys = db.getEncryptKeys();
         Assert.assertEquals(1, encryptKeys.size());

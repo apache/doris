@@ -45,11 +45,6 @@ public class StringLiteral extends LiteralExpr {
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
-    
-    // The flag represents whether it is a encryptKey, default is false
-    private boolean isEncryptKey = false;
-    // only use for a encryptKey
-    private String encryptKeyName;
 
     public StringLiteral() {
         super();
@@ -70,22 +65,6 @@ public class StringLiteral extends LiteralExpr {
 
     public void setBeConverted(String val) {
         this.beConverted = val;
-    }
-
-    public boolean isEncryptKey() {
-        return isEncryptKey;
-    }
-
-    public void setEncryptKey(boolean encryptKey) {
-        isEncryptKey = encryptKey;
-    }
-
-    public String getEncryptKeyName() {
-        return encryptKeyName;
-    }
-
-    public void setEncryptKeyName(String encryptKeyName) {
-        this.encryptKeyName = encryptKeyName;
     }
 
     @Override
@@ -148,10 +127,6 @@ public class StringLiteral extends LiteralExpr {
 
     @Override
     public String toSqlImpl() {
-        // if it is a encryptKey, return encryptKey name instead of encryptKey string
-        if (isEncryptKey) {
-            return "key " + encryptKeyName.replaceAll("'", "''");
-        }
         return "'" + value.replaceAll("'", "''") + "'";
     }
 

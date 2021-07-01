@@ -56,7 +56,6 @@ public class ShowEncryptKeysStmt extends ShowStmt{
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -66,10 +65,12 @@ public class ShowEncryptKeysStmt extends ShowStmt{
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
+        // must check after analyze dbName, for case dbName is null.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DB_ACCESS_DENIED, ConnectContext.get().getQualifiedUser(), dbName);
         }
+
     }
 
     public boolean like(String str) {

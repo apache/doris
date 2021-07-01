@@ -17,15 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,12 +39,10 @@ import java.util.Objects;
 public class EncryptKeyName implements Writable {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyName.class);
 
+    @SerializedName(value = "db")
     private String db;
+    @SerializedName(value = "keyName")
     private String keyName;
-
-    private EncryptKeyName() {
-
-    }
 
     public EncryptKeyName(String db, String keyName) {
         this.db = db;
@@ -55,33 +57,8 @@ public class EncryptKeyName implements Writable {
         this.keyName = keyName.toLowerCase();
     }
 
-    // used to analyze db element in function name, add cluster
-    public String analyzeDb(Analyzer analyzer) throws AnalysisException {
-        if (db == null) {
-            db = analyzer.getDefaultDb();
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
-        }
-        return db;
-    }
-
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (keyName.length() == 0) {
-            throw new AnalysisException("EncryptKey name can not be empty.");
-        }
-        for (int i = 0; i < keyName.length(); ++i) {
-            if (!isValidCharacter(keyName.charAt(i))) {
-                throw new AnalysisException(
-                        "EncryptKey names must be all alphanumeric or underscore. " +
-                                "Invalid name: " + keyName);
-            }
-        }
-        if (Character.isDigit(keyName.charAt(0))) {
-            throw new AnalysisException("EncryptKey cannot start with a digit: " + keyName);
-        }
+        FeNameFormat.checkCommonName("EncryptKey", keyName);
         if (db == null) {
             db = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(db)) {
@@ -95,24 +72,12 @@ public class EncryptKeyName implements Writable {
         }
     }
 
-    private boolean isValidCharacter(char c) {
-        return Character.isLetterOrDigit(c) || c == '_';
-    }
-
     public String getDb() {
         return db;
     }
 
-    public void setDb(String db) {
-        this.db = db;
-    }
-
     public String getKeyName() {
         return keyName;
-    }
-
-    public void setKeyName(String keyName) {
-        this.keyName = keyName;
     }
 
     @Override
@@ -120,31 +85,18 @@ public class EncryptKeyName implements Writable {
         if (db == null) {
             return keyName;
         }
-        return db + "." + keyName;
+        return ClusterNamespace.getNameFromFullName(db) + "." + keyName;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (db != null) {
-            out.writeBoolean(true);
-            Text.writeString(out, db);
-        } else {
-            out.writeBoolean(false);
-        }
-        Text.writeString(out, keyName);
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        if (in.readBoolean()) {
-            db = Text.readString(in);
-        }
-        keyName = Text.readString(in);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static EncryptKeyName read(DataInput in) throws IOException {
-        EncryptKeyName encryptKeyName = new EncryptKeyName();
-        encryptKeyName.readFields(in);
-        return encryptKeyName;
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, EncryptKeyName.class);
     }
 
     @Override
@@ -170,5 +122,15 @@ public class EncryptKeyName implements Writable {
     @Override
     public int hashCode() {
         return 31 * Objects.hashCode(db) + Objects.hashCode(keyName);
+    }
+
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("KEY ");
+        if (db != null) {
+            sb.append(ClusterNamespace.getNameFromFullName(db)).append(".");
+        }
+        sb.append(keyName);
+        return sb.toString();
     }
 }

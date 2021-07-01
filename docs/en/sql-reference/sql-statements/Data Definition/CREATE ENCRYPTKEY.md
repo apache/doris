@@ -51,7 +51,7 @@ If the database name is included in `key_name`, then this custom key will be cre
 
     ```
     CREATE ENCRYPTKEY my_key as "ABCD123456789";
-	```
+    ```
 
 2. Using a custom key
 

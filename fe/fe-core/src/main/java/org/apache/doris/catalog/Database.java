@@ -88,9 +88,8 @@ public class Database extends MetaObject implements Writable {
 
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
-
-    // user define encryptKey
-    private ConcurrentMap<String, EncryptKey> name2EncryptKey = Maps.newConcurrentMap();
+    // user define encryptKey for current db
+    private DatabaseEncryptKey dbEncryptKey;
 
     private volatile long dataQuotaBytes;
 
@@ -121,6 +120,7 @@ public class Database extends MetaObject implements Writable {
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
+        this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
     public void readLock() {
@@ -516,11 +516,7 @@ public class Database extends MetaObject implements Writable {
         }
 
         // write encryptKeys
-        out.writeInt(name2EncryptKey.size());
-        for (Entry<String, EncryptKey> entry : name2EncryptKey.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            entry.getValue().write(out);
-        }
+        dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
     }
@@ -569,12 +565,7 @@ public class Database extends MetaObject implements Writable {
 
         // read encryptKeys
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_102) {
-            int numEntries = in.readInt();
-            for (int i = 0; i < numEntries; i++) {
-                String name = Text.readString(in);
-                EncryptKey encryptKey = EncryptKey.read(in);
-                name2EncryptKey.put(name, encryptKey);
-            }
+            dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
@@ -773,7 +764,7 @@ public class Database extends MetaObject implements Writable {
 
     private void addEncryptKeyImpl(EncryptKey encryptKey, boolean isReplay) throws UserException {
         String keyName = encryptKey.getEncryptKeyName().getKeyName();
-        EncryptKey existKey = name2EncryptKey.get(keyName);
+        EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
         if (!isReplay) {
             if (existKey != null) {
                 if (existKey.isIdentical(encryptKey)) {
@@ -782,7 +773,7 @@ public class Database extends MetaObject implements Writable {
             }
         }
 
-        name2EncryptKey.put(keyName, encryptKey);
+        dbEncryptKey.getName2EncryptKey().put(keyName, encryptKey);
     }
 
     public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
@@ -800,7 +791,7 @@ public class Database extends MetaObject implements Writable {
 
     private void dropEncryptKeyImpl(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
         String keyName = encryptKeySearchDesc.getKeyEncryptKeyName().getKeyName();
-        EncryptKey existKey = name2EncryptKey.get(keyName);
+        EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
         if (existKey == null) {
             throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
         }
@@ -811,38 +802,21 @@ public class Database extends MetaObject implements Writable {
         if (!isFound) {
             throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
         }
-        name2EncryptKey.remove(keyName);
-    }
-
-    public synchronized EncryptKey getEncryptKey(EncryptKey desc) {
-        EncryptKey encryptKey = name2EncryptKey.get(desc.getEncryptKeyName().getKeyName());
-        if (encryptKey == null) {
-            return null;
-        }
-        if (encryptKey.isIdentical(desc)) {
-            return encryptKey;
-        }
-        return null;
-    }
-
-    public synchronized EncryptKey getEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws AnalysisException {
-        String encryptKeyName = encryptKeySearchDesc.getKeyEncryptKeyName().getKeyName();
-        EncryptKey existKey = name2EncryptKey.get(encryptKeyName);
-        if (existKey == null) {
-            throw new AnalysisException("Unknown encryptKey, encryptKey=" + existKey.toString());
-        }
-
-        if (encryptKeySearchDesc.isIdentical(existKey)) {
-            return existKey;
-        }
-        throw new AnalysisException("Unknown encryptKey, encryptKey=" + existKey.toString());
+        dbEncryptKey.getName2EncryptKey().remove(keyName);
     }
 
     public synchronized List<EncryptKey> getEncryptKeys() {
         List<EncryptKey> encryptKeys = Lists.newArrayList();
-        for (Map.Entry<String, EncryptKey> entry : name2EncryptKey.entrySet()) {
+        for (Map.Entry<String, EncryptKey> entry : dbEncryptKey.getName2EncryptKey().entrySet()) {
             encryptKeys.add(entry.getValue());
         }
         return encryptKeys;
+    }
+
+    public synchronized EncryptKey getEncryptKey(String keyName) {
+        if (dbEncryptKey.getName2EncryptKey().containsKey(keyName)) {
+            return dbEncryptKey.getName2EncryptKey().get(keyName);
+        }
+        return null;
     }
 }

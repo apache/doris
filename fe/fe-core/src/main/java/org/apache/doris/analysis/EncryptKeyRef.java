@@ -17,59 +17,86 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
+import com.google.common.base.Strings;
 
 public class EncryptKeyRef extends Expr {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyRef.class);
     private EncryptKeyName encryptKeyName;
-
-    private EncryptKeyRef() {
-        super();
-    }
+    private EncryptKey encryptKey;
 
     public EncryptKeyRef(EncryptKeyName encryptKeyName) {
         super();
         this.encryptKeyName = encryptKeyName;
+        this.type = Type.VARCHAR;
     }
 
-    public LiteralExpr analyzeEncryptKey(Analyzer analyzer) throws AnalysisException {
-        List<EncryptKey> encryptKeys = analyzer.getEncryptKeysFromDb(encryptKeyName.getDb());
-        for (EncryptKey encryptKey : encryptKeys) {
-            String keyName = encryptKey.getEncryptKeyName().getKeyName();
-            if (encryptKeyName.getKeyName().equals(keyName)) {
-                StringLiteral retLiteral = (StringLiteral) LiteralExpr.create(encryptKey.getKeyString(), Type.VARCHAR);
-                retLiteral.setEncryptKey(true);
-                retLiteral.setEncryptKeyName(encryptKeyName.toString());
-                return retLiteral;
+    protected EncryptKeyRef(EncryptKeyRef other) {
+        super(other);
+        this.encryptKeyName = other.encryptKeyName;
+        this.encryptKey = other.encryptKey;
+    }
+
+    public EncryptKey getEncryptKey() {
+        return encryptKey;
+    }
+
+    private void analyzeEncryptKey(Analyzer analyzer) throws AnalysisException {
+        String dbName = encryptKeyName.getDb();
+        if (Strings.isNullOrEmpty(dbName)) {
+            dbName = analyzer.getDefaultDb();
+        }
+        if ("".equals(dbName)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        } else {
+            dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            Database database = analyzer.getCatalog().getDb(dbName);
+            if (null == database) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
+
+            EncryptKey encryptKey = database.getEncryptKey(encryptKeyName.getKeyName());
+            if (encryptKey != null) {
+                this.encryptKey = encryptKey;
+            } else {
+                throw new AnalysisException("Can not found encryptKey: " + encryptKeyName.toString());
             }
         }
-        throw new AnalysisException("Can not found encryptKey: " + encryptKeyName.toString());
+
     }
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-
+        // analyze encryptKey name
+        encryptKeyName.analyze(analyzer);
+        // analyze encryptKey
+        analyzeEncryptKey(analyzer);
     }
 
     @Override
     protected String toSqlImpl() {
-        return null;
+        StringBuilder sb = new StringBuilder();
+        sb.append(encryptKeyName.toSql());
+        return sb.toString();
     }
 
     @Override
     protected void toThrift(TExprNode msg) {
-
+        // no operation
     }
 
     @Override
     public Expr clone() {
-        return null;
+        return new EncryptKeyRef(this);
     }
 }

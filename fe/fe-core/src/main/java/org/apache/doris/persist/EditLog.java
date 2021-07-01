@@ -665,12 +665,12 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_ENCRYPTKEY: {
                     final EncryptKey encryptKey = (EncryptKey) journal.getData();
-                    Catalog.getCurrentCatalog().replayCreateEncryptKey(encryptKey);
+                    Catalog.getCurrentCatalog().getEncryptKeyManager().replayCreateEncryptKey(encryptKey);
                     break;
                 }
                 case OperationType.OP_DROP_ENCRYPTKEY: {
                     EncryptKeySearchDesc encryptKeySearchDesc = (EncryptKeySearchDesc) journal.getData();
-                    Catalog.getCurrentCatalog().replayDropEncryptKey(encryptKeySearchDesc);
+                    Catalog.getCurrentCatalog().getEncryptKeyManager().replayDropEncryptKey(encryptKeySearchDesc);
                     break;
                 }
                 case OperationType.OP_BACKEND_TABLETS_INFO: {

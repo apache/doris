@@ -47,19 +47,19 @@ SHOW ENCRYPTKEYS [IN|FROM db] [LIKE 'key_pattern']
 
     ```
     mysql> SHOW ENCRYPTKEYS;
-    +-----------------------------------+-------------------+
-    | EncryptKey Name                   | EncryptKey String |
-    +-----------------------------------+-------------------+
-    | default_cluster:example_db.my_key | ABCD123456789     |
-    +-----------------------------------+-------------------+
+    +-------------------+-------------------+
+    | EncryptKey Name   | EncryptKey String |
+    +-------------------+-------------------+
+    | example_db.my_key | ABCD123456789     |
+    +-------------------+-------------------+
     1 row in set (0.00 sec)
 
     mysql> SHOW ENCRYPTKEYS FROM example_db LIKE "%my%";
-    +-----------------------------------+-------------------+
-    | EncryptKey Name                   | EncryptKey String |
-    +-----------------------------------+-------------------+
-    | default_cluster:example_db.my_key | ABCD123456789     |
-    +-----------------------------------+-------------------+
+    +-------------------+-------------------+
+    | EncryptKey Name   | EncryptKey String |
+    +-------------------+-------------------+
+    | example_db.my_key | ABCD123456789     |
+    +-------------------+-------------------+
     1 row in set (0.00 sec)
     ```
 

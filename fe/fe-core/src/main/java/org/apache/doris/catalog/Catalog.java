@@ -47,7 +47,6 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -58,13 +57,11 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
-import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
@@ -416,6 +413,8 @@ public class Catalog {
 
     private AuditEventProcessor auditEventProcessor;
 
+    private EncryptKeyManager encryptKeyManager;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -569,6 +568,7 @@ public class Catalog {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.encryptKeyManager = new EncryptKeyManager();
     }
 
     public static void destroyCheckpoint() {
@@ -674,6 +674,10 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
+    }
+
+    public EncryptKeyManager getEncryptKeyManager() {
+        return encryptKeyManager;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -6790,42 +6794,6 @@ public class Catalog {
             throw new Error("unknown database when replay log, db=" + dbName);
         }
         db.replayDropFunction(functionSearchDesc);
-    }
-
-    public void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = getDb(name.getDb());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
-        }
-        db.addEncryptKey(stmt.getEncryptKey());
-    }
-
-    public void replayCreateEncryptKey(EncryptKey encryptKey) {
-        String dbName = encryptKey.getEncryptKeyName().getDb();
-        Database db = getDb(dbName);
-        if (db == null) {
-            throw new Error("unknown database when replay log, db=" + dbName);
-        }
-        db.replayAddEncryptKey(encryptKey);
-    }
-
-    public void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
-        EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = getDb(name.getDb());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
-        }
-        db.dropEncryptKey(stmt.getEncryptKeysSearchDesc());
-    }
-
-    public void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
-        String dbName = encryptKeySearchDesc.getKeyEncryptKeyName().getDb();
-        Database db = getDb(dbName);
-        if (db == null) {
-            throw new Error("unknown database when replay log, db=" + dbName);
-        }
-        db.replayDropEncryptKey(encryptKeySearchDesc);
     }
 
     public void setConfig(AdminSetConfigStmt stmt) throws DdlException {

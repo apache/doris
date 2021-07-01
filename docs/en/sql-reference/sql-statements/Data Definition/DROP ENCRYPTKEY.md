@@ -38,7 +38,9 @@ DROP ENCRYPTKEY key_name
 
 > `key_name`: To delete the name of the key, you can include the name of the database. For example: `db1.my_key`.
 
-Delete a custom key. A key can be deleted only if its name is identical
+Delete a custom key. A key can be deleted only if its name is identical.
+
+Executing this command requires the user to have the `ADMIN` privileges.
 
 ## example
 
