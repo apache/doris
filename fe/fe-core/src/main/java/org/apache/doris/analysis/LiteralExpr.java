@@ -32,7 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public abstract class LiteralExpr extends Expr {
+public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
 
     public LiteralExpr() {
@@ -127,6 +127,11 @@ public abstract class LiteralExpr extends Expr {
     // Only used by partition pruning and the derived class which can be used for pruning
     // must handle MaxLiteral.
     public abstract int compareLiteral(LiteralExpr expr);
+
+    @Override
+    public int compareTo(LiteralExpr literalExpr) {
+        return compareLiteral(literalExpr);
+    }
 
     // Returns the string representation of the literal's value. Used when passing
     // literal values to the metastore rather than to Palo backends. This is similar to

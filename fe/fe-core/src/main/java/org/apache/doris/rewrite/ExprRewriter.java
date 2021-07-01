@@ -17,12 +17,13 @@
 
 package org.apache.doris.rewrite;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /**
  * Helper class that drives the transformation of Exprs according to a given list of
@@ -32,13 +33,28 @@ import com.google.common.collect.Lists;
  * - the rule list is applied repeatedly until no rule has made any changes
  * - the rules are applied in the order they appear in the rule list
  * Keeps track of how many transformations were applied.
+ *
+ * There are two types of Rewriter, the first is Repeat Rewriter,
+ * and the other is Once Rewriter.
+ * The Repeat Rewriter framework will call Rule repeatedly
+ * until the entire expression does not change.
+ * The Once Rewriter framework will only call Rule once.
+ * According to different Rule strategies,
+ * Doris match different Rewriter framework execution.
  */
 public class ExprRewriter {
     private int numChanges_ = 0;
     private final List<ExprRewriteRule> rules_;
+    // Once-only Rules
+    private List<ExprRewriteRule> onceRules_ = Lists.newArrayList();
 
     public ExprRewriter(List<ExprRewriteRule> rules) {
         rules_ = rules;
+    }
+
+    public ExprRewriter(List<ExprRewriteRule> rules, List<ExprRewriteRule> onceRules) {
+        rules_ = rules;
+        onceRules_ = onceRules;
     }
 
     public ExprRewriter(ExprRewriteRule rule) {
@@ -55,6 +71,18 @@ public class ExprRewriter {
                 rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer);
             }
         } while (oldNumChanges != numChanges_);
+
+        for (ExprRewriteRule rule: onceRules_) {
+            rewrittenExpr = applyRuleOnce(rewrittenExpr, rule, analyzer);
+        }
+        return rewrittenExpr;
+    }
+
+    private Expr applyRuleOnce(Expr expr, ExprRewriteRule rule, Analyzer analyzer) throws AnalysisException {
+        Expr rewrittenExpr = rule.apply(expr, analyzer);
+        if (rewrittenExpr != expr) {
+            numChanges_++;
+        }
         return rewrittenExpr;
     }
 
