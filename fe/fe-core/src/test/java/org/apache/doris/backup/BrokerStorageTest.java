@@ -59,7 +59,7 @@ import mockit.Tested;
 public class BrokerStorageTest {
     private static String basePath;
     private final String bucket = "bos://yang-repo/";
-    private final String brokerHost = "your_machine_host";
+    private final String brokerHost = "your_host";
     private Map<String, String> properties;
 
     @Tested
