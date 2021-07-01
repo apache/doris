@@ -1865,7 +1865,7 @@ public class ShowExecutor {
                         tableName,
                         PrivPredicate.LOAD)) {
                     resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
-                    return;
+                    continue;
                 }
                 rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
             }
