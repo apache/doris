@@ -555,6 +555,17 @@ public class SelectStmtTest {
     }
 
     @Test
+    public void testSelectSQLNoCache() throws Exception {
+        String sql1 = "SELECT * from db1.tbl1";
+        String sql2 = "SELECT SQL_NO_CACHE * from db1.tbl1";
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        Assert.assertEquals(stmt1.toSql(), stmt2.toSql());
+    }
+
+    @Test
     public void testWithWithoutDatabase() throws Exception {
         String sql = "with tmp as (select count(*) from db1.table1) select * from tmp;";
         dorisAssert.withoutUseDatabase();
