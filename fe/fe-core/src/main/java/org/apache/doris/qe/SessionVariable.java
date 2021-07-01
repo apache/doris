@@ -120,6 +120,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
+    public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
@@ -306,6 +307,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
+
+    @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
+    public boolean extractWideRangeExpr = true;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -619,6 +623,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
+    }
+
+    public boolean isExtractWideRangeExpr() {
+        return extractWideRangeExpr;
     }
 
     // Serialize to thrift object
