@@ -1498,12 +1498,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         LOG(INFO) << "begin to remove all data from new tablet to prevent rewrite."
                   << " new_tablet=" << new_tablet->full_name();
         std::vector<RowsetSharedPtr> rowsets_to_delete;
-        std::vector<Version> new_tablet_versions;
-        new_tablet->list_versions(&new_tablet_versions);
-        for (auto& version : new_tablet_versions) {
-            if (version.second <= max_rowset->end_version()) {
-                RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
-                rowsets_to_delete.push_back(rowset);
+        std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
+        new_tablet->acquire_version_and_rowsets(&version_rowsets);
+        for (auto& pair : version_rowsets) {
+            if (pair.first.second <= max_rowset->end_version()) {
+                rowsets_to_delete.push_back(pair.second);
             }
         }
         std::vector<RowsetSharedPtr> empty_vec;
@@ -2197,10 +2196,13 @@ OLAPStatus SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_table
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
-    std::vector<Version> new_tablet_versions;
-    new_tablet->list_versions(&new_tablet_versions);
-    for (auto& version : new_tablet_versions) {
-        RowsetSharedPtr rowset = new_tablet->get_rowset_by_version(version);
+    std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
+    {
+        ReadLock rdlock(new_tablet->get_header_lock_ptr());
+        new_tablet->acquire_version_and_rowsets(&version_rowsets);
+    }
+    for (auto& pair : version_rowsets) {
+        RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {
             return OLAP_ERR_FILE_NOT_EXIST;
         }
