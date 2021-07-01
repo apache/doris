@@ -116,7 +116,7 @@ public:
                                            vector<Version>* version_path) const;
     OLAPStatus check_version_integrity(const Version& version);
     bool check_version_exist(const Version& version) const;
-    void list_versions(std::vector<Version>* versions) const;
+    void acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           vector<RowsetSharedPtr>* rowsets) const;
