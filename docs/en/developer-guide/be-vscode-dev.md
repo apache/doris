@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache doris Be development and debugging
+# Apache Doris Be development and debugging
 
 ## initial preparation work
 
@@ -36,7 +36,7 @@ under the License.
 
 2. Install GCC 8.3.1+, Oracle JDK 1.8+, Python 2.7+, confirm that the gcc, java, python commands point to the correct version, and set the JAVA_HOME environment variable
 
-4. Install other dependent packages
+3. Install other dependent packages
 
 ```
 sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python brotli
@@ -46,8 +46,7 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-install : openssl-devel:
-
+4. install : openssl-devel
 ```
 sudo apt install -y openssl-devel
 ```

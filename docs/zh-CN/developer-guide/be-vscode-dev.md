@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache doris Be 开发调试
+# Apache Doris Be 开发调试
 
 ## 前期准备工作
 
@@ -37,7 +37,7 @@ under the License.
 
 2. 安装 GCC 8.3.1+，Oracle JDK 1.8+，Python 2.7+，确认 gcc, java, python 命令指向正确版本, 设置  JAVA_HOME 环境变量
 
-4. 安装其他依赖包
+3. 安装其他依赖包
 
 ```
 sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python brotli
@@ -47,7 +47,7 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-安装 openssl-devel:
+4. 安装 openssl-devel
 
 ```
 sudo apt install -y openssl-devel
