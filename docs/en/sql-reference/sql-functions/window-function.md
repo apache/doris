@@ -1,7 +1,7 @@
 ---
 {
     "title": "window function",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
