@@ -111,7 +111,7 @@ public class DorisWriter extends Writer {
         }
 
         private String getStreamLoadLabel() {
-            return UUID.randomUUID().toString();
+            return "datax_doris_writer_" + UUID.randomUUID().toString();
         }
 
         @Override
@@ -170,7 +170,7 @@ public class DorisWriter extends Writer {
         public List<Configuration> split(int mandatoryNumber) {
             List<Configuration> configurations = new ArrayList<>(mandatoryNumber);
 
-            for(int i = 0; i < mandatoryNumber; ++i) {
+            for (int i = 0; i < mandatoryNumber; ++i) {
                 configurations.add(this.originalConfig);
             }
 

@@ -67,7 +67,7 @@ public class DorisWriterEmitter {
 			throw new IOException("None of the host in `beLoadUrl` could be connected.");
 		}
 		final String loadUrl = host + "/api/" + this.keys.getDatabase() + "/" + this.keys.getTable() + "/_stream_load";
-		LOG.debug(String.format("Start to join batch data: rows[%d] bytes[%d] label[%s].", flushData.getRows().size(), flushData.getBytes(), flushData.getLabel()));
+		LOG.info(String.format("Start to join batch data: rows[%d] bytes[%d] label[%s].", flushData.getRows().size(), flushData.getBytes(), flushData.getLabel()));
 		// do http put request
 		final Map<String, Object> loadResult = this.doHttpPut(loadUrl, flushData.getLabel(), this.mergeRows(flushData.getRows()));
 		// get response
@@ -75,7 +75,7 @@ public class DorisWriterEmitter {
 		if (null == loadResult || !loadResult.containsKey(keyStatus)) {
 			throw new IOException("Unable to flush data to doris: unknown result status.");
 		}
-		LOG.debug("StreamLoad response:\n" + JSON.toJSONString(loadResult));
+		LOG.info("StreamLoad response:\n" + JSON.toJSONString(loadResult));
 		if (loadResult.get(keyStatus).equals("Fail")) {
 			throw new IOException("Failed to flush data to doris.\n" + JSON.toJSONString(loadResult));
 		}
