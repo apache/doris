@@ -56,6 +56,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -996,12 +997,14 @@ public class RestoreJob extends AbstractJob {
 
                 // replicas
                 try {
-                    List<Long> beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
-                    for (Long beId : beIds) {
-                        long newReplicaId = catalog.getNextId();
-                        Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                visibleVersion, visibleVersionHash, schemaHash);
-                        newTablet.addReplica(newReplica, true /* is restore */);
+                    Map<Tag, List<Long>> beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
+                    for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
+                        for (Long beId : entry.getValue()) {
+                            long newReplicaId = catalog.getNextId();
+                            Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                    visibleVersion, visibleVersionHash, schemaHash);
+                            newTablet.addReplica(newReplica, true /* is restore */);
+                        }
                     }
                 } catch (DdlException e) {
                     status = new Status(ErrCode.COMMON_ERROR, e.getMessage());

@@ -30,7 +30,6 @@ import org.apache.doris.http.rest.RestBaseAction;
 import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.http.rest.RestResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -216,10 +215,14 @@ public class ColocateMetaService {
             sendResult(request, response);
         }
 
-        private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
+        private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq)
+                throws DdlException {
+            throw new DdlException("Currently not support");
+            /*
             colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
+            */
         }
     }
 

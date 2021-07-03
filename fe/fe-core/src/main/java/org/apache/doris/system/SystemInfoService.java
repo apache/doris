@@ -739,10 +739,11 @@ public class SystemInfoService {
 
     // Find enough backend to allocate replica of a tablet.
     // filters include: tag, cluster, storage medium
-    public List<Long> chooseBackendIdByFilters(ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
+    public Map<Tag, List<Long>> chooseBackendIdByFilters(ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
             throws DdlException {
-        List<Long> chosenBackendIds = Lists.newArrayList();
+        Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
+        short totalReplicaNum = 0;
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
             List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(entry.getValue(),
                     true, true, clusterName, storageMedium, entry.getKey());
@@ -751,9 +752,10 @@ public class SystemInfoService {
                         + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
                         + ") in all backends. need: " + entry.getValue());
             }
-            chosenBackendIds.addAll(beIds);
+            chosenBackendIds.put(entry.getKey(), beIds);
+            totalReplicaNum += beIds.size();
         }
-        Preconditions.checkState(chosenBackendIds.size() == replicaAlloc.getTotalReplicaNum());
+        Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return chosenBackendIds;
     }
 

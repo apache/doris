@@ -44,6 +44,8 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TStorageFormat;
@@ -477,13 +479,15 @@ public class OlapTable extends Table {
 
                     // replicas
                     try {
-                        List<Long> beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(
-                                partitionInfo.getReplicaAllocation(entry.getKey()), db.getClusterName(), null);
-                        for (Long beId : beIds) {
-                            long newReplicaId = catalog.getNextId();
-                            Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                    partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
-                            newTablet.addReplica(replica, true /* is restore */);
+                        Map<Tag, List<Long>> tag2beIds = Catalog.getCurrentSystemInfo().chooseBackendIdByFilters(
+                                replicaAlloc, db.getClusterName(), null);
+                        for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
+                            for (Long beId : entry3.getValue()) {
+                                long newReplicaId = catalog.getNextId();
+                                Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                        partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
+                                newTablet.addReplica(replica, true /* is restore */);
+                            }
                         }
                     } catch (DdlException e) {
                         return new Status(ErrCode.COMMON_ERROR, e.getMessage());
@@ -1385,8 +1389,9 @@ public class OlapTable extends Table {
     }
 
     // arbitrarily choose a partition, and get the buckets backends sequence from base index.
-    public List<List<Long>> getArbitraryTabletBucketsSeq() throws DdlException {
-        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+    public Map<Tag, List<List<Long>>> getArbitraryTabletBucketsSeq() throws DdlException {
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
         for (Partition partition : idToPartition.values()) {
             ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
             short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
@@ -1394,12 +1399,35 @@ public class OlapTable extends Table {
             for (Long tabletId : baseIdx.getTabletIdsInOrder()) {
                 Tablet tablet = baseIdx.getTablet(tabletId);
                 List<Long> replicaBackendIds = tablet.getNormalReplicaBackendIds();
-                if (replicaBackendIds.size() < totalReplicaNum) {
+                if (replicaBackendIds.size() != totalReplicaNum) {
                     // this should not happen, but in case, throw an exception to terminate this process
                     throw new DdlException("Normal replica number of tablet " + tabletId + " is: "
-                            + replicaBackendIds.size() + ", which is less than expected: " + totalReplicaNum);
+                            + replicaBackendIds.size() + ", but expected: " + totalReplicaNum);
                 }
-                backendsPerBucketSeq.add(replicaBackendIds.subList(0, totalReplicaNum));
+
+                // check tag
+                Map<Tag, Short> currentReplicaAlloc = Maps.newHashMap();
+                Map<Tag, List<Long>> tag2beIds = Maps.newHashMap();
+                for (long beId : replicaBackendIds) {
+                    Backend be = infoService.getBackend(beId);
+                    if (be == null) {
+                        continue;
+                    }
+                    short num = currentReplicaAlloc.getOrDefault(be.getTag(), (short) 0);
+                    currentReplicaAlloc.putIfAbsent(be.getTag(), (short) (num + 1));
+                    List<Long> beIds = tag2beIds.getOrDefault(be.getTag(), Lists.newArrayList());
+                    beIds.add(beId);
+                    tag2beIds.putIfAbsent(be.getTag(), beIds);
+                }
+                if (!currentReplicaAlloc.equals(replicaAlloc.getAllocMap())) {
+                    throw new DdlException("The relica allocation is " + currentReplicaAlloc.toString()
+                            + ", but expected: " + replicaAlloc.toCreateStmt());
+                }
+
+                for (Map.Entry<Tag, List<Long>> entry : tag2beIds.entrySet()) {
+                    backendsPerBucketSeq.putIfAbsent(entry.getKey(), Lists.newArrayList());
+                    backendsPerBucketSeq.get(entry.getKey()).add(entry.getValue());
+                }
             }
             break;
         }

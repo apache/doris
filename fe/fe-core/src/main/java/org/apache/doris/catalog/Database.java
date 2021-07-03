@@ -281,6 +281,7 @@ public class Database extends MetaObject implements Writable {
         checkReplicaQuota();
     }
 
+    // return pair <success?, table exist?>
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed

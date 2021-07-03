@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -90,7 +91,9 @@ public class ColocateTableCheckerAndBalancerTest {
         ColocateTableIndex colocateTableIndex = new ColocateTableIndex();
         int replicationNum = 3;
         List<List<Long>> backendsPerBucketSeq = Lists.partition(flatList, replicationNum);
-        colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
+        Map<Tag, List<List<Long>>> backendsPerBucketSeqMap = Maps.newHashMap();
+        backendsPerBucketSeqMap.put(Tag.DEFAULT_BACKEND_TAG, backendsPerBucketSeq);
+        colocateTableIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeqMap);
         return colocateTableIndex;
     }
 

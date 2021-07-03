@@ -34,11 +34,13 @@ import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -154,7 +156,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             if (statistic == null) {
                 continue;
             }
-            List<List<Long>> backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
+
+            // FIXME(cmy): consider tag
+            Map<Tag, List<List<Long>>> backendsPerBucketSeqMap = colocateIndex.getBackendsPerBucketSeq(groupId);
+            List<List<Long>> backendsPerBucketSeq = backendsPerBucketSeqMap.get(Tag.DEFAULT_BACKEND_TAG);
             if (backendsPerBucketSeq.isEmpty()) {
                 continue;
             }
@@ -163,8 +168,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             List<Long> availableBeIds = getAvailableBeIds(db.getClusterName(), infoService);
             List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
             if (relocateAndBalance(groupId, unavailableBeIdsInGroup, availableBeIds, colocateIndex, infoService, statistic, balancedBackendsPerBucketSeq)) {
-                colocateIndex.addBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
-                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeq);
+                // FIXME(cmy): consider tag
+                Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
+                balancedBackendsPerBucketSeqMap.put(Tag.DEFAULT_BACKEND_TAG, balancedBackendsPerBucketSeq);
+                colocateIndex.addBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
+                ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
                 catalog.getEditLog().logColocateBackendsPerBucketSeq(info);
                 LOG.info("balance group {}. now backends per bucket sequence is: {}", groupId, balancedBackendsPerBucketSeq);
             }
@@ -310,7 +318,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
         // FIXME(cmy): should be aware of tag info
         int replicationNum = groupSchema.getReplicaAlloc().getTotalReplicaNum();
-        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(colocateIndex.getBackendsPerBucketSeq(groupId));
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayList(colocateIndex.getBackendsPerBucketSeq(groupId).get(Tag.DEFAULT_BACKEND_TAG));
         // [[A,B,C],[B,C,D]] -> [A,B,C,B,C,D]
         List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream().flatMap(List::stream).collect(Collectors.toList());
 

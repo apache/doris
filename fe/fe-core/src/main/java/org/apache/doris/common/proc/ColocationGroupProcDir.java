@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Map;
 
 /*
  * show proc "/colocation_group";
@@ -32,7 +34,7 @@ import java.util.List;
 public class ColocationGroupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("GroupId").add("GroupName").add("TableIds")
-            .add("BucketsNum").add("ReplicationNum").add("DistCols").add("IsStable").build();
+            .add("BucketsNum").add("ReplicaAllocation").add("DistCols").add("IsStable").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -57,7 +59,7 @@ public class ColocationGroupProcDir implements ProcDirInterface {
 
         GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        List<List<Long>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
 

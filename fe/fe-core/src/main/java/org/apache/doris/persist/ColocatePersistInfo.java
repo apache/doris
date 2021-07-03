@@ -20,50 +20,59 @@ package org.apache.doris.persist;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 
-import com.google.common.collect.Lists;
+import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * PersistInfo for ColocateTableIndex
  */
 public class ColocatePersistInfo implements Writable {
+    @SerializedName(value = "groupId")
     private GroupId groupId;
+    @SerializedName(value = "tableId")
     private long tableId;
-    private List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
+    @SerializedName(value = "backendsPerBucketSeq")
+    private Map<Tag, List<List<Long>>> backendsPerBucketSeq = Maps.newHashMap();
 
     public ColocatePersistInfo() {
 
     }
 
-    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId, List<List<Long>> backendsPerBucketSeq) {
+    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 
     public static ColocatePersistInfo createForBackendsPerBucketSeq(GroupId groupId,
-            List<List<Long>> backendsPerBucketSeq) {
+                                                                    Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, -1L, backendsPerBucketSeq);
     }
 
     public static ColocatePersistInfo createForMarkUnstable(GroupId groupId) {
-        return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
+        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap());
     }
 
     public static ColocatePersistInfo createForMarkStable(GroupId groupId) {
-        return new ColocatePersistInfo(groupId, -1L, new ArrayList<>());
+        return new ColocatePersistInfo(groupId, -1L, Maps.newHashMap());
     }
 
     public static ColocatePersistInfo createForRemoveTable(long tableId) {
-        return new ColocatePersistInfo(new GroupId(-1, -1), tableId, new ArrayList<>());
+        return new ColocatePersistInfo(new GroupId(-1, -1), tableId, Maps.newHashMap());
     }
 
-    private ColocatePersistInfo(GroupId groupId, long tableId, List<List<Long>> backendsPerBucketSeq) {
+    private ColocatePersistInfo(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         this.groupId = groupId;
         this.tableId = tableId;
         this.backendsPerBucketSeq = backendsPerBucketSeq;
@@ -77,27 +86,28 @@ public class ColocatePersistInfo implements Writable {
         return groupId;
     }
 
-    public List<List<Long>> getBackendsPerBucketSeq() {
+    public Map<Tag, List<List<Long>>> getBackendsPerBucketSeq() {
         return backendsPerBucketSeq;
+    }
+
+    public static ColocatePersistInfo read(DataInput in) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            ColocatePersistInfo info = new ColocatePersistInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, ColocatePersistInfo.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(tableId);
-        groupId.write(out);
-        // out.writeLong(groupId);
-        // out.writeLong(dbId);
-        int size = backendsPerBucketSeq.size();
-        out.writeInt(size);
-        for (List<Long> beList : backendsPerBucketSeq) {
-            out.writeInt(beList.size());
-            for (Long be : beList) {
-                out.writeLong(be);
-            }
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
             long grpId = in.readLong();
@@ -108,14 +118,16 @@ public class ColocatePersistInfo implements Writable {
         }
 
         int size = in.readInt();
-        backendsPerBucketSeq = new ArrayList<>();
+        backendsPerBucketSeq = Maps.newHashMap();
+        List<List<Long>> backendsPerBucketSeqList = Lists.newArrayList();
+        backendsPerBucketSeq.put(Tag.DEFAULT_BACKEND_TAG, backendsPerBucketSeqList);
         for (int i = 0; i < size; i++) {
             int beListSize = in.readInt();
             List<Long> beLists = new ArrayList<>();
             for (int j = 0; j < beListSize; j++) {
                 beLists.add(in.readLong());
             }
-            backendsPerBucketSeq.add(beLists);
+            backendsPerBucketSeqList.add(beLists);
         }
     }
 
