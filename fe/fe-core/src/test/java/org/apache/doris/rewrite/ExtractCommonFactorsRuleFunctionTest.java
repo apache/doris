@@ -23,13 +23,12 @@ import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang3.StringUtils;
-
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.util.UUID;
 
 public class ExtractCommonFactorsRuleFunctionTest {
     private static String baseDir = "fe";
@@ -44,7 +43,7 @@ public class ExtractCommonFactorsRuleFunctionTest {
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_1

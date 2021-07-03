@@ -116,7 +116,9 @@ public class ModifyBackendTagTest {
         // although there is no exception throw, but partition create failed, because there is no BE
         // with "default" tag
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
-        String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo("tbl3", DynamicPartitionScheduler.CREATE_PARTITION_MSG);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Table tbl3 = db.getTable("tbl3");
+        String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo(tbl3.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG);
         Assert.assertTrue(err.contains("Failed to find enough host with storage medium and tag"));
 
         createStr = "create table test.tbl4(\n" +
@@ -135,7 +137,6 @@ public class ModifyBackendTagTest {
         CreateTableStmt createStmt4 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt4));
         DynamicPartitionScheduler scheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTable("tbl4");
         PartitionInfo partitionInfo = tbl.getPartitionInfo();
         Assert.assertEquals(4, partitionInfo.idToItem.size());
