@@ -181,13 +181,27 @@ Default：The default is true after the official 0.14.0 version is released, and
 
 HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
 
-### http_max_file_size
+### jetty_server_acceptors
 
-### http_max_request_size
+Default：2
 
-Default：100MB
+### jetty_server_selectors
 
-The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100MB, you can modify it according to your needs.
+Default：4
+
+### jetty_server_workers
+
+Default：100
+
+With the above three parameters, Jetty's thread architecture model is very simple, divided into acceptors, selectors and workers three thread pools. Acceptors are responsible for accepting new connections, and then hand them over to selectors to process the unpacking of the HTTP message protocol, and finally workers process the request. The first two thread pools adopt a non-blocking model, and one thread can handle the read and write of many sockets, so the number of thread pools is small.
+
+For most projects, only 1-2 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
+
+### jetty_server_max_http_post_size
+
+Default：2 * 1024 * 1024 * 1024  （2G）
+
+This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 2G
 
 ### frontend_address
 
