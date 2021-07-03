@@ -44,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -356,7 +357,7 @@ public class ExportStmt extends StatementBase {
                 ParquetPropertyAnalyzer.checkProjectionFieldAndSchema(this.schema, this.tableRef.getTable());
             }
         }
-        this.fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties);
+        this.fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties, new HashSet<String>());
     }
 
     private List<Column> getColumnFromDefinedColumns() throws AnalysisException {

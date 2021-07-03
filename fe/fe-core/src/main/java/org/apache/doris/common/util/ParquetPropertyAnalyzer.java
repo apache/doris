@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
@@ -29,6 +30,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ParquetPropertyAnalyzer {
 
@@ -87,12 +89,13 @@ public class ParquetPropertyAnalyzer {
         return columns;
     }
 
-    public static Map<String, String> parseFileProperties(Map<String, String> properties) {
+    public static Map<String, String> parseFileProperties(Map<String, String> properties, Set<String> processedPropKeys) {
         Map<String, String> fileProperties = new HashMap<>();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<String, String> entry = iter.next();
             if (entry.getKey().startsWith(PARQUET_PROP_PREFIX)) {
+                processedPropKeys.add(entry.getKey());
                 fileProperties.put(entry.getKey().substring(PARQUET_PROP_PREFIX.length()), entry.getValue());
             }
         }
@@ -273,5 +276,64 @@ public class ParquetPropertyAnalyzer {
             table.readUnlock();
         }
         return schema;
+    }
+
+    public static void compareSchemaAndResultExpr(List<Expr> resultExprs, List<List<String>> schema) throws AnalysisException {
+        // check schema number
+        if (resultExprs.size() != schema.size()) {
+            throw new AnalysisException("Parquet schema number does not equal to select item number");
+        }
+
+        // check type
+        for (int i = 0; i < schema.size(); ++i) {
+            String type = schema.get(i).get(1);
+            Type resultType = resultExprs.get(i).getType();
+            switch (resultType.getPrimitiveType()) {
+                case BOOLEAN:
+                    if (!type.equals("boolean")) {
+                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                    if (!type.equals("int32")) {
+                        throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
+                                + "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case BIGINT:
+                case DATE:
+                case DATETIME:
+                    if (!type.equals("int64")) {
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                case FLOAT:
+                    if (!type.equals("float")) {
+                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case DOUBLE:
+                    if (!type.equals("double")) {
+                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
+                                + i + " is " + type);
+                    }
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case DECIMALV2:
+                    if (!type.equals("byte_array")) {
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
+                                "but the definition type of column " + i + " is " + type);
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+            }
+        }
     }
 }

@@ -33,8 +33,10 @@ import org.junit.Assert;
 import org.junit.Test;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ParquetPropertyAnalyzerTest {
 
@@ -87,15 +89,16 @@ public class ParquetPropertyAnalyzerTest {
     @Test
     public void testParseFileProperties() {
         Map<String, String> properties = new HashMap<>();
-        Map<String, String> fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties);
+        Set<String> processedKeys = new HashSet<String>();
+        Map<String, String> fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties, processedKeys);
         Assert.assertTrue(fileProperties.size() == 0);
         properties.put("version", "v1");
-        fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties);
+        fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties, processedKeys);
         Assert.assertTrue(fileProperties.size() == 0);
         properties.clear();
         properties.put("parquet.version", "v1");
         properties.put("parquet.compression", "snappy");
-        fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties);
+        fileProperties = ParquetPropertyAnalyzer.parseFileProperties(properties, processedKeys);
         Assert.assertTrue(fileProperties.size() == 2);
         Assert.assertTrue(fileProperties.get("version").equalsIgnoreCase("v1"));
         Assert.assertTrue(fileProperties.get("compression").equalsIgnoreCase("snappy"));

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.Util;
@@ -25,22 +27,17 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -618,7 +615,7 @@ public class SelectStmtTest {
         try {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         } catch (Exception e) {
-            Assert.assertTrue(e.getMessage().contains("must only contains repetition type/column type/column name"));
+            Assert.assertTrue(e.getMessage().contains("must only contains repetition type/data type/column name"));
         }
 
         // unknown repetition type

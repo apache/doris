@@ -95,7 +95,6 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
     public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
-    public static final String KEY_IN_PARAM_FILE_PROPERTIES = "file_properties";
 
     public static final String KEY_IN_PARAM_WHERE = "where";
     public static final String KEY_IN_PARAM_MAX_FILTER_RATIO = "max_filter_ratio";
