@@ -341,7 +341,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
-    @ConfField public static int jetty_server_workers = 100;
+    @ConfField public static int jetty_server_workers = 0;
     /**
      * jetty Maximum number of bytes in put or post method,default:2G
      */

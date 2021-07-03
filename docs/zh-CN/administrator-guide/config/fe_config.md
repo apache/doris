@@ -190,11 +190,13 @@ HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只�
 
 ### jetty_server_workers
 
-默认值：100
+默认值：0
 
 以上三个参数，Jetty的线程架构模型非常简单，分为 acceptors，selectors 和 workers 三个线程池。acceptors 负责接受新连接，然后交给selectors处理HTTP消息协议的解包，最后由workers处理请求。前两个线程池采用非阻塞模型，一个线程可以处理很多socket的读写，所以线程池数量较小。
 
 大多数项目，acceptors 线程只需要1-2个，selectors 线程配置2～4个足矣。workers 是阻塞性的业务逻辑，往往有较多的数据库操作，需要的线程数量较多，具体数量随应用程序的 QPS 和 IO 事件占比而定。QPS 越高，需要的线程数量越多，IO 占比越高，等待的线程数越多，需要的总线程数也越多。
+
+workers 线程池默认不做设置，根据自己需要进行设置
 
 ### jetty_server_max_http_post_size
 
