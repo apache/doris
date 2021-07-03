@@ -1027,7 +1027,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
-    private void sendMetaData(ShowResultSetMetaData metaData) throws IOException {
+    private void sendMetaData(ResultSetMetaData metaData) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(metaData.getColumnCount());
@@ -1063,8 +1063,7 @@ public class StmtExecutor implements ProfileWriter {
         eofPacket.writeTo(serializer);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
-
-    public void sendShowResult(ShowResultSet resultSet) throws IOException {
+    public void sendResult(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
         sendMetaData(resultSet.getMetaData());
@@ -1097,7 +1096,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        sendShowResult(resultSet);
+        sendResult(resultSet);
     }
 
     private void handleExplainStmt(String result) throws IOException {

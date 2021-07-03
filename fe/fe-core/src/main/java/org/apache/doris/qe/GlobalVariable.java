@@ -63,7 +63,7 @@ public final class GlobalVariable {
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = INIT_CONNECT, flag = VariableMgr.GLOBAL)
-    private volatile static String initConnect = "";
+    public volatile static String initConnect = "";
 
     // A string to be executed by the server for each client that connects
     @VariableMgr.VarAttr(name = SYSTEM_TIME_ZONE, flag = VariableMgr.READ_ONLY)
@@ -71,7 +71,7 @@ public final class GlobalVariable {
 
     // The amount of memory allocated for caching query results
     @VariableMgr.VarAttr(name = QUERY_CACHE_SIZE, flag = VariableMgr.GLOBAL)
-    private volatile static long queryCacheSize = 1048576;
+    public volatile static long queryCacheSize = 1048576;
 
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE, flag = VariableMgr.GLOBAL)
     public volatile static String defaultRowsetType = "alpha";

@@ -18,14 +18,22 @@
 package org.apache.doris.qe;
 
 import avro.shaded.com.google.common.collect.Lists;
+import com.google.common.base.Strings;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.SelectListItem;
+import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -49,18 +57,20 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -74,8 +84,85 @@ public class ConnectProcessor {
 
     private StmtExecutor executor = null;
 
+    private static final Map<String, String> globalVariableMap;
+    private Map<String, String> sessionVariableMap;
+
+    static {
+        globalVariableMap = new HashMap<>();
+        try {
+            for (Field field : FieldUtils.getFieldsListWithAnnotation(GlobalVariable.class, VariableMgr.VarAttr.class)) {
+                Object fieldValueObj = FieldUtils.readStaticField(field);
+                if (fieldValueObj == null) continue;
+                VariableMgr.VarAttr anno = field.getAnnotation(VariableMgr.VarAttr.class);
+                globalVariableMap.put(anno.name(), fieldValueObj.toString());
+            }
+        } catch (IllegalAccessException e) {
+            // ignore
+        }
+    }
+
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
+    }
+
+    private void initSessionVariableMapIfNotExists(ConnectContext ctx) {
+        if (sessionVariableMap != null) {
+            return;
+        }
+        sessionVariableMap = new HashMap<>();
+        try {
+            for (Field field : FieldUtils.getFieldsListWithAnnotation(SessionVariable.class, VariableMgr.VarAttr.class)) {
+                Object objValue = field.get(ctx.sessionVariable);
+                String value = objValue.toString();
+                VariableMgr.VarAttr anno = field.getAnnotation(VariableMgr.VarAttr.class);
+                sessionVariableMap.put(anno.name(), value);
+            }
+        } catch (IllegalAccessException e) {
+            // ignore
+        }
+    }
+
+    private String getVariable(String key) {
+        String value = globalVariableMap.get(key);
+        return value != null ? value : sessionVariableMap.get(key);
+    }
+
+    private boolean handleSelectRequestInFe(ConnectContext ctx, SelectStmt parsedSelectStmt) throws IOException {
+        List<Column> columns = new ArrayList<>(parsedSelectStmt.getSelectList().getItems().size());
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+
+        List<String> data = new ArrayList<>();
+        for (SelectListItem item : parsedSelectStmt.getSelectList().getItems()) {
+            Expr expr = item.getExpr();
+            String columnName = item.getAlias();
+            if (columnName == null) {
+                columnName = expr.toColumnLabel();
+            }
+            if (expr instanceof FunctionCallExpr) {
+                // only handle select version()
+                if (!"version".equalsIgnoreCase(((FunctionCallExpr)expr).getFnName().getFunction())) {
+                    return false;
+                }
+                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
+                data.add(GlobalVariable.version);
+            } else if (expr instanceof SysVariableDesc) {
+                String key = ((SysVariableDesc) expr).getName();
+                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
+                // if not able to handle
+                if (getVariable(key) == null) {
+                    return false;
+                }
+                data.add(getVariable(key));
+            } else {
+                return false;
+            }
+        }
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        executor = new StmtExecutor(ctx, parsedSelectStmt);
+        ctx.setExecutor(executor);
+        executor.sendResult(resultSet);
+        ctx.getMysqlChannel().flush();
+        return true;
     }
 
     // COM_INIT_DB: change current database of this session.
@@ -193,6 +280,17 @@ public class ConnectProcessor {
                 }
                 parsedStmt = stmts.get(i);
                 parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+
+                // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
+                if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
+                            && Catalog.getCurrentSystemInfo().getBackendIds(true).isEmpty() ) {
+                    initSessionVariableMapIfNotExists(ctx);
+                    SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+                    if (handleSelectRequestInFe(ctx, parsedSelectStmt)) {
+                        return;
+                    }
+                }
+
                 parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
                 executor = new StmtExecutor(ctx, parsedStmt);
                 ctx.setExecutor(executor);
@@ -374,7 +472,7 @@ public class ConnectProcessor {
             if (resultSet == null) {
                 packet = executor.getOutputPacket();
             } else {
-                executor.sendShowResult(resultSet);
+                executor.sendResult(resultSet);
                 packet = getResultPacket();
                 if (packet == null) {
                     LOG.debug("packet == null");
