@@ -24,6 +24,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -597,6 +598,16 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_SQL_BLOCK_RULE:
+            case OperationType.OP_ALTER_SQL_BLOCK_RULE:
+                data = SqlBlockRule.read(in);
+                isRead = true;
+                break;
+            case OperationType.OP_DROP_SQL_BLOCK_RULE:
+                data = new Text();
+                ((Text) data).readFields(in);
+                isRead = true;
+                break;
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);

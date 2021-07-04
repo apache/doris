@@ -1424,4 +1424,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backup_restore_job_num_per_db = 10;
+
+    /**
+     * Whether to enabel block sql
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_sql_block = false;
 }
