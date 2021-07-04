@@ -376,7 +376,4 @@ public class RangePartitionInfoTest {
             partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId++, false);
         }
     }
-
-
-
 }
