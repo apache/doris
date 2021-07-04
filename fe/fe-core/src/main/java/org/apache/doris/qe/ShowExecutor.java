@@ -1836,7 +1836,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-
     private void handleShowCreateRoutineLoad() throws AnalysisException {
         ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();

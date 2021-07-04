@@ -1181,18 +1181,18 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void matchSql(QueryStmt queryStmt) throws AnalysisException {
-        // todo: 转义字符
-        Map<String, List<SqlBlockRule>> userToSqlBlacklistMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlockRuleMap();
+        Map<String, List<SqlBlockRule>> userToSqlBlockRuleMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlockRuleMap();
         // match default rule
-        List<SqlBlockRule> defaultRules = userToSqlBlacklistMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
+        String sql = queryStmt.getOrigStmt().originStmt;
+        List<SqlBlockRule> defaultRules = userToSqlBlockRuleMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
         for (SqlBlockRule rule : defaultRules) {
-            matchSql(rule, queryStmt.getOrigStmt().originStmt);
+            matchSql(rule, sql);
         }
         // match user rule
         String user = context.getUserIdentity().getUser();
-        List<SqlBlockRule> userRules = userToSqlBlacklistMap.getOrDefault(user, new ArrayList<>());
+        List<SqlBlockRule> userRules = userToSqlBlockRuleMap.getOrDefault(user, new ArrayList<>());
         for (SqlBlockRule rule : userRules) {
-            matchSql(rule, queryStmt.getOrigStmt().originStmt);
+            matchSql(rule, sql);
         }
     }
 
