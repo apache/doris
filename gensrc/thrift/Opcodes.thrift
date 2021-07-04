@@ -83,4 +83,5 @@ enum TExprOpcode {
     FACTORIAL,
     LAST_OPCODE,
     EQ_FOR_NULL,
+    RT_FILTER,
 }

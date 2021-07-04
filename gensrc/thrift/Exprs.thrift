@@ -47,6 +47,9 @@ enum TExprNodeType {
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,
   LARGE_INT_LITERAL,
+
+  // only used in runtime filter
+  BLOOM_PRED,
 }
 
 //enum TAggregationOp {
