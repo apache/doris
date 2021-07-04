@@ -102,6 +102,7 @@ import org.glassfish.jersey.internal.guava.Sets;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1179,15 +1180,15 @@ public class StmtExecutor implements ProfileWriter {
 
     private void matchSql(QueryStmt queryStmt) throws AnalysisException {
         // todo: 转义字符
-        Map<String, List<SqlBlockRule>> userToSqlBlacklistMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlacklistMap();
+        Map<String, List<SqlBlockRule>> userToSqlBlacklistMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlockRuleMap();
         // match default rule
-        List<SqlBlockRule> defaultRules = userToSqlBlacklistMap.get(SqlBlockRule.DEFAULT_USER);
+        List<SqlBlockRule> defaultRules = userToSqlBlacklistMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
         for (SqlBlockRule rule : defaultRules) {
             matchSql(rule, queryStmt);
         }
         // match user rule
         String user = context.getUserIdentity().getUser();
-        List<SqlBlockRule> userRules = userToSqlBlacklistMap.get(user);
+        List<SqlBlockRule> userRules = userToSqlBlacklistMap.getOrDefault(user, new ArrayList<>());
         for (SqlBlockRule rule : userRules) {
             matchSql(rule, queryStmt);
         }

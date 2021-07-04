@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -27,7 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class AlterSqlBlocklistStmt extends DdlStmt {
+public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private final String ruleName;
 
@@ -39,7 +40,7 @@ public class AlterSqlBlocklistStmt extends DdlStmt {
 
     private final Map<String, String> properties;
 
-    public AlterSqlBlocklistStmt(String ruleName, Map<String, String> properties) {
+    public AlterSqlBlockRuleStmt(String ruleName, Map<String, String> properties) {
         this.ruleName = ruleName;
         this.properties = properties;
     }
@@ -54,7 +55,7 @@ public class AlterSqlBlocklistStmt extends DdlStmt {
     private void checkProperties(Map<String, String> properties) throws UserException {
         this.user = properties.get(CreateSqlBlockRuleStmt.USER_PROPERTY);
         // if not default, need check whether user exist
-        if (StringUtils.isNotEmpty(user) &&  !CreateSqlBlockRuleStmt.DEFAULT_USER.equals(user)) {
+        if (StringUtils.isNotEmpty(user) &&  !SqlBlockRule.DEFAULT_USER.equals(user)) {
             List<String> allUserIdents = Catalog.getCurrentCatalog().getAuth().getAllUserIdents(false).stream().map(UserIdentity::getUser).collect(Collectors.toList());
             if (!allUserIdents.contains(user)) {
                 throw new AnalysisException(user + " is not exist");

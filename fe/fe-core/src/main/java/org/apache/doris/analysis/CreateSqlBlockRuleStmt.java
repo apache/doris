@@ -48,7 +48,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public static final String USER_PROPERTY = "user";
 
-    public static final String SQL_PROPERTY = "user";
+    public static final String SQL_PROPERTY = "sql";
 
     public static final String ENABLE_PROPERTY = "enable";
 
@@ -101,7 +101,7 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
             }
         }
         this.sql = properties.get(SQL_PROPERTY);
-        this.enable = Util.getBooleanPropertyOrDefault(ENABLE_PROPERTY, true, ENABLE_PROPERTY + " should be a boolean");
+        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
     }
 
     public String getRuleName() {

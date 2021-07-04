@@ -26,7 +26,7 @@ import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.AlterSqlBlocklistStmt;
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -235,8 +235,8 @@ public class DdlExecutor {
             catalog.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             catalog.getSqlBlocklistMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
-        } else if (ddlStmt instanceof AlterSqlBlocklistStmt) {
-            catalog.getSqlBlocklistMgr().alterSqlBlockRule((AlterSqlBlocklistStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
+            catalog.getSqlBlocklistMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
             catalog.getSqlBlocklistMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else {

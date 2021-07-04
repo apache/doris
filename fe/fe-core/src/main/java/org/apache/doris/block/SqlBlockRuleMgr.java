@@ -17,7 +17,7 @@
 
 package org.apache.doris.block;
 
-import org.apache.doris.analysis.AlterSqlBlocklistStmt;
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
@@ -51,9 +51,9 @@ public class SqlBlockRuleMgr implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private Map<String, List<SqlBlockRule>> userToSqlBlacklistMap = Maps.newConcurrentMap();
+    private Map<String, List<SqlBlockRule>> userToSqlBlockRuleMap = Maps.newConcurrentMap();
 
-    private Map<String, SqlBlockRule> nameToSqlBlacklistMap = Maps.newConcurrentMap();
+    private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -64,7 +64,7 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     public boolean existRule(String name) {
-        return nameToSqlBlacklistMap.containsKey(name);
+        return nameToSqlBlockRuleMap.containsKey(name);
     }
 
     public List<SqlBlockRule> get(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
@@ -73,13 +73,13 @@ public class SqlBlockRuleMgr implements Writable {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         if (StringUtils.isNotEmpty(ruleName)) {
-            if (nameToSqlBlacklistMap.containsKey(ruleName)) {
-                SqlBlockRule sqlBlockRule = nameToSqlBlacklistMap.get(ruleName);
+            if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
+                SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
                 return Lists.newArrayList(sqlBlockRule);
             }
             return Lists.newArrayList();
         }
-        return (List<SqlBlockRule>) nameToSqlBlacklistMap.values();
+        return Lists.newArrayList(nameToSqlBlockRuleMap.values());
     }
 
     public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
@@ -111,7 +111,7 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
-    public void alterSqlBlockRule(AlterSqlBlocklistStmt stmt) throws UserException {
+    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws UserException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
                 && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
                 PrivPredicate.OPERATOR)) {
@@ -128,7 +128,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (!existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
             }
-            SqlBlockRule originRule = nameToSqlBlacklistMap.get(ruleName);
+            SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
             if (StringUtils.isEmpty(sqlBlockRule.getUser())) {
                 sqlBlockRule.setUser(originRule.getUser());
             }
@@ -151,15 +151,19 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     public void unprotectedUpdate(SqlBlockRule sqlBlockRule) {
-        nameToSqlBlacklistMap.put(sqlBlockRule.getName(), sqlBlockRule);
-        List<SqlBlockRule> sqlBlockRules = userToSqlBlacklistMap.get(sqlBlockRule.getUser());
+        nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
+        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.getOrDefault(sqlBlockRule.getUser(), new ArrayList<>());
         sqlBlockRules.removeIf(rule -> sqlBlockRule.getName().equals(rule.getName()));
         sqlBlockRules.add(sqlBlockRule);
+        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
+        LOG.info("userToSqlBlockRuleMap={}", userToSqlBlockRuleMap);
     }
 
     public void unprotectedAdd(SqlBlockRule sqlBlockRule) {
-        nameToSqlBlacklistMap.put(sqlBlockRule.getName(), sqlBlockRule);
-        userToSqlBlacklistMap.getOrDefault(sqlBlockRule.getUser(), new ArrayList<>()).add(sqlBlockRule);
+        nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
+        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.getOrDefault(sqlBlockRule.getUser(), new ArrayList<>());
+        sqlBlockRules.add(sqlBlockRule);
+        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
     }
 
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws UserException {
@@ -179,7 +183,7 @@ public class SqlBlockRuleMgr implements Writable {
                 if (!existRule(ruleName)) {
                     throw new DdlException("the sql block rule " + ruleName + " not exist");
                 }
-                SqlBlockRule sqlBlockRule = nameToSqlBlacklistMap.get(ruleName);
+                SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
                 if (sqlBlockRule == null) {
                     continue;
                 }
@@ -197,18 +201,18 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     public void unprotectedDrop(SqlBlockRule sqlBlockRule) {
-        nameToSqlBlacklistMap.remove(sqlBlockRule.getName());
-        userToSqlBlacklistMap.remove(sqlBlockRule.getUser());
+        nameToSqlBlockRuleMap.remove(sqlBlockRule.getName());
+        userToSqlBlockRuleMap.remove(sqlBlockRule.getUser());
     }
 
-    public Map<String, List<SqlBlockRule>> getUserToSqlBlacklistMap() {
-        return userToSqlBlacklistMap;
+    public Map<String, List<SqlBlockRule>> getUserToSqlBlockRuleMap() {
+        return userToSqlBlockRuleMap;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(nameToSqlBlacklistMap.size());
-        for (SqlBlockRule sqlBlockRule : nameToSqlBlacklistMap.values()) {
+        out.writeInt(nameToSqlBlockRuleMap.size());
+        for (SqlBlockRule sqlBlockRule : nameToSqlBlockRuleMap.values()) {
             sqlBlockRule.write(out);
         }
     }
