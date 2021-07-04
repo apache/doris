@@ -614,6 +614,10 @@ CONF_Int16(mem_tracker_level, "0");
 // This config usually only needs to be modified during testing.
 // In most cases, it does not need to be modified.
 CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
+
+// if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
+// else we will call sync method
+CONF_mBool(runtime_filter_use_async_rpc, "true");
 } // namespace config
 
 } // namespace doris

@@ -60,9 +60,10 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
 
 OlapScanner::~OlapScanner() {}
 
-Status OlapScanner::prepare(const TPaloScanRange& scan_range,
-                            const std::vector<OlapScanRange*>& key_ranges,
-                            const std::vector<TCondition>& filters) {
+Status OlapScanner::prepare(
+        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+        const std::vector<TCondition>& filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
@@ -107,7 +108,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
 
     {
         // Initialize _params
-        RETURN_IF_ERROR(_init_params(key_ranges, filters));
+        RETURN_IF_ERROR(_init_params(key_ranges, filters, bloom_filters));
     }
 
     return Status::OK();
@@ -119,6 +120,8 @@ Status OlapScanner::open() {
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
     }
+
+    _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _reader->init(_params);
     if (res != OLAP_SUCCESS) {
@@ -132,8 +135,9 @@ Status OlapScanner::open() {
 }
 
 // it will be called under tablet read lock because capture rs readers need
-Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
-                                 const std::vector<TCondition>& filters) {
+Status OlapScanner::_init_params(
+        const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
+        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -145,6 +149,8 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     for (auto& filter : filters) {
         _params.conditions.push_back(filter);
     }
+    std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
+              std::inserter(_params.bloom_filters, _params.bloom_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {

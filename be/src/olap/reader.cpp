@@ -19,7 +19,9 @@
 
 #include <boost/algorithm/string/case_conv.hpp>
 #include <sstream>
+#include <unordered_set>
 
+#include "olap/bloom_filter_predicate.h"
 #include "olap/collect_iterator.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
@@ -27,8 +29,8 @@
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/column_data.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
@@ -94,8 +96,7 @@ std::string Reader::KeysParam::to_string() const {
     return ss.str();
 }
 
-Reader::Reader() : _collect_iter(new CollectIterator()) {
-}
+Reader::Reader() : _collect_iter(new CollectIterator()) {}
 
 Reader::~Reader() {
     close();
@@ -339,8 +340,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
         if (_keys_param.range == "gt") {
             if (end_key != nullptr && compare_row_key(*start_key, *end_key) >= 0) {
                 VLOG_NOTICE << "return EOF when range=" << _keys_param.range
-                        << ", start_key=" << start_key->to_string()
-                        << ", end_key=" << end_key->to_string();
+                            << ", start_key=" << start_key->to_string()
+                            << ", end_key=" << end_key->to_string();
                 eof = true;
                 break;
             }
@@ -348,8 +349,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params,
         } else if (_keys_param.range == "ge") {
             if (end_key != nullptr && compare_row_key(*start_key, *end_key) > 0) {
                 VLOG_NOTICE << "return EOF when range=" << _keys_param.range
-                        << ", start_key=" << start_key->to_string()
-                        << ", end_key=" << end_key->to_string();
+                            << ", start_key=" << start_key->to_string()
+                            << ", end_key=" << end_key->to_string();
                 eof = true;
                 break;
             }
@@ -610,6 +611,11 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
             }
         }
     }
+
+    // Only key column bloom filter will push down to storage engine
+    for (const auto& filter : read_params.bloom_filters) {
+        _col_predicates.emplace_back(_parse_to_predicate(filter));
+    }
 }
 
 #define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                   \
@@ -710,6 +716,35 @@ COMPARISON_PREDICATE_CONDITION_VALUE(le, LessEqualPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(gt, GreaterPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
+ColumnPredicate* Reader::_parse_to_predicate(
+        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
+    int32_t index = _tablet->field_index(bloom_filter.first);
+    if (index < 0) {
+        return nullptr;
+    }
+    const TabletColumn& column = _tablet->tablet_schema().column(index);
+    // Because FE regards CHAR as VARCHAR and Date as Datetime during query planning,
+    // but direct use of filter will result in incorrect results due to inconsistent data structures.
+    // We need to convert to the data structure corresponding to the storage engine.
+    std::shared_ptr<BloomFilterFuncBase> filter;
+    switch (column.type()) {
+    case OLAP_FIELD_TYPE_CHAR: {
+        filter.reset(BloomFilterFuncBase::create_bloom_filter(bloom_filter.second->tracker(),
+                                                              TYPE_CHAR));
+        filter->light_copy(bloom_filter.second.get());
+        return new BloomFilterColumnPredicate(index, filter);
+    }
+    case OLAP_FIELD_TYPE_DATE: {
+        filter.reset(BloomFilterFuncBase::create_bloom_filter(bloom_filter.second->tracker(),
+                                                              TYPE_DATE));
+        filter->light_copy(bloom_filter.second.get());
+        return new BloomFilterColumnPredicate(index, filter);
+    }
+    default:
+        return new BloomFilterColumnPredicate(index, bloom_filter.second);
+    }
+}
+
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet->field_index(condition.column_name);
@@ -720,9 +755,12 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
     const TabletColumn& column = _tablet->tablet_schema().column(index);
     ColumnPredicate* predicate = nullptr;
 
-    if ((condition.condition_op == "*=" || condition.condition_op == "!*=" || condition.condition_op == "=" || condition.condition_op == "!=") && condition.condition_values.size() == 1) {
-        predicate = condition.condition_op == "*=" || condition.condition_op == "=" ? _new_eq_pred(column, index, condition.condition_values[0], opposite) :
-                _new_ne_pred(column, index, condition.condition_values[0], opposite);
+    if ((condition.condition_op == "*=" || condition.condition_op == "!*=" ||
+         condition.condition_op == "=" || condition.condition_op == "!=") &&
+        condition.condition_values.size() == 1) {
+        predicate = condition.condition_op == "*=" || condition.condition_op == "="
+                            ? _new_eq_pred(column, index, condition.condition_values[0], opposite)
+                            : _new_ne_pred(column, index, condition.condition_values[0], opposite);
     } else if (condition.condition_op == "<<") {
         predicate = _new_lt_pred(column, index, condition.condition_values[0], opposite);
     } else if (condition.condition_op == "<=") {
@@ -731,10 +769,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
         predicate = _new_gt_pred(column, index, condition.condition_values[0], opposite);
     } else if (condition.condition_op == ">=") {
         predicate = _new_ge_pred(column, index, condition.condition_values[0], opposite);
-    } else if ((condition.condition_op == "*=" || condition.condition_op == "!*=") && condition.condition_values.size() > 1) {
+    } else if ((condition.condition_op == "*=" || condition.condition_op == "!*=") &&
+               condition.condition_values.size() > 1) {
         switch (column.type()) {
         case OLAP_FIELD_TYPE_TINYINT: {
-            std::set<int8_t> values;
+            std::unordered_set<int8_t> values;
             for (auto& cond_val : condition.condition_values) {
                 int32_t value = 0;
                 std::stringstream ss(cond_val);
@@ -744,12 +783,12 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             if (condition.condition_op == "*=") {
                 predicate = new InListPredicate<int8_t>(index, std::move(values), opposite);
             } else {
-                predicate = new NotInListPredicate<int8_t>(index, std::move(values),opposite);
+                predicate = new NotInListPredicate<int8_t>(index, std::move(values), opposite);
             }
             break;
         }
         case OLAP_FIELD_TYPE_SMALLINT: {
-            std::set<int16_t> values;
+            std::unordered_set<int16_t> values;
             for (auto& cond_val : condition.condition_values) {
                 int16_t value = 0;
                 std::stringstream ss(cond_val);
@@ -764,7 +803,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_INT: {
-            std::set<int32_t> values;
+            std::unordered_set<int32_t> values;
             for (auto& cond_val : condition.condition_values) {
                 int32_t value = 0;
                 std::stringstream ss(cond_val);
@@ -779,7 +818,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_BIGINT: {
-            std::set<int64_t> values;
+            std::unordered_set<int64_t> values;
             for (auto& cond_val : condition.condition_values) {
                 int64_t value = 0;
                 std::stringstream ss(cond_val);
@@ -794,7 +833,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_LARGEINT: {
-            std::set<int128_t> values;
+            std::unordered_set<int128_t> values;
             for (auto& cond_val : condition.condition_values) {
                 int128_t value = 0;
                 std::stringstream ss(cond_val);
@@ -809,7 +848,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_DECIMAL: {
-            std::set<decimal12_t> values;
+            std::unordered_set<decimal12_t> values;
             for (auto& cond_val : condition.condition_values) {
                 decimal12_t value = {0, 0};
                 value.from_string(cond_val);
@@ -823,7 +862,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_CHAR: {
-            std::set<StringValue> values;
+            std::unordered_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
                 size_t length = std::max(static_cast<size_t>(column.length()), cond_val.length());
@@ -842,7 +881,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_VARCHAR: {
-            std::set<StringValue> values;
+            std::unordered_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
                 int32_t length = cond_val.length();
@@ -860,7 +899,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_DATE: {
-            std::set<uint24_t> values;
+            std::unordered_set<uint24_t> values;
             for (auto& cond_val : condition.condition_values) {
                 uint24_t value = timestamp_from_date(cond_val);
                 values.insert(value);
@@ -873,7 +912,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             break;
         }
         case OLAP_FIELD_TYPE_DATETIME: {
-            std::set<uint64_t> values;
+            std::unordered_set<uint64_t> values;
             for (auto& cond_val : condition.condition_values) {
                 uint64_t value = timestamp_from_datetime(cond_val);
                 values.insert(value);
@@ -887,10 +926,11 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
         }
         // OLAP_FIELD_TYPE_BOOL is not valid in this case.
         default:
-           break;
+            break;
         }
     } else if (boost::to_lower_copy(condition.condition_op) == "is") {
-        predicate = new NullPredicate(index, boost::to_lower_copy(condition.condition_values[0]) == "null", opposite);
+        predicate = new NullPredicate(
+                index, boost::to_lower_copy(condition.condition_values[0]) == "null", opposite);
     }
     return predicate;
 }
@@ -953,8 +993,8 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     }
 
     _tablet->obtain_header_rdlock();
-    OLAPStatus ret = _delete_handler.init(
-            _tablet->tablet_schema(), _tablet->delete_predicates(), read_params.version.second, this);
+    OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
+                                          read_params.version.second, this);
     _tablet->release_header_lock();
 
     if (read_params.reader_type == READER_BASE_COMPACTION) {
