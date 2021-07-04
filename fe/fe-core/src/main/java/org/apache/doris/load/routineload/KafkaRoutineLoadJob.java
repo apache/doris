@@ -63,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -492,6 +493,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
+    }
+
+    @Override
+    protected Map<String, String> getDataSourceProperties() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("kafka_broker_list", brokerList);
+        dataSourceProperties.put("kafka_topic", topic);
+        return dataSourceProperties;
+    }
+
+    @Override
+    protected Map<String, String> getCustomProperties() {
+        Map<String, String> ret = new HashMap<>();
+        customProperties.forEach((k, v) -> ret.put("property." + k, v));
+        return ret;
     }
 
     @Override

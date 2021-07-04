@@ -1333,6 +1333,84 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return rows;
     }
 
+    public String getShowCreateInfo() {
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Table tbl = (db == null) ? null : db.getTable(tableId);
+        StringBuilder sb = new StringBuilder();
+        // 1.job_name
+        sb.append("CREATE ROUTINE LOAD ").append(name);
+        // 2.tbl_name
+        sb.append(" ON ").append(tbl == null ? String.valueOf(tableId) : tbl.getName()).append("\n");
+        // 3.merge_type
+        sb.append("WITH ").append(mergeType.name()).append("\n");
+        // 4.load_properties
+        // 4.1.column_separator
+        if (columnSeparator != null) {
+            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getSeparator()).append("\",\n");
+        }
+        // 4.2.columns_mapping
+        if (columnDescs != null) {
+            sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs.descs)).append("),\n");
+        }
+        // 4.3.where_predicates
+        if (whereExpr != null) {
+            sb.append("WHERE ").append(whereExpr.toSql()).append(",\n");
+        }
+        // 4.4.partitions
+        if (partitions != null) {
+            sb.append("PARTITION(").append(Joiner.on(",").join(partitions.getPartitionNames())).append("),\n");
+        }
+        // 4.5.delete_on_predicates
+        if (deleteCondition != null) {
+            sb.append("DELETE ON ").append(deleteCondition.toSql()).append(",\n");
+        }
+        // 4.6.source_sequence
+        if (sequenceCol != null) {
+            sb.append("ORDER BY ").append(sequenceCol).append(",\n");
+        }
+        // 4.7.preceding_predicates
+        if (precedingFilter != null) {
+            sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
+        }
+        // remove the last ,
+        if (",".equals(sb.charAt(sb.length() - 2))) {
+            sb.replace(sb.length() - 2, sb.length() - 1, "");
+        }
+        // 5.job_properties
+        sb.append("PROPERTIES\n(\n");
+        appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
+        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, PROPS_FORMAT, getFormat(), false);
+        appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
+        appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
+        sb.append(")\n");
+        // 6. data_source
+        sb.append("FROM ").append(dataSourceType).append("\n");
+        // 7. data_source_properties
+        sb.append("(\n");
+        getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+        getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
+        // remove the last ,
+        sb.replace(sb.length() - 2, sb.length() - 1, "");
+        sb.append(");");
+        return sb.toString();
+    }
+
+    private static void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
+        sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
+        if (!end) {
+            sb.append(",\n");
+        } else {
+            sb.append("\n");
+        }
+    }
+
     public List<String> getShowStatistic() {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
 
@@ -1384,6 +1462,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     abstract String dataSourcePropertiesJsonToString();
 
     abstract String customPropertiesJsonToString();
+
+    abstract Map<String, String> getDataSourceProperties();
+
+    abstract Map<String, String> getCustomProperties();
 
     public boolean needRemove() {
         if (!isFinal()) {

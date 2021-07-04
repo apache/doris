@@ -33,6 +33,7 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
@@ -228,6 +229,8 @@ public class ShowExecutor {
             handleShowRoutineLoad();
         } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
             handleShowRoutineLoadTask();
+        } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
+            handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -1831,6 +1834,59 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+
+    private void handleShowCreateRoutineLoad() throws AnalysisException {
+        ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        String dbName = showCreateRoutineLoadStmt.getDb();
+        String labelName = showCreateRoutineLoadStmt.getLabel();
+        // if include history return all create load
+        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
+            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
+            try {
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
+                        .add("error_msg", "Routine load cannot be found by this name")
+                        .build(), e);
+            }
+            if (routineLoadJobList == null) {
+                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                return;
+            }
+            for (RoutineLoadJob job : routineLoadJobList) {
+                String tableName = "";
+                try {
+                    tableName = job.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
+                            .add("error_msg", "The table name for this routine load does not exist")
+                            .build(), e);
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        dbName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
+                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                    continue;
+                }
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+            }
+        } else {
+            // if job exists
+            RoutineLoadJob routineLoadJob;
+            try {
+                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
+                // get routine load info
+                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+            } catch (MetaNotFoundException | DdlException e) {
+                LOG.warn(e.getMessage(), e);
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
     public void handleShowSqlBlockRule() throws AnalysisException {
