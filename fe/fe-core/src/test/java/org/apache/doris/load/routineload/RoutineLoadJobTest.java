@@ -313,4 +313,36 @@ public class RoutineLoadJobTest {
         Assert.assertEquals(2, (int) beIdConcurrentTasksNum.get(1L));
     }
 
+    @Test
+    public void testGetShowCreateInfo() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
+                11, "localhost:9092", "test_topic");
+        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        String showCreateInfo = routineLoadJob.getShowCreateInfo();
+        String expect = "CREATE ROUTINE LOAD test_load ON 11\n" +
+                "WITH APPEND\n" +
+                "PROPERTIES\n" +
+                "(\n" +
+                "\"desired_concurrent_number\" = \"0\",\n" +
+                "\"max_batch_interval\" = \"10\",\n" +
+                "\"max_batch_rows\" = \"10\",\n" +
+                "\"max_batch_size\" = \"104857600\",\n" +
+                "\"max_error_number\" = \"10\",\n" +
+                "\"strict_mode\" = \"false\",\n" +
+                "\"timezone\" = \"Asia/Shanghai\",\n" +
+                "\"format\" = \"csv\",\n" +
+                "\"jsonpaths\" = \"\",\n" +
+                "\"strip_outer_array\" = \"false\",\n" +
+                "\"json_root\" = \"\"\n" +
+                ")\n" +
+                "FROM KAFKA\n" +
+                "(\n" +
+                "\"kafka_broker_list\" = \"localhost:9092\",\n" +
+                "\"kafka_topic\" = \"test_topic\"\n" +
+                ");";
+        Assert.assertEquals(expect, showCreateInfo);
+    }
+
 }
