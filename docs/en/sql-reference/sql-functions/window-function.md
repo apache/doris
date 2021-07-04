@@ -1,9 +1,9 @@
-```
+---
 {
     "title": "window function",
-    "language": "zh-CN"
+    "language": "en"
 }
-```
+---
 
 <!--  Licensed to the Apache Software Foundation (ASF) under one or more contributor license agreements.  See the NOTICE file distributed with this work for additional information regarding copyright ownership.  The ASF licenses this file to you under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.  You may obtain a copy of the License at
 
@@ -15,7 +15,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 ## Window function introduction
 
-Analysis functions are a special kind of built-in functions. Similar to the aggregation function, the analysis function also calculates a data value for multiple input rows. The difference is that the analysis function processes the input data in a specific window instead of grouping calculations according to group by. The data in each window can be sorted and grouped using the over() clause. The analysis function calculates a separate value for each row of the result set, instead of calculating a value for each group by group. This flexible way allows users to add additional columns in the select clause, giving users more opportunities to reorganize and filter the result set. Analysis functions can only appear in the select list and the outermost order by clause. In the query process, the analysis function will take effect at the end, that is, it will be executed after the join, where and group by operations are completed. Analytical functions are often used in the fields of finance and scientific computing to analyze trends, calculate outliers, and perform bucket analysis on large amounts of data.
+Analysis functions are a special kind of built-in functions. Similar to the aggregation function, the analysis function also calculates a data value for multiple input rows. The difference is that the analysis function processes the input data in a specific window instead of grouping calculations according to group by. The data in each window can be sorted and grouped using the over() clause. The analysis function calculates a separate value for each row of the result set, instead of calculating a value for each group by group. This flexible way allows users to add additional columns in the select clause, giving users more opportunities to reorganize and filter the result set. Analysis functions can only appear in the select list and the outermost order by clause. In the query process, the analysis function will take effect at the end, that is, it will be executed after the join, where and group  by operations are completed. Analytical functions are often used in the fields of finance and scientific computing to analyze trends, calculate outliers, and perform bucket analysis on large amounts of data.
 
 The syntax of the analysis function:
 
