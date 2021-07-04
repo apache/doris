@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_LITERAL_H
 #define DORIS_BE_SRC_QUERY_EXPRS_LITERAL_H
 
+#include "binary_predicate.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 
@@ -46,6 +47,7 @@ public:
 
 protected:
     friend class Expr;
+    friend Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data);
     Literal(const TExprNode& node);
 
 private:

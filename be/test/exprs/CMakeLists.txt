@@ -35,4 +35,5 @@ ADD_BE_TEST(encryption_functions_test)
 #ADD_BE_TEST(in-predicate-test)
 ADD_BE_TEST(math_functions_test)
 ADD_BE_TEST(topn_function_test)
-
+ADD_BE_TEST(runtime_filter_test)
+ADD_BE_TEST(bloom_filter_predicate_test)

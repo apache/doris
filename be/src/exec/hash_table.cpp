@@ -66,10 +66,12 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     _expr_value_null_bits = new uint8_t[_build_expr_ctxs.size()];
 
     _alloc_list.reserve(10);
+    _end_list.reserve(10);
     _current_nodes = reinterpret_cast<uint8_t*>(malloc(_current_capacity * _node_byte_size));
     // TODO: remove memset later
     memset(_current_nodes, 0, _current_capacity * _node_byte_size);
     _alloc_list.push_back(_current_nodes);
+    _end_list.push_back(_current_nodes + _current_capacity * _node_byte_size);
 
     _mem_tracker->Consume(_current_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
@@ -249,6 +251,7 @@ void HashTable::grow_node_array() {
     memset(_current_nodes, 0, alloc_size);
     // add _current_nodes to alloc pool
     _alloc_list.push_back(_current_nodes);
+    _end_list.push_back(_current_nodes + alloc_size);
 
     _mem_tracker->Consume(alloc_size);
     if (_mem_tracker->limit_exceeded()) {
