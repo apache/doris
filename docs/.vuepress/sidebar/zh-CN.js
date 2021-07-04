@@ -547,7 +547,8 @@ module.exports = [
     children: [
         "debug-tool",
         "fe-eclipse-dev",
-        "fe-idea-dev",
+        "fe-idea-dev", 
+        "be-vscode-dev",
         "format-code",
     ],
   },
