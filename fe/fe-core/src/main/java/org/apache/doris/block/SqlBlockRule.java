@@ -17,7 +17,7 @@
 
 package org.apache.doris.block;
 
-import org.apache.doris.analysis.AlterSqlBlocklistStmt;
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -50,7 +50,7 @@ public class SqlBlockRule implements Writable {
         this.name = name;
     }
 
-    public SqlBlockRule(String name, String user, String sql, boolean enable) {
+    public SqlBlockRule(String name, String user, String sql,  Boolean enable) {
         this.name = name;
         this.user = user;
         this.sql = sql;
@@ -61,7 +61,7 @@ public class SqlBlockRule implements Writable {
         return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.isEnable());
     }
 
-    public static SqlBlockRule fromAlterStmt(AlterSqlBlocklistStmt stmt) {
+    public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
         return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getEnable());
     }
 
@@ -102,10 +102,10 @@ public class SqlBlockRule implements Writable {
         Text.writeString(out, name);
         Text.writeString(out, user);
         Text.writeString(out, sql);
-        out.writeBoolean(enable);
+        Text.writeString(out, String.valueOf(enable));
     }
 
     public static SqlBlockRule read(DataInput in) throws IOException {
-        return new SqlBlockRule(Text.readString(in), Text.readString(in), Text.readString(in), in.readBoolean());
+        return new SqlBlockRule(Text.readString(in), Text.readString(in), Text.readString(in), Boolean.valueOf(Text.readString(in)));
     }
 }

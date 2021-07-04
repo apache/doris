@@ -1705,16 +1705,14 @@ show_create_routine_load_stmt ::=
 
 // Sql block rule statement
 create_sql_block_rule_stmt ::=
-    KW_CREATE KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
-    opt_properties:properties
+    KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
     ;
 
 alter_sql_block_rule_stmt ::=
-    KW_ALTER KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
-    opt_properties:properties
+    KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
