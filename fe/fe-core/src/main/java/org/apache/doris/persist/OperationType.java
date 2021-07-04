@@ -193,4 +193,9 @@ public class OperationType {
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
+
+    // sql block rule 290-300
+    public static final short OP_CREATE_SQL_BLOCK_RULE = 290;
+    public static final short OP_ALTER_SQL_BLOCK_RULE = 291;
+    public static final short OP_DROP_SQL_BLOCK_RULE = 292;
 }

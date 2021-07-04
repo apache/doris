@@ -40,6 +40,7 @@ import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
@@ -283,6 +284,12 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             if (parsedStmt instanceof QueryStmt) {
+                boolean enableSqlBlock = Config.enable_sql_block;
+                if (enableSqlBlock) {
+                    // todo:
+                    QueryStmt queryStmt = (QueryStmt) this.parsedStmt;
+                    matchSql(queryStmt);
+                }
                 context.getState().setIsQuery(true);
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
@@ -1168,6 +1175,30 @@ public class StmtExecutor implements ProfileWriter {
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    }
+
+    private void matchSql(QueryStmt queryStmt) throws AnalysisException {
+        // todo: 转义字符
+        Map<String, List<SqlBlockRule>> userToSqlBlacklistMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlacklistMap();
+        // match default rule
+        List<SqlBlockRule> defaultRules = userToSqlBlacklistMap.get(SqlBlockRule.DEFAULT_USER);
+        for (SqlBlockRule rule : defaultRules) {
+            matchSql(rule, queryStmt);
+        }
+        // match user rule
+        String user = context.getUserIdentity().getUser();
+        List<SqlBlockRule> userRules = userToSqlBlacklistMap.get(user);
+        for (SqlBlockRule rule : userRules) {
+            matchSql(rule, queryStmt);
+        }
+    }
+
+    private void matchSql(SqlBlockRule rule, QueryStmt queryStmt) throws AnalysisException {
+        String sqlPattern = rule.getSql();
+        if (queryStmt.toSql().matches(sqlPattern)) {
+            MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+            throw new AnalysisException("query match sql block rule: " + rule.getName());
+        }
     }
 }
 

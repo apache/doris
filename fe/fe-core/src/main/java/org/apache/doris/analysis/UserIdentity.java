@@ -97,6 +97,10 @@ public class UserIdentity implements Writable {
         return user;
     }
 
+    public String getUser() {
+        return user;
+    }
+
     public String getHost() {
         return host;
     }
