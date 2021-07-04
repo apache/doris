@@ -687,6 +687,47 @@ struct TAssertNumRowsNode {
     3: optional TAssertion assertion;
 }
 
+enum TRuntimeFilterType {
+  IN = 1
+  BLOOM = 2
+  MIN_MAX = 4
+}
+
+// Specification of a runtime filter.
+struct TRuntimeFilterDesc {
+  // Filter unique id (within a query)
+  1: required i32 filter_id
+
+  // Expr on which the filter is built on a hash join.
+  2: required Exprs.TExpr src_expr
+
+  // The order of Expr in join predicate
+  3: required i32 expr_order
+
+  // Map of target node id to the target expr
+  4: required map<Types.TPlanNodeId, Exprs.TExpr> planId_to_target_expr
+
+  // Indicates if the source join node of this filter is a broadcast or
+  // a partitioned join.
+  5: required bool is_broadcast_join
+
+  // Indicates if there is at least one target scan node that is in the
+  // same fragment as the broadcast join that produced the runtime filter
+  6: required bool has_local_targets
+
+  // Indicates if there is at least one target scan node that is not in the same
+  // fragment as the broadcast join that produced the runtime filter
+  7: required bool has_remote_targets
+
+  // The type of runtime filter to build.
+  8: required TRuntimeFilterType type
+
+  // The size of the filter based on the ndv estimate and the min/max limit specified in
+  // the query options. Should be greater than zero for bloom filters, zero otherwise.
+  9: optional i64 bloom_filter_size_bytes
+}
+
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -728,6 +769,8 @@ struct TPlanNode {
   33: optional TIntersectNode intersect_node
   34: optional TExceptNode except_node
   35: optional TOdbcScanNode odbc_scan_node
+  // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
+  36: optional list<TRuntimeFilterDesc> runtime_filters
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

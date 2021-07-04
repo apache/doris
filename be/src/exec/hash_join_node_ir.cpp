@@ -19,6 +19,8 @@
 #include "exec/hash_table.hpp"
 #include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -141,17 +143,29 @@ end:
 
 // when build table has too many duplicated rows, the collisions will be very serious,
 // so in some case will don't need to store duplicated value in hash table, we can build an unique one
-void HashJoinNode::process_build_batch(RowBatch* build_batch) {
+Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_batch) {
     // insert build row into our hash table
     if (_build_unique) {
         for (int i = 0; i < build_batch->num_rows(); ++i) {
-            _hash_tbl->insert_unique(build_batch->get_row(i));
+            // _hash_tbl->insert_unique(build_batch->get_row(i));
+            TupleRow* tuple_row = nullptr;
+            if (_hash_tbl->emplace_key(build_batch->get_row(i), &tuple_row)) {
+                build_batch->get_row(i)->deep_copy(tuple_row,
+                                                   child(1)->row_desc().tuple_descriptors(),
+                                                   _build_pool.get(), false);
+            }
         }
+        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     } else {
+        // take ownership of tuple data of build_batch
+        _build_pool->acquire_data(build_batch->tuple_data_pool(), false);
+        RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
+
         for (int i = 0; i < build_batch->num_rows(); ++i) {
             _hash_tbl->insert(build_batch->get_row(i));
         }
     }
+    return Status::OK();
 }
 
 } // namespace doris

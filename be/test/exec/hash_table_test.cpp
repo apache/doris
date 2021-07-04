@@ -37,10 +37,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/test_env.h"
+#include "test_util/test_util.h"
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -383,6 +383,12 @@ TEST_F(HashTableTest, GrowTableTest2) {
     }
 
     LOG(INFO) << time(NULL);
+
+    size_t counter = 0;
+    auto func = [&](TupleRow* row) { counter++; };
+    hash_table.for_each_row(func);
+    ASSERT_EQ(counter, hash_table.size());
+
     hash_table.close();
 }
 
