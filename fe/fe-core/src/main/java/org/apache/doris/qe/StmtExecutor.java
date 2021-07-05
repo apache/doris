@@ -90,6 +90,7 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -108,6 +109,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 // Do one COM_QUERY process.
@@ -1184,21 +1186,25 @@ public class StmtExecutor implements ProfileWriter {
         // match default rule
         List<SqlBlockRule> defaultRules = userToSqlBlacklistMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
         for (SqlBlockRule rule : defaultRules) {
-            matchSql(rule, queryStmt);
+            matchSql(rule, queryStmt.getOrigStmt().originStmt);
         }
         // match user rule
         String user = context.getUserIdentity().getUser();
         List<SqlBlockRule> userRules = userToSqlBlacklistMap.getOrDefault(user, new ArrayList<>());
         for (SqlBlockRule rule : userRules) {
-            matchSql(rule, queryStmt);
+            matchSql(rule, queryStmt.getOrigStmt().originStmt);
         }
     }
 
-    private void matchSql(SqlBlockRule rule, QueryStmt queryStmt) throws AnalysisException {
-        String sqlPattern = rule.getSql();
-        if (queryStmt.toSql().matches(sqlPattern)) {
-            MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-            throw new AnalysisException("query match sql block rule: " + rule.getName());
+    @VisibleForTesting
+    public static void matchSql(SqlBlockRule rule, String sql) throws AnalysisException {
+        if (rule.getEnable() != null && rule.getEnable()) {
+            String sqlPattern = rule.getSql();
+            Pattern pattern = Pattern.compile(sqlPattern);
+            if (pattern.matcher(sql).find()) {
+                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                throw new AnalysisException("query match sql block rule: " + rule.getName());
+            }
         }
     }
 }

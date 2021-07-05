@@ -30,7 +30,9 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -730,6 +732,13 @@ public class StmtExecutorTest {
         executor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testMatchSql() throws AnalysisException {
+        String sql = "select * from test_table limit 10";
+        SqlBlockRule rule = new SqlBlockRule("test_rule", "default", "select \\* from .*", true);
+        StmtExecutor.matchSql(rule, sql);
     }
 }
 

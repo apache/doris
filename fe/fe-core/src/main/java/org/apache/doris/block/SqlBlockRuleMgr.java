@@ -135,7 +135,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (StringUtils.isEmpty(sqlBlockRule.getSql())) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
-            if (sqlBlockRule.getEnable() != null) {
+            if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
             }
             Catalog.getCurrentCatalog().getEditLog().logAlterSqlBlockRule(sqlBlockRule);
@@ -156,7 +156,6 @@ public class SqlBlockRuleMgr implements Writable {
         sqlBlockRules.removeIf(rule -> sqlBlockRule.getName().equals(rule.getName()));
         sqlBlockRules.add(sqlBlockRule);
         userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
-        LOG.info("userToSqlBlockRuleMap={}", userToSqlBlockRuleMap);
     }
 
     public void unprotectedAdd(SqlBlockRule sqlBlockRule) {
@@ -202,7 +201,9 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void unprotectedDrop(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.remove(sqlBlockRule.getName());
-        userToSqlBlockRuleMap.remove(sqlBlockRule.getUser());
+        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.get(sqlBlockRule.getUser());
+        sqlBlockRules.removeIf(rule -> sqlBlockRule.getName().equals(rule.getName()));
+        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
     }
 
     public Map<String, List<SqlBlockRule>> getUserToSqlBlockRuleMap() {
