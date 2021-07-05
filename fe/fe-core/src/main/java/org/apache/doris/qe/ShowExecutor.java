@@ -124,6 +124,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -654,16 +655,16 @@ public class ShowExecutor {
                 // Auto_increment
                 row.add(null);
                 // Create_time
-                row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getCreateTime() * 1000)));
+                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
                 // Update_time
                 if (table.getUpdateTime() > 0) {
-                    row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getUpdateTime())));
+                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
                 } else {
                     row.add(null);
                 }
                 // Check_time
                 if (table.getLastCheckTime() > 0) {
-                    row.add(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(table.getLastCheckTime() * 1000)));
+                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime() * 1000));
                 } else {
                     row.add(null);
                 }
