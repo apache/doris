@@ -182,6 +182,7 @@ module.exports = [
       "privilege",
       "resource-management",
       "running-profile",
+      "runtime-filter",
       "small-file-mgr",
       "sql-mode",
       "time-zone",
