@@ -43,7 +43,6 @@ under the License.
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
     apache/incubator-doris   build-env-1.3           ca207367c09f        21 hours ago        3.28GB
     ```
-    
 
 注: 针对不同的 Doris 版本，需要下载对应的镜像版本
 
@@ -54,7 +53,27 @@ under the License.
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 后续的发布版本 |
 
-注意: doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3。**在build-env-1.3的docker镜像中，默认的JDK的版本升级到了11，所以FE将会使用OpenJDK 11进行编译。如果使用build-env-1.3之后的docker镜像进行FE编译的话，后续运行FE的Java版本也需要同时升级到JDK11，否则可能导致非预期的运行错误。**
+**注意**：
+
+> 1. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3。
+
+> 2. 在 build-env-1.3 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
+> 
+>   切换到 JDK 8：
+>   
+>   ```
+>   $ alternatives --set java java-1.8.0-openjdk.x86_64
+>   $ alternatives --set javac java-1.8.0-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+>   ```
+>
+>   切换到 JDK 11：
+>   
+>   ```
+>   $ alternatives --set java java-11-openjdk.x86_64
+>   $ alternatives --set javac java-11-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-11
+>   ```
 
 2. 运行镜像
 
@@ -65,7 +84,7 @@ under the License.
     同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.3
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3
     ```
     
 3. 下载源码
@@ -85,7 +104,6 @@ under the License.
     ```
     
     编译完成后，产出文件在 `output/` 目录中。
-    
 ### 自行编译开发环境镜像
 
 你也可以自己创建一个 Doris 开发环境镜像，具体可参阅 `docker/README.md` 文件。
@@ -96,7 +114,7 @@ under the License.
 你可以在自己的 linux 环境中直接尝试编译 Doris。
 
 1. 系统依赖
-不同的版本依赖也不相同 
+   不同的版本依赖也不相同 
    * 在 [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) 之前版本依赖如下：
 
       `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+     Bison 3.0+`
@@ -119,8 +137,9 @@ under the License.
       sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
       sudo apt update
       sudo apt install gcc-10 g++-10 
+      sudo apt-get install autoconf automake libtool autopoint
       ```
-   
+      
       如果是CentOS 可以执行以下命令
       ```
       sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
@@ -137,7 +156,7 @@ under the License.
       gpgcheck=1
       enabled=1
       ```
-
+   
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
     注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
 2. 编译 Doris

@@ -45,7 +45,7 @@ This document focuses on how to code Doris through source code.
     apache/incubator-doris   build-env-1.3           ca207367c09f        21 hours ago        3.28GB
     ```
 
-Note: For different versions of Oris, you need to download the corresponding mirror version.
+Note: For different versions of Doris, you need to download the corresponding mirror version.
 
 | image version | commit id | release version |
 |---|---|---|
@@ -54,7 +54,27 @@ Note: For different versions of Oris, you need to download the corresponding mir
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
 
-Warning: Doris 0.14.0 still used apache/incubator-doris:build-env-1.2 to compile.  After thie version, the code will use apache/incubator-doris:build-env-1.3 to compile . **In the docker image of build-env-1.3, the default JDK version is upgraded to 11. So FE will use OPENJDK 11 to compile. If the docker image after build-env-1.3 is used for compilation of FE, the Java version of FE running env also needs to be upgraded to JDK11, Otherwise unexpected running errors may be caused. **
+**note**:
+
+> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.
+
+> 2. In the docker image of build-env-1.3, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
+>
+>   Switch to JDK 8:
+>   
+>   ```
+>   $ alternatives --set java java-1.8.0-openjdk.x86_64
+>   $ alternatives --set javac java-1.8.0-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+>   ```
+>   
+>   Switch to JDK 11:
+>   
+>   ```
+>   $ alternatives --set java java-11-openjdk.x86_64
+>   $ alternatives --set javac java-11-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-11
+>   ```
 
 2. Running Mirror
 
@@ -119,6 +139,7 @@ You can try to compile Doris directly in your own Linux environment.
        sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
        sudo apt update
        sudo apt install gcc-10 g++-10 
+       sudo apt-get install autoconf automake libtool autopoint
        ```
         If you are using CentOS you can use the following command to install the dependencies
     
@@ -137,9 +158,9 @@ You can try to compile Doris directly in your own Linux environment.
        gpgcheck=1
        enabled=1
        ```
-    After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
-    Doris 0.14.0 will use gcc7 env to compile.
-
+       After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+       Doris 0.14.0 will use gcc7 env to compile.
+    
 2. Compile Doris
 
     ```
@@ -152,7 +173,6 @@ You can try to compile Doris directly in your own Linux environment.
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
     If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
-	
 ## Special statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.

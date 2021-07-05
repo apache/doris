@@ -105,7 +105,7 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public Expr clone() {
+    public InPredicate clone() {
         return new InPredicate(this);
     }
 
@@ -212,15 +212,35 @@ public class InPredicate extends Predicate {
 
         Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
         Reference<Integer> idxRef = new Reference<Integer>();
-        if (isSingleColumnPredicate(slotRefRef,
-          idxRef) && idxRef.getRef() == 0 && slotRefRef.getRef().getNumDistinctValues() > 0) {
-            selectivity =
-              (double) (getChildren().size() - 1) / (double) slotRefRef.getRef()
-                .getNumDistinctValues();
+        if (isSingleColumnPredicate(slotRefRef, idxRef)
+                && idxRef.getRef() == 0 && slotRefRef.getRef().getNumDistinctValues() > 0) {
+            selectivity = (double) (getChildren().size() - 1) / (double) slotRefRef.getRef()
+                    .getNumDistinctValues();
             selectivity = Math.max(0.0, Math.min(1.0, selectivity));
         } else {
             selectivity = Expr.DEFAULT_SELECTIVITY;
         }
+    }
+
+    public InPredicate union(InPredicate inPredicate) {
+        Preconditions.checkState(inPredicate.isLiteralChildren());
+        Preconditions.checkState(this.isLiteralChildren());
+        Preconditions.checkState(getChild(0).equals(inPredicate.getChild(0)));
+        List<Expr> unionChildren = new ArrayList<>(getListChildren());
+        unionChildren.removeAll(inPredicate.getListChildren());
+        unionChildren.addAll(inPredicate.getListChildren());
+        InPredicate union = new InPredicate(getChild(0), unionChildren, isNotIn);
+        return union;
+    }
+
+    public InPredicate intersection(InPredicate inPredicate) {
+        Preconditions.checkState(inPredicate.isLiteralChildren());
+        Preconditions.checkState(this.isLiteralChildren());
+        Preconditions.checkState(getChild(0).equals(inPredicate.getChild(0)));
+        List<Expr> intersectChildren = new ArrayList<>(getListChildren());
+        intersectChildren.retainAll(inPredicate.getListChildren());
+        InPredicate intersection = new InPredicate(getChild(0), intersectChildren, isNotIn);
+        return intersection;
     }
 
     @Override

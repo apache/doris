@@ -591,13 +591,10 @@ bool Tablet::check_version_exist(const Version& version) const {
     return false;
 }
 
-void Tablet::list_versions(vector<Version>* versions) const {
-    DCHECK(versions != nullptr && versions->empty());
-
-    versions->reserve(_rs_version_map.size());
-    // versions vector is not sorted.
+// The meta read lock should be held before calling
+void Tablet::acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
     for (const auto& it : _rs_version_map) {
-        versions->push_back(it.first);
+        version_rowsets->emplace_back(it.first, it.second);
     }
 }
 
@@ -947,8 +944,6 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
 // NOTE: only used when create_table, so it is sure that there is no concurrent reader and writer.
 void Tablet::delete_all_files() {
     // Release resources like memory and disk space.
-    // we have to call list_versions first, or else error occurs when
-    // removing hash_map item and iterating hash_map concurrently.
     ReadLock rdlock(&_meta_lock);
     for (auto it : _rs_version_map) {
         it.second->remove();

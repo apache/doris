@@ -118,6 +118,8 @@ public:
         }
     }
 
+    bool IR_ALWAYS_INLINE emplace_key(TupleRow* row, TupleRow** key_addr);
+
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
     // to find all the matching rows.
@@ -169,6 +171,8 @@ public:
     // skipped.  If build_desc is non-null, the build rows will be output.  Otherwise
     // just the build row addresses.
     std::string debug_string(bool skip_empty, const RowDescriptor* build_desc);
+
+    inline std::pair<int64_t, int64_t> minmax_node();
 
     // stl-like iterator interface.
     class Iterator {
@@ -233,6 +237,27 @@ public:
         uint32_t _scan_hash;
     };
 
+    template <class Func>
+    void for_each_row(Func&& func) {
+        size_t sz = _alloc_list.size();
+        DCHECK_GT(sz, 0);
+        for (size_t i = 0; i < sz - 1; ++i) {
+            uint8_t* start = _alloc_list[i];
+            uint8_t* end = _end_list[i];
+            while (start < end) {
+                auto node = reinterpret_cast<Node*>(start);
+                func(node->data());
+                start += _node_byte_size;
+            }
+        }
+        uint8_t* last_st = _alloc_list[sz - 1];
+        for (size_t i = 0; i < _current_used; ++i) {
+            auto node = reinterpret_cast<Node*>(last_st);
+            func(node->data());
+            last_st += _node_byte_size;
+        }
+    }
+
 private:
     friend class Iterator;
     friend class HashTableTest;
@@ -254,8 +279,9 @@ private:
     };
 
     struct Bucket {
-        Bucket() { _node = nullptr; }
+        Bucket() : _node(nullptr), _size(0) {}
         Node* _node;
+        uint64_t _size;
     };
 
     // Returns the next non-empty bucket and updates idx to be the index of that bucket.
@@ -389,6 +415,8 @@ private:
     uint8_t* _expr_value_null_bits;
     // node buffer list
     std::vector<uint8_t*> _alloc_list;
+    // node buffer end pointer
+    std::vector<uint8_t*> _end_list;
 };
 
 } // namespace doris

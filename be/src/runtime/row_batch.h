@@ -70,7 +70,6 @@ class PRowBatch;
 //
 // A row batch is considered at capacity if all the rows are full or it has accumulated
 // auxiliary memory up to a soft cap. (See _at_capacity_mem_usage comment).
-// TODO: stick _tuple_ptrs into a pool?
 class RowBatch : public RowBatchInterface {
 public:
     /// Flag indicating whether the resources attached to a RowBatch need to be flushed.
@@ -414,22 +413,14 @@ private:
     int _num_tuples_per_row;
     RowDescriptor _row_desc;
 
-    // Array of pointers with _capacity * _num_tuples_per_row elements.
+    // Memory is allocated from MemPool, need to investigate the repercussions.
+    //
+    // In the past, there were malloc'd and MemPool memory allocation methods. 
+    // Malloc'd memory belongs to RowBatch itself, and the latter belongs to MemPool management. 
     // The memory ownership depends on whether legacy joins and aggs are enabled.
     //
-    // Memory is malloc'd and owned by RowBatch:
-    // If enable_partitioned_hash_join=true and enable_partitioned_aggregation=true
-    // then the memory is owned by this RowBatch and is freed upon its destruction.
-    // This mode is more performant especially with SubplanNodes in the ExecNode tree
-    // because the tuple pointers are not transferred and do not have to be re-created
-    // in every Reset().
-    //
-    // Memory is allocated from MemPool:
-    // Otherwise, the memory is allocated from _tuple_data_pool. As a result, the
-    // pointer memory is transferred just like tuple data, and must be re-created
-    // in Reset(). This mode is required for the legacy join and agg which rely on
-    // the tuple pointers being allocated from the _tuple_data_pool, so they can
-    // acquire ownership of the tuple pointers.
+    // At present, it is allocated from MemPool uniformly, and tuple pointers are not transferred 
+    // and do not have to be re-created in every Reset(), which has better performance.
     Tuple** _tuple_ptrs;
     int _tuple_ptrs_size;
 

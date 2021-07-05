@@ -194,6 +194,26 @@ struct FileDescriptorMetrics {
     IntGauge* fd_num_used;
 };
 
+#define DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(metric)                                     \
+    DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(load_average_##metric, MetricUnit::NOUNIT, "", \
+                                       load_average, Labels({{"mode", #metric}}));
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(1_minutes);
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(5_minutes);
+DEFINE_LOAD_AVERAGE_DOUBLE_METRIC(15_minutes);
+
+struct LoadAverageMetrics {
+    LoadAverageMetrics(MetricEntity* ent) : entity(ent) {
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_1_minutes);
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_5_minutes);
+        INT_DOUBLE_METRIC_REGISTER(entity, load_average_15_minutes);
+    }
+
+    MetricEntity* entity = nullptr;
+    DoubleGauge* load_average_1_minutes;
+    DoubleGauge* load_average_5_minutes;
+    DoubleGauge* load_average_15_minutes;
+};
+
 const char* SystemMetrics::_s_hook_name = "system_metrics";
 
 SystemMetrics::SystemMetrics(MetricRegistry* registry, const std::set<std::string>& disk_devices,
@@ -209,6 +229,7 @@ SystemMetrics::SystemMetrics(MetricRegistry* registry, const std::set<std::strin
     _install_net_metrics(network_interfaces);
     _install_fd_metrics(_server_entity.get());
     _install_snmp_metrics(_server_entity.get());
+    _install_load_avg_metrics(_server_entity.get());
 }
 
 SystemMetrics::~SystemMetrics() {
@@ -233,6 +254,7 @@ void SystemMetrics::update() {
     _update_net_metrics();
     _update_fd_metrics();
     _update_snmp_metrics();
+    _update_load_avg_metrics();
 }
 
 void SystemMetrics::_install_cpu_metrics(MetricEntity* entity) {
@@ -245,6 +267,7 @@ const char* k_ut_diskstats_path;
 const char* k_ut_net_dev_path;
 const char* k_ut_fd_path;
 const char* k_ut_net_snmp_path;
+const char* k_ut_load_avg_path;
 #endif
 
 void SystemMetrics::_update_cpu_metrics() {
@@ -595,6 +618,42 @@ void SystemMetrics::_update_fd_metrics() {
         if (num == 3) {
             _fd_metrics->fd_num_limit->set_value(values[2]);
             _fd_metrics->fd_num_used->set_value(values[0] - values[1]);
+        }
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemMetrics::_install_load_avg_metrics(MetricEntity* entity) {
+    _load_average_metrics.reset(new LoadAverageMetrics(entity));
+}
+
+void SystemMetrics::_update_load_avg_metrics() {
+#ifdef BE_TEST
+    FILE* fp = fopen(k_ut_load_avg_path, "r");
+#else
+    FILE* fp = fopen("/proc/loadavg", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/loadavg failed, errno=" << errno
+                     << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    double values[3];
+    if (getline(&_line_ptr, &_line_buf_size, fp) > 0) {
+        memset(values, 0, sizeof(values));
+        int num = sscanf(_line_ptr, "%lf %lf %lf", &values[0], &values[1], &values[2]);
+        if (num == 3) {
+            _load_average_metrics->load_average_1_minutes->set_value(values[0]);
+            _load_average_metrics->load_average_5_minutes->set_value(values[1]);
+            _load_average_metrics->load_average_15_minutes->set_value(values[2]);
         }
     }
 

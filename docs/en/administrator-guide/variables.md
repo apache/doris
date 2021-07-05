@@ -388,3 +388,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     In a sort query, when an upper level node receives the ordered data of the lower level node, it will sort the corresponding data on the exchange node to ensure that the final data is ordered. However, when a single thread merges multiple channels of data, if the amount of data is too large, it will lead to a single point of exchange node merge bottleneck.
 
     Doris optimizes this part if there are too many data nodes in the lower layer. Exchange node will start multithreading for parallel merging to speed up the sorting process. This parameter is false by default, which means that exchange node does not adopt parallel merge sort to reduce the extra CPU and memory consumption.
+
+* `extract_wide_range_expr`
+
+    Used to control whether turn on the 'Wide Common Factors' rule. The value has two: true or false. On by default.

@@ -83,6 +83,15 @@ public:
     void clear_cache(google::protobuf::RpcController* controller, const PClearCacheRequest* request,
                      PCacheResponse* response, google::protobuf::Closure* done) override;
 
+    void merge_filter(::google::protobuf::RpcController* controller,
+                      const ::doris::PMergeFilterRequest* request,
+                      ::doris::PMergeFilterResponse* response,
+                      ::google::protobuf::Closure* done) override;
+    void apply_filter(::google::protobuf::RpcController* controller,
+                      const ::doris::PPublishFilterRequest* request,
+                      ::doris::PPublishFilterResponse* response,
+                      ::google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request);
 
