@@ -153,4 +153,24 @@ public class TupleIsNullPredicate extends Predicate {
     public String toSqlImpl() {
         return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";
     }
+
+    /**
+     * Recursive function that replaces all 'IF(TupleIsNull(), NULL, e)' exprs in
+     * 'expr' with e and returns the modified expr.
+     */
+    public static Expr unwrapExpr(Expr expr)  {
+        if (expr instanceof FunctionCallExpr) {
+            FunctionCallExpr fnCallExpr = (FunctionCallExpr) expr;
+            List<Expr> params = fnCallExpr.getParams().exprs();
+            if (fnCallExpr.getFnName().getFunction().equals("if") &&
+                    params.get(0) instanceof TupleIsNullPredicate &&
+                    Expr.IS_NULL_LITERAL.apply(params.get(1))) {
+                return unwrapExpr(params.get(2));
+            }
+        }
+        for (int i = 0; i < expr.getChildren().size(); ++i) {
+            expr.setChild(i, unwrapExpr(expr.getChild(i)));
+        }
+        return expr;
+    }
 }

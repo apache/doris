@@ -427,7 +427,6 @@ public class DistributedPlanner {
             node.setChild(0, leftChildFragment.getPlanRoot());
             connectChildFragment(node, 1, leftChildFragment, rightChildFragment);
             leftChildFragment.setPlanRoot(node);
-
             return leftChildFragment;
         } else {
             node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
@@ -472,8 +471,6 @@ public class DistributedPlanner {
             rightChildFragment.setDestination(rhsExchange);
             rightChildFragment.setOutputPartition(rhsJoinPartition);
 
-            // TODO: Before we support global runtime filter, only shuffle join do not enable local runtime filter
-            node.setIsPushDown(false);
             return joinFragment;
         }
     }
