@@ -2003,3 +2003,10 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 默认值：30
 
 如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
+
+
+### `default_max_query_instances`
+
+默认值：-1
+
+用户属性max_query_instances小于等于0时，使用该配置，用来限制单个用户同一时刻可使用的查询instance个数。该参数小于等于0表示无限制。

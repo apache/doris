@@ -39,8 +39,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,13 +56,13 @@ import java.util.regex.Pattern;
  * This user is just qualified by cluster name, not host which it connected from.
  */
 public class UserProperty implements Writable {
-    private static final Logger LOG = LogManager.getLogger(UserProperty.class);
 
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
     private static final String PROP_RESOURCE = "resource";
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
+    private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -74,6 +72,9 @@ public class UserProperty implements Writable {
     private String qualifiedUser;
 
     private long maxConn = 100;
+
+    private long maxQueryInstances = -1;
+
     // Resource belong to this user.
     private UserResource resource = new UserResource(1000);
     // load cluster
@@ -101,6 +102,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -121,6 +123,10 @@ public class UserProperty implements Writable {
 
     public long getMaxConn() {
         return maxConn;
+    }
+
+    public long getMaxQueryInstances() {
+        return maxQueryInstances;
     }
 
     public WhiteList getWhiteList() {
@@ -164,6 +170,7 @@ public class UserProperty implements Writable {
     public void update(List<Pair<String, String>> properties) throws DdlException {
         // copy
         long newMaxConn = maxConn;
+        long newMaxQueryInstances = maxQueryInstances;
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -237,6 +244,17 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
+                // set property "max_query_instances" = "1000"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " format error");
+                }
+
+                try {
+                    newMaxQueryInstances = Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
+                }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -244,6 +262,7 @@ public class UserProperty implements Writable {
 
         // set
         maxConn = newMaxConn;
+        maxQueryInstances = newMaxQueryInstances;
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -327,6 +346,9 @@ public class UserProperty implements Writable {
 
         // max user connections
         result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(maxConn)));
+
+        // max query instance
+        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(maxQueryInstances)));
 
         // resource
         ResourceGroup group = resource.getResource();
@@ -427,6 +449,7 @@ public class UserProperty implements Writable {
         }
 
         whiteList.write(out);
+        out.writeLong(maxQueryInstances);
     }
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
@@ -501,6 +524,10 @@ public class UserProperty implements Writable {
                     Text.readString(in);
                 }
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+            maxQueryInstances = in.readLong();
         }
     }
 }

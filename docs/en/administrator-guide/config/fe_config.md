@@ -1997,3 +1997,10 @@ Load label cleaner will run every *label_clean_interval_second* to clean the out
 Default：30
 
 the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted  we should make this interval as short as possible and each clean cycle as soon as possible
+
+
+### `default_max_query_instances`
+
+The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
+
+The default value is -1。
