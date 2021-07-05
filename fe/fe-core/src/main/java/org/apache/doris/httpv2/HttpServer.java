@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2;
 
+import org.apache.doris.PaloFe;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -83,6 +84,7 @@ public class HttpServer extends SpringBootServletInitializer {
         // This is to disable the spring-boot-devtools restart feature.
         // To avoid some unexpected behavior.
         System.setProperty("spring.devtools.restart.enabled", "false");
+        System.setProperty("JETTY_BASE", PaloFe.DORIS_HOME_DIR);
         properties.put("logging.config", dorisHome + "/conf/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
