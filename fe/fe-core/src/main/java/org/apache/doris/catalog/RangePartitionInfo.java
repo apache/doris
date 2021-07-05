@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
@@ -61,6 +62,19 @@ public class RangePartitionInfo extends PartitionInfo {
 
         Preconditions.checkNotNull(newRange);
         return new RangePartitionItem(newRange);
+    }
+
+    @Override
+    public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
+        Map<Long, PartitionItem> tmpMap = idToItem;
+        if (isTemp) {
+            tmpMap = idToTempItem;
+        }
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
     }
 
     // create a new range and check it.
