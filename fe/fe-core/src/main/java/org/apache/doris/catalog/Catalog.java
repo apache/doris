@@ -1966,6 +1966,7 @@ public class Catalog {
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
+            checksum = saveSqlBlockRule(dos, checksum);
             dos.writeLong(checksum);
         }
 
@@ -2215,6 +2216,11 @@ public class Catalog {
 
     private long saveSmallFiles(DataOutputStream out, long checksum) throws IOException {
         smallFileMgr.write(out);
+        return checksum;
+    }
+
+    public long saveSqlBlockRule(DataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getSqlBlocklistMgr().write(out);
         return checksum;
     }
 
