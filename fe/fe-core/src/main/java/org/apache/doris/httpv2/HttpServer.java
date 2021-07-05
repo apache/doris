@@ -78,7 +78,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
         properties.put("server.jetty.selectors", this.selectors);
         //Worker thread pool is not set by default, set according to your needs
-        if(this.workers <= 0) {
+        if(this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
         }
         // This is to disable the spring-boot-devtools restart feature.

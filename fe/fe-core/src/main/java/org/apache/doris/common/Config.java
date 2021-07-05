@@ -343,9 +343,9 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
     /**
-     * jetty Maximum number of bytes in put or post method,default:2G
+     * jetty Maximum number of bytes in put or post method,default:100MB
      */
-    @ConfField public static int jetty_server_max_http_post_size = 2 * 1024 * 1024 * 1024;
+    @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
     /**
      * The backlog_num for mysql nio server

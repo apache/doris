@@ -200,9 +200,9 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 ### jetty_server_max_http_post_size
 
-默认值：2 * 1024 * 1024 * 1024  （2G）
+默认值：100 * 1024 * 1024  （100MB）
 
-这个是put或post方法上传文件的最大字节数，默认值：2G
+这个是put或post方法上传文件的最大字节数，默认值：100MB
 
 ### default_max_filter_ratio
 
