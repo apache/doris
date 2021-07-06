@@ -318,7 +318,7 @@ public class ReportHandler extends Daemon {
         }
 
         long end = System.currentTimeMillis();
-        LOG.info("tablet report from backend[{}] cost: {} ms", backendId, (end - start));
+        LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
