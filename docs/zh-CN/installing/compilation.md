@@ -41,7 +41,7 @@ under the License.
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.3           ca207367c09f        21 hours ago        3.28GB
+    apache/incubator-doris   build-env-1.3           49f68cecbc1a        4 days ago          3.76GB
     ```
 
 注: 针对不同的 Doris 版本，需要下载对应的镜像版本
