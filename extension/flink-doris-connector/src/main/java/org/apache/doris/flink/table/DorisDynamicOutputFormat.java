@@ -118,7 +118,8 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         GenericRowData rowData = (GenericRowData) row;
         for(int i = 0; i < row.getArity(); ++i) {
-            value.add(rowData.getField(i).toString());
+            String field = rowData.getField(i) == null ? "" : rowData.getField(i).toString();
+            value.add(field);
         }
         batch.add(value.toString());
     }
