@@ -304,7 +304,7 @@ nonterminal ValueList value_clause;
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
             charset, equal, transaction_characteristics, isolation_level,
-            transaction_access_mode, isolation_types, sql_no_cache;
+            transaction_access_mode, isolation_types, opt_sql_no_cache;
 
 // String
 nonterminal String user, opt_user;
@@ -3477,17 +3477,17 @@ expr_or_default ::=
     ;
 
 select_clause ::=
-    KW_SELECT sql_no_cache opt_select_hints:hints select_list:l
+    KW_SELECT opt_sql_no_cache opt_select_hints:hints select_list:l
     {:
         l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT sql_no_cache opt_select_hints:hints KW_ALL select_list:l
+    | KW_SELECT opt_sql_no_cache opt_select_hints:hints KW_ALL select_list:l
     {:
         l.setOptHints(hints);
         RESULT = l;
     :}
-    | KW_SELECT sql_no_cache opt_select_hints:hints KW_DISTINCT select_list:l
+    | KW_SELECT opt_sql_no_cache opt_select_hints:hints KW_DISTINCT select_list:l
     {:
         l.setOptHints(hints);
         l.setIsDistinct(true);
@@ -3509,7 +3509,7 @@ select_hints_list ::=
     :}
     ;
 
-sql_no_cache ::=
+opt_sql_no_cache ::=
   KW_SQL_NO_CACHE
   |
   ;
