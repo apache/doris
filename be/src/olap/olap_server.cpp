@@ -171,6 +171,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         // 此时的特性，当usage<60%时，curr_interval的时间接近max_interval，
         // 当usage > 80%时，curr_interval接近min_interval
         curr_interval = std::max(curr_interval, min_interval);
+        curr_interval = std::min(curr_interval, max_interval);
 
         // 开始清理，并得到清理后的磁盘使用率
         OLAPStatus res = _start_trash_sweep(&usage);
