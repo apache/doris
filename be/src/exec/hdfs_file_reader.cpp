@@ -30,9 +30,7 @@ HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params, const std::string& path,
           _file_size(-1),
           _hdfs_fs(nullptr),
           _hdfs_file(nullptr) {
-    std::stringstream namenode_ss;
-    namenode_ss << "hdfs://" << _hdfs_params.host << ":" << _hdfs_params.port;
-    _namenode = namenode_ss.str();
+    _namenode = _hdfs_params.fs_name;
 }
 
 HdfsFileReader::~HdfsFileReader() {

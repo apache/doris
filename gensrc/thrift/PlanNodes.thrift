@@ -114,8 +114,7 @@ struct THdfsConf {
 }
 
 struct THdfsParams {
-    1: optional string host
-    2: optional i32 port
+    1: optional string fs_name
     3: optional string user
     4: optional string kerb_principal
     5: optional string kerb_ticket_cache_path
