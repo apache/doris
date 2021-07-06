@@ -119,7 +119,8 @@ public:
     // @return error code
     OLAPStatus obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
                                  DataDir** store);
-
+    // 清理trash和snapshot文件，返回清理后的磁盘使用量
+    OLAPStatus start_trash_sweep();
     // Load new tablet to make it effective.
     //
     // @param [in] root_path specify root path of new tablet

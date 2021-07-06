@@ -642,6 +642,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
+    double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
         LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
@@ -649,7 +650,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
         }
 
         double curr_usage = (double)(info.disk_capacity - info.available) / info.disk_capacity;
-        *usage = *usage > curr_usage ? *usage : curr_usage;
+        tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
         string snapshot_path = info.path + SNAPSHOT_PREFIX;
@@ -669,6 +670,10 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
         }
     }
 
+    if (usage != nullptr) {
+        *usage = tmp_usage;
+    }
+
     // clear expire incremental rowset, move deleted tablet to trash
     _tablet_manager->start_trash_sweep();
 
@@ -679,6 +684,10 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     _clean_unused_rowset_metas();
 
     return res;
+}
+
+OLAPStatus StorageEngine::start_trash_sweep() {
+    return _start_trash_sweep(nullptr);
 }
 
 void StorageEngine::_clean_unused_rowset_metas() {
