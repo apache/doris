@@ -119,8 +119,7 @@ public:
     // @return error code
     OLAPStatus obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
                                  DataDir** store);
-    // 清理trash和snapshot文件，返回清理后的磁盘使用量
-    OLAPStatus start_trash_sweep();
+
     // Load new tablet to make it effective.
     //
     // @param [in] root_path specify root path of new tablet
@@ -249,8 +248,10 @@ private:
     vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
                                                        std::vector<DataDir*>& data_dirs,
                                                        bool check_score);
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
-    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+                                                CompactionType compaction_type);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
+                                               CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 

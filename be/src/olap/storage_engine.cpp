@@ -686,10 +686,6 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     return res;
 }
 
-OLAPStatus StorageEngine::start_trash_sweep() {
-    return _start_trash_sweep(nullptr);
-}
-
 void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,

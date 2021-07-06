@@ -158,15 +158,15 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
 
     const double pi = M_PI;
     double usage = 0.0;
-    // After the program starts, the first round of cleaning starts after min_interval
+    // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(curr_interval))) {
         // Function properties:
-        // when usage < 0.6, ratio close to 1.(close to max_interval)
-        // when usage at [0.6, 0.75], ratio from 0.87 to 0.27 rapidly.
-        // when usage > 0.75, ratio is slowly decreasing.
-        // when usage > 0.8, ratio is close to min_interval.
-        // when usage = 0.88, ratio is approximately 0.0057.
+        // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
+        // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
+        // when usage > 0.75,         ratio is slowly decreasing.
+        // when usage > 0.8,          ratio close to min_interval.
+        // when usage = 0.88,         ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
         uint32_t curr_interval = max_interval * ratio;
