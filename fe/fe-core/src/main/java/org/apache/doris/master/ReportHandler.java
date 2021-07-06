@@ -779,10 +779,6 @@ public class ReportHandler extends Daemon {
 
     private static void handleRecoverTablet(ListMultimap<Long, Long> tabletRecoveryMap,
                                             Map<Long, TTablet> backendTablets, long backendId) {
-        if (tabletRecoveryMap.isEmpty()) {
-            return;
-        }
-
         // print a warn log here to indicate the exceptions on the backend
         LOG.warn("find {} tablets on backend {} which is bad or misses versions that need clone or force recovery",
                 tabletRecoveryMap.size(), backendId);
