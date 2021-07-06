@@ -157,23 +157,23 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     }
 
     const double pi = M_PI;
-    double usage = 1.0;
-    // 程序启动后经过min_interval后触发第一轮扫描
+    double usage = 0.0;
+    // After the program starts, the first round of cleaning starts after min_interval
     uint32_t curr_interval = min_interval;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(curr_interval))) {
-        // 该函数特性：当磁盘使用率<60%的时候，ratio接近于1；
-        // 当使用率介于[60%, 75%]之间时，ratio急速从0.87降到0.27；
-        // 当使用率大于75%时，ratio值开始缓慢下降
-        // 当usage=90%时，ratio约为0.0057
+        // Function properties:
+        // when usage < 0.6, ratio close to 1.(close to max_interval)
+        // when usage at [0.6, 0.75], ratio from 0.87 to 0.27 rapidly.
+        // when usage > 0.75, ratio is slowly decreasing.
+        // when usage > 0.8, ratio is close to min_interval.
+        // when usage = 0.88, ratio is approximately 0.0057.
         double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
         uint32_t curr_interval = max_interval * ratio;
-        // 此时的特性，当usage<60%时，curr_interval的时间接近max_interval，
-        // 当usage > 80%时，curr_interval接近min_interval
         curr_interval = std::max(curr_interval, min_interval);
         curr_interval = std::min(curr_interval, max_interval);
 
-        // 开始清理，并得到清理后的磁盘使用率
+        // start clean trash and update usage.
         OLAPStatus res = _start_trash_sweep(&usage);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING(
