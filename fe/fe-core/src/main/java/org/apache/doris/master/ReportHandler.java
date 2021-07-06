@@ -69,7 +69,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
-import org.apache.doris.thrift.TTabletMetaType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.LinkedListMultimap;
@@ -77,7 +76,6 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
@@ -262,8 +260,6 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
-        Set<Pair<Long, Integer>> tabletWithoutPartitionId = Sets.newHashSet();
-
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
                 tabletSyncMap,
@@ -273,35 +269,45 @@ public class ReportHandler extends Daemon {
                 tabletMigrationMap,
                 transactionsToPublish,
                 transactionsToClear,
-                tabletRecoveryMap,
-                tabletWithoutPartitionId);
+                tabletRecoveryMap);
 
         // 2. sync
-        sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
+        if (!tabletSyncMap.isEmpty()) {
+            sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
+        }
 
         // 3. delete (meta - be)
         // BE will automatically drop defective tablets. these tablets should also be dropped in catalog
-        deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion);
+        if (!tabletDeleteFromMeta.isEmpty()) {
+            deleteFromMeta(tabletDeleteFromMeta, backendId, backendReportVersion);
+        }
 
         // 4. handle (be - meta)
-        deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
+        if (foundTabletsWithValidSchema.size() != backendTablets.size()) {
+            deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
+        }
 
         // 5. migration (ssd <-> hdd)
-        handleMigration(tabletMigrationMap, backendId);
+        if (!tabletMigrationMap.isEmpty()) {
+            handleMigration(tabletMigrationMap, backendId);
+        }
 
         // 6. send clear transactions to be
-        handleClearTransactions(transactionsToClear, backendId);
+        if (!transactionsToClear.isEmpty()) {
+            handleClearTransactions(transactionsToClear, backendId);
+        }
 
         // 7. send publish version request to be
-        handleRepublishVersionInfo(transactionsToPublish, backendId);
+        if (!transactionsToPublish.isEmpty()) {
+            handleRepublishVersionInfo(transactionsToPublish, backendId);
+        }
 
         // 8. send recover request to be
-        handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId);
+        if (!tabletRecoveryMap.isEmpty()) {
+            handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId);
+        }
 
-        // 9. send set tablet partition info to be
-        handleSetTabletPartitionId(backendId, tabletWithoutPartitionId);
-
-        // 10. send set tablet in memory to be
+        // 9. send set tablet in memory to be
         handleSetTabletInMemory(backendId, backendTablets);
 
         final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
@@ -660,42 +666,9 @@ public class ReportHandler extends Daemon {
         int deleteFromBackendCounter = 0;
         int addToMetaCounter = 0;
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (Long tabletId : backendTablets.keySet()) {
-            TTablet backendTablet = backendTablets.get(tabletId);
-            for (TTabletInfo backendTabletInfo : backendTablet.getTabletInfos()) {
-                boolean needDelete = false;
-                if (!foundTabletsWithValidSchema.contains(tabletId)) {
-                    if (isBackendReplicaHealthy(backendTabletInfo)) {
-                        // if this tablet is not in meta. try adding it.
-                        // if add failed. delete this tablet from backend.
-                        try {
-                            addReplica(tabletId, backendTabletInfo, backendId);
-                            // update counter
-                            needDelete = false;
-                            ++addToMetaCounter;
-                        } catch (MetaNotFoundException e) {
-                            LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
-                                    tabletId, backendId, e.getMessage());
-                            needDelete = true;
-                        }
-                    } else {
-                        needDelete = true;
-                    }
-                }
-
-                if (needDelete) {
-                    // drop replica
-                    DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
-                    batchTask.addTask(task);
-                    LOG.warn("delete tablet[" + tabletId + " - " + backendTabletInfo.getSchemaHash()
-                            + "] from backend[" + backendId + "] because not found in meta");
-                    ++deleteFromBackendCounter;
-                }
-            } // end for tabletInfos
-
-            if (foundTabletsWithInvalidSchema.containsKey(tabletId)) {
-                // this tablet is found in meta but with invalid schema hash.
-                // delete it.
+        if (foundTabletsWithValidSchema.size() + foundTabletsWithInvalidSchema.size() == backendTablets.size()) {
+            for (Long tabletId : foundTabletsWithInvalidSchema.keySet()) {
+                // this tablet is found in meta but with invalid schema hash. delete it.
                 int schemaHash = foundTabletsWithInvalidSchema.get(tabletId).getSchemaHash();
                 DropReplicaTask task = new DropReplicaTask(backendId, tabletId, schemaHash);
                 batchTask.addTask(task);
@@ -703,8 +676,54 @@ public class ReportHandler extends Daemon {
                         + "] because invalid schema hash");
                 ++deleteFromBackendCounter;
             }
-        } // end for backendTabletIds
-        AgentTaskExecutor.submit(batchTask);
+        } else {
+            for (Long tabletId : backendTablets.keySet()) {
+                if (foundTabletsWithInvalidSchema.containsKey(tabletId)) {
+                    int schemaHash = foundTabletsWithInvalidSchema.get(tabletId).getSchemaHash();
+                    DropReplicaTask task = new DropReplicaTask(backendId, tabletId, schemaHash);
+                    batchTask.addTask(task);
+                    LOG.warn("delete tablet[" + tabletId + " - " + schemaHash + "] from backend[" + backendId
+                            + "] because invalid schema hash");
+                    ++deleteFromBackendCounter;
+                    continue;
+                }
+                TTablet backendTablet = backendTablets.get(tabletId);
+                for (TTabletInfo backendTabletInfo : backendTablet.getTabletInfos()) {
+                    boolean needDelete = false;
+                    if (!foundTabletsWithValidSchema.contains(tabletId)) {
+                        if (isBackendReplicaHealthy(backendTabletInfo)) {
+                            // if this tablet is not in meta. try adding it.
+                            // if add failed. delete this tablet from backend.
+                            try {
+                                addReplica(tabletId, backendTabletInfo, backendId);
+                                // update counter
+                                needDelete = false;
+                                ++addToMetaCounter;
+                            } catch (MetaNotFoundException e) {
+                                LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
+                                        tabletId, backendId, e.getMessage());
+                                needDelete = true;
+                            }
+                        } else {
+                            needDelete = true;
+                        }
+                    }
+
+                    if (needDelete) {
+                        // drop replica
+                        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
+                        batchTask.addTask(task);
+                        LOG.warn("delete tablet[" + tabletId + " - " + backendTabletInfo.getSchemaHash()
+                                + "] from backend[" + backendId + "] because not found in meta");
+                        ++deleteFromBackendCounter;
+                    }
+                } // end for tabletInfos
+            } // end for backendTabletIds
+        }
+
+        if (batchTask.getTaskNum() != 0) {
+            AgentTaskExecutor.submit(batchTask);
+        }
 
         LOG.info("delete {} tablet(s) from backend[{}]", deleteFromBackendCounter, backendId);
         LOG.info("add {} replica(s) to meta. backend[{}]", addToMetaCounter, backendId);
@@ -868,18 +887,6 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void handleSetTabletPartitionId(long backendId, Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
-        LOG.info("find [{}] tablets without partition id, try to set them", tabletWithoutPartitionId.size());
-        if (tabletWithoutPartitionId.size() < 1) {
-            return;
-        }
-        AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(
-                backendId, tabletWithoutPartitionId, TTabletMetaType.PARTITIONID);
-        batchTask.addTask(task);
-        AgentTaskExecutor.submit(batchTask);
-    }
-
     private static void handleSetTabletInMemory(long backendId, Map<Long, TTablet> backendTablets) {
         // <tablet id, tablet schema hash, tablet in memory>
         List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
@@ -939,7 +946,6 @@ public class ReportHandler extends Daemon {
                     transactionId, transactionsToClear.get(transactionId));
             batchTask.addTask(clearTransactionTask);
         }
-
         AgentTaskExecutor.submit(batchTask);
     }
 

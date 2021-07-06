@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -117,17 +116,7 @@ public class TabletInvertedIndex {
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
-                             ListMultimap<Long, Long> tabletRecoveryMap,
-                             Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
-
-        for (TTablet backendTablet : backendTablets.values()) {
-            for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
-                if (!tabletInfo.isSetPartitionId() || tabletInfo.getPartitionId() < 1) {
-                    tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTabletId(), tabletInfo.getSchemaHash()));
-                }
-            }
-        }
-
+                             ListMultimap<Long, Long> tabletRecoveryMap) {
         readLock();
         long start = System.currentTimeMillis();
         try {
