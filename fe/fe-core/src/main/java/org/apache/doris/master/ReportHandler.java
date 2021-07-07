@@ -278,7 +278,8 @@ public class ReportHandler extends Daemon {
                 tabletMigrationMap,
                 transactionsToPublish,
                 transactionsToClear,
-                tabletRecoveryMap);
+                tabletRecoveryMap,
+                tabletToInMemory);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {

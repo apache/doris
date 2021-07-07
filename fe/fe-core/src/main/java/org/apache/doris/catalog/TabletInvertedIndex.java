@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -88,6 +91,8 @@ public class TabletInvertedIndex {
     // backend id -> (tablet id -> replica)
     private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
 
+    private Set<Long> partitionIdInMemorySet = Sets.newConcurrentHashSet();
+
     public TabletInvertedIndex() {
     }
 
@@ -116,7 +121,8 @@ public class TabletInvertedIndex {
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
-                             ListMultimap<Long, Long> tabletRecoveryMap) {
+                             ListMultimap<Long, Long> tabletRecoveryMap,
+                             List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
         readLock();
         long start = System.currentTimeMillis();
         try {
@@ -135,6 +141,9 @@ public class TabletInvertedIndex {
                         for (TTabletInfo backendTabletInfo : backendTablet.getTabletInfos()) {
                             if (tabletMeta.containsSchemaHash(backendTabletInfo.getSchemaHash())) {
                                 foundTabletsWithValidSchema.add(tabletId);
+                                if (partitionIdInMemorySet.contains(backendTabletInfo.getPartitionId()) != backendTabletInfo.isIsInMemory()) {
+                                    tabletToInMemory.add(new ImmutableTriple<>(tabletId, backendTabletInfo.getSchemaHash(), !backendTabletInfo.isIsInMemory()));
+                                }
                                 // 1. (intersection)
                                 if (needSync(replica, backendTabletInfo)) {
                                     // need sync
@@ -276,6 +285,18 @@ public class TabletInvertedIndex {
             return tabletMetaList;
         } finally {
             readUnlock();
+        }
+    }
+
+    public void addPartitionIdToInMemorySet(long partitionId) {
+        if (!Catalog.isCheckpointThread()) {
+            partitionIdInMemorySet.add(partitionId);
+        }
+    }
+
+    public void removePartitionIdFromInMemorySet(long partitionId) {
+        if (!Catalog.isCheckpointThread()) {
+            partitionIdInMemorySet.remove(partitionId);
         }
     }
 

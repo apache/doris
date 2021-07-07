@@ -1529,7 +1529,7 @@ public class OlapTable extends Table {
 
     public Boolean isInMemory() {
         if (tableProperty != null) {
-            return tableProperty.IsInMemory();
+            return tableProperty.isInMemory();
         }
         return false;
     }
