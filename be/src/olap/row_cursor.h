@@ -153,6 +153,8 @@ private:
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
 
+    OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+
     std::shared_ptr<Schema> _schema;
 
     char* _fixed_buf = nullptr; // point to fixed buf

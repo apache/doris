@@ -550,6 +550,14 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     _keys_param.start_keys.resize(start_key_size, nullptr);
 
     size_t scan_key_size = read_params.start_key.front().size();
+    if (scan_key_size > _tablet->tablet_schema().num_columns()) {
+        LOG(WARNING)
+                << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                << "column_count=" << scan_key_size
+                << ", schema.num_columns=" << _tablet->tablet_schema().num_columns();
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
     std::vector<uint32_t> columns;
     for (size_t i = 0; i < scan_key_size; ++i) {
         columns.push_back(i);
