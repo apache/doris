@@ -159,11 +159,6 @@ public:
         return reinterpret_cast<DateTimeValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
-    DecimalValue* get_decimal_slot(int offset) {
-        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DecimalValue*>(reinterpret_cast<char*>(this) + offset);
-    }
-
     DecimalV2Value* get_decimalv2_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);

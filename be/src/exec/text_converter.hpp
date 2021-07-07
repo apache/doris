@@ -22,7 +22,6 @@
 
 #include "olap/utils.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
@@ -136,16 +135,6 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
         }
 
         ts_slot->to_datetime();
-        break;
-    }
-
-    case TYPE_DECIMAL: {
-        DecimalValue* decimal_slot = reinterpret_cast<DecimalValue*>(slot);
-
-        if (decimal_slot->parse_from_str(data, len)) {
-            parse_result = StringParser::PARSE_FAILURE;
-        }
-
         break;
     }
 

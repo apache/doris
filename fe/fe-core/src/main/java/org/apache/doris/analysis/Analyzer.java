@@ -38,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
@@ -259,7 +260,9 @@ public class Analyzer {
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
-            exprRewriter_ = new ExprRewriter(rules);
+            List<ExprRewriteRule> onceRules = Lists.newArrayList();
+            onceRules.add(ExtractCommonFactorsRule.INSTANCE);
+            exprRewriter_ = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);

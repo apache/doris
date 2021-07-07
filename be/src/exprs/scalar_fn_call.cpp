@@ -421,7 +421,6 @@ typedef FloatVal (*FloatWrapper)(ExprContext*, TupleRow*);
 typedef DoubleVal (*DoubleWrapper)(ExprContext*, TupleRow*);
 typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
-typedef DecimalVal (*DecimalWrapper)(ExprContext*, TupleRow*);
 typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
 
 // TODO: macroify this?
@@ -523,16 +522,6 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
         return interpret_eval<DateTimeVal>(context, row);
     }
     DatetimeWrapper fn = reinterpret_cast<DatetimeWrapper>(_scalar_fn_wrapper);
-    return fn(context, row);
-}
-
-DecimalVal ScalarFnCall::get_decimal_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
-        return interpret_eval<DecimalVal>(context, row);
-    }
-    DecimalWrapper fn = reinterpret_cast<DecimalWrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
 

@@ -29,6 +29,7 @@ class DiskMetrics;
 class NetworkMetrics;
 class FileDescriptorMetrics;
 class SnmpMetrics;
+class LoadAverageMetrics;
 
 class SystemMetrics {
 public:
@@ -64,11 +65,13 @@ private:
     void _update_net_metrics();
 
     void _install_fd_metrics(MetricEntity* entity);
-
     void _update_fd_metrics();
 
     void _install_snmp_metrics(MetricEntity* entity);
     void _update_snmp_metrics();
+
+    void _install_load_avg_metrics(MetricEntity* entity);
+    void _update_load_avg_metrics();
 
 private:
     static const char* _s_hook_name;
@@ -78,6 +81,7 @@ private:
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetworkMetrics*> _network_metrics;
     std::unique_ptr<FileDescriptorMetrics> _fd_metrics;
+    std::unique_ptr<LoadAverageMetrics> _load_average_metrics;
     int _proc_net_dev_version = 0;
     std::unique_ptr<SnmpMetrics> _snmp_metrics;
 

@@ -66,7 +66,7 @@ enum TPrimitiveType {
   DATE,
   DATETIME,
   BINARY,
-  DECIMAL,
+  DECIMAL_DEPRACTED, // not used now, only for place holder
   // CHAR(n). Currently only supported in UDAs
   CHAR,
   LARGEINT,
@@ -192,6 +192,21 @@ enum TExplainLevel {
   BRIEF,
   NORMAL,
   VERBOSE
+}
+
+enum TRuntimeFilterMode {
+  // No filters are computed in the FE or the BE.
+  OFF = 0
+
+  // Only broadcast filters are computed in the BE, and are only published to the local
+  // fragment.
+  LOCAL = 1
+
+  // Only shuffle filters are computed in the BE, and are only published globally.
+  REMOTE = 2
+
+  // All fiters are computed in the BE, and are published globally.
+  GLOBAL = 3
 }
 
 struct TColumnType {

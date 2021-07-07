@@ -44,10 +44,10 @@ set(RUNTIME_FILES
     result_writer.cpp
     row_batch.cpp
     runtime_state.cpp
+    runtime_filter_mgr.cpp
     string_value.cpp
     thread_resource_mgr.cpp
     #  timestamp_value.cpp
-    decimal_value.cpp
     decimalv2_value.cpp
     large_int_value.cpp
     tuple.cpp

@@ -18,13 +18,13 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
 #define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
 
-#include <cstring>
 #include <parallel_hashmap/phmap.h>
+
+#include <cstring>
 
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
@@ -77,9 +77,7 @@ public:
         }
     }
 
-    void insert(void* data, size_t) override {
-        insert(data);
-    }
+    void insert(void* data, size_t) override { insert(data); }
 
     void insert(HybridSetBase* set) override {
         HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
@@ -93,9 +91,7 @@ public:
         return !(it == _set.end());
     }
 
-    bool find(void* data, size_t) override {
-        return find(data);
-    }
+    bool find(void* data, size_t) override { return find(data); }
 
     template <class _iT>
     class Iterator : public IteratorBase {
@@ -138,7 +134,6 @@ public:
         std::string str_value(reinterpret_cast<char*>(data), size);
         _set.insert(str_value);
     }
-
 
     void insert(HybridSetBase* set) override {
         StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);

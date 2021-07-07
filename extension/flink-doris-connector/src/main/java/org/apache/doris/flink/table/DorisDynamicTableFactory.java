@@ -32,6 +32,7 @@ import org.apache.flink.table.factories.FactoryUtil;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.utils.TableSchemaUtils;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -140,6 +141,13 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 			.defaultValue(3)
 			.withDescription("the max retry times if writing records to database failed.");
 
+	private static final ConfigOption<Duration> SINK_BUFFER_FLUSH_INTERVAL = ConfigOptions
+			.key("sink.batch.interval")
+			.durationType()
+			.defaultValue(Duration.ofSeconds(1))
+			.withDescription("the flush interval mills, over this time, asynchronous threads will flush data. The " +
+					"default value is 1s.");
+
 
 	@Override
 	public String factoryIdentifier() {
@@ -176,6 +184,7 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 
 		options.add(SINK_BUFFER_FLUSH_MAX_ROWS);
 		options.add(SINK_MAX_RETRIES);
+		options.add(SINK_BUFFER_FLUSH_INTERVAL);
 		return options;
 	}
 
@@ -229,6 +238,7 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 		final DorisExecutionOptions.Builder builder = DorisExecutionOptions.builder();
 		builder.setBatchSize(readableConfig.get(SINK_BUFFER_FLUSH_MAX_ROWS));
 		builder.setMaxRetries(readableConfig.get(SINK_MAX_RETRIES));
+		builder.setBatchIntervalMs(readableConfig.get(SINK_BUFFER_FLUSH_INTERVAL).toMillis());
 		return builder.build();
 	}
 

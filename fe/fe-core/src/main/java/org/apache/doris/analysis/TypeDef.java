@@ -39,7 +39,7 @@ public class TypeDef implements ParseNode {
     return new TypeDef(ScalarType.createType(type));
   }
   public static TypeDef createDecimal(int precision, int scale) {
-    return new TypeDef(ScalarType.createDecimalType(precision, scale));
+    return new TypeDef(ScalarType.createDecimalV2Type(precision, scale));
   }
   public static TypeDef createVarchar(int len) {
     return new TypeDef(ScalarType.createVarchar(len));
@@ -102,7 +102,6 @@ public class TypeDef implements ParseNode {
         }
         break;
       }
-      case DECIMAL: 
       case DECIMALV2: {
         int precision = scalarType.decimalPrecision();
         int scale = scalarType.decimalScale();

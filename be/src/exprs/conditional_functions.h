@@ -50,7 +50,6 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
@@ -76,7 +75,6 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-//    virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
@@ -100,7 +98,6 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
@@ -127,7 +124,6 @@ public:
     virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 

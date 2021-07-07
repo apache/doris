@@ -102,7 +102,7 @@ public class CastExpr extends Expr {
                 }
                 // Disable casting from boolean to decimal or datetime or date
                 if (fromType.isBoolean() &&
-                        (toType.equals(Type.DECIMAL) || toType.equals(Type.DECIMALV2) ||
+                        (toType.equals(Type.DECIMALV2) ||
                                 toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
                     continue;
                 }
@@ -111,9 +111,7 @@ public class CastExpr extends Expr {
                     continue;
                 }
                 String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
-                if (toType.isDecimal() || fromType.isDecimal()) {
-                    beClass = "DecimalOperators";
-                } else if (fromType.isTime()) {
+                if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
                 String typeName = Function.getUdfTypeName(toType.getPrimitiveType());
@@ -284,9 +282,10 @@ public class CastExpr extends Expr {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
-        } else if (type.isDecimal()) {
+        } else if (type.isDecimalV2()) {
             return new DecimalLiteral(value.getStringValue());
         } else if (type.isFloatingPointType()) {
+
             return new FloatLiteral(value.getDoubleValue(), type);
         } else if (type.isStringType()) {
             return new StringLiteral(value.getStringValue());

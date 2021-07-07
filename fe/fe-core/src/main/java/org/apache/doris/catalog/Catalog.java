@@ -3388,6 +3388,10 @@ public class Catalog {
     public void replayDropPartition(DropPartitionInfo info) {
         Database db = this.getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying drop rollup. db: {}", info.getTableId(), db.getId());
+            return;
+        }
         olapTable.writeLock();
         try {
             if (info.isTempPartition()) {
@@ -3408,6 +3412,10 @@ public class Catalog {
         long dbId = info.getDbId();
         Database db = getDb(dbId);
         Table table = db.getTable(info.getTableId());
+        if (table == null) {
+            LOG.warn("table {} does not exist when replaying drop rollup. db: {}", info.getTableId(), db.getId());
+            return;
+        }
         table.writeLock();
         try {
             Catalog.getCurrentRecycleBin().replayRecoverPartition((OlapTable) table, info.getPartitionId());
@@ -3849,7 +3857,7 @@ public class Catalog {
                 // register or remove table from DynamicPartition after table created
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
                 dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                        tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+                        tableId, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
             }
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
@@ -5200,7 +5208,7 @@ public class Catalog {
         }
     }
 
-    // the invoker should keep db write lock
+    // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
             GroupId assignedGroupId)
             throws DdlException {
@@ -5285,6 +5293,11 @@ public class Catalog {
 
         Database db = getDb(info.getGroupId().dbId);
         OlapTable table = (OlapTable) db.getTable(tableId);
+        if (table == null) {
+            LOG.warn("table {} does not exist when replaying modify table colocate. db: {}",
+                    tableId, info.getGroupId().dbId);
+            return;
+        }
         table.writeLock();
         try {
             modifyTableColocate(db, table, properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH), true,
@@ -5345,6 +5358,10 @@ public class Catalog {
 
         Database db = getDb(dbId);
         OlapTable table = (OlapTable) db.getTable(tableId);
+        if (table == null) {
+            LOG.warn("table {} does not exist when replaying rename rollup. db: {}", tableId, dbId);
+            return;
+        }
         table.writeLock();
         try {
             String rollupName = table.getIndexNameById(indexId);
@@ -5398,7 +5415,7 @@ public class Catalog {
         }
     }
 
-    public void replayRenamePartition(TableInfo tableInfo) throws DdlException {
+    public void replayRenamePartition(TableInfo tableInfo) {
         long dbId = tableInfo.getDbId();
         long tableId = tableInfo.getTableId();
         long partitionId = tableInfo.getPartitionId();
@@ -5406,6 +5423,10 @@ public class Catalog {
 
         Database db = getDb(dbId);
         OlapTable table = (OlapTable) db.getTable(tableId);
+        if (table == null) {
+            LOG.warn("table {} does not exist when replaying rename partition. db: {}", tableId, dbId);
+            return;
+        }
         table.writeLock();
         try {
             Partition partition = table.getPartition(partitionId);
@@ -5439,7 +5460,7 @@ public class Catalog {
 
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table, false);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+                table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
     }
@@ -5451,7 +5472,7 @@ public class Catalog {
      * @param properties
      * @throws DdlException
      */
-    // The caller need to hold the db write lock
+    // The caller need to hold the table's write lock
     public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         String defaultReplicationNumName = "default."+ PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
@@ -5486,7 +5507,7 @@ public class Catalog {
      * @param table
      * @param properties
      */
-    // The caller need to hold the db write lock
+    // The caller need to hold the table's write lock
     public void modifyTableDefaultReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
@@ -5530,6 +5551,10 @@ public class Catalog {
 
         Database db = getDb(dbId);
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying modify table property log. db: {}", tableId, dbId);
+            return;
+        }
         olapTable.writeLock();
         try {
             TableProperty tableProperty = olapTable.getTableProperty();
@@ -6608,6 +6633,11 @@ public class Catalog {
     public void replayTruncateTable(TruncateTableInfo info) {
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying truncate table log. db id: {}",
+                    info.getTblId(), info.getDbId());
+            return;
+        }
         olapTable.writeLock();
         try {
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable());
@@ -6759,6 +6789,11 @@ public class Catalog {
     public void replayConvertDistributionType(TableInfo tableInfo) {
         Database db = getDb(tableInfo.getDbId());
         OlapTable tbl = (OlapTable) db.getTable(tableInfo.getTableId());
+        if (tbl == null) {
+            LOG.warn("table {} does not exist when replaying convert distribution type. db: {}",
+                    tableInfo.getTableId(), tableInfo.getDbId());
+            return;
+        }
         tbl.writeLock();
         try {
             tbl.convertRandomDistributionToHashDistribution();

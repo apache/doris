@@ -67,7 +67,6 @@ struct TypeDescriptor {
 #if 0
         DCHECK_NE(type, TYPE_CHAR);
         DCHECK_NE(type, TYPE_VARCHAR);
-        DCHECK_NE(type, TYPE_DECIMAL);
         DCHECK_NE(type, TYPE_STRUCT);
         DCHECK_NE(type, TYPE_ARRAY);
         DCHECK_NE(type, TYPE_MAP);
@@ -96,18 +95,6 @@ struct TypeDescriptor {
         TypeDescriptor ret;
         ret.type = TYPE_HLL;
         ret.len = HLL_COLUMN_DEFAULT_LEN;
-        return ret;
-    }
-
-    static TypeDescriptor create_decimal_type(int precision, int scale) {
-        DCHECK_LE(precision, MAX_PRECISION);
-        DCHECK_LE(scale, MAX_SCALE);
-        DCHECK_GE(precision, 0);
-        DCHECK_LE(scale, precision);
-        TypeDescriptor ret;
-        ret.type = TYPE_DECIMAL;
-        ret.precision = precision;
-        ret.scale = scale;
         return ret;
     }
 
@@ -147,7 +134,7 @@ struct TypeDescriptor {
         if (type == TYPE_CHAR) {
             return len == o.len;
         }
-        if (type == TYPE_DECIMAL || type == TYPE_DECIMALV2) {
+        if (type == TYPE_DECIMALV2) {
             return precision == o.precision && scale == o.scale;
         }
         return true;
@@ -169,7 +156,7 @@ struct TypeDescriptor {
 
     inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const { return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2); }
+    inline bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
 
     inline bool is_var_len_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
@@ -213,9 +200,6 @@ struct TypeDescriptor {
         case TYPE_DECIMALV2:
             return 16;
 
-        case TYPE_DECIMAL:
-            return 40;
-
         case INVALID_TYPE:
         default:
             DCHECK(false);
@@ -256,9 +240,6 @@ struct TypeDescriptor {
         case TYPE_DATETIME:
             // This is the size of the slot, the actual size of the data is 12.
             return sizeof(DateTimeValue);
-
-        case TYPE_DECIMAL:
-            return sizeof(DecimalValue);
 
         case TYPE_DECIMALV2:
             return 16;

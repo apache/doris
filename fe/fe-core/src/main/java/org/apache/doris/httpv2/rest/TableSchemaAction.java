@@ -81,7 +81,7 @@ public class TableSchemaAction extends RestBaseController {
                         Map<String, String> baseInfo = new HashMap<>(2);
                         Type colType = column.getOriginType();
                         PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                        if (primitiveType == PrimitiveType.DECIMALV2) {
                             ScalarType scalarType = (ScalarType) colType;
                             baseInfo.put("precision", scalarType.getPrecision() + "");
                             baseInfo.put("scale", scalarType.getScalarScale() + "");

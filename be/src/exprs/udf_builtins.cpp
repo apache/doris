@@ -32,7 +32,6 @@ using doris_udf::BigIntVal;
 using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
-using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::StringVal;
 using doris_udf::AnyVal;
@@ -43,15 +42,6 @@ DoubleVal UdfBuiltins::abs(FunctionContext* context, const DoubleVal& v) {
     }
 
     return DoubleVal(fabs(v.val));
-}
-
-DecimalVal UdfBuiltins::decimal_abs(FunctionContext* context, const DecimalVal& v) {
-    if (v.is_null) {
-        return v;
-    }
-    DecimalVal result = v;
-    result.set_to_abs_value();
-    return result;
 }
 
 DecimalV2Val UdfBuiltins::decimal_abs(FunctionContext* context, const DecimalV2Val& v) {

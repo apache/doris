@@ -105,8 +105,8 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
-            auto st = _exec_env->load_channel_mgr()->add_batch(
-                    *request, response->mutable_tablet_vec());
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request,
+                                                               response->mutable_tablet_vec());
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -177,7 +177,8 @@ void PInternalServiceImpl<T>::fetch_data(google::protobuf::RpcController* cntl_b
                                          const PFetchDataRequest* request, PFetchDataResult* result,
                                          google::protobuf::Closure* done) {
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    bool resp_in_attachment = request->has_resp_in_attachment() ? request->resp_in_attachment() : true;
+    bool resp_in_attachment =
+            request->has_resp_in_attachment() ? request->resp_in_attachment() : true;
     GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, resp_in_attachment, result, done);
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
@@ -196,8 +197,9 @@ void PInternalServiceImpl<T>::get_info(google::protobuf::RpcController* controll
         if (!kafka_request.offset_times().empty()) {
             // if offset_times() has elements, which means this request is to get offset by timestamp.
             std::vector<PIntegerPair> partition_offsets;
-            Status st = _exec_env->routine_load_task_executor()->get_kafka_partition_offsets_for_times(
-                    request->kafka_meta_request(), &partition_offsets);
+            Status st =
+                    _exec_env->routine_load_task_executor()->get_kafka_partition_offsets_for_times(
+                            request->kafka_meta_request(), &partition_offsets);
             if (st.ok()) {
                 PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                 for (const auto& entry : partition_offsets) {
@@ -222,7 +224,7 @@ void PInternalServiceImpl<T>::get_info(google::protobuf::RpcController* controll
             st.to_protobuf(response->mutable_status());
             return;
         }
-    } 
+    }
     Status::OK().to_protobuf(response->mutable_status());
 }
 
@@ -253,6 +255,36 @@ void PInternalServiceImpl<T>::clear_cache(google::protobuf::RpcController* contr
     _exec_env->result_cache()->clear(request, response);
 }
 
+template <typename T>
+void PInternalServiceImpl<T>::merge_filter(::google::protobuf::RpcController* controller,
+                                           const ::doris::PMergeFilterRequest* request,
+                                           ::doris::PMergeFilterResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    auto buf = static_cast<brpc::Controller*>(controller)->request_attachment();
+    Status st = _exec_env->fragment_mgr()->merge_filter(request, buf.to_string().data());
+    if (!st.ok()) {
+        LOG(WARNING) << "merge meet error" << st.to_string();
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
+template <typename T>
+void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* controller,
+                                           const ::doris::PPublishFilterRequest* request,
+                                           ::doris::PPublishFilterResponse* response,
+                                           ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
+    UniqueId unique_id(request->query_id());
+    // TODO: avoid copy attachment copy
+    LOG(INFO) << "rpc apply_filter recv";
+    Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
+    if (!st.ok()) {
+        LOG(WARNING) << "apply filter meet error" << st.to_string();
+    }
+    st.to_protobuf(response->mutable_status());
+}
 template class PInternalServiceImpl<PBackendService>;
 template class PInternalServiceImpl<palo::PInternalService>;
 

@@ -33,6 +33,7 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbIdStmt;
@@ -124,6 +125,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -226,6 +228,8 @@ public class ShowExecutor {
             handleShowRoutineLoad();
         } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
             handleShowRoutineLoadTask();
+        } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
+            handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -628,16 +632,50 @@ public class ShowExecutor {
                         PrivPredicate.SHOW)) {
                     continue;
                 }
-
                 List<String> row = Lists.newArrayList();
                 // Name
                 row.add(table.getName());
                 // Engine
                 row.add(table.getEngine());
-                // version, ra
-                for (int i = 0; i < 15; ++i) {
+                // version
+                row.add(null);
+                // Row_format
+                row.add(null);
+                // Rows
+                row.add(String.valueOf(table.getRowCount()));
+                // Avg_row_length
+                row.add(String.valueOf(table.getAvgRowLength()));
+                // Data_length
+                row.add(String.valueOf(table.getDataLength()));
+                // Max_data_length
+                row.add(null);
+                // Index_length
+                row.add(null);
+                // Data_free
+                row.add(null);
+                // Auto_increment
+                row.add(null);
+                // Create_time
+                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
+                // Update_time
+                if (table.getUpdateTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
+                } else {
                     row.add(null);
                 }
+                // Check_time
+                if (table.getLastCheckTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime() * 1000));
+                } else {
+                    row.add(null);
+                }
+                // Collation
+                row.add("utf-8");
+                // Checksum
+                row.add(null);
+                // Create_options
+                row.add(null);
+
                 row.add(table.getComment());
                 rows.add(row);
             }
@@ -1725,7 +1763,7 @@ public class ShowExecutor {
                 olapTable.readLock();
                 try {
                     if (!olapTable.dynamicPartitionExists()) {
-                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
+                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getId());
                         continue;
                     }
 
@@ -1738,7 +1776,7 @@ public class ShowExecutor {
                     DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
                     int replicationNum = dynamicPartitionProperty.getReplicationNum();
-                    replicationNum = (replicationNum == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) ? olapTable.getDefaultReplicationNum() : FeConstants.default_replication_num;
+                    replicationNum = (replicationNum == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) ? olapTable.getDefaultReplicationNum() : replicationNum;
                     rows.add(Lists.newArrayList(
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
@@ -1749,11 +1787,11 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
                             String.valueOf(replicationNum),
                             dynamicPartitionProperty.getStartOfInfo(),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG)));
                 } finally {
                     olapTable.readUnlock();
                 }
@@ -1827,6 +1865,58 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowCreateRoutineLoad() throws AnalysisException {
+        ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        String dbName = showCreateRoutineLoadStmt.getDb();
+        String labelName = showCreateRoutineLoadStmt.getLabel();
+        // if include history return all create load
+        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
+            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
+            try {
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
+                        .add("error_msg", "Routine load cannot be found by this name")
+                        .build(), e);
+            }
+            if (routineLoadJobList == null) {
+                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                return;
+            }
+            for (RoutineLoadJob job : routineLoadJobList) {
+                String tableName = "";
+                try {
+                    tableName = job.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
+                            .add("error_msg", "The table name for this routine load does not exist")
+                            .build(), e);
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        dbName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
+                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                    continue;
+                }
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+            }
+        } else {
+            // if job exists
+            RoutineLoadJob routineLoadJob;
+            try {
+                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
+                // get routine load info
+                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+            } catch (MetaNotFoundException | DdlException e) {
+                LOG.warn(e.getMessage(), e);
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
 }
