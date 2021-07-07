@@ -473,12 +473,12 @@ public class TabletInvertedIndex {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        writeLock();
+        readLock();
         try {
             Preconditions.checkState(tabletMetaTable.contains(partitionId, indexId));
             tabletMetaTable.get(partitionId, indexId).setNewSchemaHash(newSchemaHash);
         } finally {
-            writeUnlock();
+            readUnlock();
         }
     }
 
@@ -486,12 +486,12 @@ public class TabletInvertedIndex {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        writeLock();
+        readLock();
         try {
             Preconditions.checkState(tabletMetaTable.contains(partitionId, indexId));
             tabletMetaTable.get(partitionId, indexId).updateToNewSchemaHash();
         } finally {
-            writeUnlock();
+            readUnlock();
         }
     }
 
@@ -499,14 +499,14 @@ public class TabletInvertedIndex {
         if (Catalog.isCheckpointThread()) {
             return;
         }
-        writeLock();
+        readLock();
         try {
             TabletMeta tabletMeta = tabletMetaTable.get(partitionId, indexId);
             if (tabletMeta != null) {
                 tabletMeta.deleteNewSchemaHash();
             }
         } finally {
-            writeUnlock();
+            readUnlock();
         }
     }
 
