@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
@@ -329,7 +328,7 @@ public class DistributedPlanner {
         // bucket shuffle join is better than broadcast and shuffle join
         // it can reduce the network cost of join, so doris chose it first
         List<Expr> rhsPartitionxprs = Lists.newArrayList();
-        if (canBucketShuffleJoin(node, leftChildFragment, rightChildFragment, rhsPartitionxprs)) {
+        if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
             DataPartition rhsJoinPartition =
                     new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
@@ -633,7 +632,7 @@ public class DistributedPlanner {
         return false;
     }
 
-    private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment,
+    private boolean canBucketShuffleJoin(HashJoinNode node, PlanFragment leftChildFragment,
                                          List<Expr> rhsHashExprs) {
         if (!ConnectContext.get().getSessionVariable().isEnableBucketShuffleJoin()) {
             return false;
@@ -649,14 +648,10 @@ public class DistributedPlanner {
             return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
         }
 
-        // 2.leftRoot be hashjoin node and not shuffle join
+        // 2.leftRoot be hashjoin node
         if (leftRoot instanceof HashJoinNode) {
             while (leftRoot instanceof HashJoinNode) {
-                if (!((HashJoinNode)leftRoot).isShuffleJoin()) {
-                    leftRoot = leftRoot.getChild(0);
-                } else {
-                    return false;
-                }
+                leftRoot = leftRoot.getChild(0);
             }
             if (leftRoot instanceof OlapScanNode) {
                 return canBucketShuffleJoin(node, leftRoot, rhsHashExprs);
@@ -683,9 +678,14 @@ public class DistributedPlanner {
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
 
         if (leftDistribution instanceof HashDistributionInfo) {
+            // use the table_name + '-' + column_name as check condition
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+            List<String> leftDistributeColumnNames = Lists.newArrayList();
+            for (Column col : leftDistributeColumns) {
+                leftDistributeColumnNames.add(leftTable.getName() + "-" + col.getName());
+            }
 
-            List<Column> leftJoinColumns = new ArrayList<>();
+            List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
             List<BinaryPredicate> eqJoinConjuncts = node.getEqJoinConjuncts();
 
@@ -696,18 +696,21 @@ public class DistributedPlanner {
                     continue;
                 }
 
-                SlotDescriptor leftSlot = lhsJoinExpr.unwrapSlotRef().getDesc();
-
-                leftJoinColumns.add(leftSlot.getColumn());
-                rightExprs.add(rhsJoinExpr);
+                SlotRef leftSlot = lhsJoinExpr.unwrapSlotRef();
+                if (leftSlot.getTable() instanceof OlapTable) {
+                    // table name in SlotRef is not the really name. `select * from test as t`
+                    // table name in SlotRef is `t`, but here we need is `test`.
+                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "-" + leftSlot.getColumnName());
+                    rightExprs.add(rhsJoinExpr);
+                }
             }
 
             //2 the join columns should contains all left table distribute columns to enable bucket shuffle join
-            for (Column distributeColumn : leftDistributeColumns) {
-                int loc = leftJoinColumns.indexOf(distributeColumn);
+            for (String distributeColumnName : leftDistributeColumnNames) {
+                int loc = leftJoinColumnNames.indexOf(distributeColumnName);
                 // TODO: now support bucket shuffle join when distribute column type different with
                 // right expr type
-                if (loc == -1 || !rightExprs.get(loc).getType().equals(distributeColumn.getType())) {
+                if (loc == -1 || !rightExprs.get(loc).getType().equals(leftDistributeColumns.get(loc).getType())) {
                     return false;
                 }
                 rhsJoinExprs.add(rightExprs.get(loc));
