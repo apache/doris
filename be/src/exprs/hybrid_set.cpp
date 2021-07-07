@@ -46,9 +46,6 @@ HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
     case TYPE_DATETIME:
         return new (std::nothrow) HybridSet<DateTimeValue>();
 
-    case TYPE_DECIMAL:
-        return new (std::nothrow) HybridSet<DecimalValue>();
-
     case TYPE_DECIMALV2:
         return new (std::nothrow) HybridSet<DecimalV2Value>();
 

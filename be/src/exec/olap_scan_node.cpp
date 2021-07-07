@@ -583,13 +583,6 @@ Status OlapScanNode::normalize_conjuncts() {
             break;
         }
 
-        case TYPE_DECIMAL: {
-            ColumnValueRange<DecimalValue> range(slots[slot_idx]->col_name(),
-                                                 slots[slot_idx]->type().type);
-            normalize_predicate(range, slots[slot_idx]);
-            break;
-        }
-
         case TYPE_DECIMALV2: {
             ColumnValueRange<DecimalV2Value> range(slots[slot_idx]->col_name(),
                                                    slots[slot_idx]->type().type);
@@ -940,7 +933,6 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
         }
         break;
     }
-    case TYPE_DECIMAL:
     case TYPE_DECIMALV2:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -1239,7 +1231,6 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                     break;
                 }
                 case TYPE_TINYINT:
-                case TYPE_DECIMAL:
                 case TYPE_DECIMALV2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:

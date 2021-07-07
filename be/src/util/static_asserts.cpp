@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/static_assert.hpp>
-
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -27,12 +24,11 @@ namespace doris {
 // at compile time.  If these asserts fail, the compile will fail.
 class UnusedClass {
 private:
-    BOOST_STATIC_ASSERT(sizeof(StringValue) == 16);
-    BOOST_STATIC_ASSERT(offsetof(StringValue, len) == 8);
+    static_assert(sizeof(StringValue) == 16);
+    static_assert(offsetof(StringValue, len) == 8);
     // Datetime value
-    BOOST_STATIC_ASSERT(sizeof(DateTimeValue) == 16);
-    // BOOST_STATIC_ASSERT(offsetof(DateTimeValue, _year) == 8);
-    BOOST_STATIC_ASSERT(sizeof(DecimalValue) == 40);
+    static_assert(sizeof(DateTimeValue) == 16);
+    // static_assert(offsetof(DateTimeValue, _year) == 8);
 };
 
 } // namespace doris

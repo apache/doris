@@ -221,18 +221,6 @@ public:
     }
 };
 
-class DecimalFilterFunc : public BloomFilterFunc<DecimalValue> {
-public:
-    DecimalFilterFunc(MemTracker* tracker) : BloomFilterFunc<DecimalValue>(tracker) {}
-
-    virtual bool find_olap_engine(const void* data) {
-        int64_t int_value = *(int64_t*)(data);
-        int32_t frac_value = *(int32_t*)((char*)data + sizeof(int64_t));
-        DecimalValue value(int_value, frac_value);
-        return _bloom_filter->test_bytes((char*)&value, sizeof(DecimalValue));
-    }
-};
-
 class DecimalV2FilterFunc : public BloomFilterFunc<DecimalV2Value> {
 public:
     DecimalV2FilterFunc(MemTracker* tracker) : BloomFilterFunc<DecimalV2Value>(tracker) {}

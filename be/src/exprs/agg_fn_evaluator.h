@@ -141,7 +141,6 @@ public:
     static const size_t BIGINT_SIZE = sizeof(int64_t);
     static const size_t FLOAT_SIZE = sizeof(float);
     static const size_t DOUBLE_SIZE = sizeof(double);
-    static const size_t DECIMAL_SIZE = sizeof(DecimalValue);
     static const size_t DECIMALV2_SIZE = sizeof(DecimalV2Value);
     static const size_t LARGEINT_SIZE = sizeof(__int128);
     // DATETIME VAL has two part: packet_time is 8 byte, and type is 4 byte

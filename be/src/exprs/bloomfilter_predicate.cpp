@@ -56,9 +56,6 @@ BloomFilterFuncBase* BloomFilterFuncBase::create_bloom_filter(MemTracker* tracke
     case TYPE_DATETIME:
         return new (std::nothrow) DateTimeBloomFilterFunc(tracker);
 
-    case TYPE_DECIMAL:
-        return new (std::nothrow) DecimalFilterFunc(tracker);
-
     case TYPE_DECIMALV2:
         return new (std::nothrow) DecimalV2FilterFunc(tracker);
 

@@ -250,7 +250,6 @@ public class ColumnDef {
             case DOUBLE:
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
