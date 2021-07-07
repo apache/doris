@@ -45,11 +45,6 @@ DateTimeValue get_val(const FunctionContext::TypeDesc* type, const DateTimeVal& 
 }
 
 template <>
-DecimalValue get_val(const FunctionContext::TypeDesc* type, const DecimalVal& x) {
-    return DecimalValue::from_decimal_val(x);
-}
-
-template <>
 DecimalV2Value get_val(const FunctionContext::TypeDesc* type, const DecimalV2Val& x) {
     return DecimalV2Value::from_decimal_val(x);
 }
@@ -181,7 +176,6 @@ IN_FUNCTIONS(FloatVal, float, float_val)
 IN_FUNCTIONS(DoubleVal, double, double_val)
 IN_FUNCTIONS(StringVal, StringValue, string_val)
 IN_FUNCTIONS(DateTimeVal, DateTimeValue, datetime_val)
-IN_FUNCTIONS(DecimalVal, DecimalValue, decimal_val)
 IN_FUNCTIONS(DecimalV2Val, DecimalV2Value, decimalv2_val)
 IN_FUNCTIONS(LargeIntVal, __int128, large_int_val)
 

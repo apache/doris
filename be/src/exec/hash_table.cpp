@@ -146,15 +146,6 @@ uint32_t HashTable::hash_variable_len_row() {
                 StringValue* str = reinterpret_cast<StringValue*>(loc);
                 hash = HashUtil::hash(str->ptr, str->len, hash);
             }
-        } else if (_build_expr_ctxs[i]->root()->type().type == TYPE_DECIMAL) {
-            void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
-            if (_expr_value_null_bits[i]) {
-                // Hash the null random seed values at 'loc'
-                hash = HashUtil::hash(loc, sizeof(StringValue), hash);
-            } else {
-                DecimalValue* decimal = reinterpret_cast<DecimalValue*>(loc);
-                hash = decimal->hash(hash);
-            }
         }
     }
 

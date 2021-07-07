@@ -28,13 +28,27 @@
 #include <string_view>
 
 #include "common/logging.h"
-#include "runtime/decimal_value.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "util/mysql_global.h"
 
 namespace doris {
 
 typedef __int128_t int128_t;
+
+enum DecimalError {
+    E_DEC_OK = 0,
+    E_DEC_TRUNCATED = 1,
+    E_DEC_OVERFLOW = 2,
+    E_DEC_DIV_ZERO = 4,
+    E_DEC_BAD_NUM = 8,
+    E_DEC_OOM = 16,
+
+    E_DEC_ERROR = 31,
+    E_DEC_FATAL_ERROR = 30
+};
+
+enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUNCATE = 5 };
 
 class DecimalV2Value {
 public:

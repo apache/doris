@@ -119,8 +119,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
         return "date";
     case TPrimitiveType::DATETIME:
         return "datetime";
-    case TPrimitiveType::DECIMALV2:
-    case TPrimitiveType::DECIMAL: {
+    case TPrimitiveType::DECIMALV2: {
         return "decimal";
     }
     default:
@@ -162,8 +161,7 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
         return "date";
     case TPrimitiveType::DATETIME:
         return "datetime";
-    case TPrimitiveType::DECIMALV2:
-    case TPrimitiveType::DECIMAL: {
+    case TPrimitiveType::DECIMALV2: {
         std::stringstream stream;
         stream << "decimal(";
         if (desc.__isset.columnPrecision) {

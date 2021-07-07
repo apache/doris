@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
 
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_value.h"
 #include "runtime/string_value.hpp"
@@ -44,7 +43,6 @@ struct ExprValue {
     std::string string_data;
     StringValue string_val;
     DateTimeValue datetime_val;
-    DecimalValue decimal_val;
     DecimalV2Value decimalv2_val;
 
     ExprValue()
@@ -59,7 +57,6 @@ struct ExprValue {
               string_data(),
               string_val(NULL, 0),
               datetime_val(),
-              decimal_val(),
               decimalv2_val(0) {}
 
     ExprValue(bool v) : bool_val(v) {}
@@ -70,7 +67,7 @@ struct ExprValue {
     ExprValue(__int128 value) : large_int_val(value) {}
     ExprValue(float v) : float_val(v) {}
     ExprValue(double v) : double_val(v) {}
-    ExprValue(int64_t i, int32_t f) : decimal_val(i, f), decimalv2_val(i, f) {}
+    ExprValue(int64_t i, int32_t f) : decimalv2_val(i, f) {}
 
     // c'tor for string values
     ExprValue(const std::string& str)
@@ -134,10 +131,6 @@ struct ExprValue {
             double_val = 0;
             return &double_val;
 
-        case TYPE_DECIMAL:
-            decimal_val.set_to_zero();
-            return &decimal_val;
-
         case TYPE_DECIMALV2:
             decimalv2_val.set_to_zero();
             return &decimalv2_val;
@@ -186,10 +179,6 @@ struct ExprValue {
             double_val = std::numeric_limits<double>::min();
             return &double_val;
 
-        case TYPE_DECIMAL:
-            decimal_val = DecimalValue::get_min_decimal();
-            return &decimal_val;
-
         case TYPE_DECIMALV2:
             decimalv2_val = DecimalV2Value::get_min_decimal();
             return &decimalv2_val;
@@ -237,10 +226,6 @@ struct ExprValue {
         case TYPE_DOUBLE:
             double_val = std::numeric_limits<double>::max();
             return &double_val;
-
-        case TYPE_DECIMAL:
-            decimal_val = DecimalValue::get_max_decimal();
-            return &decimal_val;
 
         case TYPE_DECIMALV2:
             decimalv2_val = DecimalV2Value::get_max_decimal();

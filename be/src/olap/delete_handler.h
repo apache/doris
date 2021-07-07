@@ -59,15 +59,14 @@ private:
     // 2. For decimal, check whether precision or scale is overflow
     // 3. For date and datetime, check format and value
     // 4. For char and varchar, check length
-    bool is_condition_value_valid(const TabletColumn& column,
-                                  const std::string& condition_op,
-                                  const string& value_str);
+    bool is_condition_value_valid(const TabletColumn& column, const std::string& condition_op,
+                                  const std::string& value_str);
 };
 
 // Represent a delete condition.
 struct DeleteConditions {
-    int64_t filter_version = 0;       // The version of this condition
-    Conditions* del_cond = nullptr;   // The delete condition
+    int64_t filter_version = 0;     // The version of this condition
+    Conditions* del_cond = nullptr; // The delete condition
     std::vector<const ColumnPredicate*> column_predicate_vec;
 };
 
@@ -89,9 +88,7 @@ struct DeleteConditions {
 class DeleteHandler {
 public:
     DeleteHandler() = default;
-    ~DeleteHandler() {
-        finalize();
-    }
+    ~DeleteHandler() { finalize(); }
 
     // Initialize DeleteHandler, use the delete conditions of this tablet whose version less than or equal to
     // 'version' to fill '_del_conds'.
@@ -131,9 +128,9 @@ public:
     // Return all the delete conditions.
     const std::vector<DeleteConditions>& get_delete_conditions() const { return _del_conds; }
 
-    void get_delete_conditions_after_version(int64_t version,
-                                             std::vector<const Conditions *>* delete_conditions,
-                                             AndBlockColumnPredicate* and_block_column_predicate_ptr) const;
+    void get_delete_conditions_after_version(
+            int64_t version, std::vector<const Conditions*>* delete_conditions,
+            AndBlockColumnPredicate* and_block_column_predicate_ptr) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
