@@ -226,6 +226,12 @@ public class PartitionInfo implements Writable {
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
         idToInMemory.put(partitionId, isInMemory);
+        if (isInMemory) {
+            Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
+        } else {
+            Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partitionId);
+        }
+
     }
 
     public TTabletType getTabletType(long partitionId) {

@@ -722,7 +722,7 @@ public class OlapTable extends Table {
                             partitionInfo.getIsInMemory(partition.getId()));
                 }
             } else if (!reserveTablets) {
-                Catalog.getCurrentCatalog().onErasePartition(partition);
+                Catalog.getCurrentCatalog().onErasePartition(partition, partitionInfo.getIsInMemory(partition.getId()));
             }
 
             // drop partition info

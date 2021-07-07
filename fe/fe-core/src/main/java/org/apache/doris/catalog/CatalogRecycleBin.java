@@ -241,7 +241,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             long partitionId = entry.getKey();
             if (isExpire(partitionId, currentTimeMs)) {
-                Catalog.getCurrentCatalog().onErasePartition(partition);
+                Catalog.getCurrentCatalog().onErasePartition(partition, partitionInfo.isInMemory());
                 // erase partition
                 iterator.remove();
                 idToRecycleTime.remove(partitionId);
@@ -264,7 +264,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Partition partition = partitionInfo.getPartition();
             if (partition.getName().equals(partitionName)) {
-                Catalog.getCurrentCatalog().onErasePartition(partition);
+                Catalog.getCurrentCatalog().onErasePartition(partition, partitionInfo.isInMemory());
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
@@ -279,7 +279,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         Partition partition = partitionInfo.getPartition();
         if (!Catalog.isCheckpointThread()) {
-            Catalog.getCurrentCatalog().onErasePartition(partition);
+            Catalog.getCurrentCatalog().onErasePartition(partition, partitionInfo.isInMemory());
         }
 
         LOG.info("replay erase partition[{}]", partitionId);

@@ -3407,7 +3407,7 @@ public class Catalog {
         }
     }
 
-    public void replayErasePartition(long partitionId) throws DdlException {
+    public void replayErasePartition(long partitionId) {
         Catalog.getCurrentRecycleBin().replayErasePartition(partitionId);
     }
 
@@ -7064,6 +7064,9 @@ public class Catalog {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
         for (Partition partition : allPartitions) {
+            if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                invertedIndex.removePartitionIdFromInMemorySet(partition.getId());
+            }
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
@@ -7097,13 +7100,16 @@ public class Catalog {
         Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
     }
 
-    public void onErasePartition(Partition partition) {
+    public void onErasePartition(Partition partition, boolean isInMemory) {
         // remove tablet in inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 invertedIndex.deleteTablet(tablet.getId());
             }
+        }
+        if (isInMemory) {
+            invertedIndex.removePartitionIdFromInMemorySet(partition.getId());
         }
     }
 }
