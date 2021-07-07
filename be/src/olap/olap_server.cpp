@@ -157,7 +157,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     }
 
     const double pi = M_PI;
-    double usage = 0.0;
+    double usage = 1.0;
     // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(curr_interval))) {
