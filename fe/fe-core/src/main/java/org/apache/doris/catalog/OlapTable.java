@@ -387,6 +387,17 @@ public class OlapTable extends Table {
         return null;
     }
 
+    @Override
+    public long getUpdateTime() {
+        long updateTime = tempPartitions.getUpdateTime();
+        for (Partition p : idToPartition.values()) {
+            if (p.getVisibleVersionTime() > updateTime) {
+                updateTime = p.getVisibleVersionTime();
+            }
+        }
+        return updateTime;
+    }
+
     // this is only for schema change.
     public void renameIndexForSchemaChange(String name, String newName) {
         long idxId = indexNameToId.remove(name);
@@ -922,12 +933,37 @@ public class OlapTable extends Table {
         return tTableDescriptor;
     }
 
+    @Override
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        long rowCount = 0;
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    public long getDataLength() {
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        return dataSize;
     }
 
     @Override
