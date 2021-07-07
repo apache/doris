@@ -78,7 +78,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -95,6 +94,13 @@ public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
+
+    private enum ReportType {
+        UNKNOWN,
+        TASK,
+        DISK,
+        TABLET
+    }
 
     public ReportHandler() {
         GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
@@ -131,26 +137,27 @@ public class ReportHandler extends Daemon {
         Map<Long, TTablet> tablets = null;
         long reportVersion = -1;
 
-        String reportType = "";
+        ReportType reportType = ReportType.UNKNOWN;
+
         if (request.isSetTasks()) {
             tasks = request.getTasks();
-            reportType += "task";
+            reportType = ReportType.TASK;
         }
 
         if (request.isSetDisks()) {
             disks = request.getDisks();
-            reportType += "disk";
+            reportType = ReportType.DISK;
         }
 
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReportVersion();
-            reportType += "tablet";
+            reportType = ReportType.TABLET;
         } else if (request.isSetTabletList()) {
             // the 'tablets' member will be deprecated in future.
             tablets = buildTabletMap(request.getTabletList());
             reportVersion = request.getReportVersion();
-            reportType += "tablet";
+            reportType = ReportType.TABLET;
         }
 
         if (request.isSetTabletMaxCompactionScore()) {
@@ -260,6 +267,8 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
+        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
                 tabletSyncMap,
@@ -308,7 +317,9 @@ public class ReportHandler extends Daemon {
         }
 
         // 9. send set tablet in memory to be
-        handleSetTabletInMemory(backendId, backendTablets);
+        if (!tabletToInMemory.isEmpty()) {
+            handleSetTabletInMemory(backendId, tabletToInMemory);
+        }
 
         final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
         Backend reportBackend = currentSystemInfo.getBackend(backendId);
@@ -883,56 +894,11 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void handleSetTabletInMemory(long backendId, Map<Long, TTablet> backendTablets) {
-        // <tablet id, tablet schema hash, tablet in memory>
-        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
-
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (TTablet backendTablet : backendTablets.values()) {
-            for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
-                if (!tabletInfo.isSetIsInMemory()) {
-                    continue;
-                }
-                long tabletId = tabletInfo.getTabletId();
-                boolean beIsInMemory = tabletInfo.is_in_memory;
-                TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                long dbId = tabletMeta != null ? tabletMeta.getDbId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-                long tableId = tabletMeta != null ? tabletMeta.getTableId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-                long partitionId = tabletMeta != null ? tabletMeta.getPartitionId() : TabletInvertedIndex.NOT_EXIST_VALUE;
-
-                Database db = Catalog.getCurrentCatalog().getDb(dbId);
-                if (db == null) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
-                if (olapTable == null) {
-                    continue;
-                }
-                olapTable.readLock();
-                try {
-                    Partition partition = olapTable.getPartition(partitionId);
-                    if (partition == null) {
-                        continue;
-                    }
-                    boolean feIsInMemory = olapTable.getPartitionInfo().getIsInMemory(partitionId);
-                    if (beIsInMemory != feIsInMemory) {
-                        tabletToInMemory.add(new ImmutableTriple<>(tabletId, tabletInfo.getSchemaHash(), feIsInMemory));
-                    }
-                } finally {
-                    olapTable.readUnlock();
-                }
-            }
-        }
-
-        LOG.info("find [{}] tablets need set in memory meta", tabletToInMemory.size());
-        // When report, needn't synchronous
-        if (!tabletToInMemory.isEmpty()) {
-            AgentBatchTask batchTask = new AgentBatchTask();
-            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
-            batchTask.addTask(task);
-            AgentTaskExecutor.submit(batchTask);
-        }
+    private static void handleSetTabletInMemory(long backendId, List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
+        batchTask.addTask(task);
+        AgentTaskExecutor.submit(batchTask);
     }
 
     private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
