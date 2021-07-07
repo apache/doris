@@ -34,7 +34,6 @@ add_library(Exprs
   compound_predicate.cpp
   conditional_functions.cpp
   conditional_functions_ir.cpp
-  decimal_operators.cpp
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp

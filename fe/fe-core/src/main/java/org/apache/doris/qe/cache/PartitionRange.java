@@ -171,7 +171,6 @@ public class PartitionRange {
                 case DATETIME:
                 case FLOAT:
                 case DOUBLE:
-                case DECIMAL:
                 case DECIMALV2:
                 case CHAR:
                 case VARCHAR:

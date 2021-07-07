@@ -890,18 +890,6 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     return do_money_format(context, std::to_string(v_cent));
 }
 
-StringVal StringFunctions::money_format(FunctionContext* context, const DecimalVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-
-    DecimalValue rounded;
-    DecimalValue::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalValue tmp(std::string_view("100"));
-    DecimalValue result = rounded * tmp;
-    return do_money_format(context, result.to_string());
-}
-
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
     if (v.is_null) {
         return StringVal::null();

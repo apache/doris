@@ -140,9 +140,6 @@ public:
                                              const doris_udf::DoubleVal& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::DecimalVal& v);
-
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::DecimalV2Val& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,

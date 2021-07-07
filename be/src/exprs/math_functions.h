@@ -37,7 +37,6 @@ public:
 
     static doris_udf::DoubleVal abs(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
     static doris_udf::FloatVal abs(doris_udf::FunctionContext*, const doris_udf::FloatVal&);
-    static doris_udf::DecimalVal abs(doris_udf::FunctionContext*, const doris_udf::DecimalVal&);
     static doris_udf::DecimalV2Val abs(doris_udf::FunctionContext*, const doris_udf::DecimalV2Val&);
 
     // For integer math, we have to promote ABS() to the next highest integer type because
@@ -131,16 +130,12 @@ public:
                                                 const doris_udf::BigIntVal& val);
     static doris_udf::DoubleVal positive_double(doris_udf::FunctionContext* ctx,
                                                 const doris_udf::DoubleVal& val);
-    static doris_udf::DecimalVal positive_decimal(doris_udf::FunctionContext* ctx,
-                                                  const doris_udf::DecimalVal& val);
     static doris_udf::DecimalV2Val positive_decimal(doris_udf::FunctionContext* ctx,
                                                     const doris_udf::DecimalV2Val& val);
     static doris_udf::BigIntVal negative_bigint(doris_udf::FunctionContext* ctx,
                                                 const doris_udf::BigIntVal& val);
     static doris_udf::DoubleVal negative_double(doris_udf::FunctionContext* ctx,
                                                 const doris_udf::DoubleVal& val);
-    static doris_udf::DecimalVal negative_decimal(doris_udf::FunctionContext* ctx,
-                                                  const doris_udf::DecimalVal& val);
     static doris_udf::DecimalV2Val negative_decimal(doris_udf::FunctionContext* ctx,
                                                     const doris_udf::DecimalV2Val& val);
 
@@ -180,10 +175,6 @@ public:
                                         const doris_udf::DateTimeVal* val);
     static doris_udf::DateTimeVal greatest(doris_udf::FunctionContext* ctx, int num_args,
                                            const doris_udf::DateTimeVal* val);
-    static doris_udf::DecimalVal least(doris_udf::FunctionContext* ctx, int num_args,
-                                       const doris_udf::DecimalVal* val);
-    static doris_udf::DecimalVal greatest(doris_udf::FunctionContext* ctx, int num_args,
-                                          const doris_udf::DecimalVal* val);
     static doris_udf::DecimalV2Val least(doris_udf::FunctionContext* ctx, int num_args,
                                          const doris_udf::DecimalV2Val* val);
     static doris_udf::DecimalV2Val greatest(doris_udf::FunctionContext* ctx, int num_args,

@@ -275,10 +275,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
         *reinterpret_cast<DateTimeValue*>(slot) =
                 DateTimeValue::from_datetime_val(*reinterpret_cast<const DateTimeVal*>(src));
         return;
-    case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(slot) =
-                DecimalValue::from_decimal_val(*reinterpret_cast<const DecimalVal*>(src));
-        return;
+
     case TYPE_DECIMALV2:
         *reinterpret_cast<PackedInt128*>(slot) = reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
@@ -374,11 +371,6 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_DATETIME:
         reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                 reinterpret_cast<DateTimeVal*>(dst));
-        return;
-
-    case TYPE_DECIMAL:
-        reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-                reinterpret_cast<DecimalVal*>(dst));
         return;
 
     case TYPE_DECIMALV2:
@@ -614,12 +606,6 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
     case TYPE_OBJECT: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
-        SetDstSlot(&v, dst_slot_desc, dst);
-        break;
-    }
-    case TYPE_DECIMAL: {
-        typedef DecimalVal (*Fn)(FunctionContext*, AnyVal*);
-        DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
         SetDstSlot(&v, dst_slot_desc, dst);
         break;
     }

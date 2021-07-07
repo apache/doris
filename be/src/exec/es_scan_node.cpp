@@ -635,14 +635,6 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
         break;
     }
 
-    case TYPE_DECIMAL: {
-        node_type = (TExprNodeType::DECIMAL_LITERAL);
-        TDecimalLiteral decimal_literal;
-        decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
-        literal->__set_decimal_literal(decimal_literal);
-        break;
-    }
-
     case TYPE_DATE:
     case TYPE_DATETIME: {
         node_type = (TExprNodeType::DATE_LITERAL);
@@ -859,15 +851,6 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
                         strings::Substitute(ERROR_INVALID_COL_DATA, "TYPE_DATETIME"));
             }
             reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-            break;
-        }
-        case TYPE_DECIMAL: {
-            if (val_idx >= col.binary_vals.size()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "DECIMAL"));
-            }
-            const string& val = col.binary_vals[val_idx];
-            *reinterpret_cast<DecimalValue*>(slot) = *reinterpret_cast<const DecimalValue*>(&val);
             break;
         }
         default:
