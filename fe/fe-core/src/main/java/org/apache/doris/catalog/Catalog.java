@@ -5543,7 +5543,7 @@ public class Catalog {
 
         // need to update partition info meta
         for(Partition partition: table.getPartitions()) {
-            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
         }
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
@@ -5575,7 +5575,7 @@ public class Catalog {
             // need to replay partition info meta
             if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
                 for(Partition partition: olapTable.getPartitions()) {
-                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                 }
             }
         } finally {
