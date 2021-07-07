@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
-        idToInMemory.put(partitionId, desc.isInMemory());
+        setIsInMemory(partitionId, desc.isInMemory());
 
         return partitionItem;
     }
@@ -148,7 +148,7 @@ public class PartitionInfo implements Writable {
         setItemInternal(partitionId, isTemp, partitionItem);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
-        idToInMemory.put(partitionId, isInMemory);
+        setIsInMemory(partitionId, isInMemory);
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
@@ -264,7 +264,7 @@ public class PartitionInfo implements Writable {
                              boolean isInMemory) {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
-        idToInMemory.put(partitionId, isInMemory);
+        setIsInMemory(partitionId, isInMemory);
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {

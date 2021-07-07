@@ -448,7 +448,11 @@ public class OlapTable extends Table {
                 partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
                 partitionInfo.getIdToItem(false).put(newPartId,
                         partitionInfo.getIdToItem(false).remove(entry.getValue()));
-                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
+                boolean isInMemory = partitionInfo.idToInMemory.remove(entry.getValue());
+                if (isInMemory) {
+                    Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.getValue());
+                }
+                partitionInfo.setIsInMemory(newPartId, isInMemory);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
@@ -458,7 +462,11 @@ public class OlapTable extends Table {
                 partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
                 partitionInfo.idToReplicationNum.remove(entry.getValue());
                 partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
+                boolean isInMemory = partitionInfo.idToInMemory.remove(entry.getValue());
+                if (isInMemory) {
+                    Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.getValue());
+                }
+                partitionInfo.setIsInMemory(newPartId, isInMemory);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }
