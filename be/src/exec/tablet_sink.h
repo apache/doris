@@ -80,8 +80,7 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {
-    }
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
     ~ReusableClosure() {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -376,9 +375,6 @@ private:
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _sender_thread;
 
-    std::vector<DecimalValue> _max_decimal_val;
-    std::vector<DecimalValue> _min_decimal_val;
-
     std::vector<DecimalV2Value> _max_decimalv2_val;
     std::vector<DecimalV2Value> _min_decimalv2_val;
 
@@ -414,10 +410,10 @@ private:
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
 
-	// True if this sink has been closed once
-	bool _is_closed = false;
-	// Save the status of close() method
-	Status _close_status;
+    // True if this sink has been closed once
+    bool _is_closed = false;
+    // Save the status of close() method
+    Status _close_status;
 };
 
 } // namespace stream_load

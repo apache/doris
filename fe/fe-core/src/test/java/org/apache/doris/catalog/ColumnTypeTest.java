@@ -96,7 +96,7 @@ public class ColumnTypeTest {
         TypeDef type = TypeDef.createDecimal(12, 5);
         type.analyze(null);
         Assert.assertEquals("decimal(12, 5)", type.toString());
-        Assert.assertEquals(PrimitiveType.DECIMAL, type.getType().getPrimitiveType());
+        Assert.assertEquals(PrimitiveType.DECIMALV2, type.getType().getPrimitiveType());
         Assert.assertEquals(12, ((ScalarType) type.getType()).getScalarPrecision());
         Assert.assertEquals(5, ((ScalarType) type.getType()).getScalarScale());
 
@@ -146,7 +146,7 @@ public class ColumnTypeTest {
         ScalarType type2 = ScalarType.createType(PrimitiveType.BIGINT);
         ColumnType.write(dos, type2);
 
-        ScalarType type3 = ScalarType.createDecimalType(1, 1);
+        ScalarType type3 = ScalarType.createDecimalV2Type(1, 1);
         ColumnType.write(dos, type3);
 
         ScalarType type4 = ScalarType.createDecimalV2Type(1, 1);

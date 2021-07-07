@@ -64,8 +64,4 @@ StringVal TimeOperators::cast_to_string_val(FunctionContext* ctx, const DoubleVa
 DateTimeVal TimeOperators::cast_to_datetime_val(FunctionContext* context, const DoubleVal& val) {
     return DateTimeVal::null();
 }
-
-DecimalVal TimeOperators::cast_to_decimal_val(FunctionContext* context, const DoubleVal& val) {
-    return DecimalVal::null();
-}
 } // namespace doris

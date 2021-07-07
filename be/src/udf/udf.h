@@ -42,7 +42,6 @@ struct IntVal;
 struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
-struct DecimalVal;
 struct DecimalV2Val;
 struct HllVal;
 
@@ -66,7 +65,7 @@ public:
         TYPE_LARGEINT,
         TYPE_FLOAT,
         TYPE_DOUBLE,
-        TYPE_DECIMAL,
+        TYPE_DECIMAL_DEPRACTED,
         TYPE_DATE,
         TYPE_DATETIME,
         TYPE_CHAR,
@@ -643,37 +642,6 @@ struct StringVal : public AnyVal {
                 size_t buf2_len);
 };
 
-struct DecimalVal : public AnyVal {
-    int8_t int_len;
-    int8_t frac_len;
-    bool sign;
-    int32_t buffer[9] = {0};
-
-    // Default value is zero
-    DecimalVal() : int_len(0), frac_len(0), sign(false) {
-        // Do nothing here
-    }
-
-    static DecimalVal null() {
-        DecimalVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    void set_to_zero() {
-        memset(buffer, 0, sizeof(int32_t) * 9);
-        int_len = 0;
-        frac_len = 0;
-        sign = 0;
-    }
-
-    void set_to_abs_value() { sign = false; }
-
-    bool operator==(const DecimalVal& other) const;
-
-    bool operator!=(const DecimalVal& other) const { return !(*this == other); }
-};
-
 struct DecimalV2Val : public AnyVal {
     __int128 val;
 
@@ -762,7 +730,6 @@ using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::StringVal;
-using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::HllVal;

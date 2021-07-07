@@ -46,11 +46,6 @@ void ColumnValueRange<StringValue>::convert_to_fixed_value() {
 }
 
 template <>
-void ColumnValueRange<DecimalValue>::convert_to_fixed_value() {
-    return;
-}
-
-template <>
 void ColumnValueRange<DecimalV2Value>::convert_to_fixed_value() {
     return;
 }

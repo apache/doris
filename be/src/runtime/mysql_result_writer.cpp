@@ -155,21 +155,6 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
             break;
         }
 
-        case TYPE_DECIMAL: {
-            const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val->to_string(output_scale);
-            } else {
-                decimal_str = decimal_val->to_string();
-            }
-
-            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
-            break;
-        }
-
         case TYPE_DECIMALV2: {
             DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             std::string decimal_str;
@@ -226,7 +211,6 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
             }
         }
     }
-
 
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);

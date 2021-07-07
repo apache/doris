@@ -157,7 +157,7 @@ public class FloatLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (!(targetType.isFloatingPointType() || targetType.isDecimal() || targetType.isDecimalV2())) {
+        if (!(targetType.isFloatingPointType() || targetType.isDecimalV2())) {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
@@ -167,7 +167,7 @@ public class FloatLiteral extends LiteralExpr {
                 return floatLiteral;
             }
             return this;
-        } else if (targetType.isDecimal() || targetType.isDecimalV2()) {
+        } else if (targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
         }
         return this;
