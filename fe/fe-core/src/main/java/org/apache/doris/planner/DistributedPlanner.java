@@ -682,7 +682,7 @@ public class DistributedPlanner {
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<String> leftDistributeColumnNames = Lists.newArrayList();
             for (Column col : leftDistributeColumns) {
-                leftDistributeColumnNames.add(leftTable.getName() + "-" + col.getName());
+                leftDistributeColumnNames.add(leftTable.getName() + "." + col.getName());
             }
 
             List<String> leftJoinColumnNames = new ArrayList<>();
@@ -700,7 +700,7 @@ public class DistributedPlanner {
                 if (leftSlot.getTable() instanceof OlapTable) {
                     // table name in SlotRef is not the really name. `select * from test as t`
                     // table name in SlotRef is `t`, but here we need is `test`.
-                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "-" + leftSlot.getColumnName());
+                    leftJoinColumnNames.add(leftSlot.getTable().getName() + "." + leftSlot.getColumnName());
                     rightExprs.add(rhsJoinExpr);
                 }
             }
