@@ -40,5 +40,7 @@ public:
     virtual Status rm(const std::string& remote) = 0;
     virtual Status mkdir(const std::string& path) = 0;
     virtual Status exist(const std::string& path) = 0;
+
+    virtual ~StorageBackend() = default;
 };
 } // end namespace doris
