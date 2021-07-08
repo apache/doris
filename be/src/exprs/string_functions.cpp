@@ -995,4 +995,14 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     }
     return AnyValUtil::from_string_temp(context, orig_str);
 }
+// Implementation of BIT_LENGTH
+//   int bit_length(string input)
+// Returns the length in bits of input. If input == NULL, returns
+// NULL per MySQL
+IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return IntVal::null();
+    }
+    return IntVal(str.len * 8);
+}
 } // namespace doris
