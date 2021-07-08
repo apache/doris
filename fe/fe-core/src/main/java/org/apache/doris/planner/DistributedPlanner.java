@@ -48,6 +48,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import avro.shaded.com.google.common.collect.Maps;
 
@@ -680,10 +681,8 @@ public class DistributedPlanner {
         if (leftDistribution instanceof HashDistributionInfo) {
             // use the table_name + '-' + column_name as check condition
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
-            List<String> leftDistributeColumnNames = Lists.newArrayList();
-            for (Column col : leftDistributeColumns) {
-                leftDistributeColumnNames.add(leftTable.getName() + "." + col.getName());
-            }
+            List<String> leftDistributeColumnNames = leftDistributeColumns.stream().
+                    map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -706,14 +705,22 @@ public class DistributedPlanner {
             }
 
             //2 the join columns should contains all left table distribute columns to enable bucket shuffle join
-            for (String distributeColumnName : leftDistributeColumnNames) {
-                int loc = leftJoinColumnNames.indexOf(distributeColumnName);
-                // TODO: now support bucket shuffle join when distribute column type different with
-                // right expr type
-                if (loc == -1 || !rightExprs.get(loc).getType().equals(leftDistributeColumns.get(loc).getType())) {
-                    return false;
+            for (int i = 0; i < leftDistributeColumnNames.size(); i++) {
+                String distributeColumnName = leftDistributeColumnNames.get(i);
+                boolean findRhsExprs = false;
+                // check the join column name is same as distribute column name and
+                // check the rhs join expr type is same as distribute column
+                for (int j = 0; j < leftJoinColumnNames.size(); j++) {
+                    if (leftJoinColumnNames.get(j).equals(distributeColumnName)) {
+                        if (rightExprs.get(j).getType().equals(leftDistributeColumns.get(i).getType())) {
+                            rhsJoinExprs.add(rightExprs.get(j));
+                            findRhsExprs = true;
+                            break;
+                        }
+                    }
                 }
-                rhsJoinExprs.add(rightExprs.get(loc));
+
+                if (!findRhsExprs) return false;
             }
         } else {
             return false;
