@@ -32,15 +32,25 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 2. `init_env.sh`
 
      The script mainly performs the following steps:
-    
+     
+     
      1. Git clone the DataX code base to the local
      2. Softlink the `doriswriter/` directory to `DataX/doriswriter`.
-     3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
+    3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
     
      After that, developers can enter `DataX/` for development. And the changes in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code.
+    
+3. `build.sh`
+
+     datax doris writer write plugin compilation script
 
 ### How to build
 
-1. Run `init_env.sh`
+1. Run `sh init_env.sh`
+
 2. Modify code of doriswriter in `DataX/doriswriter`
+
 3. Commit code of doriswriter in `doriswriter`
+
+4. Execute `sh build.sh` command to compile, after compiling, the package is in the output directory
+
