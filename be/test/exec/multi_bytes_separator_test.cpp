@@ -54,7 +54,7 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     params.line_delimiter_str = "BBB";
     params.column_separator_length = 4;
     params.line_delimiter_length = 3;
-    
+
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
     const std::vector<ExprContext*> pre_filter_ctxs;
@@ -66,31 +66,28 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     {
         std::string line = "AAAA";
         Slice s(line);
-        std::vector<Slice> values;
-        scanner.split_line(s, &values);
-        ASSERT_EQ(2, values.size());
-        ASSERT_EQ(0, values[0].size);
-        ASSERT_EQ(0, values[1].size);
+        scanner.split_line(s);
+        ASSERT_EQ(2, scanner._split_values.size());
+        ASSERT_EQ(0, scanner._split_values[0].size);
+        ASSERT_EQ(0, scanner._split_values[1].size);
     }
 
     // 2.
     {
         std::string line = "ABAA";
         Slice s(line);
-        std::vector<Slice> values;
-        scanner.split_line(s, &values);
-        ASSERT_EQ(1, values.size());
-        ASSERT_EQ(4, values[0].size);
+        scanner.split_line(s);
+        ASSERT_EQ(1, scanner._split_values.size());
+        ASSERT_EQ(4, scanner._split_values[0].size);
     }
 
     // 3.
     {
         std::string line = "";
         Slice s(line);
-        std::vector<Slice> values;
-        scanner.split_line(s, &values);
-        ASSERT_EQ(1, values.size());
-        ASSERT_EQ(0, values[0].size);
+        scanner.split_line(s);
+        ASSERT_EQ(1, scanner._split_values.size());
+        ASSERT_EQ(0, scanner._split_values[0].size);
     }
 
     // 4.
@@ -98,13 +95,12 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         // 1234, AAAB, , AA
         std::string line = "1234AAAAAAABAAAAAAAAAA";
         Slice s(line);
-        std::vector<Slice> values;
-        scanner.split_line(s, &values);
-        ASSERT_EQ(4, values.size());
-        ASSERT_EQ(4, values[0].size);
-        ASSERT_EQ(4, values[1].size);
-        ASSERT_EQ(0, values[2].size);
-        ASSERT_EQ(2, values[3].size);
+        scanner.split_line(s);
+        ASSERT_EQ(4, scanner._split_values.size());
+        ASSERT_EQ(4, scanner._split_values[0].size);
+        ASSERT_EQ(4, scanner._split_values[1].size);
+        ASSERT_EQ(0, scanner._split_values[2].size);
+        ASSERT_EQ(2, scanner._split_values[3].size);
     }
 }
 
