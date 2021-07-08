@@ -395,7 +395,7 @@ public class RestoreJob extends AbstractJob {
      * A. Table already exist
      *      A1. Partition already exist, generate file mapping
      *      A2. Partition does not exist, add restored partition to the table.
-     *          Reset all index/tablet/replica id, and create replica on BE outside the db lock.
+     *          Reset all index/tablet/replica id, and create replica on BE outside the table lock.
      * B. Table does not exist
      *      B1. Add table to the db, reset all table/index/tablet/replica id,
      *          and create replica on BE outside the db lock.
@@ -772,6 +772,9 @@ public class RestoreJob extends AbstractJob {
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
+                    if (localTbl.getPartitionInfo().getIsInMemory(restoredPart.getId())) {
+                        Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(restoredPart.getId());
+                    }
                 } finally {
                     localTbl.writeUnlock();
                 }
@@ -786,6 +789,14 @@ public class RestoreJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
                                 + " already exist in db: " + db.getFullName());
                         return;
+                    }
+                    if (tbl instanceof OlapTable) {
+                        OlapTable olapTable = (OlapTable) tbl;
+                        for (Partition partition : ((OlapTable) tbl).getAllPartitions()) {
+                            if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                                Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partition.getId());
+                            }
+                        }
                     }
                 } finally {
                     db.writeUnlock();
@@ -1544,6 +1555,9 @@ public class RestoreJob extends AbstractJob {
                                     Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                                 }
                             }
+                            if (restoreOlapTable.getPartitionInfo().getIsInMemory(part.getId())) {
+                                Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(part.getId());
+                            }
                         }
                     } finally {
                         restoreTbl.writeUnlock();
@@ -1562,11 +1576,13 @@ public class RestoreJob extends AbstractJob {
                         restoreTbl.getName(), entry.second.getName());
                 restoreTbl.writeLock();
                 try {
+                    if (restoreTbl.getPartitionInfo().getIsInMemory(entry.second.getId())) {
+                        Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.second.getId());
+                    }
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {
                     restoreTbl.writeUnlock();
                 }
-
             }
 
             // remove restored resource

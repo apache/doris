@@ -442,31 +442,14 @@ public class OlapTable extends Table {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = catalog.getNextId();
-                partitionInfo.idToDataProperty.put(newPartId,
-                                                        partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                partitionInfo.getIdToItem(false).put(newPartId,
-                        partitionInfo.getIdToItem(false).remove(entry.getValue()));
-                boolean isInMemory = partitionInfo.idToInMemory.remove(entry.getValue());
-                if (isInMemory) {
-                    Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.getValue());
-                }
-                partitionInfo.setIsInMemory(newPartId, isInMemory);
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), (short) restoreReplicationNum);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
             // Single partitioned
             long newPartId = catalog.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                boolean isInMemory = partitionInfo.idToInMemory.remove(entry.getValue());
-                if (isInMemory) {
-                    Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.getValue());
-                }
-                partitionInfo.setIsInMemory(newPartId, isInMemory);
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), (short) restoreReplicationNum);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }

@@ -1544,10 +1544,14 @@ public class Catalog {
                 OlapTable olapTable = (OlapTable) table;
                 long tableId = olapTable.getId();
                 Collection<Partition> allPartitions = olapTable.getAllPartitions();
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 for (Partition partition : allPartitions) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
+                    if (partitionInfo.getIsInMemory(partitionId)) {
+                        invertedIndex.addPartitionIdToInMemorySet(partitionId);
+                    }
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);

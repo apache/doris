@@ -225,13 +225,18 @@ public class PartitionInfo implements Writable {
     }
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
-        idToInMemory.put(partitionId, isInMemory);
-        if (isInMemory) {
-            Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
-        } else {
-            Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partitionId);
-        }
+        setIsInMemory(partitionId, isInMemory, false);
+    }
 
+    public void setIsInMemory(long partitionId, boolean isInMemory, boolean isRestore) {
+        idToInMemory.put(partitionId, isInMemory);
+        if (!isRestore) {
+            if (isInMemory) {
+                Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
+            } else {
+                Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partitionId);
+            }
+        }
     }
 
     public TTabletType getTabletType(long partitionId) {
@@ -286,6 +291,14 @@ public class PartitionInfo implements Writable {
         if (item != null) {
             idToItem.put(tempPartitionId, item);
         }
+    }
+
+    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId, short restoreReplicationNum) {
+        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
+        idToReplicationNum.remove(oldPartitionId);
+        idToReplicationNum.put(newPartitionId, restoreReplicationNum);
+        idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        setIsInMemory(newPartitionId, idToInMemory.remove(oldPartitionId), true);
     }
 
     @Override
