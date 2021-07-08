@@ -5640,6 +5640,10 @@ public class Catalog {
 
         Database db = getDb(dbId);
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying modify table default distribution bucket number log. db: {}", tableId, dbId);
+            return;
+        }
         olapTable.writeLock();
         try {
             DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
