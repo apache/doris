@@ -3679,7 +3679,7 @@ public class Catalog {
             Preconditions.checkNotNull(dataProperty);
             partitionInfo.setDataProperty(partitionId, dataProperty);
             partitionInfo.setReplicationNum(partitionId, replicationNum);
-            partitionInfo.setIsInMemory(partitionId, isInMemory);
+            partitionInfo.setIsInMemory(partitionId, isInMemory, true);
             partitionInfo.setTabletType(partitionId, tabletType);
         }
 
@@ -3850,6 +3850,11 @@ public class Catalog {
                 for (Long tabletId : tabletIdSet) {
                     Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
                 }
+                for (Partition partition : olapTable.getAllPartitions()) {
+                    if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                        Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partition.getId());
+                    }
+                }
                 LOG.info("duplicate create table[{};{}], skip next steps", tableName, tableId);
             } else {
                 // we have added these index to memory, only need to persist here
@@ -3858,6 +3863,11 @@ public class Catalog {
                     List<List<Long>> backendsPerBucketSeq = getColocateTableIndex().getBackendsPerBucketSeq(groupId);
                     ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
                     editLog.logColocateAddTable(info);
+                }
+                for (Partition partition : olapTable.getAllPartitions()) {
+                    if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                        Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partition.getId());
+                    }
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
                 // register or remove table from DynamicPartition after table created
@@ -3869,7 +3879,11 @@ public class Catalog {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-
+            for (Partition partition : olapTable.getAllPartitions()) {
+                if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
+                    Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partition.getId());
+                }
+            }
             // only remove from memory, because we have not persist it
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 getColocateTableIndex().removeTable(tableId);
@@ -6704,6 +6718,7 @@ public class Catalog {
                     oldTabletIds.add(t.getId());
                 });
             }
+            Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(oldPartition.getId());
         }
 
         if (isEntireTable) {
@@ -6715,6 +6730,7 @@ public class Catalog {
         for (Long tabletId : oldTabletIds) {
             Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
         }
+
     }
 
     public void replayTruncateTable(TruncateTableInfo info) {
@@ -6736,6 +6752,9 @@ public class Catalog {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
+                    if (olapTable.getPartitionInfo().getIsInMemory(partitionId)) {
+                        invertedIndex.addPartitionIdToInMemorySet(partitionId);
+                    }
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = mIndex.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);

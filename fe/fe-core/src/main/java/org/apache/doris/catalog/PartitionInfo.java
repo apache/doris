@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
-        setIsInMemory(partitionId, desc.isInMemory());
+        setIsInMemory(partitionId, desc.isInMemory(), true);
 
         return partitionItem;
     }
@@ -228,9 +228,9 @@ public class PartitionInfo implements Writable {
         setIsInMemory(partitionId, isInMemory, false);
     }
 
-    public void setIsInMemory(long partitionId, boolean isInMemory, boolean isRestore) {
+    public void setIsInMemory(long partitionId, boolean isInMemory, boolean isSkipCheckInMemory) {
         idToInMemory.put(partitionId, isInMemory);
-        if (!isRestore) {
+        if (!isSkipCheckInMemory) {
             if (isInMemory) {
                 Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
             } else {
