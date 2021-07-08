@@ -20,8 +20,8 @@
 #include <sstream>
 
 #include "exprs/anyval_util.h"
-#include "runtime/raw_value.h"
 #include "exprs/expr_context.h"
+#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
 
