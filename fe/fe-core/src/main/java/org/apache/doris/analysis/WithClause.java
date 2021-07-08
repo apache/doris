@@ -113,11 +113,11 @@ public class WithClause implements ParseNode {
         }
     }
 
-    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
         for (View view : views_) {
             QueryStmt stmt = view.getQueryStmt();
             parentViewNameSet.add(view.getName());
-            stmt.getTableRefs(tblRefs, parentViewNameSet);
+            stmt.getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
     }
 
