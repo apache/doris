@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2;
 
+import org.apache.doris.PaloFe;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -34,16 +35,25 @@ import java.util.Map;
 public class HttpServer extends SpringBootServletInitializer {
 
     private int port;
-    //The maximum file limit for a single upload of a web request
-    private String maxFileSize;
-    private String maxRequestSize;
+    private int acceptors;
+    private int selectors;
+    private int maxHttpPostSize ;
+    private int workers;
 
-    public void setMaxFileSize(String maxFileSize) {
-        this.maxFileSize = maxFileSize;
+    public void setWorkers(int workers) {
+        this.workers = workers;
     }
 
-    public void setMaxRequestSize(String maxRequestSize) {
-        this.maxRequestSize = maxRequestSize;
+    public void setAcceptors(int acceptors) {
+        this.acceptors = acceptors;
+    }
+
+    public void setSelectors(int selectors) {
+        this.selectors = selectors;
+    }
+
+    public void setMaxHttpPostSize(int maxHttpPostSize) {
+        this.maxHttpPostSize = maxHttpPostSize;
     }
 
     public void setPort(int port) {
@@ -63,11 +73,18 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
-        properties.put("spring.servlet.multipart.max-file-size", this.maxFileSize);
-        properties.put("spring.servlet.multipart.max-request-size", this.maxRequestSize);
+        //enable jetty config
+        properties.put("server.jetty.acceptors", this.acceptors);
+        properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
+        properties.put("server.jetty.selectors", this.selectors);
+        //Worker thread pool is not set by default, set according to your needs
+        if(this.workers > 0) {
+            properties.put("server.jetty.workers", this.workers);
+        }
         // This is to disable the spring-boot-devtools restart feature.
         // To avoid some unexpected behavior.
         System.setProperty("spring.devtools.restart.enabled", "false");
+        System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
         properties.put("logging.config", dorisHome + "/conf/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
