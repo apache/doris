@@ -24,10 +24,13 @@ under the License.
         <artifactId>datax-all</artifactId>
         <groupId>com.alibaba.datax</groupId>
         <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
-    <modelVersion>4.0.0</modelVersion>
 
+    <modelVersion>4.0.0</modelVersion>
     <artifactId>doriswriter</artifactId>
+    <name>doriswriter</name>
+    <packaging>jar</packaging>
 
     <dependencies>
         <dependency>
@@ -65,7 +68,7 @@ under the License.
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
             <artifactId>httpclient</artifactId>
-            <version>4.5.3</version>
+            <version>4.5.13</version>
         </dependency>
     </dependencies>
     <build>
