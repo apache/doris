@@ -326,10 +326,26 @@ public class Config extends ConfigBase {
     @ConfField public static int http_backlog_num = 1024;
 
     /**
-     *Maximum file limit for single upload of web request, default value: 100MB
+     * Jetty container default configuration
+     * Jetty's thread architecture model is very simple, divided into three thread pools:
+     * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
+     * and then hand over to selectors to process the unpacking of the HTTP message protocol,
+     * and finally workers process the request. The first two thread pools adopt a non-blocking model,
+     * and one thread can handle the read and write of many sockets, so the number of thread pools is small.
+     *
+     * For most projects, only 1-2 acceptors threads are needed, and 2 to 4 selectors threads are sufficient.
+     * Workers are obstructive business logic, often have more database operations, and require a large number of threads. T
+     * he specific number depends on the proportion of QPS and IO events of the application. The higher the QPS,
+     * the more threads are required, the higher the proportion of IO,
+     * the more threads waiting, and the more total threads required.
      */
-    @ConfField public static String http_max_file_size = "100MB";
-    @ConfField public static String http_max_request_size = "100MB";
+    @ConfField public static int jetty_server_acceptors = 2;
+    @ConfField public static int jetty_server_selectors = 4;
+    @ConfField public static int jetty_server_workers = 0;
+    /**
+     * jetty Maximum number of bytes in put or post method,default:100MB
+     */
+    @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
     /**
      * The backlog_num for mysql nio server
