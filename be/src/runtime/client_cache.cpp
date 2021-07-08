@@ -45,7 +45,7 @@ ClientCacheHelper::~ClientCacheHelper() {
     }
 }
 
-Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_factory factory_method,
+Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_factory &factory_method,
                                      void** client_key, int timeout_ms) {
     std::lock_guard<std::mutex> lock(_lock);
     //VLOG_RPC << "get_client(" << hostport << ")";
@@ -76,7 +76,7 @@ Status ClientCacheHelper::get_client(const TNetworkAddress& hostport, client_fac
     return Status::OK();
 }
 
-Status ClientCacheHelper::reopen_client(client_factory factory_method, void** client_key,
+Status ClientCacheHelper::reopen_client(client_factory &factory_method, void** client_key,
                                         int timeout_ms) {
     std::lock_guard<std::mutex> lock(_lock);
     ClientMap::iterator i = _client_map.find(*client_key);
@@ -107,7 +107,7 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
 }
 
 Status ClientCacheHelper::create_client(const TNetworkAddress& hostport,
-                                        client_factory factory_method, void** client_key,
+                                        client_factory &factory_method, void** client_key,
                                         int timeout_ms) {
     std::unique_ptr<ThriftClientImpl> client_impl(factory_method(hostport, client_key));
     //VLOG_CONNECTION << "create_client(): adding new client for "

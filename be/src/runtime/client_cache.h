@@ -59,19 +59,18 @@ public:
     ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
-    typedef std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>
-            client_factory;
+    using client_factory = std::function<ThriftClientImpl*(const TNetworkAddress& hostport, void** client_key)>;
 
     // Return client for specific host/port in 'client'. If a client
     // is not available, the client parameter is set to NULL.
-    Status get_client(const TNetworkAddress& hostport, client_factory factory_method,
+    Status get_client(const TNetworkAddress& hostport, client_factory& factory_method,
                       void** client_key, int timeout_ms);
 
     // Close and delete the underlying transport and remove the client from _client_map.
     // Return a new client connecting to the same host/port.
     // Return an error status and set client_key to NULL if a new client cannot
     // created.
-    Status reopen_client(client_factory factory_method, void** client_key, int timeout_ms);
+    Status reopen_client(client_factory& factory_method, void** client_key, int timeout_ms);
 
     // Return a client to the cache, without closing it, and set *client_key to NULL.
     void release_client(void** client_key);
@@ -122,7 +121,7 @@ private:
     IntGauge* thrift_opened_clients;
 
     // Create a new client for specific host/port in 'client' and put it in _client_map
-    Status create_client(const TNetworkAddress& hostport, client_factory factory_method,
+    Status create_client(const TNetworkAddress& hostport, client_factory& factory_method,
                          void** client_key, int timeout_ms);
 };
 
