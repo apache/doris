@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
-        setIsInMemory(partitionId, desc.isInMemory(), true);
+        setIsInMemory(partitionId, desc.isInMemory(), false);
 
         return partitionItem;
     }
@@ -148,7 +148,7 @@ public class PartitionInfo implements Writable {
         setItemInternal(partitionId, isTemp, partitionItem);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
-        setIsInMemory(partitionId, isInMemory);
+        setIsInMemory(partitionId, isInMemory, false);
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
@@ -225,12 +225,13 @@ public class PartitionInfo implements Writable {
     }
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
-        setIsInMemory(partitionId, isInMemory, false);
+        setIsInMemory(partitionId, isInMemory, true);
     }
 
-    public void setIsInMemory(long partitionId, boolean isInMemory, boolean isSkipCheckInMemory) {
+    // if checkInMemory is true, here we would check partitionId should be added to or removed from InvertedIndex
+    public void setIsInMemory(long partitionId, boolean isInMemory, boolean checkInMemory) {
         idToInMemory.put(partitionId, isInMemory);
-        if (!isSkipCheckInMemory) {
+        if (checkInMemory) {
             if (isInMemory) {
                 Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
             } else {
@@ -298,7 +299,7 @@ public class PartitionInfo implements Writable {
         idToReplicationNum.remove(oldPartitionId);
         idToReplicationNum.put(newPartitionId, restoreReplicationNum);
         idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
-        setIsInMemory(newPartitionId, idToInMemory.remove(oldPartitionId), true);
+        setIsInMemory(newPartitionId, idToInMemory.remove(oldPartitionId), false);
     }
 
     @Override

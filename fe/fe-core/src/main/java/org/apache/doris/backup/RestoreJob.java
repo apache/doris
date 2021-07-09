@@ -772,9 +772,6 @@ public class RestoreJob extends AbstractJob {
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
-                    if (localTbl.getPartitionInfo().getIsInMemory(restoredPart.getId())) {
-                        Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(restoredPart.getId());
-                    }
                 } finally {
                     localTbl.writeUnlock();
                 }

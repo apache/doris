@@ -3182,8 +3182,9 @@ public class Catalog {
         Preconditions.checkNotNull(dataProperty);
 
         Set<Long> tabletIdSet = new HashSet<Long>();
+        long partitionId = -1;
         try {
-            long partitionId = getNextId();
+            partitionId = getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                     olapTable.getId(),
                     olapTable.getBaseIndexId(),
@@ -3295,6 +3296,7 @@ public class Catalog {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
+            Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partitionId);
             throw e;
         }
     }
@@ -3325,6 +3327,9 @@ public class Catalog {
             if (!isCheckpointThread()) {
                 // add to inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+                if (partitionInfo.getIsInMemory(partition.getId())) {
+                    invertedIndex.addPartitionIdToInMemorySet(partition.getId());
+                }
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long indexId = index.getId();
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
@@ -3494,6 +3499,9 @@ public class Catalog {
             KeysType keysType = indexMeta.getKeysType();
             int totalTaskNum = index.getTablets().size() * replicationNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            if (isInMemory) {
+                Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
+            }
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
@@ -3679,7 +3687,7 @@ public class Catalog {
             Preconditions.checkNotNull(dataProperty);
             partitionInfo.setDataProperty(partitionId, dataProperty);
             partitionInfo.setReplicationNum(partitionId, replicationNum);
-            partitionInfo.setIsInMemory(partitionId, isInMemory, true);
+            partitionInfo.setIsInMemory(partitionId, isInMemory, false);
             partitionInfo.setTabletType(partitionId, tabletType);
         }
 
@@ -3864,11 +3872,7 @@ public class Catalog {
                     ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
                     editLog.logColocateAddTable(info);
                 }
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
-                        Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partition.getId());
-                    }
-                }
+
                 LOG.info("successfully create table[{};{}]", tableName, tableId);
                 // register or remove table from DynamicPartition after table created
                 DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
