@@ -45,6 +45,7 @@ import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -108,6 +109,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -121,6 +123,7 @@ import org.glassfish.jersey.internal.guava.Sets;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -128,6 +131,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 // Do one COM_QUERY process.
@@ -324,6 +328,11 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             if (parsedStmt instanceof QueryStmt) {
+                boolean enableSqlBlock = Config.enable_sql_block;
+                if (enableSqlBlock) {
+                    QueryStmt queryStmt = (QueryStmt) this.parsedStmt;
+                    matchSql(queryStmt);
+                }
                 context.getState().setIsQuery(true);
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
@@ -1459,6 +1468,34 @@ public class StmtExecutor implements ProfileWriter {
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
+    }
+
+    private void matchSql(QueryStmt queryStmt) throws AnalysisException {
+        Map<String, List<SqlBlockRule>> userToSqlBlockRuleMap = Catalog.getCurrentCatalog().getSqlBlocklistMgr().getUserToSqlBlockRuleMap();
+        // match default rule
+        String sql = queryStmt.getOrigStmt().originStmt;
+        List<SqlBlockRule> defaultRules = userToSqlBlockRuleMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
+        for (SqlBlockRule rule : defaultRules) {
+            matchSql(rule, sql);
+        }
+        // match user rule
+        String user = context.getUserIdentity().getUser();
+        List<SqlBlockRule> userRules = userToSqlBlockRuleMap.getOrDefault(user, new ArrayList<>());
+        for (SqlBlockRule rule : userRules) {
+            matchSql(rule, sql);
+        }
+    }
+
+    @VisibleForTesting
+    public static void matchSql(SqlBlockRule rule, String sql) throws AnalysisException {
+        if (rule.getEnable() != null && rule.getEnable()) {
+            String sqlPattern = rule.getSql();
+            Pattern pattern = Pattern.compile(sqlPattern);
+            if (pattern.matcher(sql).find()) {
+                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                throw new AnalysisException("query match sql block rule: " + rule.getName());
+            }
+        }
     }
 }
 

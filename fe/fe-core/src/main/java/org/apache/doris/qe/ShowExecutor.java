@@ -68,6 +68,7 @@ import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
+import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
@@ -85,6 +86,7 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -313,6 +315,8 @@ public class ShowExecutor {
             handleAdminShowDataSkew();
         } else if (stmt instanceof ShowSyncJobStmt) {
             handleShowSyncJobs();
+        } else if (stmt instanceof ShowSqlBlockRuleStmt) {
+            handleShowSqlBlockRule();
         } else {
             handleEmtpy();
         }
@@ -2087,7 +2091,13 @@ public class ShowExecutor {
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
+
+    public void handleShowSqlBlockRule() throws AnalysisException {
+        ShowSqlBlockRuleStmt showStmt = (ShowSqlBlockRuleStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<SqlBlockRule> sqlBlockRules = Catalog.getCurrentCatalog().getSqlBlocklistMgr().get(showStmt);
+        sqlBlockRules.forEach(rule -> rows.add(rule.getShowInfo()));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
-
-
-

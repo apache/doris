@@ -26,6 +26,7 @@ import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -46,6 +47,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
@@ -61,6 +63,7 @@ import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
+import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
@@ -263,6 +266,12 @@ public class DdlExecutor {
             catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
             catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
+            catalog.getSqlBlocklistMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
+            catalog.getSqlBlocklistMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
+            catalog.getSqlBlocklistMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

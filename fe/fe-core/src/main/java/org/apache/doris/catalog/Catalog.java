@@ -85,6 +85,7 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.block.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -308,6 +309,7 @@ public class Catalog {
     private LoadManager loadManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
+    private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
     private Alter alter;
@@ -495,6 +497,7 @@ public class Catalog {
         this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
@@ -1901,6 +1904,14 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+            sqlBlockRuleMgr.readFields(in);
+        }
+        LOG.info("finished replay sqlBlockRule from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1924,7 +1935,7 @@ public class Catalog {
         MetaWriter.write(curFile, this);
     }
 
-    public long saveHeader(CountingDataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
+    public long saveHeader(DataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
         // Write meta version
         checksum ^= FeConstants.meta_version;
         dos.writeInt(FeConstants.meta_version);
@@ -2171,6 +2182,11 @@ public class Catalog {
 
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
+        return checksum;
+    }
+
+    public long saveSqlBlockRule(DataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getSqlBlocklistMgr().write(out);
         return checksum;
     }
 
@@ -4862,6 +4878,10 @@ public class Catalog {
 
     public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
+    }
+
+    public SqlBlockRuleMgr getSqlBlocklistMgr() {
+        return sqlBlockRuleMgr;
     }
 
     public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler(){

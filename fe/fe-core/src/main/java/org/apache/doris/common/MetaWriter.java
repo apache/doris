@@ -122,6 +122,8 @@ public class MetaWriter {
             checksum = catalog.savePlugins(dos, checksum);
             metaIndices.add(new MetaIndex("deleteHandler", dos.getCount()));
             checksum = catalog.saveDeleteHandler(dos, checksum);
+            metaIndices.add(new MetaIndex("sqlBlockRule", dos.getCount()));
+            checksum = catalog.saveSqlBlockRule(dos, checksum);
         }
         MetaFooter.write(imageFile, metaIndices, checksum);
 
