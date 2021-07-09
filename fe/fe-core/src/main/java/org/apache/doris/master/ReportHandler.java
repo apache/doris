@@ -17,6 +17,7 @@
 
 package org.apache.doris.master;
 
+import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -84,7 +85,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -254,9 +254,9 @@ public class ReportHandler extends Daemon {
         // db id -> tablet id
         ListMultimap<Long, Long> tabletDeleteFromMeta = LinkedListMultimap.create();
         // tablet ids which schema hash is valid
-        Set<Long> foundTabletsWithValidSchema = new HashSet<Long>();
+        Set<Long> foundTabletsWithValidSchema = Sets.newConcurrentHashSet();
         // tablet ids which schema hash is invalid
-        Map<Long, TTabletInfo> foundTabletsWithInvalidSchema = new HashMap<Long, TTabletInfo>();
+        Map<Long, TTabletInfo> foundTabletsWithInvalidSchema = Maps.newConcurrentMap();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
 
