@@ -39,10 +39,11 @@ Explain:
 6. TabletNum represents the number of fragments on the node.
 7. Data Used Capacity represents the space occupied by the actual user data.
 8. Avail Capacity represents the available space on the disk.
-9. Total Capacity represents total disk space. Total Capacity = AvailCapacity + DataUsedCapacity + other non-user data files take up space.
-10. UsedPct represents the percentage of disk usage.
-11. ErrMsg is used to display error messages when a heartbeat fails.
-12. Status is used to display some Status information about BE in JSON format, including the last time that BE reported it's tablet.
+9. Trash Used Capacity represents the space occupied by the user trash data.
+10. Total Capacity represents total disk space. Total Capacity = AvailCapacity + DataUsedCapacity + other non-user data files take up space.
+11. UsedPct represents the percentage of disk usage.
+12. ErrMsg is used to display error messages when a heartbeat fails.
+13. Status is used to display some Status information about BE in JSON format, including the last time that BE reported it's tablet.
 
 ## keyword
 SHOW, BACKENDS
