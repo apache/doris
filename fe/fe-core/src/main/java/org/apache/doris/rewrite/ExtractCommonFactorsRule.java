@@ -309,7 +309,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
      * Result: 1<k1<4
      */
     private Map<SlotRef, RangeSet<LiteralExpr>> mergeTwoClauseRange(Map<SlotRef, RangeSet<LiteralExpr>> clause1,
-                                                                    Map<SlotRef, Range<LiteralExpr>> clause2) {
+            Map<SlotRef, Range<LiteralExpr>> clause2) {
         Map<SlotRef, RangeSet<LiteralExpr>> result = Maps.newHashMap();
         for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry: clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
@@ -335,7 +335,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
      * Result: k1 in (a, b)
      */
     private Map<SlotRef, InPredicate> mergeTwoClauseIn(Map<SlotRef, InPredicate> clause1,
-                                                       Map<SlotRef, InPredicate> clause2) {
+            Map<SlotRef, InPredicate> clause2) {
         Map<SlotRef, InPredicate> result = Maps.newHashMap();
         for (Map.Entry<SlotRef, InPredicate> clause1Entry: clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();

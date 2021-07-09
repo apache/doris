@@ -212,7 +212,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() 
+            if (!(targetType.getPrimitiveType().isStringType()
                     && !targetType.isAssignedStrLenInColDefinition())) {
                 targetTypeDef.analyze(analyzer);
             }
@@ -240,7 +240,7 @@ public class CastExpr extends Expr {
         if (isImplicit) {
             // we don't expect to see to consecutive implicit casts
             Preconditions.checkState(
-              !(getChild(0) instanceof CastExpr) || !((CastExpr) getChild(0)).isImplicit());
+                    !(getChild(0) instanceof CastExpr) || !((CastExpr) getChild(0)).isImplicit());
             return getChild(0);
         } else {
             return this;
