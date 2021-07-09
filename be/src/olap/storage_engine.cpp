@@ -357,6 +357,12 @@ OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_d
     size_t tablet_count = 0;
     _tablet_manager->update_root_path_info(&path_map, &tablet_count);
 
+    // update trash used capacity
+    for (auto& path : path_map) {
+        std::filesystem::path trash_path(path.first + TRASH_PREFIX);
+        path.second.trash_used_capacity = get_file_or_directory_size(trash_path);
+    }
+
     // 3. update metrics in DataDir
     for (auto& path : path_map) {
         std::lock_guard<std::mutex> l(_store_lock);

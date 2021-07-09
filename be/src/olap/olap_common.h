@@ -54,16 +54,17 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 struct DataDirInfo {
     std::string path;
     size_t path_hash = 0;
-    int64_t disk_capacity = 1;  // actual disk capacity
-    int64_t available = 0;      // 可用空间，单位字节
+    int64_t disk_capacity = 1; // actual disk capacity
+    int64_t available = 0;     // 可用空间，单位字节
     int64_t data_used_capacity = 0;
-    bool is_used = false;       // 是否可用标识
+    int64_t trash_used_capacity = 0;
+    bool is_used = false;                                      // 是否可用标识
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
 };
 
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
-    bool operator() (const DataDirInfo& left, const DataDirInfo& right) const {
+    bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
         return left.available < right.available;
     }
 };
@@ -94,11 +95,8 @@ struct TabletInfo {
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size) :
-            tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash),
-            tablet_size(in_tablet_size) {}
-
+    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
