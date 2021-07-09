@@ -189,6 +189,7 @@ public class DorisWriterEmitter {
             httpPut.setHeader("format", "json");
             httpPut.setHeader("read_json_by_line", "true");
             httpPut.setHeader("fuzzy_parse", "true");
+            // Use ByteArrayEntity instead of StringEntity to handle Chinese correctly
             httpPut.setEntity(new ByteArrayEntity(flushBatch.getData().toString().getBytes()));
 
             try (final CloseableHttpResponse resp = httpclient.execute(httpPut)) {
