@@ -51,7 +51,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+            .add("DataUsedCapacity").add("AvailCapacity").add("TrashUsedCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
             .build();
 
@@ -150,6 +150,10 @@ public class BackendsProcDir implements ProcDirInterface {
             long availB = backend.getAvailableCapacityB();
             Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availCapacity.first) + " " + availCapacity.second);
+            // trash used
+            long trashB = backend.getTrashUsedCapacityB();
+            Pair<Double, String> trashCapacity = DebugUtil.getByteUint(trashB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashCapacity.first) + " " + trashCapacity.second);
             // total
             long totalB = backend.getTotalCapacityB();
             Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalB);

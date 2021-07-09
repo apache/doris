@@ -71,6 +71,7 @@ struct TDisk {
     5: optional Types.TSize disk_available_capacity
     6: optional i64 path_hash
     7: optional Types.TStorageMedium storage_medium
+    8: optional Types.TSize trash_used_capacity
 }
 
 struct TPluginInfo {

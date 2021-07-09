@@ -51,6 +51,8 @@ public class DiskInfo implements Writable {
     private long dataUsedCapacityB;
     @SerializedName("diskAvailableCapacityB")
     private long diskAvailableCapacityB;
+    @SerializedName("trashUsedCapacityB")
+    private long trashUsedCapacityB;
     @SerializedName("state")
     private DiskState state;
 
@@ -67,6 +69,7 @@ public class DiskInfo implements Writable {
         this.totalCapacityB = DEFAULT_CAPACITY_B;
         this.dataUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
+        this.trashUsedCapacityB = 0;
         this.state = DiskState.ONLINE;
         this.pathHash = 0;
         this.storageMedium = TStorageMedium.HDD;
@@ -98,6 +101,14 @@ public class DiskInfo implements Writable {
 
     public void setAvailableCapacityB(long availableCapacityB) {
         this.diskAvailableCapacityB = availableCapacityB;
+    }
+
+    public long getTrashUsedCapacityB() {
+        return trashUsedCapacityB;
+    }
+
+    public void setTrashUsedCapacityB(long trashUsedCapacityB) {
+        this.trashUsedCapacityB = trashUsedCapacityB;
     }
 
     public double getUsedPct() {

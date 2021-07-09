@@ -361,6 +361,17 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public long getTrashUsedCapacityB() {
+        ImmutableMap<String, DiskInfo> disks = disksRef;
+        long trashUsedCapacityB = 0L;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                trashUsedCapacityB += diskInfo.getTrashUsedCapacityB();
+            }
+        }
+        return trashUsedCapacityB;
+    }
+
     public double getMaxDiskUsedPct() {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         double maxPct = 0.0;
@@ -445,6 +456,7 @@ public class Backend implements Writable {
             long totalCapacityB = tDisk.getDiskTotalCapacity();
             long dataUsedCapacityB = tDisk.getDataUsedCapacity();
             long diskAvailableCapacityB = tDisk.getDiskAvailableCapacity();
+            long trashUsedCapacityB = tDisk.getTrashUsedCapacity();
             boolean isUsed = tDisk.isUsed();
 
             DiskInfo diskInfo = disks.get(rootPath);
@@ -459,6 +471,7 @@ public class Backend implements Writable {
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
+            diskInfo.setTrashUsedCapacityB(trashUsedCapacityB);
             if (tDisk.isSetPathHash()) {
                 diskInfo.setPathHash(tDisk.getPathHash());
             }
