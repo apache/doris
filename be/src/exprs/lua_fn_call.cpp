@@ -101,11 +101,11 @@ int LUAFnCall::eval_children(ExprContext* context, TupleRow* row) {
             break;
         }
         case TYPE_DOUBLE: {
-            lua_pushnumber(_state, *(int*)src_slot);
+            lua_pushnumber(_state, *(double*)src_slot);
             break;
         }
         case TYPE_FLOAT: {
-            lua_pushnumber(_state, *(int*)src_slot);
+            lua_pushnumber(_state, *(float*)src_slot);
             break;
         }
         case TYPE_VARCHAR:
