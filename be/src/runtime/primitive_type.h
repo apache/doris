@@ -243,6 +243,62 @@ std::string type_to_odbc_string(PrimitiveType t);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
+template <PrimitiveType type>
+struct PrimitiveTypeTraits {};
+
+template <>
+struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
+    using CppType = bool;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_TINYINT> {
+    using CppType = int8_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_SMALLINT> {
+    using CppType = int16_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_INT> {
+    using CppType = int32_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_BIGINT> {
+    using CppType = int64_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_FLOAT> {
+    using CppType = float;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DOUBLE> {
+    using CppType = double;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DATE> {
+    using CppType = DateTimeValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DATETIME> {
+    using CppType = DateTimeValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
+    using CppType = DecimalV2Value;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_LARGEINT> {
+    using CppType = __int128_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_CHAR> {
+    using CppType = StringValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_VARCHAR> {
+    using CppType = StringValue;
+};
+
 } // namespace doris
 
 #endif

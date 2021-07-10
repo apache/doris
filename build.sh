@@ -135,6 +135,9 @@ fi
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
+if [[ -z ${USE_AVX2} ]]; then
+    USE_AVX2=ON
+fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
 fi
@@ -149,6 +152,7 @@ echo "Get params:
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
+    USE_AVX2            -- $USE_AVX2
 "
 
 # Clean and build generated code
@@ -180,6 +184,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             ${CMAKE_USE_CCACHE} \
             -DWITH_MYSQL=${WITH_MYSQL} \
             -DWITH_LZO=${WITH_LZO} \
+            -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
