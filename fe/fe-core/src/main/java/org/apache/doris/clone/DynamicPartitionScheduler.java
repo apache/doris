@@ -143,9 +143,20 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ZonedDateTime now = ZonedDateTime.now(dynamicPartitionProperty.getTimeZone().toZoneId());
 
         boolean createHistoryPartition = dynamicPartitionProperty.isCreateHistoryPartition();
-        int idx = createHistoryPartition ? dynamicPartitionProperty.getStart() : 0;
+        int idx;
+        int start = dynamicPartitionProperty.getStart();
+        int historyPartitionNum = dynamicPartitionProperty.getHistoryPartitionNum();
+        // When enable create_history_partition, will check the valid value from start and history_partition_num.
+        if (createHistoryPartition) {
+            if (historyPartitionNum == DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
+                idx = start;
+            } else {
+                idx = Math.max(start, -historyPartitionNum);
+            }
+        } else {
+            idx = 0;
+        }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
-        String timeUnit = dynamicPartitionProperty.getTimeUnit();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);

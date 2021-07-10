@@ -303,16 +303,14 @@ Syntax:
         )    
        ```
        
-       Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
-       
-       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
+       dynamic_partition.enable: specifies whether dynamic partitioning at the table level is enabled
+       dynamic_partition.time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as HOUR, DAY, WEEK, and MONTH.
                                      Attention: When the time unit is HOUR, the data type of partition column cannot be DATE.
-       
-       Dynamic_partition. End: used to specify the number of partitions created in advance
-       
-       Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
-       
-       Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
+       dynamic_partition.end: used to specify the number of partitions created in advance
+       dynamic_partition.prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
+       dynamic_partition.buckets: specifies the number of partition buckets that are automatically created
+       dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
+       dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:
