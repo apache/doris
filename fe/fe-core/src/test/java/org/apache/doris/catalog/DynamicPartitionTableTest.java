@@ -61,6 +61,7 @@ public class DynamicPartitionTableTest {
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
+        Config.disable_storage_medium_check = true;
 
         UtFrameUtils.createMinDorisCluster(runningDir);
 
