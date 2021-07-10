@@ -64,6 +64,7 @@ public class UserPropertyTest {
         properties.add(Pair.create("quota.normal", "102"));
         properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
         properties.add(Pair.create("default_load_cluster", "dpp-cluster"));
+        properties.add(Pair.create("max_qUERY_instances", "3000"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -72,6 +73,7 @@ public class UserPropertyTest {
         Assert.assertEquals(102, userProperty.getResource().getShareByGroup().get("normal").intValue());
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
+        Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
@@ -89,6 +91,8 @@ public class UserPropertyTest {
                 Assert.assertEquals("/user/palo2", value);
             } else if (key.equalsIgnoreCase("default_load_cluster")) {
                 Assert.assertEquals("dpp-cluster", value);
+            } else if (key.equalsIgnoreCase("max_query_instances")) {
+                Assert.assertEquals("3000", value);
             }
         }
 
