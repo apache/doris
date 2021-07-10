@@ -360,7 +360,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-如果 disable_storage_medium_check 为true， ReportHandler 将不会检查 tablet 的存储介质， 并使得存储冷却功能失效，默认值为false。当您不关心 tablet 的存储介质是什么时，可以将值设置为false 。
+如果 disable_storage_medium_check 为true， ReportHandler 将不会检查 tablet 的存储介质， 并使得存储冷却功能失效，默认值为false。当您不关心 tablet 的存储介质是什么时，可以将值设置为true 。
 
 ### drop_backend_after_decommission
 

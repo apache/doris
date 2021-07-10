@@ -374,7 +374,7 @@ IsMutable：true
 
 MasterOnly：true
 
-If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value false when you don't care what the storage medium of the tablet is.
+If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
   
 ### drop_backend_after_decommission
 
