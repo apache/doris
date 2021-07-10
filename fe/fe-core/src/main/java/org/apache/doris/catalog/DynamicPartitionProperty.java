@@ -37,11 +37,13 @@ public class DynamicPartitionProperty {
     public static final String TIME_ZONE = "dynamic_partition.time_zone";
     public static final String REPLICATION_NUM = "dynamic_partition.replication_num";
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
+    public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
+    public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
 
     private boolean exist;
 
@@ -56,6 +58,7 @@ public class DynamicPartitionProperty {
     private TimeZone tz = TimeUtils.getSystemTimeZone();
     private int replicationNum;
     private boolean createHistoryPartition = false;
+    private int historyPartitionNum;
     // This property are used to describe the number of partitions that need to be reserved on the high-speed storage.
     // If not set, default is 0
     private int hotPartitionNum;
@@ -73,6 +76,7 @@ public class DynamicPartitionProperty {
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
             this.replicationNum = Integer.parseInt(properties.getOrDefault(REPLICATION_NUM, String.valueOf(NOT_SET_REPLICATION_NUM)));
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
+            this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
             createStartOfs(properties);
         } else {
@@ -136,6 +140,10 @@ public class DynamicPartitionProperty {
         return createHistoryPartition;
     }
 
+    public int getHistoryPartitionNum() {
+        return historyPartitionNum;
+    }
+
     public int getHotPartitionNum() {
         return hotPartitionNum;
     }
@@ -175,6 +183,7 @@ public class DynamicPartitionProperty {
                 ",\n\"" + REPLICATION_NUM + "\" = \"" + useReplicationNum + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
                 ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
+                ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
                 ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
