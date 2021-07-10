@@ -120,7 +120,7 @@ public class ConfigBase {
     // the "CONFIG_VALUE" should be replaced be env variable CONFIG_VALUE
     private void replacedByEnv(Properties props) throws Exception {
         // pattern to match string like "{CONFIG_VALUE}"
-        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");
+        Pattern pattern = Pattern.compile("\\$\\{([^}]*)\\}");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
             Matcher m = pattern.matcher(value);
