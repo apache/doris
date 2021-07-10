@@ -230,7 +230,6 @@ public class StringLiteral extends LiteralExpr {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
                     }
                     break;
-                case DECIMAL:
                 case DECIMALV2:
                     return new DecimalLiteral(value);
                 default:

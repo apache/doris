@@ -890,18 +890,6 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     return do_money_format(context, std::to_string(v_cent));
 }
 
-StringVal StringFunctions::money_format(FunctionContext* context, const DecimalVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-
-    DecimalValue rounded;
-    DecimalValue::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalValue tmp(std::string_view("100"));
-    DecimalValue result = rounded * tmp;
-    return do_money_format(context, result.to_string());
-}
-
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
     if (v.is_null) {
         return StringVal::null();
@@ -1006,5 +994,15 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
         pos += newLen;
     }
     return AnyValUtil::from_string_temp(context, orig_str);
+}
+// Implementation of BIT_LENGTH
+//   int bit_length(string input)
+// Returns the length in bits of input. If input == NULL, returns
+// NULL per MySQL
+IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return IntVal::null();
+    }
+    return IntVal(str.len * 8);
 }
 } // namespace doris

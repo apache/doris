@@ -161,9 +161,6 @@ MinMaxFuncBase* MinMaxFuncBase::create_minmax_filter(PrimitiveType type) {
     case TYPE_DATETIME:
         return new (std::nothrow) MinMaxNumFunc<DateTimeValue>();
 
-    case TYPE_DECIMAL:
-        return new (std::nothrow) MinMaxNumFunc<DecimalValue>();
-
     case TYPE_DECIMALV2:
         return new (std::nothrow) MinMaxNumFunc<DecimalV2Value>();
 
@@ -205,7 +202,6 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
         return TExprNodeType::FLOAT_LITERAL;
         break;
 
-    case TYPE_DECIMAL:
     case TYPE_DECIMALV2:
         return TExprNodeType::DECIMAL_LITERAL;
 
@@ -248,8 +244,6 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_DATE;
     case TYPE_DATETIME:
         return PColumnType::COLUMN_TYPE_DATETIME;
-    case TYPE_DECIMAL:
-        return PColumnType::COLUMN_TYPE_DECIMAL;
     case TYPE_DECIMALV2:
         return PColumnType::COLUMN_TYPE_DECIMALV2;
     case TYPE_CHAR:
@@ -287,8 +281,6 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_DATE;
     case PColumnType::COLUMN_TYPE_DATETIME:
         return TYPE_DATETIME;
-    case PColumnType::COLUMN_TYPE_DECIMAL:
-        return TYPE_DECIMAL;
     case PColumnType::COLUMN_TYPE_DECIMALV2:
         return TYPE_DECIMALV2;
     case PColumnType::COLUMN_TYPE_VARCHAR:
@@ -401,12 +393,6 @@ Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data) {
         node.__set_date_literal(dateLiteral);
         break;
     }
-    case TYPE_DECIMAL: {
-        TDecimalLiteral decimalLiteral;
-        decimalLiteral.__set_value(reinterpret_cast<const DecimalValue*>(data)->to_string());
-        node.__set_decimal_literal(decimalLiteral);
-        break;
-    }
     case TYPE_DECIMALV2: {
         TDecimalLiteral decimalLiteral;
         decimalLiteral.__set_value(reinterpret_cast<const DecimalV2Value*>(data)->to_string());
@@ -475,7 +461,7 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             _bloomfilter_func.reset(
-                    BloomFilterFuncBase::create_bloom_filter(_tracker, _column_return_type));
+                    IBloomFilterFuncBase::create_bloom_filter(_tracker, _column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
@@ -602,7 +588,7 @@ public:
         // we won't use this class to insert or find any data
         // so any type is ok
         _bloomfilter_func.reset(
-                BloomFilterFuncBase::create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
+                IBloomFilterFuncBase::create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
         return _bloomfilter_func->assign(data, bloom_filter->filter_length());
     }
 
@@ -741,7 +727,7 @@ private:
     RuntimeFilterType _filter_type;
     std::unique_ptr<MinMaxFuncBase> _minmax_func;
     std::unique_ptr<HybridSetBase> _hybrid_set;
-    std::unique_ptr<BloomFilterFuncBase> _bloomfilter_func;
+    std::unique_ptr<IBloomFilterFuncBase> _bloomfilter_func;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
@@ -1015,13 +1001,6 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         filter->mutable_min_val()->set_stringval(convert_buffer);
         reinterpret_cast<const DateTimeValue*>(max_data)->to_string(convert_buffer);
         filter->mutable_max_val()->set_stringval(convert_buffer);
-        return;
-    }
-    case TYPE_DECIMAL: {
-        filter->mutable_min_val()->set_stringval(
-                reinterpret_cast<const DecimalValue*>(min_data)->to_string());
-        filter->mutable_max_val()->set_stringval(
-                reinterpret_cast<const DecimalValue*>(max_data)->to_string());
         return;
     }
     case TYPE_DECIMALV2: {

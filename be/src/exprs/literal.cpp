@@ -85,12 +85,7 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         DCHECK(node.__isset.string_literal);
         _value.set_string_val(node.string_literal.value);
         break;
-    case TYPE_DECIMAL: {
-        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
-        DCHECK(node.__isset.decimal_literal);
-        _value.decimal_val = DecimalValue(node.decimal_literal.value);
-        break;
-    }
+
     case TYPE_DECIMALV2: {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
@@ -143,13 +138,6 @@ FloatVal Literal::get_float_val(ExprContext* context, TupleRow* row) {
 DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME) << _type;
     return DoubleVal(_value.double_val);
-}
-
-DecimalVal Literal::get_decimal_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL) << _type;
-    DecimalVal dec_val;
-    _value.decimal_val.to_decimal_val(&dec_val);
-    return dec_val;
 }
 
 DecimalV2Val Literal::get_decimalv2_val(ExprContext* context, TupleRow* row) {

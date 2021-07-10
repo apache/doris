@@ -23,9 +23,9 @@
 #include <string>
 
 #include "exprs/anyval_util.h"
+#include "test_util/test_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -105,27 +105,6 @@ TEST_F(StringFunctionsTest, money_format_double) {
 
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
     expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
-    ASSERT_EQ(expected, result);
-    delete context;
-}
-
-TEST_F(StringFunctionsTest, money_format_decimal) {
-    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-
-    DecimalValue dv1(std::string("3333333333.2222222222"));
-    DecimalVal value1;
-    dv1.to_decimal_val(&value1);
-
-    StringVal result = StringFunctions::money_format(context, value1);
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
-    ASSERT_EQ(expected, result);
-
-    DecimalValue dv2(std::string("-7407407406790123456.71604938271975308642"));
-    DecimalVal value2;
-    dv2.to_decimal_val(&value2);
-
-    result = StringFunctions::money_format(context, value2);
-    expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
     ASSERT_EQ(expected, result);
     delete context;
 }
@@ -291,7 +270,7 @@ TEST_F(StringFunctionsTest, null_or_empty) {
 
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-    
+
     ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
               StringFunctions::substring(context, StringVal("hello word"), 0, 5));
 
@@ -628,6 +607,20 @@ TEST_F(StringFunctionsTest, parse_url) {
     ASSERT_EQ(StringVal("9090"),
               StringFunctions::parse_url(ctx, StringVal("http://www.baidu.com:9090?a=b"),
                                          StringVal("port")));
+}
+
+TEST_F(StringFunctionsTest, bit_length) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(IntVal(40), StringFunctions::bit_length(context, StringVal("hello")));
+
+    ASSERT_EQ(IntVal::null(), StringFunctions::bit_length(context, StringVal::null()));
+
+    ASSERT_EQ(IntVal(0), StringFunctions::bit_length(context, StringVal("")));
+
+    ASSERT_EQ(IntVal(88), StringFunctions::bit_length(context, StringVal("hello你好")));
+
+    delete context;
 }
 
 } // namespace doris

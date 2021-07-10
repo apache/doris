@@ -125,6 +125,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -631,16 +632,50 @@ public class ShowExecutor {
                         PrivPredicate.SHOW)) {
                     continue;
                 }
-
                 List<String> row = Lists.newArrayList();
                 // Name
                 row.add(table.getName());
                 // Engine
                 row.add(table.getEngine());
-                // version, ra
-                for (int i = 0; i < 15; ++i) {
+                // version
+                row.add(null);
+                // Row_format
+                row.add(null);
+                // Rows
+                row.add(String.valueOf(table.getRowCount()));
+                // Avg_row_length
+                row.add(String.valueOf(table.getAvgRowLength()));
+                // Data_length
+                row.add(String.valueOf(table.getDataLength()));
+                // Max_data_length
+                row.add(null);
+                // Index_length
+                row.add(null);
+                // Data_free
+                row.add(null);
+                // Auto_increment
+                row.add(null);
+                // Create_time
+                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
+                // Update_time
+                if (table.getUpdateTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
+                } else {
                     row.add(null);
                 }
+                // Check_time
+                if (table.getLastCheckTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime() * 1000));
+                } else {
+                    row.add(null);
+                }
+                // Collation
+                row.add("utf-8");
+                // Checksum
+                row.add(null);
+                // Create_options
+                row.add(null);
+
                 row.add(table.getComment());
                 rows.add(row);
             }

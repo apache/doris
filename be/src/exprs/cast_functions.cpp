@@ -20,6 +20,7 @@
 #include <cmath>
 
 #include "exprs/anyval_util.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
 #include "string_functions.h"

@@ -287,10 +287,13 @@ CCTZ_SOURCE="cctz-2.3"
 CCTZ_MD5SUM="209348e50b24dbbdec6d961059c2fc92"
 
 # datatables, bootstrap 3 and jQuery 3
-DATATABLES_DOWNLOAD="https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25"
+# The origin download url is always changing: https://datatables.net/download/builder?bs-3.3.7/jq-3.3.1/dt-1.10.25
+# So we put it in our own http server.
+# If someone can offer an official url for DataTables, please update this.
+DATATABLES_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/DataTables.zip"
 DATATABLES_NAME="DataTables.zip"
 DATATABLES_SOURCE="DataTables-1.10.25"
-DATATABLES_MD5SUM="109ce4359b370565f968932607460624"
+DATATABLES_MD5SUM="c8fd73997c9871e213ee4211847deed5"
 
 # bootstrap table js
 BOOTSTRAP_TABLE_JS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/bootstrap-table.min.js"

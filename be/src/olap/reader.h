@@ -70,7 +70,7 @@ struct ReaderParams {
     std::vector<OlapTuple> end_key;
 
     std::vector<TCondition> conditions;
-    std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+    std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>> bloom_filters;
 
     // The ColumnData will be set when using Merger, eg Cumulative, BE.
     std::vector<RowsetReaderSharedPtr> rs_readers;
@@ -154,7 +154,7 @@ private:
     ColumnPredicate* _parse_to_predicate(const TCondition& condition, bool opposite = false) const;
 
     ColumnPredicate* _parse_to_predicate(
-            const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
+            const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter);
 
     OLAPStatus _init_delete_condition(const ReaderParams& read_params);
 

@@ -63,7 +63,8 @@ OlapScanner::~OlapScanner() {}
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                bloom_filters) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
@@ -137,7 +138,8 @@ Status OlapScanner::open() {
 // it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
-        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>& bloom_filters) {
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                bloom_filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -407,15 +409,6 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = slice->size;
-            break;
-        }
-        case TYPE_DECIMAL: {
-            DecimalValue* slot = tuple->get_decimal_slot(slot_desc->tuple_offset());
-
-            // TODO(lingbin): should remove this assign, use set member function
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
-            *slot = DecimalValue(int_value, frac_value);
             break;
         }
         case TYPE_DECIMALV2: {

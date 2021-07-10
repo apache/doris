@@ -88,9 +88,6 @@ std::string ExtLiteral::value_to_string() {
     case TYPE_BOOLEAN:
         ss << std::to_string(get_bool());
         break;
-    case TYPE_DECIMAL:
-        ss << get_decimal_string();
-        break;
     case TYPE_DECIMALV2:
         ss << get_decimalv2_string();
         break;
@@ -156,11 +153,6 @@ std::string ExtLiteral::get_date_string() {
 bool ExtLiteral::get_bool() {
     DCHECK(_type == TYPE_BOOLEAN);
     return *(reinterpret_cast<bool*>(_value));
-}
-
-std::string ExtLiteral::get_decimal_string() {
-    DCHECK(_type == TYPE_DECIMAL);
-    return reinterpret_cast<DecimalValue*>(_value)->to_string();
 }
 
 std::string ExtLiteral::get_decimalv2_string() {

@@ -34,7 +34,6 @@ add_library(Exprs
   compound_predicate.cpp
   conditional_functions.cpp
   conditional_functions_ir.cpp
-  decimal_operators.cpp
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp
@@ -46,6 +45,8 @@ add_library(Exprs
   in_predicate.cpp
   new_in_predicate.cpp
   bloomfilter_predicate.cpp
+  block_bloom_filter_avx_impl.cc
+  block_bloom_filter_impl.cc
   runtime_filter.cpp
   runtime_filter_rpc.cpp
   is_null_predicate.cpp

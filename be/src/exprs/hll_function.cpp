@@ -120,6 +120,5 @@ template void HllFunctions::hll_update(FunctionContext*, const DoubleVal&, Strin
 template void HllFunctions::hll_update(FunctionContext*, const StringVal&, StringVal*);
 template void HllFunctions::hll_update(FunctionContext*, const DateTimeVal&, StringVal*);
 template void HllFunctions::hll_update(FunctionContext*, const LargeIntVal&, StringVal*);
-template void HllFunctions::hll_update(FunctionContext*, const DecimalVal&, StringVal*);
 template void HllFunctions::hll_update(FunctionContext*, const DecimalV2Val&, StringVal*);
 } // namespace doris

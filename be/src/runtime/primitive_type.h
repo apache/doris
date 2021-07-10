@@ -24,7 +24,6 @@
 #include "gen_cpp/Opcodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
@@ -46,9 +45,9 @@ enum PrimitiveType {
     TYPE_DATE,     /* 11 */
     TYPE_DATETIME, /* 12 */
     TYPE_BINARY,
-    /* 13 */      // Not implemented
-    TYPE_DECIMAL, /* 14 */
-    TYPE_CHAR,    /* 15 */
+    /* 13 */                // Not implemented
+    TYPE_DECIMAL_DEPRACTED, /* 14 */
+    TYPE_CHAR,              /* 15 */
 
     TYPE_STRUCT,    /* 16 */
     TYPE_ARRAY,     /* 17 */
@@ -68,7 +67,6 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_DATETIME:
-    case TYPE_DECIMAL:
     case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
     case TYPE_HLL:
@@ -129,9 +127,6 @@ inline int get_byte_size(PrimitiveType type) {
     case TYPE_DECIMALV2:
         return 16;
 
-    case TYPE_DECIMAL:
-        return 40;
-
     case INVALID_TYPE:
     default:
         DCHECK(false);
@@ -168,9 +163,6 @@ inline int get_real_byte_size(PrimitiveType type) {
     case TYPE_DATE:
     case TYPE_DECIMALV2:
         return 16;
-
-    case TYPE_DECIMAL:
-        return 40;
 
     case TYPE_LARGEINT:
         return 16;
@@ -215,9 +207,6 @@ inline int get_slot_size(PrimitiveType type) {
         // This is the size of the slot, the actual size of the data is 12.
         return 16;
 
-    case TYPE_DECIMAL:
-        return sizeof(DecimalValue);
-
     case TYPE_DECIMALV2:
         return 16;
 
@@ -253,6 +242,62 @@ std::string type_to_string(PrimitiveType t);
 std::string type_to_odbc_string(PrimitiveType t);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
+
+template <PrimitiveType type>
+struct PrimitiveTypeTraits {};
+
+template <>
+struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
+    using CppType = bool;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_TINYINT> {
+    using CppType = int8_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_SMALLINT> {
+    using CppType = int16_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_INT> {
+    using CppType = int32_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_BIGINT> {
+    using CppType = int64_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_FLOAT> {
+    using CppType = float;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DOUBLE> {
+    using CppType = double;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DATE> {
+    using CppType = DateTimeValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DATETIME> {
+    using CppType = DateTimeValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
+    using CppType = DecimalV2Value;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_LARGEINT> {
+    using CppType = __int128_t;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_CHAR> {
+    using CppType = StringValue;
+};
+template <>
+struct PrimitiveTypeTraits<TYPE_VARCHAR> {
+    using CppType = StringValue;
+};
 
 } // namespace doris
 
