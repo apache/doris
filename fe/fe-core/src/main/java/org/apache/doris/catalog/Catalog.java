@@ -5452,8 +5452,11 @@ public class Catalog {
         if (tableProperty == null) {
             DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
         } else {
+            // Merge the new properties with origin properties, and then analyze them
+            Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
+            origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.
-                    analyzeDynamicPartition(properties, table.getPartitionInfo());
+                    analyzeDynamicPartition(origDynamicProperties, table.getPartitionInfo());
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
