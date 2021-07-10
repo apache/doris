@@ -461,7 +461,7 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             _bloomfilter_func.reset(
-                    BloomFilterFuncBase::create_bloom_filter(_tracker, _column_return_type));
+                    IBloomFilterFuncBase::create_bloom_filter(_tracker, _column_return_type));
             return _bloomfilter_func->init_with_fixed_length(params->bloom_filter_size);
         }
         default:
@@ -588,7 +588,7 @@ public:
         // we won't use this class to insert or find any data
         // so any type is ok
         _bloomfilter_func.reset(
-                BloomFilterFuncBase::create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
+                IBloomFilterFuncBase::create_bloom_filter(_tracker, PrimitiveType::TYPE_INT));
         return _bloomfilter_func->assign(data, bloom_filter->filter_length());
     }
 
@@ -727,7 +727,7 @@ private:
     RuntimeFilterType _filter_type;
     std::unique_ptr<MinMaxFuncBase> _minmax_func;
     std::unique_ptr<HybridSetBase> _hybrid_set;
-    std::unique_ptr<BloomFilterFuncBase> _bloomfilter_func;
+    std::unique_ptr<IBloomFilterFuncBase> _bloomfilter_func;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,

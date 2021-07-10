@@ -223,7 +223,7 @@ private:
     // push down bloom filters to storage engine.
     // 1. std::pair.first :: column name
     // 2. std::pair.second :: shared_ptr of BloomFilterFuncBase
-    std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>
+    std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>
             _bloom_filters_push_down;
 
     // Pool for storing allocated scanner objects.  We don't want to use the
