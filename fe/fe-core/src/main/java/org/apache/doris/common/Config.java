@@ -751,9 +751,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backend_down_time_second = 3600; // 1h
+
+    /**
+     * If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium
+     * and disable storage cool down function, the default value is false.
+     * you can set the value false when you don't care what the storage medium of the tablet is.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_storage_medium_check = false;
     /**
      * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If not set, this specifies the default medium when creat.
+     * If not set, this specifies the default medium when created.
      */
     @ConfField public static String default_storage_medium = "HDD";
     /**

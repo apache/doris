@@ -18,10 +18,10 @@
 package org.apache.doris.catalog;
 
 import com.google.common.collect.Sets;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -183,19 +183,22 @@ public class TabletInvertedIndex {
                                     }
                                 }
 
-                                // check if need migration
                                 long partitionId = tabletMeta.getPartitionId();
-                                TStorageMedium storageMedium = storageMediumMap.get(partitionId);
-                                if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
-                                    if (storageMedium != backendTabletInfo.getStorageMedium()) {
-                                        synchronized (tabletMigrationMap) {
-                                            tabletMigrationMap.put(storageMedium, tabletId);
+                                if (!Config.disable_storage_medium_check) {
+                                    // check if need migration
+                                    TStorageMedium storageMedium = storageMediumMap.get(partitionId);
+                                    if (storageMedium != null && backendTabletInfo.isSetStorageMedium()) {
+                                        if (storageMedium != backendTabletInfo.getStorageMedium()) {
+                                            synchronized (tabletMigrationMap) {
+                                                tabletMigrationMap.put(storageMedium, tabletId);
+                                            }
+                                        }
+                                        if (storageMedium != tabletMeta.getStorageMedium()) {
+                                            tabletMeta.setStorageMedium(storageMedium);
                                         }
                                     }
-                                    if (storageMedium != tabletMeta.getStorageMedium()) {
-                                        tabletMeta.setStorageMedium(storageMedium);
-                                    }
                                 }
+
                                 // check if should clear transactions
                                 if (backendTabletInfo.isSetTransactionIds()) {
                                     List<Long> transactionIds = backendTabletInfo.getTransactionIds();

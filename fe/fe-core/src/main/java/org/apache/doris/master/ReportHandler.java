@@ -247,7 +247,8 @@ public class ReportHandler extends Daemon {
                 backendId, backendTablets.size(), backendReportVersion);
 
         // storage medium map
-        HashMap<Long, TStorageMedium> storageMediumMap = Catalog.getCurrentCatalog().getPartitionIdToStorageMediumMap();
+        HashMap<Long, TStorageMedium> storageMediumMap = Config.disable_storage_medium_check ?
+                Maps.newHashMap() : Catalog.getCurrentCatalog().getPartitionIdToStorageMediumMap();
 
         // db id -> tablet id
         ListMultimap<Long, Long> tabletSyncMap = LinkedListMultimap.create();
@@ -298,7 +299,7 @@ public class ReportHandler extends Daemon {
         }
 
         // 5. migration (ssd <-> hdd)
-        if (!tabletMigrationMap.isEmpty()) {
+        if (!Config.disable_storage_medium_check && !tabletMigrationMap.isEmpty()) {
             handleMigration(tabletMigrationMap, backendId);
         }
 
