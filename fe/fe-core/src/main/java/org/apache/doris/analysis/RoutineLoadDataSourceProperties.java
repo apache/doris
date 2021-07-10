@@ -88,7 +88,12 @@ public class RoutineLoadDataSourceProperties {
 
     public void analyze() throws UserException {
         if (properties.isEmpty()) {
-            throw new AnalysisException("No properties");
+            if (!isAlter) {
+                throw new AnalysisException("No data source properties");
+            } else {
+                // for alter routine load stmt, the datasource property can by null
+                return;
+            }
         }
         Preconditions.checkState(!Strings.isNullOrEmpty(timezone), "timezone must be set before analyzing");
         checkDataSourceProperties();
