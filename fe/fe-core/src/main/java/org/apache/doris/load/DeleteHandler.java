@@ -284,7 +284,7 @@ public class DeleteHandler implements Writable {
                 // only show at most 5 results
                 List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
                 if (!subList.isEmpty()) {
-                    errMsg = "unfinished replicas: " + Joiner.on(", ").join(subList);
+                    errMsg = "unfinished replicas [BackendId=TabletId]: " + Joiner.on(", ").join(subList);
                 }
                 LOG.warn(errMsg);
 
