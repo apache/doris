@@ -131,6 +131,10 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     When the `start` attribute is not specified, this parameter has no effect.
 
+* `dynamic_partition.history_partition_num`
+
+   When `create_history_partition` is `true`, this parameter is used to specify the number of history partitions.
+
 * `dynamic_partition.hot_partition_num`
 
     Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`.
