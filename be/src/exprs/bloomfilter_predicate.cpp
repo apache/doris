@@ -20,64 +20,47 @@
 #include <sstream>
 
 #include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
 
 namespace doris {
 
-BloomFilterFuncBase* BloomFilterFuncBase::create_bloom_filter(MemTracker* tracker,
-                                                              PrimitiveType type) {
+IBloomFilterFuncBase* IBloomFilterFuncBase::create_bloom_filter(MemTracker* tracker,
+                                                                PrimitiveType type) {
     switch (type) {
     case TYPE_BOOLEAN:
-        return new (std::nothrow) BloomFilterFunc<bool>(tracker);
-
+        return new BloomFilterFunc<TYPE_BOOLEAN, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_TINYINT:
-        return new (std::nothrow) BloomFilterFunc<int8_t>(tracker);
-
+        return new BloomFilterFunc<TYPE_TINYINT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_SMALLINT:
-        return new (std::nothrow) BloomFilterFunc<int16_t>(tracker);
-
+        return new BloomFilterFunc<TYPE_SMALLINT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_INT:
-        return new (std::nothrow) BloomFilterFunc<int32_t>(tracker);
-
+        return new BloomFilterFunc<TYPE_INT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_BIGINT:
-        return new (std::nothrow) BloomFilterFunc<int64_t>(tracker);
-
+        return new BloomFilterFunc<TYPE_BIGINT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_FLOAT:
-        return new (std::nothrow) BloomFilterFunc<float>(tracker);
-
+        return new BloomFilterFunc<TYPE_FLOAT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DOUBLE:
-        return new (std::nothrow) BloomFilterFunc<double>(tracker);
-
+        return new BloomFilterFunc<TYPE_DOUBLE, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DATE:
-        return new (std::nothrow) DateBloomFilterFunc(tracker);
-
+        return new BloomFilterFunc<TYPE_DATE, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DATETIME:
-        return new (std::nothrow) DateTimeBloomFilterFunc(tracker);
-
+        return new BloomFilterFunc<TYPE_DATETIME, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_DECIMALV2:
-        return new (std::nothrow) DecimalV2FilterFunc(tracker);
-
+        return new BloomFilterFunc<TYPE_DECIMALV2, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_LARGEINT:
-        return new (std::nothrow) BloomFilterFunc<__int128>(tracker);
-
+        return new BloomFilterFunc<TYPE_LARGEINT, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_CHAR:
-        return new (std::nothrow) FixedCharBloomFilterFunc(tracker);
+        return new BloomFilterFunc<TYPE_CHAR, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_VARCHAR:
-        return new (std::nothrow) BloomFilterFunc<StringValue>(tracker);
-
+        return new BloomFilterFunc<TYPE_VARCHAR, CurrentBloomFilterAdaptor>(tracker);
     default:
         return nullptr;
     }
 
     return nullptr;
-}
-
-Status BloomFilterFuncBase::get_data(char** data, int* len) {
-    *data = _bloom_filter->data();
-    *len = _bloom_filter->size();
-    return Status::OK();
 }
 
 BloomFilterPredicate::BloomFilterPredicate(const TExprNode& node)
@@ -99,7 +82,7 @@ BloomFilterPredicate::BloomFilterPredicate(const BloomFilterPredicate& other)
           _filtered_rows(),
           _scan_rows() {}
 
-Status BloomFilterPredicate::prepare(RuntimeState* state, BloomFilterFuncBase* filter) {
+Status BloomFilterPredicate::prepare(RuntimeState* state, IBloomFilterFuncBase* filter) {
     // DCHECK(filter != nullptr);
     if (_is_prepare) {
         return Status::OK();

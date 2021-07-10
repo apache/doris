@@ -57,7 +57,7 @@ public:
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
-                   const std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>&
+                   const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
                            bloom_filters);
 
     Status open();
@@ -97,7 +97,7 @@ public:
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters,
-                        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
+                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                                 bloom_filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);

@@ -102,13 +102,13 @@ public:
 
     void reset() { memset(_data, 0, _size); }
 
-    uint64_t hash(char* buf, uint32_t size) const {
+    uint64_t hash(const char* buf, uint32_t size) const {
         uint64_t hash_code;
         _hash_func(buf, size, DEFAULT_SEED, &hash_code);
         return hash_code;
     }
 
-    void add_bytes(char* buf, uint32_t size) {
+    void add_bytes(const char* buf, uint32_t size) {
         if (buf == nullptr) {
             *_has_null = true;
             return;
