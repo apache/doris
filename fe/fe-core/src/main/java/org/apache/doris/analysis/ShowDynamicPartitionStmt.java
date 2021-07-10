@@ -89,4 +89,9 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         return SHOW_DYNAMIC_PARTITION_META_DATA;
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }
