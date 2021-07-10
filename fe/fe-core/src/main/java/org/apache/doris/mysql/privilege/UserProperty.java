@@ -39,8 +39,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,9 +56,12 @@ import java.util.regex.Pattern;
  * This user is just qualified by cluster name, not host which it connected from.
  */
 public class UserProperty implements Writable {
-    private static final Logger LOG = LogManager.getLogger(UserProperty.class);
 
+    // common properties
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
+    private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
+    // common properties end
+
     private static final String PROP_RESOURCE = "resource";
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
@@ -73,7 +74,8 @@ public class UserProperty implements Writable {
 
     private String qualifiedUser;
 
-    private long maxConn = 100;
+    private CommonUserProperties commonProperties = new CommonUserProperties();
+
     // Resource belong to this user.
     private UserResource resource = new UserResource(1000);
     // load cluster
@@ -87,20 +89,12 @@ public class UserProperty implements Writable {
      */
     private WhiteList whiteList = new WhiteList();
 
-    @Deprecated
-    private byte[] password;
-    @Deprecated
-    private boolean isAdmin = false;
-    @Deprecated
-    private boolean isSuperuser = false;
-    @Deprecated
-    private Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
-
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -120,31 +114,15 @@ public class UserProperty implements Writable {
     }
 
     public long getMaxConn() {
-        return maxConn;
+        return this.commonProperties.getMaxConn();
+    }
+
+    public long getMaxQueryInstances() {
+        return commonProperties.getMaxQueryInstances();// maxQueryInstances;
     }
 
     public WhiteList getWhiteList() {
         return whiteList;
-    }
-
-    @Deprecated
-    public byte[] getPassword() {
-        return password;
-    }
-
-    @Deprecated
-    public boolean isAdmin() {
-        return isAdmin;
-    }
-
-    @Deprecated
-    public boolean isSuperuser() {
-        return isSuperuser;
-    }
-
-    @Deprecated
-    public Map<String, AccessPrivilege> getDbPrivMap() {
-        return dbPrivMap;
     }
 
     public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
@@ -163,7 +141,8 @@ public class UserProperty implements Writable {
 
     public void update(List<Pair<String, String>> properties) throws DdlException {
         // copy
-        long newMaxConn = maxConn;
+        long newMaxConn = this.commonProperties.getMaxConn();
+        long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -237,13 +216,25 @@ public class UserProperty implements Writable {
                 }
 
                 newDefaultLoadCluster = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_MAX_QUERY_INSTANCES)) {
+                // set property "max_query_instances" = "1000"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " format error");
+                }
+
+                try {
+                    newMaxQueryInstances = Long.parseLong(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
+                }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
         }
 
         // set
-        maxConn = newMaxConn;
+        this.commonProperties.setMaxConn(newMaxConn);
+        this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -326,7 +317,10 @@ public class UserProperty implements Writable {
         String dot = SetUserPropertyVar.DOT_SEPARATOR;
 
         // max user connections
-        result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(maxConn)));
+        result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(commonProperties.getMaxConn())));
+
+        // max query instance
+        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
 
         // resource
         ResourceGroup group = resource.getResource();
@@ -404,10 +398,12 @@ public class UserProperty implements Writable {
         return userProperty;
     }
 
+
+
     @Override
     public void write(DataOutput out) throws IOException {
+        // user name
         Text.writeString(out, qualifiedUser);
-        out.writeLong(maxConn);
 
         // user resource
         resource.write(out);
@@ -419,15 +415,19 @@ public class UserProperty implements Writable {
             out.writeBoolean(true);
             Text.writeString(out, defaultLoadCluster);
         }
-
         out.writeInt(clusterToDppConfig.size());
         for (Map.Entry<String, DppConfig> entry : clusterToDppConfig.entrySet()) {
             Text.writeString(out, entry.getKey());
             entry.getValue().write(out);
         }
 
+        // whiteList
         whiteList.write(out);
+
+        // common properties
+        commonProperties.write(out);
     }
+
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             // consume the flag of empty user name
@@ -443,19 +443,25 @@ public class UserProperty implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
             int passwordLen = in.readInt();
-            password = new byte[passwordLen];
+            byte[] password = new byte[passwordLen];
             in.readFully(password);
 
-            isAdmin = in.readBoolean();
+            // boolean isAdmin
+            in.readBoolean();
 
             if (Catalog.getCurrentCatalogJournalVersion() >= 1) {
-                isSuperuser = in.readBoolean();
+                // boolean isSuperuser
+                in.readBoolean();
             }
         }
 
-        maxConn = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_100) {
+            long maxConn = in.readLong();
+            this.commonProperties.setMaxConn(maxConn);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
+            Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
             int numPriv = in.readInt();
             for (int i = 0; i < numPriv; ++i) {
                 String dbName = null;
@@ -487,6 +493,7 @@ public class UserProperty implements Writable {
             }
         }
 
+        // whiteList
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_21) {
             whiteList.readFields(in);
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_69) {
@@ -501,6 +508,11 @@ public class UserProperty implements Writable {
                     Text.readString(in);
                 }
             }
+        }
+
+        // common properties
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+            this.commonProperties = CommonUserProperties.read(in);
         }
     }
 }

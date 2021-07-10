@@ -60,6 +60,10 @@ User 级别的配置项只会对指定用户生效，并不会影响其他用户
 
     用户最大的连接数，默认值为100。一般情况不需要更改该参数，除非查询的并发数超过了默认值。
 
+### max_query_instances
+
+    用户同一时间点可使用的instance个数, 默认是-1，小于等于0将会使用配置default_max_query_instances.
+
 ### resource
 
 ### quota
