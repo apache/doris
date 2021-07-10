@@ -39,6 +39,7 @@ under the License.
    
     超级用户权限:
         max_user_connections: 最大连接数。
+        max_query_instances: 用户同一时间点执行查询可以使用的instance个数。
         resource.cpu_share: cpu资源分配。
         load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
 
@@ -76,6 +77,9 @@ under the License.
     
     7. 修改用户 jack 的集群优先级为 HIGH
     SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}.priority' = 'HIGH';
+
+    8. 修改用户jack的查询可用instance个数为3000
+    SET PROPERTY FOR 'jack' 'max_query_instances' = '3000';
 
 ## keyword
     SET, PROPERTY

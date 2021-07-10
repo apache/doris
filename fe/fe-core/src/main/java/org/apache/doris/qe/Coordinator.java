@@ -412,6 +412,8 @@ public class Coordinator {
 
         traceInstance();
 
+        QeProcessorImpl.INSTANCE.registerInstances(queryId, instanceIds.size());
+
         // create result receiver
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);

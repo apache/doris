@@ -60,6 +60,10 @@ User-level configuration items will only take effect for the specified users, an
 
     The maximum number of user connections, the default value is 100 In general, this parameter does not need to be changed unless the number of concurrent queries exceeds the default value.
 
+### max_query_instances
+
+    The maximum number of instances that the user can use at a certain point in time, The default value is -1, negative number means use default_max_query_instances config.
+
 ### resource
 
 ### quota
