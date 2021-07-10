@@ -4376,7 +4376,7 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    if (Config.enable_strict_storage_medium_check) {
+                    if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);

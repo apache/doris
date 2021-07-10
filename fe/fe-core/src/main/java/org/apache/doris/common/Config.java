@@ -755,7 +755,7 @@ public class Config extends ConfigBase {
     /**
      * If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium
      * and disable storage cool down function, the default value is false.
-     * you can set the value false when you don't care what the storage medium of the tablet is.
+     * You can set the value false when you don't care what the storage medium of the tablet is.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_storage_medium_check = false;
@@ -1254,12 +1254,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean drop_backend_after_decommission = true;
-
-    /**
-     * If set to true, FE will check backend available capacity by storage medium when create table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_strict_storage_medium_check = false;
 
     /**
      * enable spark load for temporary use
