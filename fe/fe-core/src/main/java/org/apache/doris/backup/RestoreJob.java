@@ -787,7 +787,7 @@ public class RestoreJob extends AbstractJob {
                                 + " already exist in db: " + db.getFullName());
                         return;
                     }
-                    if (tbl instanceof OlapTable) {
+                    if (tbl.getType() == TableType.OLAP) {
                         OlapTable olapTable = (OlapTable) tbl;
                         for (Partition partition : ((OlapTable) tbl).getAllPartitions()) {
                             if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
