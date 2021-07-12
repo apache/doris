@@ -328,15 +328,15 @@ public class SelectStmt extends QueryStmt {
         getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
             try {
-                tblRef = analyzer.resolveTableRef(tblRef);
-                if (tblRef instanceof InlineViewRef) {
-                    QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
+                TableRef tmpTblRef = analyzer.resolveTableRef(tblRef);
+                if (tmpTblRef instanceof InlineViewRef) {
+                    QueryStmt inlineStmt = ((InlineViewRef) tmpTblRef).getViewStmt();
                     inlineStmt.getTableRefs(analyzer, tblRefs, parentViewNameSet);
                 } else {
-                    if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
+                    if (isViewTableRef(tmpTblRef.getName().toString(), parentViewNameSet)) {
                         continue;
                     }
-                    tblRefs.add(tblRef);
+                    tblRefs.add(tmpTblRef);
                 }
             } catch (AnalysisException e) {
                 // This table may have been dropped, ignore it.
