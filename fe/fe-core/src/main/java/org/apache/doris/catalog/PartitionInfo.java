@@ -151,14 +151,16 @@ public class PartitionInfo implements Writable {
         idToInMemory.put(partitionId, isInMemory);
     }
 
-    public List<Map.Entry<Long, PartitionItem>> getSortedItemMap(boolean isTemp) {
+    public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
         Map<Long, PartitionItem> tmpMap = idToItem;
         if (isTemp) {
             tmpMap = idToTempItem;
         }
-        List<Map.Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(tmpMap.entrySet());
-        Collections.sort(sortedList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
-        return sortedList;
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
     }
 
     // get sorted item list, exclude partitions which ids are in 'excludePartitionIds'
