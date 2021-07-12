@@ -136,7 +136,8 @@ public class Key implements Serializable {
         for (final String host : urlList) {
             if (host.split(":").length < 2) {
                 throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
-                        "Invalid load url format. Should be host:port");
+                        "Invalid load url format. IF use FE hosts, should be like: fe_host:fe_http_port."
+					  + " If use BE hosts, should be like: be_host:be_webserver_port");
             }
         }
     }
