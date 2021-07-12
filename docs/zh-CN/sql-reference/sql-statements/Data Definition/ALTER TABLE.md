@@ -192,6 +192,12 @@ under the License.
             2) sequence_type用来指定sequence列的类型，可以为整型和时间类型
             3) 只支持新导入数据的有序性，历史数据无法更改
      
+    9. 修改表的分区默认分桶数
+        语法:
+            MODIFY DISTRIBUTION DISTRIBUTED BY HASH (k1[,k2 ...]) BUCKETS num
+        注意：
+            1）只能用在分区类型为RANGE，采用哈希分桶的非colocate表
+
 
     rename 支持对以下名称进行修改：
     1. 修改表名
@@ -364,6 +370,10 @@ under the License.
     
         ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
         
+    18. 将表的默认分桶数改为50
+
+        ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+    
     [rename]
     1. 将名为 table1 的表修改为 table2
         ALTER TABLE table1 RENAME table2;

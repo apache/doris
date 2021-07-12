@@ -66,6 +66,7 @@ import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -559,6 +560,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
             case OperationType.OP_MODIFY_REPLICATION_NUM: {
                 data = ModifyTablePropertyOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
+                data = ModifyTableDefaultDistributionBucketNumOperationLog.read(in);
                 isRead = true;
                 break;
             }
