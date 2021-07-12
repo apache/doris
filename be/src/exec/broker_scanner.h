@@ -55,8 +55,7 @@ public:
     BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
-				  const std::vector<ExprContext*>& pre_filter_ctxs,
-                  ScannerCounter* counter);
+                  const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
     ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
@@ -76,7 +75,7 @@ private:
     Status open_next_reader();
 
     // Split one text line to values
-    void split_line(const Slice& line, std::vector<Slice>* values);
+    void split_line(const Slice& line);
 
     void fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
                                 int new_value_length);
@@ -118,6 +117,7 @@ private:
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
+    std::vector<Slice> _split_values;
 };
 
 } // namespace doris
