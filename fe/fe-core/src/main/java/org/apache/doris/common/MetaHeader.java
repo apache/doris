@@ -95,9 +95,7 @@ public class MetaHeader {
 
         public static MetaFileHeader read(RandomAccessFile raf) throws IOException {
             int headerLength = raf.readInt();
-            LOG.info("read json length {}", headerLength);
             byte[] headerBytes = new byte[headerLength];
-            LOG.info("read json {}", headerBytes);
             raf.readFully(headerBytes);
             return MetaFileHeader.fromJson(new String(headerBytes));
         }
