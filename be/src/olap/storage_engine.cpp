@@ -359,7 +359,8 @@ OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_d
 
     // update trash used capacity
     for (auto& path : path_map) {
-        std::filesystem::path trash_path(path.first + TRASH_PREFIX);
+        std::string lhs_trash_path = path.first + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
         path.second.trash_used_capacity = get_file_or_directory_size(trash_path);
     }
 
