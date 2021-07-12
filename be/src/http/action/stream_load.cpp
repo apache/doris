@@ -268,15 +268,20 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    bool read_json_by_line = false;
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            read_json_by_line = true;
+    }
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
-            (ctx->body_bytes > json_max_body_bytes)) {
+            (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
             std::stringstream ss;
             ss << "The size of this batch exceed the max size [" << json_max_body_bytes
                << "]  of json type data "
-               << " data [ " << ctx->body_bytes << " ]";
+               << " data [ " << ctx->body_bytes << " ]. Split the file, or use 'read_json_by_line'";
             return Status::InternalError(ss.str());
         }
         // csv max body size

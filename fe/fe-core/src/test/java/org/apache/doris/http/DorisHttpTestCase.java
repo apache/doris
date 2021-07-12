@@ -263,10 +263,13 @@ abstract public class DorisHttpTestCase {
     private static void assignBackends() {
         Backend backend1 = new Backend(testBackendId1, "node-1", 9308);
         backend1.setBePort(9300);
+        backend1.setAlive(true);
         Backend backend2 = new Backend(testBackendId2, "node-2", 9308);
         backend2.setBePort(9300);
+        backend2.setAlive(true);
         Backend backend3 = new Backend(testBackendId3, "node-3", 9308);
         backend3.setBePort(9300);
+        backend3.setAlive(true);
         Catalog.getCurrentSystemInfo().addBackend(backend1);
         Catalog.getCurrentSystemInfo().addBackend(backend2);
         Catalog.getCurrentSystemInfo().addBackend(backend3);
