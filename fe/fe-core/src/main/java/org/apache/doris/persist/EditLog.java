@@ -29,6 +29,7 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.EncryptKey;
@@ -665,12 +666,12 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_ENCRYPTKEY: {
                     final EncryptKey encryptKey = (EncryptKey) journal.getData();
-                    Catalog.getCurrentCatalog().getEncryptKeyManager().replayCreateEncryptKey(encryptKey);
+                    EncryptKeyHelper.replayCreateEncryptKey(encryptKey);
                     break;
                 }
                 case OperationType.OP_DROP_ENCRYPTKEY: {
                     EncryptKeySearchDesc encryptKeySearchDesc = (EncryptKeySearchDesc) journal.getData();
-                    Catalog.getCurrentCatalog().getEncryptKeyManager().replayDropEncryptKey(encryptKeySearchDesc);
+                    EncryptKeyHelper.replayDropEncryptKey(encryptKeySearchDesc);
                     break;
                 }
                 case OperationType.OP_BACKEND_TABLETS_INFO: {

@@ -413,8 +413,6 @@ public class Catalog {
 
     private AuditEventProcessor auditEventProcessor;
 
-    private EncryptKeyManager encryptKeyManager;
-
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -568,7 +566,6 @@ public class Catalog {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
-        this.encryptKeyManager = new EncryptKeyManager();
     }
 
     public static void destroyCheckpoint() {
@@ -674,10 +671,6 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
-    }
-
-    public EncryptKeyManager getEncryptKeyManager() {
-        return encryptKeyManager;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1523,7 +1516,6 @@ public class Catalog {
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
-            checksum = loadEncryptKeys(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1916,14 +1908,6 @@ public class Catalog {
         return checksum;
     }
 
-    public long loadEncryptKeys(DataInputStream in, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
-            encryptKeyManager = EncryptKeyManager.read(in);
-        }
-        LOG.info("finished replay encryptKeys from image");
-        return checksum;
-    }
-
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -1973,7 +1957,6 @@ public class Catalog {
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
-            checksum = saveEncryptKeys(dos, checksum);
             dos.writeLong(checksum);
         }
 
@@ -2223,11 +2206,6 @@ public class Catalog {
 
     private long saveSmallFiles(DataOutputStream out, long checksum) throws IOException {
         smallFileMgr.write(out);
-        return checksum;
-    }
-
-    private long saveEncryptKeys(DataOutputStream out, long checksum) throws IOException {
-        encryptKeyManager.write(out);
         return checksum;
     }
 

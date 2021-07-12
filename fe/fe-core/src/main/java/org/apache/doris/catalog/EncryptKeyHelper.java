@@ -23,21 +23,14 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+// helper class for encryptKeys, create and drop
+public class EncryptKeyHelper {
+    private static final Logger LOG = LogManager.getLogger(EncryptKeyHelper.class);
 
-public class EncryptKeyManager implements Writable {
-    private static final Logger LOG = LogManager.getLogger(EncryptKeyManager.class);
-
-    public void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
+    public static void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
         Database db = Catalog.getCurrentCatalog().getDb(name.getDb());
         if (db == null) {
@@ -46,7 +39,7 @@ public class EncryptKeyManager implements Writable {
         db.addEncryptKey(stmt.getEncryptKey());
     }
 
-    public void replayCreateEncryptKey(EncryptKey encryptKey) {
+    public static void replayCreateEncryptKey(EncryptKey encryptKey) {
         String dbName = encryptKey.getEncryptKeyName().getDb();
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -55,7 +48,7 @@ public class EncryptKeyManager implements Writable {
         db.replayAddEncryptKey(encryptKey);
     }
 
-    public void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
+    public static void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
         Database db = Catalog.getCurrentCatalog().getDb(name.getDb());
         if (db == null) {
@@ -64,7 +57,7 @@ public class EncryptKeyManager implements Writable {
         db.dropEncryptKey(stmt.getEncryptKeysSearchDesc());
     }
 
-    public void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
+    public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
         String dbName = encryptKeySearchDesc.getKeyEncryptKeyName().getDb();
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -73,14 +66,4 @@ public class EncryptKeyManager implements Writable {
         db.replayDropEncryptKey(encryptKeySearchDesc);
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    public static EncryptKeyManager read(DataInput input) throws IOException {
-        String json = Text.readString(input);
-        return GsonUtils.GSON.fromJson(json, EncryptKeyManager.class);
-    }
 }

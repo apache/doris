@@ -79,6 +79,7 @@ import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
@@ -105,9 +106,9 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropFunctionStmt) {
             catalog.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
-            catalog.getEncryptKeyManager().createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
+            EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropEncryptKeyStmt) {
-            catalog.getEncryptKeyManager().dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
+            EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {
