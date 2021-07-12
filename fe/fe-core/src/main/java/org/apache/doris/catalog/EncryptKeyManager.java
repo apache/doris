@@ -23,10 +23,18 @@ import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class EncryptKeyManager {
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class EncryptKeyManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(EncryptKeyManager.class);
 
     public void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
@@ -65,4 +73,14 @@ public class EncryptKeyManager {
         db.replayDropEncryptKey(encryptKeySearchDesc);
     }
 
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static EncryptKeyManager read(DataInput input) throws IOException {
+        String json = Text.readString(input);
+        return GsonUtils.GSON.fromJson(json, EncryptKeyManager.class);
+    }
 }
