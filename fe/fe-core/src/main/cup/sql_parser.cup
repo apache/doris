@@ -1012,6 +1012,10 @@ alter_table_clause ::=
     {:
         RESULT = new EnableFeatureClause(featureName, properties);
     :}
+    | KW_MODIFY KW_DISTRIBUTION opt_distribution:distribution
+    {:
+        RESULT = new ModifyDistributionClause(distribution);
+    :}
     ;
 
 opt_enable_feature_properties ::=
