@@ -149,6 +149,16 @@ public class TableProperty implements Writable {
         return dynamicPartitionProperty;
     }
 
+    public Map<String, String> getOriginDynamicPartitionProperty() {
+        Map<String, String> origProp = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                origProp.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return origProp;
+    }
+
     public Short getReplicationNum() {
         return replicationNum;
     }
