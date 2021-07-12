@@ -40,7 +40,7 @@
 #include "util/utf8_check.h"
 
 #if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
+#include "exec/hdfs_file_reader.h"
 #endif
 
 namespace doris {
@@ -75,6 +75,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
         _line_delimiter.push_back(static_cast<char>(params.line_delimiter));
         _line_delimiter_length = 1;
     }
+    _split_values.reserve(sizeof(Slice) * params.src_slot_ids.size());
 }
 
 BrokerScanner::~BrokerScanner() {
@@ -323,7 +324,8 @@ void BrokerScanner::close() {
     }
 }
 
-void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
+void BrokerScanner::split_line(const Slice& line) {
+    _split_values.clear();
     const char* value = line.data;
     size_t start = 0;  // point to the start pos of next col value.
     size_t curpos = 0; // point to the start pos of separator matching sequence.
@@ -348,7 +350,7 @@ void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
             p1++;
             if (p1 == _value_separator_length) {
                 // Match a separator
-                values->emplace_back(value + start, curpos - start);
+                _split_values.emplace_back(value + start, curpos - start);
                 start = curpos + _value_separator_length;
                 curpos = start;
                 p1 = 0;
@@ -357,7 +359,7 @@ void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
     }
 
     CHECK(curpos == line.size) << curpos << " vs " << line.size;
-    values->emplace_back(value + start, curpos - start);
+    _split_values.emplace_back(value + start, curpos - start);
 }
 
 void BrokerScanner::fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
@@ -460,26 +462,25 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         return false;
     }
 
-    std::vector<Slice> values;
-    { split_line(line, &values); }
+    split_line(line);
 
     // range of current file
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
+    if (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
-                  << "actual number: " << values.size() << " column separator: ["
+                  << "actual number: " << _split_values.size() << " column separator: ["
                   << _value_separator << "], "
                   << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
         _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
+    } else if (_split_values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
-                  << "actual number: " << values.size() << " column separator: ["
+                  << "actual number: " << _split_values.size() << " column separator: ["
                   << _value_separator << "], "
                   << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
@@ -488,9 +489,9 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         return false;
     }
 
-    for (int i = 0; i < values.size(); ++i) {
+    for (int i = 0; i < _split_values.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
-        const Slice& value = values[i];
+        const Slice& value = _split_values[i];
         if (slot_desc->is_nullable() && is_null(value)) {
             _src_tuple->set_null(slot_desc->null_indicator_offset());
             continue;
