@@ -110,6 +110,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -1489,11 +1490,22 @@ public class Catalog {
         replayedJournalId.set(storage.getImageSeq());
         LOG.info("start load image from {}. is ckpt: {}", curFile.getAbsolutePath(), Catalog.isCheckpointThread());
         long loadImageStartTime = System.currentTimeMillis();
+        MetaHeader metaHeader = MetaHeader.readHeader(curFile);
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(curFile)));
 
         long checksum = 0;
         try {
-            checksum = loadHeader(dis, checksum);
+            if (metaHeader.getLength() > 0) {
+                dis.skip(metaHeader.getLength());
+            }
+            switch (metaHeader.getMetaFormat()) {
+                case COR1:
+                    checksum = loadHeader(dis, checksum);
+                    break;
+                case ETL1:
+                default:
+                    throw new DdlException("unsupported image format.");
+            }
             checksum = loadMasterInfo(dis, checksum);
             checksum = loadFrontends(dis, checksum);
             checksum = Catalog.getCurrentSystemInfo().loadBackends(dis, checksum);
@@ -1939,7 +1951,8 @@ public class Catalog {
 
         long checksum = 0;
         long saveImageStartTime = System.currentTimeMillis();
-        try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(curFile)))) {
+        MetaHeader.writeHeader(curFile);
+        try (DataOutputStream dos = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(curFile, true)))) {
             checksum = saveHeader(dos, replayedJournalId, checksum);
             checksum = saveMasterInfo(dos, checksum);
             checksum = saveFrontends(dos, checksum);
