@@ -272,6 +272,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
         if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
             read_json_by_line = true;
+        }
     }
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
