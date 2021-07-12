@@ -25,14 +25,13 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Lists;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
@@ -408,7 +407,7 @@ public class ConnectContext {
         }
         return threadInfo;
     }
-
+ 
     public class ThreadInfo {
         public List<String>  toRow(long nowMs) {
             List<String> row = Lists.newArrayList();

@@ -30,12 +30,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
-
-import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
