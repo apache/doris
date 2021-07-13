@@ -32,22 +32,21 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-// admin show replica distribution from tbl [partition(p1, p2, ...)]
-public class AdminShowReplicaDistributionStmt extends ShowStmt {
+// admin show data skew from tbl [partition(p1, p2, ...)]
+public class AdminShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("ReplicaNum").add("ReplicaSize")
-            .add("NumGraph").add("NumPercent")
-            .add("SizeGraph").add("SizePercent")
+            .add("BucketIdx").add("AvgDataSize")
+            .add("Graph").add("Percent")
             .build();
 
     private TableRef tblRef;
 
-    public AdminShowReplicaDistributionStmt(TableRef tblRef) {
+    public AdminShowDataSkewStmt(TableRef tblRef) {
         this.tblRef = tblRef;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // check auth
@@ -66,6 +65,10 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
         }
 
         tblRef.getName().setDb(dbName);
+        PartitionNames partitionNames = tblRef.getPartitionNames();
+        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
+            throw new AnalysisException("Should specify one and only one partition");
+        }
     }
 
     public String getDbName() {

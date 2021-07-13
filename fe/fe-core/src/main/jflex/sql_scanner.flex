@@ -341,6 +341,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("sets", new Integer(SqlParserSymbols.KW_SETS));
         keywordMap.put("show", new Integer(SqlParserSymbols.KW_SHOW));
         keywordMap.put("signed", new Integer(SqlParserSymbols.KW_SIGNED));
+        keywordMap.put("skew", new Integer(SqlParserSymbols.KW_SKEW));
         keywordMap.put("smallint", new Integer(SqlParserSymbols.KW_SMALLINT));
         keywordMap.put("snapshot", new Integer(SqlParserSymbols.KW_SNAPSHOT));
         keywordMap.put("soname", new Integer(SqlParserSymbols.KW_SONAME));
