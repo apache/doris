@@ -22,26 +22,38 @@ package com.alibaba.datax.plugin.writer.doriswriter;
 import com.alibaba.datax.common.exception.DataXException;
 import com.alibaba.datax.common.util.Configuration;
 import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
+import com.google.common.base.Strings;
 
 import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
-public class Key implements Serializable
-{
+public class Key implements Serializable {
+    public static final String FE_LOAD_URL = "feLoadUrl";
+    public static final String BE_LOAD_URL = "beLoadUrl";
     public static final String JDBC_URL = "jdbcUrl";
+
     public static final String DATABASE = "database";
     public static final String TABLE = "table";
+    public static final String COLUMN = "column";
+
     public static final String USERNAME = "username";
     public static final String PASSWORD = "password";
-    public static final String BE_LOAD_URL = "beLoadUrl";
-    public static final String COLUMN = "column";
+
     public static final String PRE_SQL = "preSql";
     public static final String POST_SQL = "postSql";
+
     public static final String LOAD_PROPS = "loadProps";
     public static final String MAX_BATCH_ROWS = "maxBatchRows";
     public static final String MAX_BATCH_BYTE_SIZE = "maxBatchByteSize";
+    public static final String LABEL_PREFIX = "labelPrefix";
+    public static final String LINE_DELIMITER = "lineDelimiter";
     private final Configuration options;
+    
+    private static final long DEFAULT_MAX_BATCH_ROWS = 50_0000;
+    private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
+    private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
+    private static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public Key(final Configuration options) {
         this.options = options;
@@ -69,11 +81,15 @@ public class Key implements Serializable
     }
 
     public String getPassword() {
-        return this.options.getString(PASSWORD);
+        return Strings.nullToEmpty(this.options.getString(PASSWORD));
     }
 
     public List<String> getBeLoadUrlList() {
         return this.options.getList(BE_LOAD_URL, String.class);
+    }
+
+    public List<String> getFeLoadUrlList() {
+        return this.options.getList(FE_LOAD_URL, String.class);
     }
 
     public List<String> getColumns() {
@@ -92,32 +108,44 @@ public class Key implements Serializable
         return this.options.getMap(LOAD_PROPS);
     }
 
-    public int getBatchRows() {
-        final Integer rows = this.options.getInt(MAX_BATCH_ROWS);
-        return (null == rows) ? 500000 : rows;
+    public long getBatchRows() {
+        return this.options.getLong(MAX_BATCH_ROWS, DEFAULT_MAX_BATCH_ROWS);
     }
 
     public long getBatchByteSize() {
-        final Long size = this.options.getLong(MAX_BATCH_BYTE_SIZE);
-        return (null == size) ? 94371840L : size;
+        return this.options.getLong(MAX_BATCH_BYTE_SIZE, DEFAULT_MAX_BATCH_BYTE_SIZE);
     }
 
+    public String getLabelPrefix() {
+        return this.options.getString(LABEL_PREFIX, DEFAULT_LABEL_PREFIX);
+    }
+
+    public String getLineDelimiter() {
+        return this.options.getString(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
+    }
 
     private void validateStreamLoadUrl() {
-        final List<String> urlList = this.getBeLoadUrlList();
+        List<String> urlList = this.getBeLoadUrlList();
+        if (urlList == null) {
+            urlList = this.getFeLoadUrlList();
+        }
+        if (urlList == null || urlList.isEmpty()) {
+            throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR, "Either beLoadUrl or feLoadUrl must be set");
+        }
+
         for (final String host : urlList) {
             if (host.split(":").length < 2) {
-                throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR, "loadUrl的格式不正确，请输入 `be_ip:be_http_ip;be_ip:be_http_ip`。");
+                throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
+                        "Invalid load url format. IF use FE hosts, should be like: fe_host:fe_http_port."
+					  + " If use BE hosts, should be like: be_host:be_webserver_port");
             }
         }
     }
 
     private void validateRequired() {
-        final String[] requiredOptionKeys =  new String[] { USERNAME, PASSWORD, DATABASE, TABLE, COLUMN, BE_LOAD_URL };
+        final String[] requiredOptionKeys =  new String[] { JDBC_URL, USERNAME, DATABASE, TABLE, COLUMN };
         for (final String optionKey : requiredOptionKeys) {
             this.options.getNecessaryValue(optionKey, DBUtilErrorCode.REQUIRED_VALUE);
         }
     }
-
-
 }
