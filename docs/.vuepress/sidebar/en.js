@@ -199,6 +199,7 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
+      "sql-block",
     ],
     sidebarDepth: 1,
   },

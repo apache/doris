@@ -17,25 +17,27 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.block.SqlBlockRule;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /*
  Create sqlBlockRule statement
 
  syntax:
-      CREATE SQL_BLOCK_RULE LOAD NAME PROPERTIES
+      CREATE SQL_BLOCK_RULE `rule_name` PROPERTIES
       (
           user = default,
           sql = select * from a,
@@ -44,11 +46,11 @@ import java.util.stream.Collectors;
 */
 public class CreateSqlBlockRuleStmt extends DdlStmt {
 
-    public static final String NAME_PROPERTY = "name";
-
     public static final String USER_PROPERTY = "user";
 
     public static final String SQL_PROPERTY = "sql";
+
+    public static final String SQL_HASH_PROPERTY = "sqlHash";
 
     public static final String ENABLE_PROPERTY = "enable";
 
@@ -59,6 +61,8 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     private String sql;
 
+    private String sqlHash;
+
     // whether to use the rule
     private boolean enable;
 
@@ -66,10 +70,10 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     private static final String NAME_TYPE = "SQL BLOCK RULE NAME";
 
-    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(NAME_PROPERTY)
+    public static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(USER_PROPERTY)
             .add(SQL_PROPERTY)
+            .add(SQL_HASH_PROPERTY)
             .add(ENABLE_PROPERTY)
             .build();
 
@@ -82,26 +86,38 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         // check name
         FeNameFormat.checkCommonName(NAME_TYPE, ruleName);
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
         // check properties
-        checkProperties(properties);
+        CreateSqlBlockRuleStmt.checkCommonProperties(properties);
+        setProperties(properties);
     }
 
-    private void checkProperties(Map<String, String> properties) throws UserException {
+    private void setProperties(Map<String, String> properties) throws UserException {
+        this.user = properties.get(USER_PROPERTY);
+        // if not default, need check whether user exist
+        if (!SqlBlockRule.DEFAULT_USER.equals(user)) {
+            boolean existUser = Catalog.getCurrentCatalog().getAuth().getTablePrivTable().doesUsernameExist(user);
+            if (!existUser) {
+                throw new AnalysisException(user + " does not exist");
+            }
+        }
+        this.sql = properties.get(SQL_PROPERTY);
+        this.sqlHash = properties.get(SQL_HASH_PROPERTY);
+        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
+    }
+
+    public static void checkCommonProperties(Map<String, String> properties) throws UserException {
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("Not set properties");
+        }
         Optional<String> optional = properties.keySet().stream().filter(
                 entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
-        this.user = properties.get(USER_PROPERTY);
-        // if not default, need check whether user exist
-        if (!SqlBlockRule.DEFAULT_USER.equals(user)) {
-            List<String> allUserIdents = Catalog.getCurrentCatalog().getAuth().getAllUserIdents(false).stream().map(UserIdentity::getUser).collect(Collectors.toList());
-            if (!allUserIdents.contains(user)) {
-                throw new AnalysisException(user + " is not exist");
-            }
-        }
-        this.sql = properties.get(SQL_PROPERTY);
-        this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
     }
 
     public String getRuleName() {
@@ -114,6 +130,10 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public String getSql() {
         return sql;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
     }
 
     public boolean isEnable() {

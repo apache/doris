@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.block;
+package org.apache.doris.blockrule;
 
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 
@@ -43,6 +44,9 @@ public class SqlBlockRule implements Writable {
 
     private String sql;
 
+    // sql md5
+    private String sqlHash;
+
     // whether to use the rule
     private Boolean enable;
 
@@ -50,19 +54,20 @@ public class SqlBlockRule implements Writable {
         this.name = name;
     }
 
-    public SqlBlockRule(String name, String user, String sql,  Boolean enable) {
+    public SqlBlockRule(String name, String user, String sql, String sqlHash, Boolean enable) {
         this.name = name;
         this.user = user;
         this.sql = sql;
+        this.sqlHash = sqlHash;
         this.enable = enable;
     }
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.isEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getSqlHash(), stmt.isEnable());
     }
 
     public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getSqlHash(), stmt.getEnable());
     }
 
     public String getName() {
@@ -77,6 +82,10 @@ public class SqlBlockRule implements Writable {
         return sql;
     }
 
+    public String getSqlHash() {
+        return sqlHash;
+    }
+
     public Boolean getEnable() {
         return enable;
     }
@@ -89,6 +98,10 @@ public class SqlBlockRule implements Writable {
         this.sql = sql;
     }
 
+    public void setSqlHash(String sqlHash) {
+        this.sqlHash = sqlHash;
+    }
+
     public void setEnable(Boolean enable) {
         this.enable = enable;
     }
@@ -99,13 +112,11 @@ public class SqlBlockRule implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        Text.writeString(out, user);
-        Text.writeString(out, sql);
-        Text.writeString(out, String.valueOf(enable));
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static SqlBlockRule read(DataInput in) throws IOException {
-        return new SqlBlockRule(Text.readString(in), Text.readString(in), Text.readString(in), Boolean.valueOf(Text.readString(in)));
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
     }
 }

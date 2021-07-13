@@ -303,8 +303,8 @@ public final class MetricRepo {
                 "total error rows of routine load");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
 
-        COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_blacklist", MetricUnit.ROWS,
-                "total hit sql blacklist query");
+        COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
+                "total hit sql block rule query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_HIT_SQL_BLOCK_RULE);
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));

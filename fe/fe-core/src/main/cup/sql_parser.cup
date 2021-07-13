@@ -295,8 +295,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
-    import_preceding_filter_stmt,
-    create_sql_block_rule_stmt, alter_sql_block_rule_stmt, drop_sql_block_rule_stmt, show_sql_block_rule_stmt;
+    import_preceding_filter_stmt;
 
 nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
@@ -724,14 +723,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | uninstall_plugin_stmt : stmt
     {: RESULT = stmt; :}
-    | create_sql_block_rule_stmt : stmt
-    {: RESULT = stmt; :}
-    | alter_sql_block_rule_stmt : stmt
-    {: RESULT = stmt; :}
-    | drop_sql_block_rule_stmt : stmt
-    {: RESULT = stmt; :}
-    | show_sql_block_rule_stmt : stmt
-    {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
         RESULT = new EmptyStmt();
@@ -835,6 +826,11 @@ alter_stmt ::=
       opt_datasource_properties:datasourceProperties
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
+    :}
+    | KW_ALTER KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
+    opt_properties:properties
+    {:
+        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
     :}
     ;
 
@@ -1262,6 +1258,10 @@ create_stmt ::=
     | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
     {:
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
+    :}
+    | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
+    {:
+        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
     ;
 
@@ -1827,41 +1827,6 @@ show_create_routine_load_stmt ::=
     :}
     ;
 
-// Sql block rule statement
-create_sql_block_rule_stmt ::=
-    KW_CREATE KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
-    opt_properties:properties
-    {:
-        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
-    :}
-    ;
-
-alter_sql_block_rule_stmt ::=
-    KW_ALTER KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
-    opt_properties:properties
-    {:
-        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
-    :}
-    ;
-
-drop_sql_block_rule_stmt ::=
-    KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
-    {:
-        RESULT = new DropSqlBlockRuleStmt(ruleNames);
-    :}
-    ;
-
-show_sql_block_rule_stmt ::=
-    KW_SHOW KW_SQL_BLOCK_RULE KW_FOR ident:ruleName
-    {:
-        RESULT = new ShowSqlBlockRuleStmt(ruleName);
-    :}
-    | KW_SHOW KW_SQL_BLOCK_RULE
-    {:
-        RESULT = new ShowSqlBlockRuleStmt(null);
-    :}
-    ;
-
 // Grant statement
 grant_stmt ::=
     KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO user_identity:userId
@@ -1998,6 +1963,10 @@ drop_stmt ::=
     | KW_DROP KW_ENCRYPTKEY encryptkey_name:keyName
     {:
         RESULT = new DropEncryptKeyStmt(keyName);
+    :}
+    | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
+    {:
+        RESULT = new DropSqlBlockRuleStmt(ruleNames);
     :}
     ;
 
@@ -2465,6 +2434,14 @@ show_stmt ::=
     KW_SHOW show_param:stmt
     {:
         RESULT = stmt;
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE KW_FOR ident:ruleName
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(ruleName);
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(null);
     :}
     ;
 

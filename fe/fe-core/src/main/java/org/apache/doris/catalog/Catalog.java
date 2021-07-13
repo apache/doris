@@ -85,7 +85,7 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
-import org.apache.doris.block.SqlBlockRuleMgr;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -2186,7 +2186,7 @@ public class Catalog {
     }
 
     public long saveSqlBlockRule(DataOutputStream out, long checksum) throws IOException {
-        Catalog.getCurrentCatalog().getSqlBlocklistMgr().write(out);
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
         return checksum;
     }
 
@@ -4880,7 +4880,7 @@ public class Catalog {
         return routineLoadManager;
     }
 
-    public SqlBlockRuleMgr getSqlBlocklistMgr() {
+    public SqlBlockRuleMgr getSqlBlockRuleMgr() {
         return sqlBlockRuleMgr;
     }
 

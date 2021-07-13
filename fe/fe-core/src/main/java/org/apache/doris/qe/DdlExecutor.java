@@ -267,11 +267,11 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
             catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
-            catalog.getSqlBlocklistMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
+            catalog.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
-            catalog.getSqlBlocklistMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
+            catalog.getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof DropSqlBlockRuleStmt) {
-            catalog.getSqlBlocklistMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
+            catalog.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

@@ -30,9 +30,7 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.block.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -733,19 +731,6 @@ public class StmtExecutorTest {
         executor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testMatchSql() throws AnalysisException {
-//        String sql = "select * from test_table join  limit 10";
-//        SqlBlockRule rule = new SqlBlockRule("test_rule", "default", "select \\* from .*", true);
-//        StmtExecutor.matchSql(rule, sql);
-//        String sql1 = "select * from test_table limit 5";
-//        SqlBlockRule rule1 = new SqlBlockRule("test_rule1", "default", "select \\* from test_table limit [1-9]", true);
-//        StmtExecutor.matchSql(rule1, sql1);
-        String sql2 = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
-        SqlBlockRule rule2 = new SqlBlockRule("test_rule1", "default", ".* join .*", true);
-        StmtExecutor.matchSql(rule2, sql2);
     }
 }
 

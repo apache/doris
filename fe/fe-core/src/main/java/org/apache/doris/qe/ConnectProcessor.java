@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
 import com.google.common.base.Strings;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -144,9 +145,9 @@ public class ConnectProcessor {
         
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
 
-        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
+        String sql;
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
+            sql = parsedStmt.toSql();
         } else {
             if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
@@ -155,8 +156,11 @@ public class ConnectProcessor {
             } else {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
+            sql = origStmt;
         }
-        
+        ctx.getAuditEventBuilder().setSqlHash(DigestUtils.md5Hex(sql));
+        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
+        ctx.getAuditEventBuilder().setStmt(sql);
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 

@@ -26,7 +26,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.block.SqlBlockRule;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -846,17 +846,17 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
                     SqlBlockRule rule = (SqlBlockRule) journal.getData();
-                    catalog.getSqlBlocklistMgr().replayCreate(rule);
+                    catalog.getSqlBlockRuleMgr().replayCreate(rule);
                     break;
                 }
                 case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
                     SqlBlockRule rule = (SqlBlockRule) journal.getData();
-                    catalog.getSqlBlocklistMgr().replayAlter(rule);
+                    catalog.getSqlBlockRuleMgr().replayAlter(rule);
                     break;
                 }
                 case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                     SqlBlockRule rule = (SqlBlockRule) journal.getData();
-                    catalog.getSqlBlocklistMgr().replayDrop(rule);
+                    catalog.getSqlBlockRuleMgr().replayDrop(rule);
                     break;
                 }
                 default: {

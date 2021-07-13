@@ -1333,7 +1333,7 @@ public class PaloAuth implements Writable {
         userAuthInfos.add(userAuthInfo);
     }
 
-    public Set<UserIdentity> getAllUserIdents(boolean includeEntrySetByResolver) {
+    private Set<UserIdentity> getAllUserIdents(boolean includeEntrySetByResolver) {
         Set<UserIdentity> userIdents = Sets.newHashSet();
         for (PrivEntry entry : userPrivTable.entries) {
             if (!includeEntrySetByResolver && entry.isSetByDomainResolver()) {

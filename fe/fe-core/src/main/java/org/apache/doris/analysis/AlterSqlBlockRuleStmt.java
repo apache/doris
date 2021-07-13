@@ -17,16 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.block.SqlBlockRule;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 public class AlterSqlBlockRuleStmt extends DdlStmt {
 
@@ -35,6 +38,8 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
     private String user;
 
     private String sql;
+
+    private String sqlHash;
 
     private Boolean enable;
 
@@ -48,20 +53,27 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
         // check properties
-        checkProperties(properties);
+        CreateSqlBlockRuleStmt.checkCommonProperties(properties);
+        setProperties(properties);
     }
 
-    private void checkProperties(Map<String, String> properties) throws UserException {
+    private void setProperties(Map<String, String> properties) throws UserException {
         this.user = properties.get(CreateSqlBlockRuleStmt.USER_PROPERTY);
         // if not default, need check whether user exist
         if (StringUtils.isNotEmpty(user) &&  !SqlBlockRule.DEFAULT_USER.equals(user)) {
-            List<String> allUserIdents = Catalog.getCurrentCatalog().getAuth().getAllUserIdents(false).stream().map(UserIdentity::getUser).collect(Collectors.toList());
-            if (!allUserIdents.contains(user)) {
-                throw new AnalysisException(user + " is not exist");
+            boolean existUser = Catalog.getCurrentCatalog().getAuth().getTablePrivTable().doesUsernameExist(user);
+            if (!existUser) {
+                throw new AnalysisException(user + " does not exist");
             }
         }
         this.sql = properties.get(CreateSqlBlockRuleStmt.SQL_PROPERTY);
+        this.sqlHash = properties.get(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY);
+        // allow null, represents no modification
         String enableStr = properties.get(CreateSqlBlockRuleStmt.ENABLE_PROPERTY);
         this.enable = StringUtils.isNotEmpty(enableStr) ? Boolean.parseBoolean(enableStr) : null;
     }
@@ -80,5 +92,9 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     public Boolean getEnable() {
         return enable;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
     }
 }
