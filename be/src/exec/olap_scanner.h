@@ -111,6 +111,7 @@ private:
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
+    const std::vector<SlotDescriptor*>& _collection_slots;
 
     std::vector<ExprContext*> _conjunct_ctxs;
     // to record which runtime filters have been used

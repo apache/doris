@@ -99,6 +99,21 @@ visible_functions = [
         '_ZN5doris9Operators20bitnot_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValE'],
 
+    # array functions
+    [['array'], 'ARRAY', ['INT', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['array'], 'ARRAY', ['ARRAY', '...'], '', ''],
+    [['array'], 'ARRAY', ['MAP', '...'], '', ''],
+    [['array'], 'ARRAY', ['STRUCT', '...'], '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'VARCHAR'],  '', ''],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
@@ -888,7 +903,8 @@ non_null_result_with_null_param_functions = [
     'ifnull',
     'nullif',
     'null_or_empty',
-    'coalesce'
+    'coalesce',
+    'array'
 ]
 
 # Nondeterministic functions may return different results each time they are called

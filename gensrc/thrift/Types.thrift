@@ -74,7 +74,10 @@ enum TPrimitiveType {
   HLL,
   DECIMALV2,
   TIME,
-  OBJECT
+  OBJECT,
+  ARRAY,
+  MAP,
+  STRUCT
 }
 
 enum TTypeNodeType {

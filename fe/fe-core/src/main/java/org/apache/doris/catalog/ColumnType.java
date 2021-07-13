@@ -111,26 +111,38 @@ public abstract class ColumnType {
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
-        Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
-        ScalarType scalarType = (ScalarType) type;
-        Text.writeString(out, scalarType.getPrimitiveType().name());
-        out.writeInt(scalarType.getScalarScale());
-        out.writeInt(scalarType.getScalarPrecision());
-        out.writeInt(scalarType.getLength());
-        // Actually, varcharLimit need not to write here, write true to back compatible
-        out.writeBoolean(true);
+        Preconditions.checkArgument(type.isScalarType() || type.isArrayType(),
+                "only support scalar type and array serialization");
+        if (type.isScalarType()) {
+            ScalarType scalarType = (ScalarType) type;
+            Text.writeString(out, scalarType.getPrimitiveType().name());
+            out.writeInt(scalarType.getScalarScale());
+            out.writeInt(scalarType.getScalarPrecision());
+            out.writeInt(scalarType.getLength());
+            // Actually, varcharLimit need not to write here, write true to back compatible
+            out.writeBoolean(true);
+        } else if (type.isArrayType()) {
+            ArrayType arrayType = (ArrayType) type;
+            Text.writeString(out, arrayType.getPrimitiveType().name());
+            write(out, arrayType.getItemType());
+        }
     }
 
     public static Type read(DataInput in) throws IOException {
         PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
-        int scale = in.readInt();
-        int precision = in.readInt();
-        int len = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            // Useless, just for back compatible
-            in.readBoolean();
+        if (primitiveType == PrimitiveType.ARRAY) {
+            Type itermType = read(in);
+            return ArrayType.create(itermType);
+        } else {
+            int scale = in.readInt();
+            int precision = in.readInt();
+            int len = in.readInt();
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
+                // Useless, just for back compatible
+                in.readBoolean();
+            }
+            return ScalarType.createType(primitiveType, len, precision, scale);
         }
-        return ScalarType.createType(primitiveType, len, precision, scale);
     }
 }
 

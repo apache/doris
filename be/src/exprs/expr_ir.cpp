@@ -75,4 +75,7 @@ DateTimeVal Expr::get_datetime_val(Expr* expr, ExprContext* context, TupleRow* r
 DecimalV2Val Expr::get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_decimalv2_val(context, row);
 }
+CollectionVal Expr::get_array_val(Expr* expr, ExprContext* context, TupleRow* row) {
+    return expr->get_array_val(context, row);
+}
 } // namespace doris
