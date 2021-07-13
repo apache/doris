@@ -141,29 +141,11 @@ struct TQueryOptions {
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false;
 
-  // runtime filter run mode
-  33: optional string runtime_filter_mode = "GLOBAL";
-
-  // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
-  // be rounded up to the nearest power of two.
-  34: optional i32 runtime_bloom_filter_size = 1048576
-
-  // Minimum runtime bloom filter size, in bytes
-  35: optional i32 runtime_bloom_filter_min_size = 1048576
-
-  // Maximum runtime bloom filter size, in bytes
-  36: optional i32 runtime_bloom_filter_max_size = 16777216
-
   // Time in ms to wait until runtime filters are delivered.
-  37: optional i32 runtime_filter_wait_time_ms = 1000
+  33: optional i32 runtime_filter_wait_time_ms = 1000
 
-  // Maximum number of bloom runtime filters allowed per query
-  38: optional i32 runtime_filters_max_num = 10
-
-  // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
-  39: optional i32 runtime_filter_type = 1;
-
-  40: optional i32 runtime_filter_max_in_num = 1024;
+  // if the right table is greater than this value in the hash join,  we will ignore IN filter
+  34: optional i32 runtime_filter_max_in_num = 1024;
 }
     
 
