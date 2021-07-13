@@ -156,42 +156,44 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
-        String convertedVal = VariableVarConverters.convert(attr.name(), value);
+        if (VariableVarConverters.hasConverter(attr.name())) {
+            value = VariableVarConverters.encode(attr.name(), value).toString();
+        }
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
-                    if (convertedVal.equalsIgnoreCase("ON")
-                            || convertedVal.equalsIgnoreCase("TRUE")
-                            || convertedVal.equalsIgnoreCase("1")) {
+                    if (value.equalsIgnoreCase("ON")
+                            || value.equalsIgnoreCase("TRUE")
+                            || value.equalsIgnoreCase("1")) {
                         field.setBoolean(obj, true);
-                    } else if (convertedVal.equalsIgnoreCase("OFF")
-                            || convertedVal.equalsIgnoreCase("FALSE")
-                            || convertedVal.equalsIgnoreCase("0")) {
+                    } else if (value.equalsIgnoreCase("OFF")
+                            || value.equalsIgnoreCase("FALSE")
+                            || value.equalsIgnoreCase("0")) {
                         field.setBoolean(obj, false);
                     } else {
                         throw new IllegalAccessException();
                     }
                     break;
                 case "byte":
-                    field.setByte(obj, Byte.valueOf(convertedVal));
+                    field.setByte(obj, Byte.valueOf(value));
                     break;
                 case "short":
-                    field.setShort(obj, Short.valueOf(convertedVal));
+                    field.setShort(obj, Short.valueOf(value));
                     break;
                 case "int":
-                    field.setInt(obj, Integer.valueOf(convertedVal));
+                    field.setInt(obj, Integer.valueOf(value));
                     break;
                 case "long":
-                    field.setLong(obj, Long.valueOf(convertedVal));
+                    field.setLong(obj, Long.valueOf(value));
                     break;
                 case "float":
-                    field.setFloat(obj, Float.valueOf(convertedVal));
+                    field.setFloat(obj, Float.valueOf(value));
                     break;
                 case "double":
-                    field.setDouble(obj, Double.valueOf(convertedVal));
+                    field.setDouble(obj, Double.valueOf(value));
                     break;
                 case "String":
-                    field.set(obj, convertedVal);
+                    field.set(obj, value);
                     break;
                 default:
                     // Unsupported type variable.
@@ -496,12 +498,12 @@ public class VariableMgr {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
                 }
 
-                if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+                if (row.size() > 1 && VariableVarConverters.hasConverter(row.get(0))) {
                     try {
-                        row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
+                        row.set(1, VariableVarConverters.decode(row.get(0), Long.valueOf(row.get(1))));
                     } catch (DdlException e) {
                         row.set(1, "");
-                        LOG.warn("Decode sql mode failed");
+                        LOG.warn("Decode session variable failed");
                     }
                 }
 

@@ -1704,4 +1704,41 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
     }
+
+    public String getStringValue() {
+        if (this instanceof LiteralExpr) {
+            return ((LiteralExpr) this).getStringValue();
+        }
+        return "";
+    }
+
+    public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
+        for (Expr child: expr.getChildren()) {
+            if (child.isBoundByTupleIds(tids)) return child;
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if expr contains specify function, otherwise false.
+     */
+    public boolean isContainsFunction(String functionName) {
+        if (fn == null) return false;
+        if (fn.functionName().equalsIgnoreCase(functionName))  return true;
+        for (Expr child: children) {
+            if (child.isContainsFunction(functionName)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if expr contains specify className, otherwise false.
+     */
+    public boolean isContainsClass(String className) {
+        if (this.getClass().getName().equalsIgnoreCase(className)) return true;
+        for (Expr child: children) {
+            if (child.isContainsClass(className)) return true;
+        }
+        return false;
+    }
 }
