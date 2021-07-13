@@ -63,6 +63,11 @@ public class CreateViewStmt extends BaseViewStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
+        // Do not rewrite nondeterministic functions to constant in create view's def stmt
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setNotEvalNondeterministicFunction(true);
+        }
+
         if (cols != null) {
             cloneStmt = viewDefStmt.clone();
         }

@@ -891,5 +891,16 @@ non_null_result_with_null_param_functions = [
     'coalesce'
 ]
 
+# Nondeterministic functions may return different results each time they are called
+nondeterministic_functions = [
+    'rand',
+    'now',
+    'current_timestamp',
+    'curdate',
+    'curtime',
+    'current_time',
+    'utc_timestamp'
+]
+
 invisible_functions = [
 ]

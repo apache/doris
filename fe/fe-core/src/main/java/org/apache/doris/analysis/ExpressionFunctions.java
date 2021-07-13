@@ -83,6 +83,14 @@ public enum ExpressionFunctions {
                 }
             }
 
+            // In some cases, non-deterministic functions should not be rewritten as constants,
+            // such as non-deterministic functions in the create view statement.
+            // eg: create view v1 as select rand();
+            if (Catalog.getCurrentCatalog().isNondeterministicFunction(fn.getFunctionName().getFunction())
+                    && ConnectContext.get() != null && ConnectContext.get().notEvalNondeterministicFunction()) {
+                return constExpr;
+            }
+
             List<ScalarType> argTypes = new ArrayList<>();
             for (Type type : fn.getArgs()) {
                 argTypes.add((ScalarType) type);
