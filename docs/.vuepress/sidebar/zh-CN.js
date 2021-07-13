@@ -317,7 +317,6 @@ module.exports = [
               "lpad",
               "ltrim",
               "money_format",
-              "not regexp",
               "null_or_empty",
               "repeat",
               "reverse",
@@ -342,9 +341,9 @@ module.exports = [
                   "regexp",
                   "regexp_extract",
                   "regexp_replace",
-                  "not_regexp"
+                  "not_regexp",
                 ],
-              }
+              },
             ],
           },
           {

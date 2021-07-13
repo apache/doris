@@ -1,7 +1,7 @@
 ---
 {
     "title": "regexp_replace",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -31,7 +31,7 @@ under the License.
 `VARCHAR regexp_replace(VARCHAR str, VARCHAR pattern, VARCHAR repl)
 
 
-对字符串 str 进行正则匹配, 将命中 pattern 的部分使用 repl 来进行替换
+Regular matching of STR strings, replacing the part hitting pattern with repl
 
 ## example
 

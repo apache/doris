@@ -336,9 +336,9 @@ module.exports = [
                   "regexp",
                   "regexp_extract",
                   "regexp_replace",
-                  "not_regexp"
+                  "not_regexp",
                 ],
-              }
+              },
             ],
           },
           {
