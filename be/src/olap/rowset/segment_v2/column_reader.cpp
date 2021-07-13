@@ -357,7 +357,9 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             if (is_nullable()) {
                 RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator));
             }
-            *iterator = new ArrayFileColumnIterator(this, reinterpret_cast<FileColumnIterator*>(offset_iterator), item_iterator, null_iterator);
+            *iterator = new ArrayFileColumnIterator(
+                    this, reinterpret_cast<FileColumnIterator*>(offset_iterator), item_iterator,
+                    null_iterator);
             return Status::OK();
         }
         default:
@@ -370,9 +372,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 ////////////////////////////////////////////////////////////////////////////////
 
 ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* reader,
-        FileColumnIterator* offset_reader,
-        ColumnIterator* item_iterator,
-        ColumnIterator* null_iterator) : _array_reader(reader) {
+                                                 FileColumnIterator* offset_reader,
+                                                 ColumnIterator* item_iterator,
+                                                 ColumnIterator* null_iterator)
+        : _array_reader(reader) {
     _length_iterator.reset(offset_reader);
     _item_iterator.reset(item_iterator);
     if (_array_reader->is_nullable()) {
@@ -386,8 +389,9 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT);
-    RETURN_IF_ERROR(ColumnVectorBatch::create(1024, false, bigint_type_info, nullptr, &_length_batch));
+    TypeInfo* offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+    RETURN_IF_ERROR(
+            ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();
 }
 
@@ -397,7 +401,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
 
     // 1. read n offsets
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
-    ColumnBlockView offset_view(&offset_block, dst->current_offset() + 1); // offset应该比collection的游标多1
+    ColumnBlockView offset_view(&offset_block,
+                                dst->current_offset() + 1); // offset应该比collection的游标多1
     bool offset_has_null = false;
     RETURN_IF_ERROR(_length_iterator->next_batch(n, &offset_view, &offset_has_null));
     DCHECK(!offset_has_null);
@@ -434,7 +439,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
         }
 
         ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
-        ColumnBlockView item_view = ColumnBlockView(&item_block, array_batch->item_offset(dst->current_offset()));
+        ColumnBlockView item_view =
+                ColumnBlockView(&item_block, array_batch->item_offset(dst->current_offset()));
         size_t real_read = item_size;
         RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view, &item_has_null));
         DCHECK(item_size == real_read);

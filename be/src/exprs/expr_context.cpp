@@ -286,16 +286,15 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
         return &_result.decimalv2_val;
     }
-#if 0
-    case TYPE_ARRAY:
-    case TYPE_MAP: {
-        doris_udf::ArrayVal v = e->GetArrayVal(this, row);
-        if (v.is_null) return NULL;
-        _result.array_val.ptr = v.ptr;
-        _result.array_val.num_tuples = v.num_tuples;
+    case TYPE_ARRAY: {
+        doris_udf::CollectionVal v = e->get_array_val(this, row);
+        if (v.is_null) {
+            return NULL;
+        }
+
+        _result.array_val = CollectionValue::from_collection_val(v);
         return &_result.array_val;
     }
-#endif
     default:
         DCHECK(false) << "Type not implemented: " << e->_type;
         return NULL;

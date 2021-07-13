@@ -19,12 +19,14 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
+import org.apache.doris.rewrite.FEFunctionList;
 import org.apache.doris.rewrite.FEFunctions;
 
 import com.google.common.base.Joiner;
@@ -96,7 +98,7 @@ public enum ExpressionFunctions {
                 argTypes.add((ScalarType) type);
             }
             FEFunctionSignature signature = new FEFunctionSignature(fn.functionName(),
-                    argTypes.toArray(new ScalarType[argTypes.size()]), (ScalarType) fn.getReturnType());
+                    argTypes.toArray(new ScalarType[argTypes.size()]), fn.getReturnType());
             FEFunctionInvoker invoker = getFunction(signature);
             if (invoker != null) {
                 try {
@@ -149,20 +151,30 @@ public enum ExpressionFunctions {
                 new ImmutableMultimap.Builder<String, FEFunctionInvoker>();
         Class clazz = FEFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
-            FEFunction annotation = method.getAnnotation(FEFunction.class);
-            if (annotation != null) {
-                String name = annotation.name();
-                ScalarType returnType = ScalarType.createType(annotation.returnType());
-                List<ScalarType> argTypes = new ArrayList<>();
-                for (String type : annotation.argTypes()) {
-                    argTypes.add(ScalarType.createType(type));
+            FEFunctionList annotationList = method.getAnnotation(FEFunctionList.class);
+            if (annotationList != null) {
+                for (FEFunction f : annotationList.value()) {
+                    registerFEFunction(mapBuilder, method, f);
                 }
-                FEFunctionSignature signature = new FEFunctionSignature(name,
-                        argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
-                mapBuilder.put(name, new FEFunctionInvoker(method, signature));
             }
+            registerFEFunction(mapBuilder, method, method.getAnnotation(FEFunction.class));
         }
         this.functions = mapBuilder.build();
+    }
+
+    private void registerFEFunction(ImmutableMultimap.Builder<String, FEFunctionInvoker> mapBuilder,
+                                    Method method, FEFunction annotation) {
+        if (annotation != null) {
+            String name = annotation.name();
+            Type returnType = Type.fromPrimitiveType(PrimitiveType.valueOf(annotation.returnType()));
+            List<ScalarType> argTypes = new ArrayList<>();
+            for (String type : annotation.argTypes()) {
+                argTypes.add(ScalarType.createType(type));
+            }
+            FEFunctionSignature signature = new FEFunctionSignature(name,
+                    argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
+            mapBuilder.put(name, new FEFunctionInvoker(method, signature));
+        }
     }
 
     public static class FEFunctionInvoker {
@@ -239,6 +251,12 @@ public enum ExpressionFunctions {
             } else {
                 throw new IllegalArgumentException("Doris doesn't support type:" + argType);
             }
+        
+            // if args all is NullLiteral
+            long size = args.stream().filter(e -> e instanceof NullLiteral).count();
+            if (args.size() == size) {
+                exprs = new NullLiteral[args.size()];
+            }
             args.toArray(exprs);
             return exprs;
         }
@@ -247,9 +265,9 @@ public enum ExpressionFunctions {
     public static class FEFunctionSignature {
         private final String name;
         private final ScalarType[] argTypes;
-        private final ScalarType returnType;
+        private final Type returnType;
 
-        public FEFunctionSignature(String name, ScalarType[] argTypes, ScalarType returnType) {
+        public FEFunctionSignature(String name, ScalarType[] argTypes, Type returnType) {
             this.name = name;
             this.argTypes = argTypes;
             this.returnType = returnType;
@@ -259,7 +277,7 @@ public enum ExpressionFunctions {
             return argTypes;
         }
 
-        public ScalarType getReturnType() {
+        public Type getReturnType() {
             return returnType;
         }
 
