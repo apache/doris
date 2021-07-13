@@ -90,16 +90,18 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     }
 
     auto tracker = MemTracker::CreateTracker(-1, "OlapScanner");
-    std::shared_ptr<BloomFilterFuncBase> bloom_filter =
-            std::make_shared<BloomFilterFunc<float>>(_mem_tracker.get());
-    bloom_filter->init();
+    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
+            IBloomFilterFuncBase::create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
+
+    bloom_filter->init(4096, 0.05);
     float value = 4.1;
     bloom_filter->insert(reinterpret_cast<void*>(&value));
     value = 5.1;
     bloom_filter->insert(reinterpret_cast<void*>(&value));
     value = 6.1;
     bloom_filter->insert(reinterpret_cast<void*>(&value));
-    ColumnPredicate* pred = new BloomFilterColumnPredicate(0, bloom_filter);
+    ColumnPredicate* pred = BloomFilterColumnPredicateFactory::create_column_predicate(
+            0, bloom_filter, OLAP_FIELD_TYPE_FLOAT);
 
     // for VectorizedBatch no null
     InitVectorizedBatch(&tablet_schema, return_columns, size);

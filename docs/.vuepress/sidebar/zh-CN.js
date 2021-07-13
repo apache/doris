@@ -299,6 +299,7 @@ module.exports = [
             children: [
               "append_trailing_char_if_absent",
               "ascii",
+              "bit_length",
               "char_length",
               "concat",
               "concat_ws",
@@ -548,9 +549,10 @@ module.exports = [
     children: [
         "debug-tool",
         "fe-eclipse-dev",
-        "fe-idea-dev", 
+        "fe-idea-dev",
         "be-vscode-dev",
-        "format-code",
+        "java-format-code",
+        "cpp-format-code",
     ],
   },
   {

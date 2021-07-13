@@ -609,6 +609,20 @@ TEST_F(StringFunctionsTest, parse_url) {
                                          StringVal("port")));
 }
 
+TEST_F(StringFunctionsTest, bit_length) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(IntVal(40), StringFunctions::bit_length(context, StringVal("hello")));
+
+    ASSERT_EQ(IntVal::null(), StringFunctions::bit_length(context, StringVal::null()));
+
+    ASSERT_EQ(IntVal(0), StringFunctions::bit_length(context, StringVal("")));
+
+    ASSERT_EQ(IntVal(88), StringFunctions::bit_length(context, StringVal("hello你好")));
+
+    delete context;
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {

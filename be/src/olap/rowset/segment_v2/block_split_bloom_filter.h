@@ -34,25 +34,33 @@ public:
     bool test_hash(uint64_t hash) const override;
 
 private:
-    void _set_masks(uint32_t key, uint32_t* masks) const {
-        for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
-            // add some salt to key
-            masks[i] = key * SALT[i];
-            // masks[i] mod 32
-            masks[i] = masks[i] >> 27;
-            // set the masks[i]-th bit
-            masks[i] = 0x1 << masks[i];
-        }
-    }
+    // Bytes in a tiny Bloom filter block.
+    static constexpr int BYTES_PER_BLOCK = 32;
+    // The number of bits to set in a tiny Bloom filter block
+    static constexpr int BITS_SET_PER_BLOCK = 8;
+
+    static constexpr uint32_t SALT[BITS_SET_PER_BLOCK] = {0x47b6137bU, 0x44974d91U, 0x8824ad5bU,
+                                                          0xa2b7289dU, 0x705495c7U, 0x2df1424bU,
+                                                          0x9efc4947U, 0x5c6bfb31U};
+
+    struct BlockMask {
+        uint32_t item[BITS_SET_PER_BLOCK];
+    };
 
 private:
-    // Bytes in a tiny Bloom filter block.
-    static const uint32_t BYTES_PER_BLOCK = 32;
+    void _set_masks(uint32_t key, BlockMask& block_mask) const {
+        for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
+            block_mask.item[i] = key * SALT[i];
+        }
 
-    // The number of bits to set in a tiny Bloom filter block
-    static const int BITS_SET_PER_BLOCK = 8;
+        for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
+            block_mask.item[i] = block_mask.item[i] >> 27;
+        }
 
-    static const uint32_t SALT[BITS_SET_PER_BLOCK];
+        for (int i = 0; i < BITS_SET_PER_BLOCK; ++i) {
+            block_mask.item[i] = uint32_t(0x1) << block_mask.item[i];
+        }
+    }
 };
 
 } // namespace segment_v2

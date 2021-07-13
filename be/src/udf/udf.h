@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
@@ -44,6 +45,7 @@ struct StringVal;
 struct DateTimeVal;
 struct DecimalV2Val;
 struct HllVal;
+struct CollectionVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -74,7 +76,8 @@ public:
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
-        TYPE_OBJECT
+        TYPE_OBJECT,
+        TYPE_ARRAY
     };
 
     struct TypeDesc {
@@ -86,6 +89,9 @@ public:
 
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
+
+        // only vaild if type == TYPE_ARRAY
+        std::vector<TypeDesc> children;
     };
 
     struct UniqueId {
@@ -718,6 +724,26 @@ struct HllVal : public StringVal {
     void agg_merge(const HllVal& other);
 };
 
+struct CollectionVal : public AnyVal {
+    void* data;
+    uint32_t length;
+    // item has no null value if has_null is false.
+    // item ```may``` has null value if has_null is true.
+    bool has_null;
+    // null bitmap
+    bool* null_signs;
+
+    CollectionVal() = default;
+
+    CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
+            : data(data), length(length), has_null(has_null), null_signs(null_signs){};
+
+    static CollectionVal null() {
+        CollectionVal val;
+        val.is_null = true;
+        return val;
+    }
+};
 typedef uint8_t* BufferVal;
 } // namespace doris_udf
 
@@ -734,5 +760,6 @@ using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
+using doris_udf::CollectionVal;
 
 #endif

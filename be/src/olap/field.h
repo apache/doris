@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "olap/utils.h"
+#include "runtime/collection_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
@@ -47,8 +48,14 @@ public:
               _name(column.name()),
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
-              _agg_info(get_aggregate_info(column.aggregation(), column.type())),
-              _length(column.length()) {}
+              _length(column.length()) {
+        if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
+            _agg_info = get_aggregate_info(column.aggregation(), column.type(),
+                                           column.get_sub_column(0).type());
+        } else {
+            _agg_info = get_aggregate_info(column.aggregation(), column.type());
+        }
+    }
 
     virtual ~Field() = default;
 
@@ -257,9 +264,11 @@ public:
     }
     Field* get_sub_field(int i) { return _sub_fields[i].get(); }
 
+protected:
+    const TypeInfo* _type_info;
+
 private:
     // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
-    const TypeInfo* _type_info;
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -376,6 +385,30 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     }
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
+
+class ArrayField : public Field {
+public:
+    explicit ArrayField(const TabletColumn& column) : Field(column) {}
+
+    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                 ObjectPool* agg_pool) const override {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto array_v = (CollectionValue*)cell_ptr;
+        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr + sizeof(CollectionValue)));
+        array_v->set_data(variable_ptr + sizeof(CollectionValue) +
+                          OLAP_ARRAY_MAX_BYTES / sizeof(char*));
+        return variable_ptr + _length;
+    }
+
+    size_t get_variable_len() const override { return _length; }
+};
 
 class CharField : public Field {
 public:
@@ -518,7 +551,7 @@ public:
                 return new VarcharField(column);
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new Field(column);
+                auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
@@ -542,7 +575,7 @@ public:
                 return new VarcharField(column);
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
-                auto* local = new Field(column);
+                auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }

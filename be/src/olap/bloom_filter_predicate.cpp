@@ -17,51 +17,47 @@
 
 #include "olap/bloom_filter_predicate.h"
 
-#include "olap/field.h"
-#include "runtime/string_value.hpp"
-#include "runtime/vectorized_row_batch.h"
+#define APPLY_FOR_PRIMTYPE(M) \
+    M(TYPE_TINYINT)           \
+    M(TYPE_SMALLINT)          \
+    M(TYPE_INT)               \
+    M(TYPE_BIGINT)            \
+    M(TYPE_LARGEINT)          \
+    M(TYPE_FLOAT)             \
+    M(TYPE_DOUBLE)            \
+    M(TYPE_CHAR)              \
+    M(TYPE_DATE)              \
+    M(TYPE_DATETIME)          \
+    M(TYPE_VARCHAR)
 
 namespace doris {
-
-BloomFilterColumnPredicate::BloomFilterColumnPredicate(
-        uint32_t column_id, const std::shared_ptr<BloomFilterFuncBase>& filter)
-        : ColumnPredicate(column_id), _filter(filter) {}
-
-// blomm filter column predicate do not support in segment v1
-void BloomFilterColumnPredicate::evaluate(VectorizedRowBatch* batch) const {
-    uint16_t n = batch->size();
-    uint16_t* sel = batch->selected();
-    if (!batch->selected_in_use()) {
-        for (uint16_t i = 0; i != n; ++i) {
-            sel[i] = i;
-        }
+ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(
+        uint32_t column_id, const std::shared_ptr<IBloomFilterFuncBase>& bloom_filter,
+        FieldType type) {
+    std::shared_ptr<IBloomFilterFuncBase> filter;
+    switch (type) {
+#define M(NAME)                                                                                 \
+    case OLAP_FIELD_##NAME: {                                                                   \
+        filter.reset(IBloomFilterFuncBase::create_bloom_filter(bloom_filter->tracker(), NAME)); \
+        filter->light_copy(bloom_filter.get());                                                 \
+        return new BloomFilterColumnPredicate<NAME>(column_id, filter);                         \
+    }
+        APPLY_FOR_PRIMTYPE(M)
+#undef M
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        filter.reset(
+                IBloomFilterFuncBase::create_bloom_filter(bloom_filter->tracker(), TYPE_DECIMALV2));
+        filter->light_copy(bloom_filter.get());
+        return new BloomFilterColumnPredicate<TYPE_DECIMALV2>(column_id, filter);
+    }
+    case OLAP_FIELD_TYPE_BOOL: {
+        filter.reset(
+                IBloomFilterFuncBase::create_bloom_filter(bloom_filter->tracker(), TYPE_BOOLEAN));
+        filter->light_copy(bloom_filter.get());
+        return new BloomFilterColumnPredicate<TYPE_BOOLEAN>(column_id, filter);
+    }
+    default:
+        return nullptr;
     }
 }
-
-void BloomFilterColumnPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {
-    uint16_t new_size = 0;
-    if (block->is_nullable()) {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const auto* cell_value = reinterpret_cast<const void*>(block->cell(idx).cell_ptr());
-            new_size += (!block->cell(idx).is_null() && _filter->find_olap_engine(cell_value));
-        }
-    } else {
-        for (uint16_t i = 0; i < *size; ++i) {
-            uint16_t idx = sel[i];
-            sel[new_size] = idx;
-            const auto* cell_value = reinterpret_cast<const void*>(block->cell(idx).cell_ptr());
-            new_size += _filter->find_olap_engine(cell_value);
-        }
-    }
-    *size = new_size;
-}
-
-Status BloomFilterColumnPredicate::evaluate(const Schema& schema,
-                                            const std::vector<BitmapIndexIterator*>& iterators,
-                                            uint32_t num_rows, Roaring* result) const {
-    return Status::OK();
-}
-
 } //namespace doris

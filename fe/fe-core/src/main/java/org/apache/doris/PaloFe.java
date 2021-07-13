@@ -129,8 +129,10 @@ public class PaloFe {
             } else {
                 org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
                 httpServer2.setPort(Config.http_port);
-                httpServer2.setMaxFileSize(Config.http_max_file_size);
-                httpServer2.setMaxRequestSize(Config.http_max_file_size);
+                httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer2.setAcceptors(Config.jetty_server_acceptors);
+                httpServer2.setSelectors(Config.jetty_server_selectors);
+                httpServer2.setWorkers(Config.jetty_server_workers);
                 httpServer2.start(dorisHomeDir);
             }
 
@@ -154,12 +156,12 @@ public class PaloFe {
      *      Specify the helper node when joining a bdb je replication group
      * -b --bdb
      *      Run bdbje debug tools
-     *      
+     *
      *      -l --listdb
      *          List all database names in bdbje
      *      -d --db
      *          Specify a database in bdbje
-     *          
+     *
      *          -s --stat
      *              Print statistic of a database, including count, first key, last key
      *          -f --from
@@ -168,7 +170,7 @@ public class PaloFe {
      *              Specify the end scan key
      *          -m --metaversion
      *              Specify the meta version to decode log value
-     *              
+     *
      */
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new BasicParser();
@@ -207,7 +209,7 @@ public class PaloFe {
                     System.err.println("BDBJE database name is missing");
                     System.exit(-1);
                 }
-                
+
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
                     return new CommandLineOptions(false, "", bdbOpts);
@@ -237,7 +239,7 @@ public class PaloFe {
                             System.exit(-1);
                         }
                     }
-                    
+
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                     return new CommandLineOptions(false, "", bdbOpts);
                 }

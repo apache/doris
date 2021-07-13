@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Format Code",
+    "title": "C++ Format Code",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Format Code
+# C++ Format Code
 Doris use `Clang-format` to automatically check the format of your source code.
 
 ## Code Style

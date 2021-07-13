@@ -180,13 +180,29 @@ FE 的配置项有两种方式进行配置：
 
 HTTP Server V2 由 SpringBoot 实现。它采用前后端分离的架构。只有启用 httpv2 才能用户使用新的前端 UI 界面
 
-### http_max_file_size
+### jetty_server_acceptors
 
-### http_max_request_size
+默认值：2
 
-默认值：100MB
+### jetty_server_selectors
 
-以上两个参数是http v2版本，web最大上传文件限制，默认100MB，可以根据自己需要修改
+默认值：4
+
+### jetty_server_workers
+
+默认值：0
+
+以上三个参数，Jetty的线程架构模型非常简单，分为 acceptors，selectors 和 workers 三个线程池。acceptors 负责接受新连接，然后交给selectors处理HTTP消息协议的解包，最后由workers处理请求。前两个线程池采用非阻塞模型，一个线程可以处理很多socket的读写，所以线程池数量较小。
+
+大多数项目，acceptors 线程只需要1-2个，selectors 线程配置2～4个足矣。workers 是阻塞性的业务逻辑，往往有较多的数据库操作，需要的线程数量较多，具体数量随应用程序的 QPS 和 IO 事件占比而定。QPS 越高，需要的线程数量越多，IO 占比越高，等待的线程数越多，需要的总线程数也越多。
+
+workers 线程池默认不做设置，根据自己需要进行设置
+
+### jetty_server_max_http_post_size
+
+默认值：100 * 1024 * 1024  （100MB）
+
+这个是put或post方法上传文件的最大字节数，默认值：100MB
 
 ### default_max_filter_ratio
 
@@ -2003,3 +2019,10 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 默认值：30
 
 如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
+
+
+### `default_max_query_instances`
+
+默认值：-1
+
+用户属性max_query_instances小于等于0时，使用该配置，用来限制单个用户同一时刻可使用的查询instance个数。该参数小于等于0表示无限制。

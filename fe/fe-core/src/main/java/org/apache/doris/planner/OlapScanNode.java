@@ -430,8 +430,9 @@ public class OlapScanNode extends ScanNode {
             boolean collectedStat = false;
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                if (backend == null) {
-                    LOG.debug("replica {} not exists", replica.getBackendId());
+                if (backend == null || !backend.isAlive()) {
+                    LOG.debug("backend {} not exists or is not alive for replica {}",
+                            replica.getBackendId(), replica.getId());
                     continue;
                 }
                 String ip = backend.getHost();
@@ -589,6 +590,10 @@ public class OlapScanNode extends ScanNode {
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
+        }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
         }
 
         output.append(prefix).append(String.format(

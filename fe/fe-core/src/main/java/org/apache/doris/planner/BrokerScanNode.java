@@ -502,6 +502,12 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setFileSize(fileStatus.size);
         rangeDesc.setNumOfColumnsFromFile(numberOfColumnsFromFile);
         rangeDesc.setColumnsFromPath(columnsFromPath);
+        // set hdfs params for hdfs file type.
+        switch (brokerDesc.getFileType()) {
+            case FILE_HDFS:
+                BrokerUtil.generateHdfsParam(brokerDesc.getProperties(), rangeDesc);
+                break;
+        }
         return rangeDesc;
     }
 

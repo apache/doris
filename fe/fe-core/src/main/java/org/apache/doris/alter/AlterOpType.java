@@ -37,6 +37,7 @@ public enum AlterOpType {
     ALTER_OTHER,
     ENABLE_FEATURE,
     REPLACE_TABLE,
+    MODIFY_DISTRIBUTION,
     INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.

@@ -99,6 +99,21 @@ visible_functions = [
         '_ZN5doris9Operators20bitnot_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValE'],
 
+    # array functions
+    [['array'], 'ARRAY', ['INT', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['array'], 'ARRAY', ['ARRAY', '...'], '', ''],
+    [['array'], 'ARRAY', ['MAP', '...'], '', ''],
+    [['array'], 'ARRAY', ['STRUCT', '...'], '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'VARCHAR'],  '', ''],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
@@ -677,6 +692,8 @@ visible_functions = [
 	'_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bit_length'], 'INT', ['VARCHAR'],
+            '_ZN5doris15StringFunctions10bit_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['char_length', 'character_length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions16char_utf8_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
    [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
@@ -886,7 +903,19 @@ non_null_result_with_null_param_functions = [
     'ifnull',
     'nullif',
     'null_or_empty',
-    'coalesce'
+    'coalesce',
+    'array'
+]
+
+# Nondeterministic functions may return different results each time they are called
+nondeterministic_functions = [
+    'rand',
+    'now',
+    'current_timestamp',
+    'curdate',
+    'curtime',
+    'current_time',
+    'utc_timestamp'
 ]
 
 invisible_functions = [

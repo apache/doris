@@ -67,4 +67,7 @@ DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
     return DecimalV2Val::null();
 }
 
+CollectionVal NullLiteral::get_array_val(ExprContext* context, TupleRow*) {
+    return CollectionVal::null();
+}
 } // namespace doris

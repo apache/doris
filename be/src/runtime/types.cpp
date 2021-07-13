@@ -43,6 +43,14 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         }
         break;
     }
+    case TTypeNodeType::ARRAY: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 1);
+        type = TYPE_ARRAY;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        break;
+    }
 #if 0 // Don't support now
     case TTypeNodeType::STRUCT:
         type = TYPE_STRUCT;
@@ -112,7 +120,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type()) << "Don't support complex type now, type=" << type;
+    DCHECK(!is_complex_type() || type == TYPE_ARRAY)
+            << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
@@ -124,6 +133,11 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         DCHECK_NE(scale, -1);
         scalar_type->set_precision(precision);
         scalar_type->set_scale(scale);
+    } else if (type == TYPE_ARRAY) {
+        node->set_type(TTypeNodeType::ARRAY);
+        for (const TypeDescriptor& child : children) {
+            child.to_protobuf(ptype);
+        }
     }
 }
 
@@ -149,6 +163,12 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         }
         break;
     }
+    case TTypeNodeType::ARRAY: {
+        type = TYPE_ARRAY;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        break;
+    }
     default:
         DCHECK(false) << node.type();
     }
@@ -162,6 +182,9 @@ std::string TypeDescriptor::debug_string() const {
         return ss.str();
     case TYPE_DECIMALV2:
         ss << "DECIMALV2(" << precision << ", " << scale << ")";
+        return ss.str();
+    case TYPE_ARRAY:
+        ss << "ARRAY(" << type_to_string(children[0].type) << ")";
         return ss.str();
     default:
         return type_to_string(type);

@@ -45,6 +45,8 @@ add_library(Exprs
   in_predicate.cpp
   new_in_predicate.cpp
   bloomfilter_predicate.cpp
+  block_bloom_filter_avx_impl.cc
+  block_bloom_filter_impl.cc
   runtime_filter.cpp
   runtime_filter_rpc.cpp
   is_null_predicate.cpp
@@ -54,6 +56,7 @@ add_library(Exprs
   scalar_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
+  array_functions.cpp
   timestamp_functions.cpp
   tuple_is_null_predicate.cpp
   udf_builtins.cpp

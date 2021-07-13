@@ -745,32 +745,14 @@ COMPARISON_PREDICATE_CONDITION_VALUE(gt, GreaterPredicate)
 COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(
-        const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter) {
+        const std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>& bloom_filter) {
     int32_t index = _tablet->field_index(bloom_filter.first);
     if (index < 0) {
         return nullptr;
     }
     const TabletColumn& column = _tablet->tablet_schema().column(index);
-    // Because FE regards CHAR as VARCHAR and Date as Datetime during query planning,
-    // but direct use of filter will result in incorrect results due to inconsistent data structures.
-    // We need to convert to the data structure corresponding to the storage engine.
-    std::shared_ptr<BloomFilterFuncBase> filter;
-    switch (column.type()) {
-    case OLAP_FIELD_TYPE_CHAR: {
-        filter.reset(BloomFilterFuncBase::create_bloom_filter(bloom_filter.second->tracker(),
-                                                              TYPE_CHAR));
-        filter->light_copy(bloom_filter.second.get());
-        return new BloomFilterColumnPredicate(index, filter);
-    }
-    case OLAP_FIELD_TYPE_DATE: {
-        filter.reset(BloomFilterFuncBase::create_bloom_filter(bloom_filter.second->tracker(),
-                                                              TYPE_DATE));
-        filter->light_copy(bloom_filter.second.get());
-        return new BloomFilterColumnPredicate(index, filter);
-    }
-    default:
-        return new BloomFilterColumnPredicate(index, bloom_filter.second);
-    }
+    return BloomFilterColumnPredicateFactory::create_column_predicate(index, bloom_filter.second,
+                                                                      column.type());
 }
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool opposite) const {

@@ -627,6 +627,37 @@ public class AlterTest {
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
     }
 
+    @Test
+    public void testModifyBucketNum() throws Exception {
+        String stmt = "CREATE TABLE test.bucket\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "ENGINE = OLAP\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"100000\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"200000\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"300000\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
+        alterTable(modifyBucketNumStmt, false);
+        OlapTable bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(1, bucket.getDefaultDistributionInfo().getBucketNum());
+
+        modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 30;";
+        alterTable(modifyBucketNumStmt, false);
+        bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(30, bucket.getDefaultDistributionInfo().getBucketNum());
+
+    }
+
     private boolean checkAllTabletsExists(List<Long> tabletIds) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
         for (long tabletId : tabletIds) {

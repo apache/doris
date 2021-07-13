@@ -48,6 +48,8 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
+import org.apache.doris.planner.RuntimeFilter;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
@@ -72,6 +74,8 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TRuntimeFilterParams;
+import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -201,6 +205,17 @@ public class Coordinator {
     // parallel execute
     private final TUniqueId nextInstanceId;
 
+    // Runtime filter merge instance address and ID
+    public TNetworkAddress runtimeFilterMergeAddr;
+    public TUniqueId runtimeFilterMergeInstanceId;
+    // Runtime filter ID to the target instance address of the fragment,
+    // that is expected to use this runtime filter, the instance address is not repeated
+    public Map<RuntimeFilterId, List<FRuntimeFilterTargetParam>> ridToTargetParam = Maps.newHashMap();
+    // The runtime filter that expects the instance to be used
+    public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
+    // Runtime filter ID to the builder instance number
+    public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
+
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
         this.isBlockQuery = planner.isBlockQuery();
@@ -224,6 +239,7 @@ public class Coordinator {
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
+        this.assignedRuntimeFilters = analyzer.getAssignedRuntimeFilter();
     }
 
     // Used for broker load task/export task coordinator
@@ -411,6 +427,8 @@ public class Coordinator {
         computeFragmentExecParams();
 
         traceInstance();
+
+        QeProcessorImpl.INSTANCE.registerInstances(queryId, instanceIds.size());
 
         // create result receiver
         PlanFragmentId topId = fragments.get(0).getFragmentId();
@@ -802,6 +820,9 @@ public class Coordinator {
             }
         }
 
+        // assign runtime filter merge addr and target addr
+        assignRuntimeFilterAddr();
+
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
@@ -1115,6 +1136,31 @@ public class Coordinator {
         }
     }
 
+    // Traverse the expected runtimeFilterID in each fragment, and establish the corresponding relationship
+    // between runtimeFilterID and fragment instance addr and select the merge instance of runtimeFilter
+    private void assignRuntimeFilterAddr() throws Exception {
+        for (PlanFragment fragment: fragments) {
+            FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
+            // Transform <fragment, runtimeFilterId> to <runtimeFilterId, fragment>
+            for (RuntimeFilterId rid: fragment.getTargetRuntimeFilterIds()) {
+                List<FRuntimeFilterTargetParam> targetFragments =
+                        ridToTargetParam.computeIfAbsent(rid, k -> new ArrayList<>());
+                for (final FInstanceExecParam instance : params.instanceExecParams) {
+                    targetFragments.add(new FRuntimeFilterTargetParam(instance.instanceId, toBrpcHost(instance.host)));
+                }
+            }
+
+            for (RuntimeFilterId rid: fragment.getBuilderRuntimeFilterIds()) {
+                ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+            }
+        }
+        // Use the uppermost fragment as a merged node, the uppermost fragment has one and only one instance
+        FragmentExecParams uppermostParams = fragmentExecParamsMap.get(fragments.get(0).getFragmentId());
+        runtimeFilterMergeAddr = toBrpcHost(uppermostParams.instanceExecParams.get(0).host);
+        runtimeFilterMergeInstanceId = uppermostParams.instanceExecParams.get(0).instanceId;
+    }
+
+    // One fragment could only have one HashJoinNode
     private boolean isColocateJoin(PlanNode node) {
         // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
         // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
@@ -1955,6 +2001,24 @@ public class Coordinator {
                 params.setQueryOptions(queryOptions);
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
+                params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
+                params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
+                if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
+                    for (Map.Entry<RuntimeFilterId, List<FRuntimeFilterTargetParam>> entry: ridToTargetParam.entrySet()) {
+                        List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
+                        for (FRuntimeFilterTargetParam targetParam: entry.getValue()) {
+                            targetParams.add(new TRuntimeFilterTargetParams(targetParam.targetFragmentInstanceId,
+                                    targetParam.targetFragmentInstanceAddr));
+                        }
+                        params.params.runtime_filter_params.putToRidToTargetParam(entry.getKey().asInt(), targetParams);
+                    }
+                    for (Map.Entry<RuntimeFilterId, Integer> entry: ridToBuilderNum.entrySet()) {
+                        params.params.runtime_filter_params.putToRuntimeFilterBuilderNum(entry.getKey().asInt(), entry.getValue());
+                    }
+                    for (RuntimeFilter rf: assignedRuntimeFilters) {
+                        params.params.runtime_filter_params.putToRidToRuntimeFilter(rf.getFilterId().asInt(), rf.toThrift());
+                    }
+                }
                 if (queryOptions.getQueryType() == TQueryType.LOAD) {
                     LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
                     if (param != null) {
@@ -1964,7 +2028,6 @@ public class Coordinator {
                         }
                     }
                 }
-
                 paramsList.add(params);
             }
             return paramsList;
@@ -2085,6 +2148,17 @@ public class Coordinator {
                 return;
             }
             fragmentProfile.get(backendExecState.profileFragmentId).addChild(backendExecState.profile);
+        }
+    }
+
+    // Runtime filter target fragment instance param
+    static class FRuntimeFilterTargetParam {
+        public TUniqueId targetFragmentInstanceId;;
+        public TNetworkAddress targetFragmentInstanceAddr;
+
+        public FRuntimeFilterTargetParam(TUniqueId id, TNetworkAddress host) {
+            this.targetFragmentInstanceId = id;
+            this.targetFragmentInstanceAddr = host;
         }
     }
 }

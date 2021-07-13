@@ -41,6 +41,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
@@ -1121,6 +1122,21 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
+
+        // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
+                "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and t4.k1 = t2.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
+
+        // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
+        queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
+                "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and t4.k2 = t3.k2";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
+        Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
+
         // disable bucket shuffle join again
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
     }
@@ -1299,6 +1315,84 @@ public class QueryPlanTest {
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
+    }
+
+    @Test
+    public void testRuntimeFilterMode() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        String queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 = t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filter"));
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "REMOTE");
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("runtime filter"));
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "OFF");
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("runtime filter"));
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filter"));
+
+        queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 <=> t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("runtime filter"));
+
+        queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b where a.k1 = b.k1);";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        System.out.println(explainString);
+        Assert.assertFalse(explainString.contains("runtime filter"));
+    }
+
+    @Test
+    public void testRuntimeFilterType() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 = t2.k1";
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 0);
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("runtime filter"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 1);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 2);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 3);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 4);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 5);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 6);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
+
+        Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`"));
+        Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`"));
     }
 
     @Test

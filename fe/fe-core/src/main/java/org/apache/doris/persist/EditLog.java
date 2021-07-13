@@ -755,6 +755,11 @@ public class EditLog {
                     catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
                     break;
                 }
+                case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
+                    ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
+                    break;
+                }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
                     ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal.getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
@@ -1338,6 +1343,10 @@ public class EditLog {
 
     public void logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_REPLICATION_NUM, info);
+    }
+
+    public void logModifyDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) {
+        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {

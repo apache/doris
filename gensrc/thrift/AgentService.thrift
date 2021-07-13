@@ -35,6 +35,7 @@ struct TColumn {
     7: optional bool is_bloom_filter_column
     8: optional Exprs.TExpr define_expr
     9: optional bool visible = true
+    10: optional list<TColumn> children_column
 }
 
 struct TTabletSchema {

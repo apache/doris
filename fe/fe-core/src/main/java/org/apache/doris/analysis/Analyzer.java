@@ -34,6 +34,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
@@ -148,6 +149,9 @@ public class Analyzer {
     private boolean isUDFAllowed = true;
     // timezone specified for some operation, such as broker load
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+
+    // The runtime filter that is expected to be used
+    private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
     
     public void setIsSubquery() {
         isSubquery = true;
@@ -162,6 +166,10 @@ public class Analyzer {
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
     public String getTimezone() { return timezone; }
+
+    public void putAssignedRuntimeFilter(RuntimeFilter rf) { assignedRuntimeFilters.add(rf); }
+    public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
+    public void clearAssignedRuntimeFilters() { assignedRuntimeFilters.clear(); }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
@@ -549,6 +557,10 @@ public class Analyzer {
 
     public TupleDescriptor getTupleDesc(TupleId id) {
         return globalState.descTbl.getTupleDesc(id);
+    }
+
+    public SlotDescriptor getSlotDesc(SlotId id) {
+        return globalState.descTbl.getSlotDesc(id);
     }
 
     /**
@@ -1808,5 +1820,39 @@ public class Analyzer {
                 }
             }
         }
+    }
+
+    /**
+     * Column conduction, can slot a value-transfer to slot b
+     *
+     * TODO(zxy) Use value-transfer graph to check
+     */
+    public boolean hasValueTransfer(SlotId a, SlotId b) {
+        return a.equals(b);
+    }
+
+    /**
+     * Returns sorted slot IDs with value transfers from 'srcSid'.
+     * Time complexity: O(V) where V = number of slots
+     *
+     * TODO(zxy) Use value-transfer graph to check
+     */
+    public List<SlotId> getValueTransferTargets(SlotId srcSid) {
+        List<SlotId> result = new ArrayList<>();
+        result.add(srcSid);
+        return result;
+    }
+
+    /**
+     * Returns true if any of the given slot ids or their value-transfer targets belong
+     * to an outer-joined tuple.
+     */
+    public boolean hasOuterJoinedValueTransferTarget(List<SlotId> sids) {
+        for (SlotId srcSid: sids) {
+            for (SlotId dstSid: getValueTransferTargets(srcSid)) {
+                if (isOuterJoined(getTupleId(dstSid))) return true;
+            }
+        }
+        return false;
     }
 }

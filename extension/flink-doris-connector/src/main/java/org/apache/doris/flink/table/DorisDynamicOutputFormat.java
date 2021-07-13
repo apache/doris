@@ -54,6 +54,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     private DorisStreamLoad dorisStreamLoad;
     private final String fieldDelimiter = "\t";
     private final String lineDelimiter = "\n";
+    private final String NULL_VALUE = "\\N";
     private final List<String> batch = new ArrayList<>();
     private transient volatile boolean closed = false;
 
@@ -118,7 +119,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         GenericRowData rowData = (GenericRowData) row;
         for(int i = 0; i < row.getArity(); ++i) {
-            value.add(rowData.getField(i).toString());
+            Object field = rowData.getField(i);
+            if(field != null){
+                value.add(field.toString());
+            }else{
+                value.add(this.NULL_VALUE);
+            }
         }
         batch.add(value.toString());
     }

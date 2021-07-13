@@ -177,6 +177,9 @@ public:
 
     static StringVal replace(FunctionContext* context, const StringVal& origStr,
                              const StringVal& oldStr, const StringVal& newStr);
+
+    static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
+                                    const doris_udf::StringVal& str);
 };
 } // namespace doris
 

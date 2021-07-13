@@ -18,21 +18,84 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_BLOOM_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_BLOOM_PREDICATE_H
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <string>
 
 #include "common/object_pool.h"
-#include "exprs/expr_context.h"
+#include "exprs/block_bloom_filter.hpp"
 #include "exprs/predicate.h"
+#include "olap/bloom_filter.hpp"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 
 namespace doris {
-/// only used in Runtime Filter
-class BloomFilterFuncBase {
+namespace detail {
+class BlockBloomFilterAdaptor {
 public:
-    BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {};
+    BlockBloomFilterAdaptor() { _bloom_filter = std::make_shared<doris::BlockBloomFilter>(); }
+    static int64_t optimal_bit_num(int64_t expect_num, double fpp) {
+        return doris::segment_v2::BloomFilter::optimal_bit_num(expect_num, fpp) / 8;
+    }
+
+    static BlockBloomFilterAdaptor* create() { return new BlockBloomFilterAdaptor(); }
+
+    Status merge(BlockBloomFilterAdaptor* other) {
+        return _bloom_filter->merge(*other->_bloom_filter);
+    }
+
+    Status init(int len) {
+        int log_space = log2(len);
+        return _bloom_filter->init(log_space, /*hash_seed*/ 0);
+    }
+
+    Status init(const char* data, int len) {
+        int log_space = log2(len);
+        return _bloom_filter->init_from_directory(log_space, Slice(data, len), false, 0);
+    }
+
+    char* data() { return (char*)_bloom_filter->directory().data; }
+
+    size_t size() { return _bloom_filter->directory().size; }
+
+    bool test_bytes(const char* data, size_t len) const {
+        return _bloom_filter->find(Slice(data, len));
+    }
+
+    void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
+
+private:
+    std::shared_ptr<doris::BlockBloomFilter> _bloom_filter;
+};
+
+} // namespace detail
+using CurrentBloomFilterAdaptor = detail::BlockBloomFilterAdaptor;
+// Only Used In RuntimeFilter
+class IBloomFilterFuncBase {
+public:
+    virtual ~IBloomFilterFuncBase() {}
+    virtual Status init(int64_t expect_num, double fpp) = 0;
+    virtual Status init_with_fixed_length(int64_t bloom_filter_length) = 0;
+
+    virtual void insert(const void* data) = 0;
+    virtual bool find(const void* data) const = 0;
+    virtual bool find_olap_engine(const void* data) const = 0;
+
+    virtual Status merge(IBloomFilterFuncBase* bloomfilter_func) = 0;
+    virtual Status assign(const char* data, int len) = 0;
+
+    virtual Status get_data(char** data, int* len) = 0;
+    virtual MemTracker* tracker() = 0;
+    virtual void light_copy(IBloomFilterFuncBase* other) = 0;
+
+    static IBloomFilterFuncBase* create_bloom_filter(MemTracker* tracker, PrimitiveType type);
+};
+
+template <class BloomFilterAdaptor>
+class BloomFilterFuncBase : public IBloomFilterFuncBase {
+public:
+    BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {}
 
     virtual ~BloomFilterFuncBase() {
         if (_tracker != nullptr) {
@@ -40,174 +103,122 @@ public:
         }
     }
 
-    // init a bloom filter with expect element num
-    virtual Status init(int64_t expect_num = 4096, double fpp = 0.05) {
-        DCHECK(!_inited);
-        DCHECK(expect_num >= 0); // we need alloc 'optimal_bit_num(expect_num,fpp) / 8' bytes
-        _bloom_filter_alloced =
-                doris::segment_v2::BloomFilter::optimal_bit_num(expect_num, fpp) / 8;
-
-        std::unique_ptr<doris::segment_v2::BloomFilter> bloom_filter;
-        Status st = doris::segment_v2::BloomFilter::create(
-                doris::segment_v2::BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER, &bloom_filter);
-        // status is always true if we use valid BloomFilterAlgorithmPB
-        DCHECK(st.ok());
-        RETURN_IF_ERROR(st);
-        st = bloom_filter->init(_bloom_filter_alloced,
-                                doris::segment_v2::HashStrategyPB::HASH_MURMUR3_X64_64);
-        // status is always true if we use HASH_MURMUR3_X64_64
-        DCHECK(st.ok());
-        _bloom_filter.reset(bloom_filter.release());
-        _tracker->Consume(_bloom_filter_alloced);
-        _inited = true;
-        return st;
+    Status init(int64_t expect_num, double fpp) override {
+        size_t filter_size = BloomFilterAdaptor::optimal_bit_num(expect_num, fpp);
+        return init_with_fixed_length(filter_size);
     }
 
-    virtual Status init_with_fixed_length(int64_t bloom_filter_length) {
+    Status init_with_fixed_length(int64_t bloom_filter_length) override {
         DCHECK(!_inited);
         DCHECK(bloom_filter_length >= 0);
-
-        std::unique_ptr<doris::segment_v2::BloomFilter> bloom_filter;
+        DCHECK_EQ((bloom_filter_length & (bloom_filter_length - 1)), 0);
         _bloom_filter_alloced = bloom_filter_length;
-        Status st = doris::segment_v2::BloomFilter::create(
-                doris::segment_v2::BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER, &bloom_filter);
-        DCHECK(st.ok());
-        st = bloom_filter->init(_bloom_filter_alloced,
-                                doris::segment_v2::HashStrategyPB::HASH_MURMUR3_X64_64);
-        DCHECK(st.ok());
+        _bloom_filter.reset(BloomFilterAdaptor::create());
+        RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
         _tracker->Consume(_bloom_filter_alloced);
-        _bloom_filter.reset(bloom_filter.release());
         _inited = true;
-        return st;
+        return Status::OK();
     }
 
-    virtual void insert(const void* data) = 0;
-
-    virtual bool find(const void* data) = 0;
-
-    // Because the data structures of the execution layer and the storage layer are inconsistent,
-    // we need to provide additional interfaces for the storage layer to call
-    virtual bool find_olap_engine(const void* data) { return this->find(data); }
-
-    Status merge(BloomFilterFuncBase* bloomfilter_func) {
-        DCHECK(_inited);
-        if (_bloom_filter == nullptr) {
-            std::unique_ptr<doris::segment_v2::BloomFilter> bloom_filter;
-            RETURN_IF_ERROR(doris::segment_v2::BloomFilter::create(
-                    doris::segment_v2::BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER, &bloom_filter));
-            _bloom_filter.reset(bloom_filter.release());
+    Status merge(IBloomFilterFuncBase* bloomfilter_func) override {
+        auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
+        if (bloomfilter_func == nullptr) {
+            _bloom_filter.reset(BloomFilterAdaptor::create());
         }
-        if (_bloom_filter_alloced != bloomfilter_func->_bloom_filter_alloced) {
+        if (_bloom_filter_alloced != other_func->_bloom_filter_alloced) {
             LOG(WARNING) << "bloom filter size not the same";
             return Status::InvalidArgument("bloom filter size invalid");
         }
-        return _bloom_filter->merge(bloomfilter_func->_bloom_filter.get());
+        return _bloom_filter->merge(other_func->_bloom_filter.get());
     }
 
-    Status assign(const char* data, int len) {
+    Status assign(const char* data, int len) override {
         if (_bloom_filter == nullptr) {
-            std::unique_ptr<doris::segment_v2::BloomFilter> bloom_filter;
-            RETURN_IF_ERROR(doris::segment_v2::BloomFilter::create(
-                    doris::segment_v2::BloomFilterAlgorithmPB::BLOCK_BLOOM_FILTER, &bloom_filter));
-            _bloom_filter.reset(bloom_filter.release());
+            _bloom_filter.reset(BloomFilterAdaptor::create());
         }
-        _bloom_filter_alloced = len - 1;
+
+        _bloom_filter_alloced = len;
         _tracker->Consume(_bloom_filter_alloced);
-        return _bloom_filter->init(data, len,
-                                   doris::segment_v2::HashStrategyPB::HASH_MURMUR3_X64_64);
+        return _bloom_filter->init(data, len);
     }
-    /// create a bloom filter function
-    /// tracker shouldn't be nullptr
-    static BloomFilterFuncBase* create_bloom_filter(MemTracker* tracker, PrimitiveType type);
 
-    Status get_data(char** data, int* len);
+    Status get_data(char** data, int* len) override {
+        *data = _bloom_filter->data();
+        *len = _bloom_filter->size();
+        return Status::OK();
+    }
 
-    MemTracker* tracker() { return _tracker; }
+    MemTracker* tracker() override { return _tracker; }
 
-    void light_copy(BloomFilterFuncBase* other) {
+    void light_copy(IBloomFilterFuncBase* bloomfilter_func) override {
+        auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
         _tracker = nullptr;
-        _bloom_filter_alloced = other->_bloom_filter_alloced;
-        _bloom_filter = other->_bloom_filter;
-        _inited = other->_inited;
+        _bloom_filter_alloced = other_func->_bloom_filter_alloced;
+        _bloom_filter = other_func->_bloom_filter;
+        _inited = other_func->_inited;
     }
 
 protected:
     MemTracker* _tracker;
     // bloom filter size
     int32_t _bloom_filter_alloced;
-    std::shared_ptr<doris::segment_v2::BloomFilter> _bloom_filter;
+    std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited;
 };
 
-template <class T>
-class BloomFilterFunc : public BloomFilterFuncBase {
-public:
-    BloomFilterFunc(MemTracker* tracker) : BloomFilterFuncBase(tracker) {}
-
-    ~BloomFilterFunc() = default;
-
-    virtual void insert(const void* data) {
-        DCHECK(_bloom_filter != nullptr);
-        _bloom_filter->add_bytes((char*)data, sizeof(T));
+template <class T, class BloomFilterAdaptor>
+struct CommonFindOp {
+    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        bloom_filter.add_bytes((char*)data, sizeof(T));
     }
-
-    virtual bool find(const void* data) {
-        DCHECK(_bloom_filter != nullptr);
-        return _bloom_filter->test_bytes((char*)data, sizeof(T));
+    ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        return bloom_filter.test_bytes((char*)data, sizeof(T));
+    }
+    ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                        const void* data) const {
+        return this->find(bloom_filter, data);
     }
 };
 
-template <>
-class BloomFilterFunc<StringValue> : public BloomFilterFuncBase {
-public:
-    BloomFilterFunc(MemTracker* tracker) : BloomFilterFuncBase(tracker) {}
-
-    ~BloomFilterFunc() = default;
-
-    virtual void insert(const void* data) {
-        DCHECK(_bloom_filter != nullptr);
+template <class BloomFilterAdaptor>
+struct StringFindOp {
+    ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
-        _bloom_filter->add_bytes(value->ptr, value->len);
+        bloom_filter.add_bytes(value->ptr, value->len);
     }
-
-    virtual bool find(const void* data) {
-        DCHECK(_bloom_filter != nullptr);
+    ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
-        return _bloom_filter->test_bytes(value->ptr, value->len);
+        return bloom_filter.test_bytes(value->ptr, value->len);
+    }
+    ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                        const void* data) const {
+        return StringFindOp::find(bloom_filter, data);
     }
 };
 
-class FixedCharBloomFilterFunc : public BloomFilterFunc<StringValue> {
-public:
-    FixedCharBloomFilterFunc(MemTracker* tracker) : BloomFilterFunc<StringValue>(tracker) {}
-
-    ~FixedCharBloomFilterFunc() = default;
-
-    virtual bool find(const void* data) {
-        DCHECK(_bloom_filter != nullptr);
+template <class BloomFilterAdaptor>
+struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
+    ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
+                                        const void* data) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
         auto end_ptr = value->ptr + value->len - 1;
         while (end_ptr > value->ptr && *end_ptr == '\0') --end_ptr;
-        return _bloom_filter->test_bytes(value->ptr, end_ptr - value->ptr + 1);
+        return bloom_filter.test_bytes(value->ptr, end_ptr - value->ptr + 1);
     }
 };
 
-class DateTimeBloomFilterFunc : public BloomFilterFunc<DateTimeValue> {
-public:
-    DateTimeBloomFilterFunc(MemTracker* tracker) : BloomFilterFunc<DateTimeValue>(tracker) {}
-
-    virtual bool find_olap_engine(const void* data) {
+template <class BloomFilterAdaptor>
+struct DateTimeFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
+    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         DateTimeValue value;
         value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
-        return _bloom_filter->test_bytes((char*)&value, sizeof(DateTimeValue));
+        return bloom_filter.test_bytes((char*)&value, sizeof(DateTimeValue));
     }
 };
 
-class DateBloomFilterFunc : public BloomFilterFunc<DateTimeValue> {
-public:
-    DateBloomFilterFunc(MemTracker* tracker) : BloomFilterFunc<DateTimeValue>(tracker) {}
-
-    virtual bool find_olap_engine(const void* data) {
+template <class BloomFilterAdaptor>
+struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
+    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         uint64_t value = 0;
         value = *(unsigned char*)((char*)data + 2);
         value <<= 8;
@@ -217,21 +228,75 @@ public:
         DateTimeValue date_value;
         date_value.from_olap_date(value);
         date_value.to_datetime();
-        return _bloom_filter->test_bytes((char*)&date_value, sizeof(DateTimeValue));
+        return bloom_filter.test_bytes((char*)&date_value, sizeof(DateTimeValue));
     }
 };
 
-class DecimalV2FilterFunc : public BloomFilterFunc<DecimalV2Value> {
-public:
-    DecimalV2FilterFunc(MemTracker* tracker) : BloomFilterFunc<DecimalV2Value>(tracker) {}
-
-    virtual bool find_olap_engine(const void* data) {
+template <class BloomFilterAdaptor>
+struct DecimalV2FindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
+    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         DecimalV2Value value;
         int64_t int_value = *(int64_t*)(data);
         int32_t frac_value = *(int32_t*)((char*)data + sizeof(int64_t));
         value.from_olap_decimal(int_value, frac_value);
-        return _bloom_filter->test_bytes((char*)&value, sizeof(DecimalV2Value));
+        return bloom_filter.test_bytes((char*)&value, sizeof(DecimalV2Value));
     }
+};
+
+template <PrimitiveType type, class BloomFilterAdaptor>
+struct BloomFilterTypeTraits {
+    using T = typename PrimitiveTypeTraits<type>::CppType;
+    using FindOp = CommonFindOp<T, BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_DATE, BloomFilterAdaptor> {
+    using FindOp = DateFindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_DATETIME, BloomFilterAdaptor> {
+    using FindOp = DateTimeFindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_DECIMALV2, BloomFilterAdaptor> {
+    using FindOp = DecimalV2FindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_CHAR, BloomFilterAdaptor> {
+    using FindOp = FixedStringFindOp<BloomFilterAdaptor>;
+};
+
+template <class BloomFilterAdaptor>
+struct BloomFilterTypeTraits<TYPE_VARCHAR, BloomFilterAdaptor> {
+    using FindOp = StringFindOp<BloomFilterAdaptor>;
+};
+
+template <PrimitiveType type, class BloomFilterAdaptor>
+class BloomFilterFunc final : public BloomFilterFuncBase<BloomFilterAdaptor> {
+public:
+    BloomFilterFunc(MemTracker* tracker) : BloomFilterFuncBase<BloomFilterAdaptor>(tracker) {}
+
+    ~BloomFilterFunc() = default;
+
+    void insert(const void* data) {
+        DCHECK(this->_bloom_filter != nullptr);
+        dummy.insert(*this->_bloom_filter, data);
+    }
+
+    bool find(const void* data) const override {
+        DCHECK(this->_bloom_filter != nullptr);
+        return dummy.find(*this->_bloom_filter, data);
+    }
+
+    bool find_olap_engine(const void* data) const override {
+        return dummy.find_olap_engine(*this->_bloom_filter, data);
+    }
+
+private:
+    typename BloomFilterTypeTraits<type, BloomFilterAdaptor>::FindOp dummy;
 };
 
 // BloomFilterPredicate only used in runtime filter
@@ -243,9 +308,9 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new BloomFilterPredicate(*this));
     }
-    Status prepare(RuntimeState* state, BloomFilterFuncBase* bloomfilterfunc);
+    Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
 
-    std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() { return _filter; }
+    std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }
 
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
 
@@ -264,7 +329,7 @@ private:
     std::atomic<int64_t> _filtered_rows;
     std::atomic<int64_t> _scan_rows;
 
-    std::shared_ptr<BloomFilterFuncBase> _filter;
+    std::shared_ptr<IBloomFilterFuncBase> _filter;
     bool _has_calculate_filter = false;
     // loop size must be power of 2
     constexpr static int64_t _loop_size = 8192;

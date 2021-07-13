@@ -34,6 +34,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Version;
@@ -63,6 +67,7 @@ parser code {:
     private boolean reportExpectedToken(Integer tokenId) {
         if (SqlScanner.isKeyword(tokenId) ||
                 tokenId.intValue() == SqlParserSymbols.COMMA ||
+                tokenId.intValue() == SqlParserSymbols.DOT ||
                 tokenId.intValue() == SqlParserSymbols.IDENT) {
             return true;
         } else {
@@ -228,10 +233,10 @@ parser code {:
 :};
 
 // Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS,
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS,
-    KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
+    KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLON, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
@@ -246,8 +251,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
     KW_LOCAL, KW_LOCATION,
-    KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
-    KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
+    KW_MAP, KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
+    KW_NAME, KW_NAMED_STRUCT, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
     KW_PLUGIN, KW_PLUGINS,
@@ -257,7 +262,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
     KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING,
+    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
@@ -266,7 +271,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
     KW_YEAR;
 
-terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
+terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal COMMENTED_PLAN_HINT_START, COMMENTED_PLAN_HINT_END;
@@ -367,11 +372,14 @@ nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
-nonterminal Expr function_call_expr;
+nonterminal Expr function_call_expr, array_expr;
+nonterminal StructField struct_field;
+nonterminal ArrayList<StructField> struct_field_list;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
+nonterminal FunctionCallExpr column_subscript;
 nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal FromClause from_clause;
 nonterminal TableRef table_ref;
@@ -1011,6 +1019,10 @@ alter_table_clause ::=
     | KW_ENABLE KW_FEATURE STRING_LITERAL:featureName opt_enable_feature_properties:properties
     {:
         RESULT = new EnableFeatureClause(featureName, properties);
+    :}
+    | KW_MODIFY KW_DISTRIBUTION opt_distribution:distribution
+    {:
+        RESULT = new ModifyDistributionClause(distribution);
     :}
     ;
 
@@ -4083,6 +4095,12 @@ type ::=
   :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
+  | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
+  {: RESULT = new ArrayType(value_type); :}
+  | KW_MAP LESSTHAN type:key_type COMMA type:value_type GREATERTHAN
+  {: RESULT = new MapType(key_type,value_type); :}
+  | KW_STRUCT LESSTHAN struct_field_list:fields GREATERTHAN
+  {: RESULT = new StructType(fields); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createCharType(len.intValue());
      type.setAssignedStrLenInColDefinition();
@@ -4233,6 +4251,34 @@ function_call_expr ::=
   :}
   ;
 
+array_expr ::=
+  KW_ARRAY LPAREN function_params:params RPAREN
+  {:
+    RESULT = new FunctionCallExpr("array", params);
+  :}
+  | KW_ARRAY LPAREN RPAREN
+  {:
+    RESULT = new ArrayLiteral();
+  :}
+  ;
+
+struct_field ::=
+  ident:name COLON type:type
+  {: RESULT = new StructField(name, type); :}
+  ;
+
+struct_field_list ::=
+    struct_field:field
+    {:
+      RESULT = Lists.newArrayList(field);
+    :}
+    | struct_field_list:fields COMMA struct_field:field
+    {:
+       fields.add(field);
+       RESULT = fields;
+    :}
+    ;
+
 exists_predicate ::=
   KW_EXISTS subquery:s
   {: RESULT = new ExistsPredicate(s, false); :}
@@ -4251,6 +4297,8 @@ non_pred_expr ::=
   :}
   | literal:l
   {: RESULT = l; :}
+  | array_expr:a
+  {: RESULT = a; :}
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l
@@ -4278,6 +4326,8 @@ non_pred_expr ::=
   | case_expr:c
   {: RESULT = c; :}
   | column_ref:c
+  {: RESULT = c; :}
+  | column_subscript:c
   {: RESULT = c; :}
   | timestamp_arithmetic_expr:e
   {: RESULT = e; :}
@@ -4628,6 +4678,15 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
   ;
 
+column_subscript ::=
+  expr:e LBRACKET expr:index RBRACKET
+  {: ArrayList<Expr> list = new ArrayList<Expr>();
+     list.add(e);
+     list.add(index);
+     RESULT = new FunctionCallExpr("%element_extract%", list);
+  :}
+  ;
+
 privilege_type ::=
     ident:name
     {:
@@ -4801,6 +4860,8 @@ keyword ::=
     | KW_AGGREGATE:id
     {: RESULT = id; :}
     | KW_AUTHORS:id
+    {: RESULT = id; :}
+    | KW_ARRAY:id
     {: RESULT = id; :}
     | KW_BACKUP:id
     {: RESULT = id; :}
@@ -5081,6 +5142,8 @@ keyword ::=
     | KW_ENABLE:id
     {: RESULT = id; :}
     | KW_FEATURE:id
+    {: RESULT = id; :}
+    | KW_MAP:id
     {: RESULT = id; :}
     ;
 

@@ -1582,7 +1582,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         DATE_LITERAL(9),
         MAX_LITERAL(10),
         BINARY_PREDICATE(11),
-        FUNCTION_CALL(12);
+        FUNCTION_CALL(12),
+        ARRAY_LITERAL(13);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1630,6 +1631,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.BINARY_PREDICATE.getCode());
         } else if (expr instanceof FunctionCallExpr) {
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
+        } else if (expr instanceof ArrayLiteral) {
+            output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
@@ -1671,6 +1674,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BinaryPredicate.read(in);
             case FUNCTION_CALL:
                 return FunctionCallExpr.read(in);
+            case ARRAY_LITERAL:
+                return ArrayLiteral.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }
@@ -1703,5 +1708,42 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         recursiveResetChildrenResult();
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
+    }
+
+    public String getStringValue() {
+        if (this instanceof LiteralExpr) {
+            return ((LiteralExpr) this).getStringValue();
+        }
+        return "";
+    }
+
+    public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
+        for (Expr child: expr.getChildren()) {
+            if (child.isBoundByTupleIds(tids)) return child;
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if expr contains specify function, otherwise false.
+     */
+    public boolean isContainsFunction(String functionName) {
+        if (fn == null) return false;
+        if (fn.functionName().equalsIgnoreCase(functionName))  return true;
+        for (Expr child: children) {
+            if (child.isContainsFunction(functionName)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if expr contains specify className, otherwise false.
+     */
+    public boolean isContainsClass(String className) {
+        if (this.getClass().getName().equalsIgnoreCase(className)) return true;
+        for (Expr child: children) {
+            if (child.isContainsClass(className)) return true;
+        }
+        return false;
     }
 }

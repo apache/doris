@@ -21,9 +21,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -72,10 +71,10 @@ public class SysVariableDesc extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
-        if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
             setType(Type.VARCHAR);
             try {
-                setStringValue(SqlModeHelper.decode(intValue));
+                setStringValue(VariableVarConverters.decode(name, intValue));
             } catch (DdlException e) {
                 ErrorReport.reportAnalysisException(e.getMessage());
             }
@@ -117,16 +116,13 @@ public class SysVariableDesc extends Expr {
     @Override
     public Expr getResultValue() throws AnalysisException {
         Expr expr = super.getResultValue();
-        if (!Strings.isNullOrEmpty(name) && name.equalsIgnoreCase(SessionVariable.SQL_MODE)) {
-            // SQL_MODE is a special variable. Its type is int, but it is usually set using a string.
-            // Such as `set sql_mode =  concat(@@sql_mode, "STRICT_TRANS_TABLES");`
-            // So we return the string type here so that it can correctly match the subsequent function signature.
-            // We will convert the string to int in VariableMgr.
-            // And we also set `isSqlMode` to true in StringLiteral, so that it can be cast back
+        if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {
+            // Return the string type here so that it can correctly match the subsequent function signature.
+            // And we also set `beConverted` to session variable name in StringLiteral, so that it can be cast back
             // to Integer when returning value.
             try {
-                StringLiteral s = new StringLiteral(SqlModeHelper.decode(intValue));
-                s.setIsSqlMode(true);
+                StringLiteral s = new StringLiteral(VariableVarConverters.decode(name, intValue));
+                s.setBeConverted(name);
                 return s;
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage());

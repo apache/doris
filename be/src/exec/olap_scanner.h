@@ -57,7 +57,7 @@ public:
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,
-                   const std::vector<std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>>&
+                   const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
                            bloom_filters);
 
     Status open();
@@ -97,7 +97,7 @@ public:
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
                         const std::vector<TCondition>& filters,
-                        const std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>>&
+                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                                 bloom_filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
@@ -111,6 +111,7 @@ private:
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
+    const std::vector<SlotDescriptor*>& _collection_slots;
 
     std::vector<ExprContext*> _conjunct_ctxs;
     // to record which runtime filters have been used

@@ -687,6 +687,13 @@ struct TFrontendPingFrontendResult {
     6: required string version
 }
 
+struct TPropertyVal {
+    1: optional string strVal
+    2: optional i32 intVal
+    3: optional i64 longVal
+    4: optional bool boolVal
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)

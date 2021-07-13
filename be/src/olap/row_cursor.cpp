@@ -80,7 +80,7 @@ OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema, const std::vect
         FieldType type = column.type();
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
             _variable_len += scan_keys[cid].length();
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
+        } else if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_ARRAY) {
             _variable_len += std::max(scan_keys[cid].length(), column.length());
         }
     }
@@ -181,6 +181,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     return _init_scan_key(schema, scan_keys);
 }
 
+
 OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys,
                                     const std::shared_ptr<Schema>& shared) {
@@ -198,7 +199,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
 
 // TODO(yingchun): parameter 'const TabletSchema& schema' is not used
 OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema) {
-    // allocate memory for string type(char, varchar, hll)
+    // allocate memory for string type(char, varchar, hll, array)
     // The memory allocated in this function is used in aggregate and copy function
     if (_variable_len == 0) {
         return OLAP_SUCCESS;
