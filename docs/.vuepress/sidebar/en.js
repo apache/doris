@@ -546,7 +546,8 @@ module.exports = [
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",		
-        "format-code",
+        "java-format-code",
+        "cpp-format-code",
     ],
   },
   {
