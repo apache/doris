@@ -152,7 +152,7 @@ public class Analyzer {
 
     // The runtime filter that is expected to be used
     private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
-    
+
     public void setIsSubquery() {
         isSubquery = true;
         globalState.containsSubquery = true;
@@ -206,8 +206,8 @@ public class Analyzer {
         private final Map<TupleId, List<ExprId>> eqJoinConjuncts = Maps.newHashMap();
 
         // set of conjuncts that have been assigned to some PlanNode
-        private final Set<ExprId> assignedConjuncts =
-            Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+        private Set<ExprId> assignedConjuncts =
+                Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
 
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
@@ -850,6 +850,15 @@ public class Analyzer {
     }
 
     /**
+     * register expr id
+     *
+     * @param expr
+     */
+    void registerExprId(Expr expr) {
+        expr.setId(globalState.conjunctIdGenerator.getNextId());
+    }
+
+    /**
      * Register individual conjunct with all tuple and slot ids it references
      * and with the global conjunct list.
      */
@@ -945,6 +954,16 @@ public class Analyzer {
         registerConjunct(p);
     }
 
+    public Set<ExprId> getAssignedConjuncts() {
+        return Sets.newHashSet(globalState.assignedConjuncts);
+    }
+
+    public void setAssignedConjuncts(Set<ExprId> assigned) {
+        if (assigned != null) {
+            globalState.assignedConjuncts = Sets.newHashSet(assigned);
+        }
+    }
+
     /**
      * Return all unassigned registered conjuncts that are fully bound by the given
      * (logical) tuple ids, can be evaluated by 'tupleIds' and are not tied to an
@@ -952,7 +971,7 @@ public class Analyzer {
      */
     public List<Expr> getUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
-        for (Expr e: getUnassignedConjuncts(tupleIds, true)) {
+        for (Expr e : getUnassignedConjuncts(tupleIds, true)) {
             if (canEvalPredicate(tupleIds, e)) result.add(e);
         }
         return result;
@@ -1256,7 +1275,7 @@ public class Analyzer {
                 }
                 final Expr newConjunct = conjunct.getResultValue();
                 if (newConjunct instanceof BoolLiteral) {
-                    final BoolLiteral value = (BoolLiteral)newConjunct;
+                    final BoolLiteral value = (BoolLiteral) newConjunct;
                     if (!value.getValue()) {
                         if (fromHavingClause) {
                             hasEmptyResultSet_ = true;
@@ -1597,6 +1616,17 @@ public class Analyzer {
     public void setChangeResSmap(ExprSubstitutionMap changeResSmap) {
         this.changeResSmap = changeResSmap;
     }
+
+    // Load plan and query plan are the same framework
+    // Some Load method in doris access through http protocol, which will cause the session may be empty.
+    // In order to avoid the occurrence of null pointer exceptions, a check will be added here
+    public boolean safeIsEnableJoinReorderBasedCost() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+    }
+
     /**
      * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
      * 'tupleIds', otherwise false:
@@ -1783,7 +1813,7 @@ public class Analyzer {
      * materialization decision be cost-based?
      */
     public void markRefdSlots(Analyzer analyzer, PlanNode planRoot,
-                               List<Expr> outputExprs, AnalyticInfo analyticInfo) {
+                              List<Expr> outputExprs, AnalyticInfo analyticInfo) {
         if (planRoot == null) {
             return;
         }
@@ -1824,7 +1854,7 @@ public class Analyzer {
 
     /**
      * Column conduction, can slot a value-transfer to slot b
-     *
+     * <p>
      * TODO(zxy) Use value-transfer graph to check
      */
     public boolean hasValueTransfer(SlotId a, SlotId b) {
@@ -1834,7 +1864,7 @@ public class Analyzer {
     /**
      * Returns sorted slot IDs with value transfers from 'srcSid'.
      * Time complexity: O(V) where V = number of slots
-     *
+     * <p>
      * TODO(zxy) Use value-transfer graph to check
      */
     public List<SlotId> getValueTransferTargets(SlotId srcSid) {
@@ -1848,8 +1878,8 @@ public class Analyzer {
      * to an outer-joined tuple.
      */
     public boolean hasOuterJoinedValueTransferTarget(List<SlotId> sids) {
-        for (SlotId srcSid: sids) {
-            for (SlotId dstSid: getValueTransferTargets(srcSid)) {
+        for (SlotId srcSid : sids) {
+            for (SlotId dstSid : getValueTransferTargets(srcSid)) {
                 if (isOuterJoined(getTupleId(dstSid))) return true;
             }
         }

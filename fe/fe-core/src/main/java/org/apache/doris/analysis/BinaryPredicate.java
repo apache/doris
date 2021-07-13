@@ -623,6 +623,30 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public void setSelectivity() {
+        switch(op) {
+            case EQ:
+            case EQ_FOR_NULL: {
+                Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
+                boolean singlePredicate = isSingleColumnPredicate(slotRefRef, null);
+                if (singlePredicate) {
+                    long distinctValues = slotRefRef.getRef().getNumDistinctValues();
+                    if (distinctValues != -1) {
+                        selectivity = 1.0 / distinctValues;
+                    }
+                }
+                break;
+            } default: {
+                // Reference hive
+                selectivity = 1.0 / 3.0;
+                break;
+            }
+        }
+
+        return;
+    }
+
+    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
