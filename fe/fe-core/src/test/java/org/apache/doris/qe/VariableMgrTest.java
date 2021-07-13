@@ -167,6 +167,12 @@ public class VariableMgrTest {
         setVar7.analyze(null);
         VariableMgr.setVar(var, setVar7);
         Assert.assertEquals("-08:00", VariableMgr.newSessionVariable().getTimeZone());
+
+        SetVar setVar8 = new SetVar(SetType.SESSION, "runtime_filter_type", new StringLiteral(
+                RuntimeFilterTypeHelper.encode("BLOOM_FILTER").toString()));
+        setVar8.analyze(null);
+        VariableMgr.setVar(var, setVar8);
+        Assert.assertEquals(2L, var.getRuntimeFilterType());
     }
 
     @Test(expected = UserException.class)

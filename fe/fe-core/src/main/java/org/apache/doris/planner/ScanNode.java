@@ -55,6 +55,8 @@ abstract public class ScanNode extends PlanNode {
         return result;
     }
 
+    public TupleDescriptor getTupleDesc() { return desc; }
+
     public void setColumnFilters(Map<String, PartitionColumnFilter> columnFilters) {
         this.columnFilters = columnFilters;
     }

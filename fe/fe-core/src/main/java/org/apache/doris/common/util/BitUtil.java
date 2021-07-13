@@ -15,12 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.common.util;
 
-import org.apache.doris.common.DdlException;
+public class BitUtil {
 
-public interface VariableVarConverterI {
-    public Long encode(String value) throws DdlException;
+    // Returns the log2 of 'val'. 'val' must be > 0.
+    public static int log2Ceiling(long val) {
+        // Formula is based on the Long.numberOfLeadingZeros() javadoc comment.
+        return 64 - Long.numberOfLeadingZeros(val - 1);
+    }
 
-    public String decode(Long value) throws DdlException;
+    // Round up 'val' to the nearest power of two. 'val' must be > 0.
+    public static long roundUpToPowerOf2(long val) {
+        return 1L << log2Ceiling(val);
+    }
+
+    // Round up 'val' to the nearest multiple of a power-of-two 'factor'.
+    // 'val' must be > 0.
+    public static long roundUpToPowerOf2Factor(long val, long factor) {
+        return (val + (factor - 1)) & ~(factor - 1);
+    }
 }
+

@@ -60,7 +60,6 @@ public class HashJoinNode extends PlanNode {
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
     // join conjuncts from the JOIN clause that aren't equi-join predicates
     private  List<Expr> otherJoinConjuncts;
-    private boolean isPushDown = false;
     private DistributionMode distrMode;
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
@@ -85,9 +84,6 @@ public class HashJoinNode extends PlanNode {
         this.otherJoinConjuncts = otherJoinConjuncts;
         children.add(outer);
         children.add(inner);
-        if (this.joinOp.isInnerJoin() || this.joinOp.isLeftSemiJoin()) {
-            this.isPushDown = true;
-        }
 
         // Inherits all the nullable tuple from the children
         // Mark tuples that form the "nullable" side of the outer join as nullable.
@@ -282,10 +278,6 @@ public class HashJoinNode extends PlanNode {
         }
     }
 
-    public void setIsPushDown(boolean isPushDown) {
-        this.isPushDown = isPushDown;
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.HASH_JOIN_NODE;
@@ -300,7 +292,6 @@ public class HashJoinNode extends PlanNode {
         for (Expr e : otherJoinConjuncts) {
             msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
         }
-        msg.hash_join_node.setIsPushDown(isPushDown);
     }
 
     @Override
@@ -326,6 +317,12 @@ public class HashJoinNode extends PlanNode {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(detailPrefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(true));
+        }
+        output.append(detailPrefix).append(String.format(
+                "cardinality=%s", cardinality)).append("\n");
         return output.toString();
     }
 

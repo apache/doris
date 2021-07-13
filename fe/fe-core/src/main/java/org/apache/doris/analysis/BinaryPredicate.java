@@ -133,6 +133,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
+        public boolean isUnNullSafeEquivalence() { return this == EQ; };
+
         public boolean isUnequivalence() { return this == NE; }
     }
 
