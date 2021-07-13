@@ -101,7 +101,7 @@ under the License.
                 <!-- for bdb je -->
                 <repository>
                     <id>oracleReleases</id>
-                    <url>http://download.oracle.com/maven</url>
+                    <url>https://download.oracle.com/maven</url>
                 </repository>
             </repositories>
 

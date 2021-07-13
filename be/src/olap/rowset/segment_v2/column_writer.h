@@ -132,6 +132,9 @@ public:
     // used for append not null data. When page is full, will append data not reach num_rows.
     virtual Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) = 0;
 
+    // used for append not null data. When page is full, will append data not reach num_rows.
+    virtual Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) = 0;
+
     bool is_nullable() const { return _is_nullable; }
 
     Field* get_field() const { return _field.get(); }
@@ -139,6 +142,7 @@ public:
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+
 protected:
     std::shared_ptr<MemTracker> _mem_tracker;
 };
@@ -183,6 +187,7 @@ public:
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override;
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override;
 
 private:
     std::unique_ptr<PageBuilder> _page_builder;
@@ -253,8 +258,7 @@ private:
 class ArrayColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                               ScalarColumnWriter* offset_writer,
-                               ScalarColumnWriter* null_writer,
+                               ScalarColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
@@ -262,7 +266,12 @@ public:
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
     Status append_data_in_current_page(const uint8_t** ptr, size_t* num_rows) override {
-        return Status::NotSupported("array writer has no data, can not append_data_in_current_page");
+        return Status::NotSupported(
+                "array writer has no data, can not append_data_in_current_page");
+    }
+    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_rows) override {
+        return Status::NotSupported(
+                "array writer has no data, can not append_data_in_current_page");
     }
 
     uint64_t estimate_buffer_size() override;
@@ -274,12 +283,25 @@ public:
 
     Status finish_current_page() override;
 
-    Status write_zone_map() override { return Status::OK(); }
+    Status write_zone_map() override {
+        if (_opts.need_zone_map) {
+            return Status::NotSupported("array not support zone map");
+        }
+        return Status::OK();
+    }
 
-    Status write_bitmap_index() override { return Status::OK(); }
-
-    Status write_bloom_filter_index() override { return Status::OK(); }
-
+    Status write_bitmap_index() override {
+        if (_opts.need_bitmap_index) {
+            return Status::NotSupported("array not support bitmap index");
+        }
+        return Status::OK();
+    }
+    Status write_bloom_filter_index() override {
+        if (_opts.need_bloom_filter) {
+            return Status::NotSupported("array not support bloom filter index");
+        }
+        return Status::OK();
+    }
     ordinal_t get_next_rowid() const override { return _length_writer->get_next_rowid(); }
 
 private:
@@ -290,6 +312,7 @@ private:
     std::unique_ptr<ScalarColumnWriter> _length_writer;
     std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
+    ColumnWriterOptions _opts;
     ordinal_t _current_length_page_first_ordinal = 0;
     ordinal_t _lengh_sum_in_cur_page = 0;
 };

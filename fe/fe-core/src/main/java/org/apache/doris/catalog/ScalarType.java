@@ -304,6 +304,9 @@ public class ScalarType extends Type {
             case BITMAP:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
+            case ARRAY:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
             default:
                 stringBuilder.append("unknown type: " + type.toString());
                 break;
@@ -371,6 +374,8 @@ public class ScalarType extends Type {
     @Override
     public PrimitiveType getPrimitiveType() { return type; }
     public int ordinal() { return type.ordinal(); }
+
+    @Override
     public int getLength() { return len; }
     public void setLength(int len) {this.len = len; }
     public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
