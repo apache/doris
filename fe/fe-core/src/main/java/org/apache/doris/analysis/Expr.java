@@ -63,7 +63,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     private static final String NEGATE_FN = "negate";
 
     // to be used where we can't come up with a better estimate
-    protected static final double DEFAULT_SELECTIVITY = 0.1;
+    public static final double DEFAULT_SELECTIVITY = 0.1;
 
     public final static float FUNCTION_CALL_COST = 10;
 
@@ -179,6 +179,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 @Override
                 public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
+
+    public void setSelectivity() {
+        selectivity = -1;
+    }
 
     /* TODO(zc)
     public final static com.google.common.base.Predicate<Expr>
@@ -299,6 +303,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return selectivity;
     }
 
+    public boolean hasSelectivity() { return selectivity >= 0; }
+
     public long getNumDistinctValues() {
         return numDistinctValues;
     }
@@ -374,6 +380,9 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
         // Do all the analysis for the expr subclass before marking the Expr analyzed.
         analyzeImpl(analyzer);
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            setSelectivity();
+        }
         analysisDone();
     }
 
@@ -1418,6 +1427,29 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return children.get(0);
         }
         return this;
+    }
+
+    /**
+     * Returns the descriptor of the scan slot that directly or indirectly produces
+     * the values of 'this' SlotRef. Traverses the source exprs of intermediate slot
+     * descriptors to resolve materialization points (e.g., aggregations).
+     * Returns null if 'e' or any source expr of 'e' is not a SlotRef or cast SlotRef.
+     */
+    public SlotDescriptor findSrcScanSlot() {
+        SlotRef slotRef = unwrapSlotRef(false);
+        if (slotRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDesc = slotRef.getDesc();
+        if (slotDesc.isScanSlot()) {
+            return slotDesc;
+        }
+        if (slotDesc.getSourceExprs().size() == 1) {
+            return slotDesc.getSourceExprs().get(0).findSrcScanSlot();
+        }
+        // No known source expr, or there are several source exprs meaning the slot is
+        // has no single source table.
+        return null;
     }
 
     public static double getConstFromExpr(Expr e) throws AnalysisException{

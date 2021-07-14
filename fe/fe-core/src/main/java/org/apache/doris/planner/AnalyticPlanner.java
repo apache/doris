@@ -181,7 +181,7 @@ public class AnalyticPlanner {
                         long ndv = Expr.getNumDistinctValues(
                                        Expr.intersect(pg1.partitionByExprs, pg2.partitionByExprs));
 
-                        if (ndv == -1 || ndv < 0 || ndv < numNodes) {
+                        if (ndv == -1 || ndv < 1 || ndv < numNodes) {
                             // didn't get a usable value or the number of partitions is too small
                             continue;
                         }
@@ -228,7 +228,7 @@ public class AnalyticPlanner {
             // TODO: also look at l2 and take the max?
             long ndv = Expr.getNumDistinctValues(l1);
 
-            if (ndv < 0 || ndv < numNodes || ndv < maxNdv) {
+            if (ndv < 1 || ndv < numNodes || ndv < maxNdv) {
                 continue;
             }
 
@@ -673,8 +673,7 @@ public class AnalyticPlanner {
                 logicalToPhysicalSmap.put(new SlotRef(logicalOutputSlot), new SlotRef(physicalOutputSlot));
             }
 
-            physicalOutputTuple.computeMemLayout();
-            //      if (requiresIntermediateTuple) physicalIntermediateTuple.computeMemLayout();
+            physicalOutputTuple.computeStatAndMemLayout();
         }
     }
 

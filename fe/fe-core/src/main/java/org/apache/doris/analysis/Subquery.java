@@ -87,7 +87,7 @@ public class Subquery extends Expr {
         try {
             stmt.analyze(analyzer);
         } catch (UserException e) {
-            throw new AnalysisException(e.getMessage());
+            throw new AnalysisException(e.getMessage(), e);
         }
         // Check whether the stmt_ contains an illegal mix of un/correlated table refs.
         stmt.getCorrelatedTupleIds(analyzer);
