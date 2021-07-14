@@ -71,6 +71,7 @@ import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
+import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -103,12 +104,14 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
@@ -119,6 +122,7 @@ import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -139,6 +143,8 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Preconditions;
@@ -272,6 +278,8 @@ public class ShowExecutor {
             handleShowGrants();
         } else if (stmt instanceof ShowRolesStmt) {
             handleShowRoles();
+        } else if (stmt instanceof ShowTrashStmt) {
+            handleShowTrash();
         } else if (stmt instanceof AdminShowReplicaStatusStmt) {
             handleAdminShowTabletStatus();
         } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
@@ -1689,6 +1697,47 @@ public class ShowExecutor {
         ShowRolesStmt showStmt = (ShowRolesStmt) stmt;
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+    
+    private void handleShowTrash() {
+        ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
+        List<List<String>> results = Lists.newArrayList();
+
+        for (Backend backend : showStmt.getBackends()) {
+            BackendService.Client client = null;
+            TNetworkAddress address = null;
+            Long trashUsedCapacityB = null;
+            boolean ok = false;
+            try {
+                long start = System.currentTimeMillis();
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                client = ClientPool.backendPool.borrowObject(address);
+                trashUsedCapacityB = client.getTrashUsedCapacity();
+                LOG.debug("get trash used capacity from backend: {}, trashUsedCapacity: {}, cost {}", backend.getId(),
+                trashUsedCapacityB, System.currentTimeMillis() - start);
+                ok = true;
+            } catch (Exception e) {
+                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+            } finally {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+
+            if (trashUsedCapacityB != null) {
+                List<String> backendInfo = new ArrayList<String>();
+                backendInfo.add(String.valueOf(backend.getId()));
+                backendInfo.add(backend.getHost());
+                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+                Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
+                backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
+                results.add(backendInfo);
+            }
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
     private void handleAdminShowTabletStatus() throws AnalysisException {

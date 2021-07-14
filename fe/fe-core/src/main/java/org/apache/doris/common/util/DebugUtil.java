@@ -27,7 +27,7 @@ import java.text.DecimalFormat;
 import java.util.UUID;
 
 public class DebugUtil {
-    public static final DecimalFormat DECIMAL_FORMAT_SCALE_3 = new DecimalFormat("#.000");
+    public static final DecimalFormat DECIMAL_FORMAT_SCALE_3 = new DecimalFormat("0.000");
 
     public static int THOUSAND = 1000;
     public static int MILLION = 1000 * THOUSAND;

@@ -194,6 +194,12 @@ public class GenericPoolTest {
         }
 
         @Override
+        public long getTrashUsedCapacity() throws TException {
+            // TODO Auto-generated method stub
+            return 0l;
+        }
+
+        @Override
         public TTabletStatResult getTabletStat() throws TException {
             // TODO Auto-generated method stub
             return null;

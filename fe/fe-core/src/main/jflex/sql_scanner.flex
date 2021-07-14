@@ -103,6 +103,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("array", new Integer(SqlParserSymbols.KW_ARRAY));
         keywordMap.put("backend", new Integer(SqlParserSymbols.KW_BACKEND));
         keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
+        keywordMap.put("trash", new Integer(SqlParserSymbols.KW_TRASH));
         keywordMap.put("backup", new Integer(SqlParserSymbols.KW_BACKUP));
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));

@@ -245,6 +245,11 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public long getTrashUsedCapacity() throws TException {
+            return  0l;
+        }
+
+        @Override
         public TTabletStatResult getTabletStat() throws TException {
             return new TTabletStatResult(Maps.newHashMap());
         }

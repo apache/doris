@@ -129,6 +129,8 @@ public:
 
     virtual void get_tablet_stat(TTabletStatResult& result) override;
 
+    virtual int64_t get_trash_used_capacity() override;
+
     virtual void submit_routine_load_task(TStatus& t_status,
                                           const std::vector<TRoutineLoadTask>& tasks) override;
 
