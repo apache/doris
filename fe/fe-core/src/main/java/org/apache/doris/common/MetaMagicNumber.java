@@ -17,28 +17,32 @@
 
 package org.apache.doris.common;
 
-public enum FeMetaFormat {
-    COR1("COR1", "v1"),
-    ETL1("ETL1", "v1");
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.charset.Charset;
 
-    private final String magicString;
-    private final String version;
+public class MetaMagicNumber {
+    public static final String MAGIC_STR = FeConstants.meta_format.getMagicString();
+    public static final byte[] MAGIC = MAGIC_STR.getBytes(Charset.forName("ASCII"));
+    private byte[] bytes;
 
-    private FeMetaFormat(String magicString, String version) {
-        this.magicString = magicString;
-        this.version = version;
+    public static MetaMagicNumber read(RandomAccessFile raf) throws IOException {
+        MetaMagicNumber metaMagicNumber = new MetaMagicNumber();
+        byte[] magicBytes = new byte[MAGIC_STR.length()];
+        raf.readFully(magicBytes);
+        metaMagicNumber.setBytes(magicBytes);
+        return metaMagicNumber;
     }
 
-    public String getMagicString() {
-        return magicString;
+    public static void write(RandomAccessFile raf) throws IOException {
+        raf.write(MAGIC);
     }
 
-    public String getVersion() {
-        return version;
+    public byte[] getBytes() {
+        return bytes;
     }
 
-    @Override
-    public String toString() {
-        return getMagicString();
+    public void setBytes(byte[] bytes) {
+        this.bytes = bytes;
     }
 }

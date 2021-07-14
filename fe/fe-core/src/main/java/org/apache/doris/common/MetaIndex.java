@@ -17,28 +17,37 @@
 
 package org.apache.doris.common;
 
-public enum FeMetaFormat {
-    COR1("COR1", "v1"),
-    ETL1("ETL1", "v1");
+import org.apache.doris.common.io.Text;
 
-    private final String magicString;
-    private final String version;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 
-    private FeMetaFormat(String magicString, String version) {
-        this.magicString = magicString;
-        this.version = version;
+public class MetaIndex {
+    public String name;
+    public long offset;
+
+    public MetaIndex() {
     }
 
-    public String getMagicString() {
-        return magicString;
+    public MetaIndex(String name, long offset) {
+        this.name = name;
+        this.offset = offset;
     }
 
-    public String getVersion() {
-        return version;
+    public static MetaIndex read(RandomAccessFile raf) throws IOException {
+        MetaIndex metaIndex = new MetaIndex();
+        metaIndex.name = Text.readString(raf);
+        metaIndex.offset = raf.readLong();
+        return metaIndex;
+    }
+
+    public static void write(RandomAccessFile raf, MetaIndex metaIndex) throws IOException {
+        Text.writeString(raf, metaIndex.name);
+        raf.writeLong(metaIndex.offset);
     }
 
     @Override
     public String toString() {
-        return getMagicString();
+        return name + ":" + offset;
     }
 }

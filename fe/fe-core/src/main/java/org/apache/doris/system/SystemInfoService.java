@@ -27,11 +27,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -46,7 +46,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -910,7 +909,7 @@ public class SystemInfoService {
         }
     }
 
-    public long saveBackends(DataOutputStream dos, long checksum) throws IOException {
+    public long saveBackends(CountingDataOutputStream dos, long checksum) throws IOException {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         int backendCount = idToBackend.size();
         checksum ^= backendCount;

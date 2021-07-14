@@ -19,113 +19,72 @@ package org.apache.doris.common;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.charset.Charset;
 import java.util.Arrays;
 
 public class MetaHeader {
     private static final Logger LOG = LogManager.getLogger(MetaHeader.class);
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final MetaHeader EMPTY_HEADER = new MetaHeader(null, null, 0);
+    public static final MetaHeader EMPTY_HEADER = new MetaHeader(null, 0);
+    private static final long HEADER_LENGTH_SIZE = 4L;
 
-    public long length;
-    public FeMetaFormat metaFormat;
-    public MetaMagicNumber metaMagicNumber;
-    public MetaFileHeader metaFileHeader;
+    // length of Header
+    private long length;
+    // format of image
+    private FeMetaFormat metaFormat;
+    // json header
+    public MetaJsonHeader metaJsonHeader;
 
-    public static MetaHeader readHeader(File imageFile) throws IOException {
-        LOG.info("start load image header from {}.", imageFile.getAbsolutePath());
+    public static MetaHeader read(File imageFile) throws IOException {
         try(RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
             raf.seek(0);
-            MetaMagicNumber magicMagicNumber = MetaMagicNumber.read(raf);
-            if (!Arrays.equals(MetaMagicNumber.MAGIC, magicMagicNumber.bytes)) {
+            MetaMagicNumber magicNumber = MetaMagicNumber.read(raf);
+            if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
                 LOG.warn("Image file {} format mismatch. Expected magic number is {}, actual is {}",
-                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicMagicNumber.bytes));
+                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicNumber.getBytes()));
                 return EMPTY_HEADER;
             }
-            MetaFileHeader metaFileHeader = MetaFileHeader.read(raf);
-            if (!MetaFileHeader.IMAGE_VERSION.equalsIgnoreCase(metaFileHeader.imageVersion)) {
+            MetaJsonHeader metaJsonHeader = MetaJsonHeader.read(raf);
+            if (!MetaJsonHeader.IMAGE_VERSION.equalsIgnoreCase(metaJsonHeader.imageVersion)) {
                 LOG.warn("Image file {} format mismatch. Expected version is {}, actual is {}",
-                        imageFile.getPath(), MetaFileHeader.IMAGE_VERSION, metaFileHeader.imageVersion);
+                        imageFile.getPath(), MetaJsonHeader.IMAGE_VERSION, metaJsonHeader.imageVersion);
                 return EMPTY_HEADER;
             }
 
-            return new MetaHeader(magicMagicNumber, metaFileHeader, raf.getFilePointer(),
-                    FeMetaFormat.valueOf(new String(magicMagicNumber.bytes)));
+            long length = raf.getFilePointer() - MetaMagicNumber.MAGIC_STR.length() - HEADER_LENGTH_SIZE;
+            FeMetaFormat metaFormat = FeMetaFormat.valueOf(new String(magicNumber.getBytes()));
+            LOG.info("Image header length: {}, format: {}.", length, metaFormat);
+            return new MetaHeader(metaJsonHeader, length, metaFormat);
         }
     }
 
-    public static long writeHeader(File imageFile) throws IOException {
-        LOG.info("start save image header to {}.", imageFile.getAbsolutePath());
+    public static long write(File imageFile) throws IOException {
         try (RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             raf.seek(0);
             MetaMagicNumber.write(raf);
-            MetaFileHeader.write(raf);
+            MetaJsonHeader.write(raf);
             return raf.getFilePointer();
         }
     }
 
-    public static class MetaMagicNumber {
-        public static final String MAGIC_STR = FeConstants.meta_format.getMagicString();
-        public static final byte[] MAGIC = MAGIC_STR.getBytes(Charset.forName("ASCII"));
-        public byte[] bytes;
-
-        public static MetaMagicNumber read(RandomAccessFile raf) throws IOException {
-            MetaMagicNumber metaMagicNumber = new MetaMagicNumber();
-            byte[] magicBytes = new byte[MAGIC_STR.length()];
-            raf.readFully(magicBytes);
-            metaMagicNumber.bytes = magicBytes;
-            return metaMagicNumber;
-        }
-
-        public static void write(RandomAccessFile raf) throws IOException {
-            raf.write(MAGIC);
-        }
+    public MetaHeader(MetaJsonHeader metaJsonHeader, long length) {
+        this(metaJsonHeader, length, FeMetaFormat.COR1);
     }
 
-    public static class MetaFileHeader {
-        public static final String IMAGE_VERSION = FeConstants.meta_format.getVersion();
-        // the version of image format
-        public String imageVersion;
-
-        public static MetaFileHeader read(RandomAccessFile raf) throws IOException {
-            int headerLength = raf.readInt();
-            byte[] headerBytes = new byte[headerLength];
-            raf.readFully(headerBytes);
-            return MetaFileHeader.fromJson(new String(headerBytes));
-        }
-
-        public static void write(RandomAccessFile raf) throws IOException {
-            MetaFileHeader metaFileHeader = new MetaFileHeader();
-            metaFileHeader.imageVersion = IMAGE_VERSION;
-            byte[] headerBytes =  MetaFileHeader.toJson(metaFileHeader).getBytes();
-            raf.writeInt(headerBytes.length);
-            raf.write(headerBytes);
-        }
-
-        private static MetaFileHeader fromJson(String json) throws IOException {
-            return (MetaFileHeader) OBJECT_MAPPER.readValue(json, MetaFileHeader.class);
-        }
-
-        private static String toJson(MetaFileHeader fileHeader) throws IOException {
-            return OBJECT_MAPPER.writeValueAsString(fileHeader);
-        }
-    }
-
-    public MetaHeader(MetaMagicNumber metaMagicNumber, MetaFileHeader metaFileHeader, long length) {
-        this(metaMagicNumber, metaFileHeader, length, FeMetaFormat.COR1);
-    }
-
-    public MetaHeader(MetaMagicNumber metaMagicNumber, MetaFileHeader metaFileHeader, long length, FeMetaFormat metaFormat) {
-        this.metaMagicNumber = metaMagicNumber;
-        this.metaFileHeader = metaFileHeader;
+    public MetaHeader(MetaJsonHeader metaJsonHeader, long length, FeMetaFormat metaFormat) {
+        this.metaJsonHeader = metaJsonHeader;
         this.length = length;
         this.metaFormat = metaFormat;
+    }
+
+    public long getEnd() {
+        if (length > 0) {
+            return MetaMagicNumber.MAGIC_STR.length() + HEADER_LENGTH_SIZE + length;
+        }
+        return 0;
     }
 
     public long getLength() {
@@ -136,11 +95,9 @@ public class MetaHeader {
         return metaFormat;
     }
 
-    public MetaMagicNumber getMetaMagicNumber() {
-        return metaMagicNumber;
+    public MetaJsonHeader getMetaJsonHeader() {
+        return metaJsonHeader;
     }
 
-    public MetaFileHeader getMetaFileHeader() {
-        return metaFileHeader;
-    }
+
 }
