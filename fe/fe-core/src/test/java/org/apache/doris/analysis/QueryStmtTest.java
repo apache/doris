@@ -254,8 +254,8 @@ public class QueryStmtTest {
         stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         // reAnalyze
         reAnalyze(stmt, ctx);
-        Assert.assertTrue(stmt.toSql().contains("root'@'%"));
-        Assert.assertTrue(stmt.toSql().contains("root'@'127.0.0.1'"));
+        Assert.assertTrue(stmt.toSql().contains("root''@''%"));
+        Assert.assertTrue(stmt.toSql().contains("root''@''127.0.0.1"));
 
     }
 
