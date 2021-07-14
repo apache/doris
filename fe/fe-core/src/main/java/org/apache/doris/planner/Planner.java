@@ -183,10 +183,26 @@ public class Planner {
         if (selectFailed) {
             throw new MVSelectFailedException("Failed to select materialize view");
         }
-        // compute mem layout *before* finalize(); finalize() may reference
-        // TupleDescriptor.avgSerializedSize
+
+        /**
+         * - Under normal circumstances, computeMemLayout() will be executed
+         *     at the end of the init function of the plan node.
+         * Such as :
+         * OlapScanNode {
+         *     init () {
+         *         analyzer.materializeSlots(conjuncts);
+         *         computeTupleStatAndMemLayout(analyzer);
+         *         computeStat();
+         *     }
+         * }
+         * - However Doris is currently unable to determine
+         *     whether it is possible to cut or increase the columns in the tuple after PlanNode.init().
+         * - Therefore, for the time being, computeMemLayout() can only be placed
+         *     after the completion of the entire single node planner.
+         */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+        
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);

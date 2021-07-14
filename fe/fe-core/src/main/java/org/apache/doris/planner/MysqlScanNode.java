@@ -61,6 +61,12 @@ public class MysqlScanNode extends ScanNode {
     }
 
     @Override
+    public void init(Analyzer analyzer) throws UserException {
+        super.init(analyzer);
+        computeStats(analyzer);
+    }
+
+    @Override
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         return helper.addValue(super.debugString()).toString();
@@ -71,7 +77,6 @@ public class MysqlScanNode extends ScanNode {
         // Convert predicates to MySQL columns and filters.
         createMySQLColumns(analyzer);
         createMySQLFilters(analyzer);
-        computeStats(analyzer);
     }
 
     @Override

@@ -1456,6 +1456,8 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
+
+    @Test
     public void testLeadAndLagFunction() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 

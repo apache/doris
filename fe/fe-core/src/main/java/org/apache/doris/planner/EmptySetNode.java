@@ -26,6 +26,9 @@ import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * Node that returns an empty result set. Used for planning query blocks with a constant
  * predicate evaluating to false or a limit 0. The result set will have zero rows, but
@@ -33,6 +36,8 @@ import com.google.common.base.Preconditions;
  * construct a valid row empty batch.
  */
 public class EmptySetNode extends PlanNode {
+    private final static Logger LOG = LogManager.getLogger(EmptySetNode.class);
+
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET");
         Preconditions.checkArgument(tupleIds.size() > 0);
@@ -43,6 +48,9 @@ public class EmptySetNode extends PlanNode {
         avgRowSize = 0;
         cardinality = 0;
         numNodes = 1;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats EmptySet:" + id + ", cardinality: " + cardinality);
+        }
     }
 
     @Override
@@ -53,7 +61,7 @@ public class EmptySetNode extends PlanNode {
         // to be set as materialized (even though it isn't) to avoid failing precondition
         // checks generating the thrift for slot refs that may reference this tuple.
         for (TupleId id: tupleIds) analyzer.getTupleDesc(id).setIsMaterialized(true);
-        computeMemLayout(analyzer);
+        computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }
 

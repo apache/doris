@@ -30,14 +30,14 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TQueryOptions;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -108,8 +108,8 @@ public class AnalyticEvalNode extends PlanNode {
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-        analyzer.getDescTbl().computeMemLayout();
-        intermediateTupleDesc.computeMemLayout();
+        analyzer.getDescTbl().computeStatAndMemLayout();
+        intermediateTupleDesc.computeStatAndMemLayout();
         // we add the analyticInfo's smap to the combined smap of our child
         outputSmap = logicalToPhysicalSmap;
         createDefaultSmap(analyzer);
@@ -138,6 +138,19 @@ public class AnalyticEvalNode extends PlanNode {
     @Override
     protected void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        cardinality = cardinality == -1 ? getChild(0).cardinality : cardinality;
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats AnalyticEval: cardinality={}", cardinality);
+        }
+    }
+
+    @Override
+    protected void computeOldCardinality() {
         cardinality = getChild(0).cardinality;
     }
 
