@@ -80,12 +80,20 @@ Status ThreadPoolBuilder::build(std::unique_ptr<ThreadPool>* pool) const {
     return Status::OK();
 }
 
-ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode)
+ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency)
         : _mode(mode),
           _pool(pool),
           _state(State::IDLE),
           _not_running_cond(&pool->_lock),
-          _active_threads(0) {}
+          _active_threads(0),
+          _max_concurrency(max_concurrency),
+          _num_submitted_tasks(0),
+          _num_unsubmitted_tasks(0) {
+
+    if (max_concurrency == 1 && mode != ThreadPool::ExecutionMode::SERIAL) {
+        _mode = ThreadPool::ExecutionMode::SERIAL;
+    }
+}
 
 ThreadPoolToken::~ThreadPoolToken() {
     shutdown();
@@ -240,6 +248,11 @@ const char* ThreadPoolToken::state_to_string(State s) {
     return "<cannot reach here>";
 }
 
+bool ThreadPoolToken::need_dispatch() {
+    return _state == ThreadPoolToken::State::IDLE 
+        || (_mode == ThreadPool::ExecutionMode::CONCURRENT && _num_submitted_tasks < _max_concurrency);
+}
+
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
         : _name(builder._name),
           _min_threads(builder._min_threads),
@@ -294,6 +307,7 @@ void ThreadPool::shutdown() {
     // wanting to access the ThreadPool. The task's destructors may acquire
     // locks, etc, so this also prevents lock inversions.
     _queue.clear();
+
     std::deque<std::deque<Task>> to_release;
     for (auto* t : _tokens) {
         if (!t->_entries.empty()) {
@@ -336,9 +350,9 @@ void ThreadPool::shutdown() {
     }
 }
 
-std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode) {
+std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
     MutexLock unique_lock(&_lock);
-    std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode));
+    std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode, max_concurrency));
     InsertOrDie(&_tokens, t.get());
     return t;
 }
@@ -416,11 +430,22 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     ThreadPoolToken::State state = token->state();
     DCHECK(state == ThreadPoolToken::State::IDLE || state == ThreadPoolToken::State::RUNNING);
     token->_entries.emplace_back(std::move(task));
-    if (state == ThreadPoolToken::State::IDLE || token->mode() == ExecutionMode::CONCURRENT) {
+    // When we need to execute the task in the token, we submit the token object to the queue.
+    // There are currently two places where tokens will be submitted to the queue:
+    // 1. When submitting a new task, if the token is still in the IDLE state, 
+    //    or the concurrency of the token has not reached the online level, it will be added to the queue.
+    // 2. When the dispatch thread finishes executing a task:
+    //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
+    //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
+    //       then submitted to the queue. 
+    if (token->need_dispatch()) {
         _queue.emplace_back(token);
+        ++token->_num_submitted_tasks;
         if (state == ThreadPoolToken::State::IDLE) {
             token->transition(ThreadPoolToken::State::RUNNING);
         }
+    } else {
+        ++token->_num_unsubmitted_tasks;
     }
     _total_queued_tasks++;
 
@@ -563,7 +588,9 @@ void ThreadPool::dispatch_thread() {
         ThreadPoolToken::State state = token->state();
         DCHECK(state == ThreadPoolToken::State::RUNNING ||
                state == ThreadPoolToken::State::QUIESCING);
-        if (--token->_active_threads == 0) {
+        --token->_active_threads;
+        --token->_num_submitted_tasks;
+        if (token->_active_threads == 0) {
             if (state == ThreadPoolToken::State::QUIESCING) {
                 DCHECK(token->_entries.empty());
                 token->transition(ThreadPoolToken::State::QUIESCED);
@@ -571,8 +598,16 @@ void ThreadPool::dispatch_thread() {
                 token->transition(ThreadPoolToken::State::IDLE);
             } else if (token->mode() == ExecutionMode::SERIAL) {
                 _queue.emplace_back(token);
+                ++token->_num_submitted_tasks;
+                --token->_num_unsubmitted_tasks;
             }
+        } else if (token->mode() == ExecutionMode::CONCURRENT && token->_num_submitted_tasks < token->_max_concurrency
+                && token->_num_unsubmitted_tasks > 0) {
+            _queue.emplace_back(token);
+            ++token->_num_submitted_tasks;
+            --token->_num_unsubmitted_tasks;
         }
+
         if (--_active_threads == 0) {
             _idle_cond.notify_all();
         }
