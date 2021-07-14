@@ -214,6 +214,11 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = queryStmt;
     }
 
+    @Override
+    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.foldConstant(rewriter);
+    }
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
