@@ -515,7 +515,10 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString_ = toSql();
         }
-        reorderTable(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            LOG.debug("use old reorder logical in select stmt");
+            reorderTable(analyzer);
+        }
 
         resolveInlineViewRefs(analyzer);
 
