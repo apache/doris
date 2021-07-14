@@ -169,10 +169,8 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    std::vector<uint32_t> columns;
-    for (size_t i = 0; i < scan_key_size; ++i) {
-        columns.push_back(i);
-    }
+    std::vector<uint32_t> columns(scan_key_size);
+    std::iota(columns.begin(), columns.end(), 0);
 
     RETURN_NOT_OK(_init(schema.columns(), columns));
 
