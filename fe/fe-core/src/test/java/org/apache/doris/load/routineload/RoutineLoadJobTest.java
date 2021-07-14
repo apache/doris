@@ -141,7 +141,7 @@ public class RoutineLoadJobTest {
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
-        Assert.assertEquals(new Long(1), Deencapsulation.getField(routineLoadJob, "abortedTaskNum"));
+        Assert.assertEquals(new Long(1), Deencapsulation.getField(routineLoadJob, "jobStatistic.abortedTaskNum"));
     }
 
     @Test
