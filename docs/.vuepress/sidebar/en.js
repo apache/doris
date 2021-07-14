@@ -190,6 +190,13 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
+    title: "Bast Practices",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
+  },
+  {
     title: "Extending Ability",
     directoryPath: "extending-doris/",
     children: [

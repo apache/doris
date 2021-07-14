@@ -192,6 +192,13 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
+    title: "最佳实践",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
+  },
+  {
     title: "扩展功能",
     directoryPath: "extending-doris/",
     children: [
