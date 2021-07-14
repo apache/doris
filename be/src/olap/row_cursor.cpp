@@ -35,8 +35,6 @@ RowCursor::~RowCursor() {
     delete[] _variable_buf;
 }
 
-
-
 OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     _variable_len = 0;
     for (auto cid : columns) {
@@ -59,9 +57,9 @@ OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowCursor::_init(const std::shared_ptr<Schema>& schema,
+OLAPStatus RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
                             const std::vector<uint32_t>& columns) {
-    _schema = schema;
+    _schema = shared_schema;
     return _init(columns);
 }
 
@@ -181,10 +179,9 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
     return _init_scan_key(schema, scan_keys);
 }
 
-
 OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
                                     const std::vector<std::string>& scan_keys,
-                                    const std::shared_ptr<Schema>& shared) {
+                                    const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
 
     std::vector<uint32_t> columns;
@@ -192,7 +189,7 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(shared, columns));
+    RETURN_NOT_OK(_init(shared_schema, columns));
 
     return _init_scan_key(schema, scan_keys);
 }

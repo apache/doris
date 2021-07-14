@@ -57,7 +57,7 @@ public:
 
     OLAPStatus init_scan_key(const TabletSchema& schema,
                              const std::vector<std::string>& keys,
-                             const std::shared_ptr<Schema>& shared);
+                             const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
@@ -148,7 +148,7 @@ public:
 
 private:
     OLAPStatus _init(const std::vector<uint32_t>& columns);
-    OLAPStatus _init(const std::shared_ptr<Schema>& schema,
+    OLAPStatus _init(const std::shared_ptr<Schema>& shared_schema,
                      const std::vector<uint32_t>& columns);
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
