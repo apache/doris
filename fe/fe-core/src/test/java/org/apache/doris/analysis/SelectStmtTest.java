@@ -25,22 +25,21 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -581,7 +580,7 @@ public class SelectStmtTest {
         QueryStmt stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         List<TableRef> tblRefs = Lists.newArrayList();
         Set<String> parentViewNameSet = Sets.newHashSet();
-        stmt.getTableRefs(tblRefs, parentViewNameSet);
+        stmt.getTableRefs(new Analyzer(ctx.getCatalog(), ctx), tblRefs, parentViewNameSet);
 
         Assert.assertEquals(2, tblRefs.size());
         Assert.assertEquals("table1", tblRefs.get(0).getName().getTbl());

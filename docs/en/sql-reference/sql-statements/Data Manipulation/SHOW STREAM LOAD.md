@@ -57,12 +57,12 @@ SHOW STREAM LOAD FROM example_db WHERE LABEL LIKE "2014_01_02" LIMIT 10;
 3. Show the STREAM LOAD task of the specified db, specify label as "load_example_db_20140102"
 SHOW STREAM LOAD FROM example_db WHERE LABEL = "load_example_db_20140102";
 
-4. Show the STREAM LOAD task of the specified db, specify status as "success", and sort it in descending order by LoadStartTime
-SHOW STREAM LOAD FROM example_db WHERE STATUS = "success" ORDER BY LoadStartTime DESC;
+4. Show the STREAM LOAD task of the specified db, specify status as "success", and sort it in descending order by StartTime
+SHOW STREAM LOAD FROM example_db WHERE STATUS = "success" ORDER BY StartTime DESC;
 
-5. Show the STREAM LOAD task of the specified dB and sort it in descending order by LoadStartTime, and display 10 query results starting with offset 5
-SHOW STREAM LOAD FROM example_db ORDER BY LoadStartTime DESC limit 5,10;
-SHOW STREAM LOAD FROM example_db ORDER BY LoadStartTime DESC limit 10 offset 5;
+5. Show the STREAM LOAD task of the specified dB and sort it in descending order by StartTime, and display 10 query results starting with offset 5
+SHOW STREAM LOAD FROM example_db ORDER BY StartTime DESC limit 5,10;
+SHOW STREAM LOAD FROM example_db ORDER BY StartTime DESC limit 10 offset 5;
 
 ## keyword
 SHOW,STREAM LOAD

@@ -324,17 +324,22 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
-            if (tblRef instanceof InlineViewRef) {
-                QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.getTableRefs(tblRefs, parentViewNameSet);
-            } else {
-                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
-                    continue;
+            try {
+                TableRef tmpTblRef = analyzer.resolveTableRef(tblRef);
+                if (tmpTblRef instanceof InlineViewRef) {
+                    QueryStmt inlineStmt = ((InlineViewRef) tmpTblRef).getViewStmt();
+                    inlineStmt.getTableRefs(analyzer, tblRefs, parentViewNameSet);
+                } else {
+                    if (isViewTableRef(tmpTblRef.getName().toString(), parentViewNameSet)) {
+                        continue;
+                    }
+                    tblRefs.add(tmpTblRef);
                 }
-                tblRefs.add(tblRef);
+            } catch (AnalysisException e) {
+                // This table may have been dropped, ignore it.
             }
         }
     }
