@@ -210,7 +210,7 @@ set enable_odbc_transcation = true;
 
 ### SQLServer
 
-|  MySQL  | Doris  |             替换方案              |
+| SQLServer  | Doris  |             替换方案              |
 | :------: | :----: | :-------------------------------: |
 |  BOOLEAN  | BOOLEAN  |                         |
 |   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
