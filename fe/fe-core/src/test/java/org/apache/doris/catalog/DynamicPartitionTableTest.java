@@ -17,22 +17,27 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.clearspring.analytics.util.Lists;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Collections;
@@ -75,6 +80,11 @@ public class DynamicPartitionTableTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void alterTable(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
     }
 
     @Test
@@ -584,6 +594,109 @@ public class DynamicPartitionTableTest {
         // exceed the max dynamic partition limit
         Config.max_dynamic_partition_num = 1000;
         createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testFillHistoryDynamicPartition3() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start and history_partition_num are not set, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Provide start or history_partition_num property when creating history partition",
+                () -> createTable(createOlapTblStmt));
+
+        String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"1000\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start is not set, but history_partition_num is set too large, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt2));
+
+        String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.start\" = \"-1000\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start is set but too small,history_partition_num is not set, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt3));
+
+        String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.start\" = \"-10\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"5\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start and history_partition_num are set, create ok
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt4));
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("dynamic_partition3");
+        Assert.assertEquals(9, tbl.getPartitionNames().size());
+
+        // alter dynamic partition property of table dynamic_partition3
+        // start too small
+        String alter1 = "alter table test.dynamic_partition3 set ('dynamic_partition.start' = '-1000', 'dynamic_partition.history_partition_num' = '1000')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> alterTable(alter1));
+
+        // end too large
+        String alter2 = "alter table test.dynamic_partition3 set ('dynamic_partition.end' = '1000')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> alterTable(alter2));
+
+        // history_partition_num too large, but because start is -10, so modify ok
+        String alter3 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '1000')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter3));
+        Assert.assertEquals(14, tbl.getPartitionNames().size());
+
+        // set start and history_partition_num properly.
+        String alter4 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '100', 'dynamic_partition.start' = '-20')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter4));
+        Assert.assertEquals(24, tbl.getPartitionNames().size());
     }
 
     @Test

@@ -82,6 +82,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
@@ -174,6 +175,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -2196,7 +2198,7 @@ public class Catalog {
         return checksum;
     }
 
-	public long saveResources(DataOutputStream out, long checksum) throws IOException {
+    public long saveResources(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getResourceMgr().write(out);
         return checksum;
     }
@@ -4215,7 +4217,7 @@ public class Catalog {
                 OlapTable olapTable = (OlapTable) table;
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 boolean first = true;
-                for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getSortedItemMap(false)) {
+                for (Map.Entry<Long, PartitionItem> entry : partitionInfo.getPartitionItemEntryList(false, true)) {
                     if (first) {
                         first = false;
                         continue;
@@ -5452,8 +5454,11 @@ public class Catalog {
         if (tableProperty == null) {
             DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
         } else {
+            // Merge the new properties with origin properties, and then analyze them
+            Map<String, String> origDynamicProperties = tableProperty.getOriginDynamicPartitionProperty();
+            origDynamicProperties.putAll(properties);
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.
-                    analyzeDynamicPartition(properties, table.getPartitionInfo());
+                    analyzeDynamicPartition(origDynamicProperties, table.getPartitionInfo());
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
             tableProperty.buildDynamicProperty();
         }
@@ -5572,6 +5577,80 @@ public class Catalog {
                     olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
                 }
             }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
+        olapTable.writeLock();
+
+        try {
+            if (olapTable.isColocateTable()) {
+                throw new DdlException("Cannot change default bucket number of colocate table.");
+            }
+    
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+                throw new DdlException("Only support change partitioned table's distribution.");
+            }
+    
+            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+            if (defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
+                throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
+            }
+    
+            DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
+    
+            DistributionInfo distributionInfo = null;
+    
+            List<Column> baseSchema = olapTable.getBaseSchema();
+    
+            if (distributionDesc != null) {
+                distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                    // for now. we only support modify distribution's bucket num
+                if (distributionInfo.getType() != DistributionInfoType.HASH) {
+                    throw new DdlException("Cannot change distribution type to " + distributionInfo.getType());
+                }
+    
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
+                List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+                if (!newDistriCols.equals(defaultDistriCols)) {
+                    throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                                + "default is: " + defaultDistriCols);
+                }
+    
+                int bucketNum = hashDistributionInfo.getBucketNum();
+                if (bucketNum <= 0) {
+                    throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                }
+    
+                defaultDistributionInfo.setBucketNum(bucketNum);
+    
+                ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), bucketNum);
+                editLog.logModifyDefaultDistributionBucketNum(info);
+                LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    public void replayModifyTableDefaultDistributionBucketNum(short opCode, ModifyTableDefaultDistributionBucketNumOperationLog info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        int bucketNum = info.getBucketNum();
+
+        Database db = getDb(dbId);
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying modify table default distribution bucket number log. db: {}", tableId, dbId);
+            return;
+        }
+        olapTable.writeLock();
+        try {
+            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+            defaultDistributionInfo.setBucketNum(bucketNum);
         } finally {
             olapTable.writeUnlock();
         }
@@ -5706,6 +5785,10 @@ public class Catalog {
 
     public boolean isNonNullResultWithNullParamFunction(String funcName) {
         return functionSet.isNonNullResultWithNullParamFunctions(funcName);
+    }
+
+    public boolean isNondeterministicFunction(String funcName) {
+        return functionSet.isNondeterministicFunction(funcName);
     }
 
     /**
@@ -7023,4 +7106,3 @@ public class Catalog {
         }
     }
 }
-

@@ -143,7 +143,6 @@ public class StreamLoadScanNode extends LoadScanNode {
         initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);
         initAndSetWhereExpr(taskInfo.getWhereExpr(), this.desc, analyzer);
 
-        computeStats(analyzer);
         createDefaultSmap(analyzer);
 
         if (taskInfo.getColumnSeparator() != null) {
@@ -169,6 +168,7 @@ public class StreamLoadScanNode extends LoadScanNode {
         brokerScanRange.setParams(params);
 
         brokerScanRange.setBrokerAddresses(Lists.newArrayList());
+        computeStats(analyzer);
     }
 
     @Override

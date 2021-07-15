@@ -45,11 +45,11 @@ import java.util.List;
 public abstract class Type {
     private static final Logger LOG = LogManager.getLogger(Type.class);
 
-    // Maximum nesting depth of a type. This limit was determined experimentally by
+    // Maximum nesting depth of a type. This limit was determined experimentally byorg.apache.doris.rewrite.FoldConstantsRule.apply
     // generating and scanning deeply nested Parquet and Avro files. In those experiments,
     // we exceeded the stack space in the scanner (which uses recursion for dealing with
     // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
-    public static int MAX_NESTING_DEPTH = 100;
+    public static int MAX_NESTING_DEPTH = 2;
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
@@ -69,12 +69,13 @@ public abstract class Type {
             ScalarType.createDecimalV2Type(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);
     public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
-           // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
+    // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType HLL = ScalarType.createHllType();
     public static final ScalarType CHAR = (ScalarType) ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
+    public static final MapType Map = new MapType();
 
     private static ArrayList<ScalarType> integerTypes;
     private static ArrayList<ScalarType> numericTypes;
@@ -262,7 +263,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType();
+        return isMapType() || isArrayType() || isMultiRowType();
     }
 
     public boolean isMapType() {
@@ -271,6 +272,10 @@ public abstract class Type {
 
     public boolean isArrayType() {
         return this instanceof ArrayType;
+    }
+
+    public boolean isMultiRowType() {
+        return this instanceof MultiRowType;
     }
 
     public boolean isStructType() {
@@ -288,6 +293,8 @@ public abstract class Type {
     public boolean isSupported() {
         return true;
     }
+
+    public int getLength() { return -1; }
 
     /**
      * Indicates whether we support partitioning tables on columns of this type.
@@ -352,6 +359,16 @@ public abstract class Type {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
+        if (t1.isComplexType() || t2.isComplexType()) {
+            if (t1.isArrayType() && t2.isArrayType()) {
+                return true;
+            } else if (t1.isMapType() && t2.isMapType()) {
+                return true;
+            } else if (t1.isStructType() && t2.isStructType()) {
+                return true;
+            }
+            return false;
+        }
         return false;
     }
 
@@ -413,7 +430,7 @@ public abstract class Type {
         if (d >= MAX_NESTING_DEPTH) return true;
         if (isStructType()) {
             StructType structType = (StructType) this;
-            for (StructField f: structType.getFields()) {
+            for (StructField f : structType.getFields()) {
                 if (f.getType().exceedsMaxNestingDepth(d + 1)) {
                     return true;
                 }
@@ -421,6 +438,11 @@ public abstract class Type {
         } else if (isArrayType()) {
             ArrayType arrayType = (ArrayType) this;
             if (arrayType.getItemType().exceedsMaxNestingDepth(d + 1)) {
+                return true;
+            }
+        } else if (isMultiRowType()) {
+            MultiRowType multiRowType = (MultiRowType) this;
+            if (multiRowType.getItemType().exceedsMaxNestingDepth(d + 1)) {
                 return true;
             }
         } else if (isMapType()) {
@@ -467,6 +489,12 @@ public abstract class Type {
                 return Type.VARCHAR;
             case HLL:
                 return Type.HLL;
+            case ARRAY:
+                return ArrayType.create();
+            case MAP:
+                return new MapType();
+            case STRUCT:
+                return new StructType();
             case BITMAP:
                 return Type.BITMAP;
             default:
@@ -890,8 +918,12 @@ public abstract class Type {
                 if (t1 == PrimitiveType.INVALID_TYPE ||
                         t2 == PrimitiveType.INVALID_TYPE) continue;
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
                 if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
+                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) continue;
+                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }

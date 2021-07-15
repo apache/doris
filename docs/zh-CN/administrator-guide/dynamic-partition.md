@@ -125,13 +125,13 @@ under the License.
 
 * `dynamic_partition.create_history_partition`
 
-    默认为 false。当置为 true 时，Doris 会自动创建由 start 到 end 的所有分区。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当 end - start 的值大于 `max_dynamic_partition_num` 值时，操作将被禁止。
+    默认为 false。当置为 true 时，Doris 会自动创建所有分区，具体创建规则见下文。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当期望创建的分区个数大于 `max_dynamic_partition_num` 值时，操作将被禁止。
 
     当不指定 `start` 属性时，该参数不生效。
 
 * `dynamic_partition.history_partition_num`
    
-   当 `create_history_partition` 为 `true` 时，该参数用于指定创建历史分区数量。
+   当 `create_history_partition` 为 `true` 时，该参数用于指定创建历史分区数量。默认值为 -1， 即未设置。
 
 * `dynamic_partition.hot_partition_num`
 
@@ -148,7 +148,61 @@ under the License.
     p20210522：["2021-05-22", "2021-05-23") storage_medium=SSD storage_cooldown_time=2021-05-24 00:00:00
     p20210523：["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
     ```
-  
+
+#### 创建历史分区规则
+
+当 `create_history_partition` 为 `true`，即开启创建历史分区功能时，Doris 会根据 `dynamic_partition.start` 和 `dynamic_partition.history_partition_num` 来决定创建历史分区的个数。
+
+假设需要创建的历史分区数量为 `expect_create_partition_num`，根据不同的设置具体数量如下：
+
+1. `create_history_partition` = `true`  
+   - `dynamic_partition.history_partition_num` 未设置，即 -1.  
+        `expect_create_partition_num` = `end` - `start`; 
+
+   - `dynamic_partition.history_partition_num` 已设置   
+        `expect_create_partition_num` = `end` - max(`start`, `-histoty_partition_num`);
+
+2. `create_history_partition` = `false`  
+    不会创建历史分区，`expect_create_partition_num` = `end` - 0;
+
+当 `expect_create_partition_num` 大于 `max_dynamic_partition_num`（默认500）时，禁止创建过多分区。
+
+**举例说明：**
+
+1. 假设今天是 2021-05-20，按天分区，动态分区的属性设置为：`create_history_partition=true, end=3, start=-3, history_partition_num=1`，则系统会自动创建以下分区：
+
+    ``` 
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+2. `history_partition_num=5`，其余属性与 1 中保持一直，则系统会自动创建以下分区：
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+3. `history_partition_num=-1` 即不设置历史分区数量，其余属性与 1 中保持一直，则系统会自动创建以下分区：
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
 ### 注意事项 
  
 动态分区使用过程中，如果因为一些意外情况导致 `dynamic_partition.start` 和 `dynamic_partition.end` 之间的某些分区丢失，那么当前时间与 `dynamic_partition.end` 之间的丢失分区会被重新创建，`dynamic_partition.start`与当前时间之间的丢失分区不会重新创建。

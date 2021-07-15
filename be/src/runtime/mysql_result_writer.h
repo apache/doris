@@ -47,6 +47,7 @@ private:
     void _init_profile();
     // convert one tuple row
     Status _add_one_row(TupleRow* row);
+    int _add_row_value(int index, const TypeDescriptor& type, void* item);
 
 private:
     BufferControlBlock* _sinker;

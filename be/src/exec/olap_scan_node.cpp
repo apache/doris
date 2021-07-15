@@ -182,6 +182,10 @@ Status OlapScanNode::prepare(RuntimeState* state) {
             continue;
         }
 
+        if (slots[i]->type().is_collection_type()) {
+            _collection_slots.push_back(slots[i]);
+        }
+
         if (!slots[i]->type().is_string_type()) {
             continue;
         }

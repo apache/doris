@@ -84,6 +84,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
 
+    public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
+
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
     // if set to true, some of stmt will be forwarded to master FE to get result
@@ -114,6 +116,24 @@ public class SessionVariable implements Serializable, Writable {
 
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
+
+    // runtime filter run mode
+    public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
+    // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
+    // be rounded up to the nearest power of two.
+    public static final String RUNTIME_BLOOM_FILTER_SIZE = "runtime_bloom_filter_size";
+    // Minimum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
+    // Maximum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    // Time in ms to wait until runtime filters are delivered.
+    public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
+    // Maximum number of bloom runtime filters allowed per query
+    public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
+    // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
+    public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
+    // if the right table is greater than this value in the hash join,  we will ignore IN filter
+    public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
 
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
@@ -270,6 +290,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     public boolean enablePartitionCache = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
+    private boolean enableJoinReorderBasedCost = false;
+
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = false;
 
@@ -310,6 +333,23 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
+    private String runtimeFilterMode = "GLOBAL";
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
+    private int runtimeBloomFilterSize = 2097152;
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE)
+    private int runtimeBloomFilterMinSize = 1048576;
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE)
+    private int runtimeBloomFilterMaxSize = 16777216;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS)
+    private int runtimeFilterWaitTimeMs = 1000;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
+    private int runtimeFiltersMaxNum = 10;
+    // Set runtimeFilterType to IN filter
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    private int runtimeFilterType = 1;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
+    private int runtimeFilterMaxInNum = 1024;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -338,6 +378,8 @@ public class SessionVariable implements Serializable, Writable {
     public void setSqlMode(long sqlMode) {
         this.sqlMode = sqlMode;
     }
+
+    public boolean isEnableJoinReorderBasedCost() { return enableJoinReorderBasedCost; }
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -585,6 +627,70 @@ public class SessionVariable implements Serializable, Writable {
         return allowPartitionColumnNullable;
     }
 
+    public String getRuntimeFilterMode() {
+        return runtimeFilterMode;
+    }
+
+    public void setRuntimeFilterMode(String runtimeFilterMode) {
+        this.runtimeFilterMode = runtimeFilterMode;
+    }
+
+    public int getRuntimeBloomFilterSize() {
+        return runtimeBloomFilterSize;
+    }
+
+    public void setRuntimeBloomFilterSize(int runtimeBloomFilterSize) {
+        this.runtimeBloomFilterSize = runtimeBloomFilterSize;
+    }
+
+    public int getRuntimeBloomFilterMinSize() {
+        return runtimeBloomFilterMinSize;
+    }
+
+    public void setRuntimeBloomFilterMinSize(int runtimeBloomFilterMinSize) {
+        this.runtimeBloomFilterMinSize = runtimeBloomFilterMinSize;
+    }
+
+    public int getRuntimeBloomFilterMaxSize() {
+        return runtimeBloomFilterMaxSize;
+    }
+
+    public void setRuntimeBloomFilterMaxSize(int runtimeBloomFilterMaxSize) {
+        this.runtimeBloomFilterMaxSize = runtimeBloomFilterMaxSize;
+    }
+
+    public int getRuntimeFilterWaitTimeMs() {
+        return runtimeFilterWaitTimeMs;
+    }
+
+    public void setRuntimeFilterWaitTimeMs(int runtimeFilterWaitTimeMs) {
+        this.runtimeFilterWaitTimeMs = runtimeFilterWaitTimeMs;
+    }
+
+    public int getRuntimeFiltersMaxNum() {
+        return runtimeFiltersMaxNum;
+    }
+
+    public void setRuntimeFiltersMaxNum(int runtimeFiltersMaxNum) {
+        this.runtimeFiltersMaxNum = runtimeFiltersMaxNum;
+    }
+
+    public int getRuntimeFilterType() {
+        return runtimeFilterType;
+    }
+
+    public void setRuntimeFilterType(int runtimeFilterType) {
+        this.runtimeFilterType = runtimeFilterType;
+    }
+
+    public int getRuntimeFilterMaxInNum() {
+        return runtimeFilterMaxInNum;
+    }
+
+    public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
+        this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
+    }
+
     public long getInsertVisibleTimeoutMs() {
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
             return MIN_INSERT_VISIBLE_TIMEOUT_MS;
@@ -658,6 +764,9 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableSpilling(enableSpilling);
         tResult.setEnableEnableExchangeNodeParallelMerge(enableExchangeNodeParallelMerge);
+
+        tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
+        tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         return tResult;
     }
 

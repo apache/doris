@@ -83,7 +83,7 @@ public class DescriptorTable {
         for (SlotDescriptor slot: src.getSlots()) {
             copySlotDescriptor(d, slot);
         }
-        d.computeMemLayout();
+        d.computeStatAndMemLayout();
         return d;
     }
 
@@ -122,11 +122,18 @@ public class DescriptorTable {
         }
     }
 
-    // Computes physical layout parameters of all descriptors.
-    // Call this only after the last descriptor was added.
+    @Deprecated
     public void computeMemLayout() {
         for (TupleDescriptor d : tupleDescs.values()) {
             d.computeMemLayout();
+        }
+    }
+
+    // Computes physical layout parameters of all descriptors and calculate the statistics of the tuple.
+    // Call this only after the last descriptor was added.
+    public void computeStatAndMemLayout() {
+        for (TupleDescriptor d : tupleDescs.values()) {
+            d.computeStatAndMemLayout();
         }
     }
 

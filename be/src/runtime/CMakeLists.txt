@@ -50,6 +50,7 @@ set(RUNTIME_FILES
     #  timestamp_value.cpp
     decimalv2_value.cpp
     large_int_value.cpp
+    collection_value.cpp
     tuple.cpp
     tuple_row.cpp
     vectorized_row_batch.cpp

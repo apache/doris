@@ -1,6 +1,6 @@
 ---
 {
-    "title": "代码格式化",
+    "title": "C++ 代码格式化",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 代码格式化
+# C++ 代码格式化
+
 Doris使用clang-format进行代码格式化，并在build-support目录下提供了封装脚本`clang-format.sh`.
 
 ## 代码风格定制

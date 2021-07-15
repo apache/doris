@@ -63,7 +63,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     private static final String NEGATE_FN = "negate";
 
     // to be used where we can't come up with a better estimate
-    protected static final double DEFAULT_SELECTIVITY = 0.1;
+    public static final double DEFAULT_SELECTIVITY = 0.1;
 
     public final static float FUNCTION_CALL_COST = 10;
 
@@ -179,6 +179,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 @Override
                 public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
+
+    public void setSelectivity() {
+        selectivity = -1;
+    }
 
     /* TODO(zc)
     public final static com.google.common.base.Predicate<Expr>
@@ -299,6 +303,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return selectivity;
     }
 
+    public boolean hasSelectivity() { return selectivity >= 0; }
+
     public long getNumDistinctValues() {
         return numDistinctValues;
     }
@@ -374,6 +380,9 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
         // Do all the analysis for the expr subclass before marking the Expr analyzed.
         analyzeImpl(analyzer);
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            setSelectivity();
+        }
         analysisDone();
     }
 
@@ -1420,6 +1429,29 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
+    /**
+     * Returns the descriptor of the scan slot that directly or indirectly produces
+     * the values of 'this' SlotRef. Traverses the source exprs of intermediate slot
+     * descriptors to resolve materialization points (e.g., aggregations).
+     * Returns null if 'e' or any source expr of 'e' is not a SlotRef or cast SlotRef.
+     */
+    public SlotDescriptor findSrcScanSlot() {
+        SlotRef slotRef = unwrapSlotRef(false);
+        if (slotRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDesc = slotRef.getDesc();
+        if (slotDesc.isScanSlot()) {
+            return slotDesc;
+        }
+        if (slotDesc.getSourceExprs().size() == 1) {
+            return slotDesc.getSourceExprs().get(0).findSrcScanSlot();
+        }
+        // No known source expr, or there are several source exprs meaning the slot is
+        // has no single source table.
+        return null;
+    }
+
     public static double getConstFromExpr(Expr e) throws AnalysisException{
         Preconditions.checkState(e.isConstant());
         double value = 0;
@@ -1582,7 +1614,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         DATE_LITERAL(9),
         MAX_LITERAL(10),
         BINARY_PREDICATE(11),
-        FUNCTION_CALL(12);
+        FUNCTION_CALL(12),
+        ARRAY_LITERAL(13);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1630,6 +1663,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.BINARY_PREDICATE.getCode());
         } else if (expr instanceof FunctionCallExpr) {
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
+        } else if (expr instanceof ArrayLiteral) {
+            output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
@@ -1671,6 +1706,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BinaryPredicate.read(in);
             case FUNCTION_CALL:
                 return FunctionCallExpr.read(in);
+            case ARRAY_LITERAL:
+                return ArrayLiteral.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }
@@ -1703,5 +1740,42 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         recursiveResetChildrenResult();
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
+    }
+
+    public String getStringValue() {
+        if (this instanceof LiteralExpr) {
+            return ((LiteralExpr) this).getStringValue();
+        }
+        return "";
+    }
+
+    public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
+        for (Expr child: expr.getChildren()) {
+            if (child.isBoundByTupleIds(tids)) return child;
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if expr contains specify function, otherwise false.
+     */
+    public boolean isContainsFunction(String functionName) {
+        if (fn == null) return false;
+        if (fn.functionName().equalsIgnoreCase(functionName))  return true;
+        for (Expr child: children) {
+            if (child.isContainsFunction(functionName)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if expr contains specify className, otherwise false.
+     */
+    public boolean isContainsClass(String className) {
+        if (this.getClass().getName().equalsIgnoreCase(className)) return true;
+        for (Expr child: children) {
+            if (child.isContainsClass(className)) return true;
+        }
+        return false;
     }
 }

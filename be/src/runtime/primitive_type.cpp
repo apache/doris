@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "gen_cpp/Types_types.h"
+#include "runtime/collection_value.h"
 
 namespace doris {
 //to_tcolumn_type_thrift only test
@@ -92,6 +93,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::OBJECT:
         return TYPE_OBJECT;
 
+    case TPrimitiveType::ARRAY:
+        return TYPE_ARRAY;
+
     default:
         return INVALID_TYPE;
     }
@@ -156,6 +160,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_OBJECT:
         return TPrimitiveType::OBJECT;
 
+    case TYPE_ARRAY:
+        return TPrimitiveType::ARRAY;
+
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -219,6 +226,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "OBJECT";
+
+    case TYPE_ARRAY:
+        return "ARRAY";
 
     default:
         return "";
@@ -318,6 +328,51 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);
     return type_desc;
+}
+
+int get_slot_size(PrimitiveType type) {
+    switch (type) {
+    case TYPE_OBJECT:
+    case TYPE_HLL:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+        return sizeof(StringValue);
+    case TYPE_ARRAY:
+        return sizeof(CollectionValue);
+
+    case TYPE_NULL:
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+        return 1;
+
+    case TYPE_SMALLINT:
+        return 2;
+
+    case TYPE_INT:
+    case TYPE_FLOAT:
+        return 4;
+
+    case TYPE_BIGINT:
+    case TYPE_DOUBLE:
+        return 8;
+
+    case TYPE_LARGEINT:
+        return sizeof(__int128);
+
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+        // This is the size of the slot, the actual size of the data is 12.
+        return 16;
+
+    case TYPE_DECIMALV2:
+        return 16;
+
+    case INVALID_TYPE:
+    default:
+        DCHECK(false);
+    }
+
+    return 0;
 }
 
 } // namespace doris
