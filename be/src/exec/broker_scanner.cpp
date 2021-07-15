@@ -339,7 +339,7 @@ void BrokerScanner::split_line(const Slice& line) {
             int len = col.value().size();
             uint8_t* buf = new uint8_t[len];
             memcpy(buf, col.value().c_str(), len);
-            _split_values->emplace_back(buf, len);
+            _split_values.emplace_back(buf, len);
         }
         delete row;
         delete ptr;

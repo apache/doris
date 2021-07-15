@@ -529,7 +529,7 @@ std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_
         }
     }
 }
-1
+
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     {
