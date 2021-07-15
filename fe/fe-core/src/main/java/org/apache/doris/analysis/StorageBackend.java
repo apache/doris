@@ -27,12 +27,13 @@ import org.apache.doris.thrift.TStorageBackendType;
 import com.google.common.base.Strings;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
 public class StorageBackend extends StorageDesc implements ParseNode {
-    private static Logger LOG = Logger.getLogger(StorageBackend.class);
+    private static final Logger LOG = LoggerFactory.getLogger(StorageBackend.class);
 
     private String location;
     private StorageType storageType;
