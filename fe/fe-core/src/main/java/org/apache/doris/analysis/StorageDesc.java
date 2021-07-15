@@ -23,14 +23,15 @@ import org.apache.doris.common.Config;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.client.utils.URIBuilder;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Map;
 
 public abstract class StorageDesc {
-    private static Logger LOG = Logger.getLogger(StorageBackend.class);
+    private static final Logger LOG = LoggerFactory.getLogger(StorageBackend.class);
     // for dfs
     public static final String HADOOP_JOB_UGI = "hadoop.job.ugi";
     public static final String HADOOP_JOB_GROUP_NAME = "hadoop.job.group.name";
