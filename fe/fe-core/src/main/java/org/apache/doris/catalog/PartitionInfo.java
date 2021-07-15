@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
-        setIsInMemory(partitionId, desc.isInMemory(), false);
+        setIsInMemory(partitionId, desc.isInMemory());
 
         return partitionItem;
     }
@@ -148,7 +148,7 @@ public class PartitionInfo implements Writable {
         setItemInternal(partitionId, isTemp, partitionItem);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
-        setIsInMemory(partitionId, isInMemory, false);
+        idToInMemory.put(partitionId, isInMemory);
     }
 
     public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
@@ -225,19 +225,7 @@ public class PartitionInfo implements Writable {
     }
 
     public void setIsInMemory(long partitionId, boolean isInMemory) {
-        setIsInMemory(partitionId, isInMemory, true);
-    }
-
-    // if checkInMemory is true, here we would check partitionId should be added to or removed from InvertedIndex
-    public void setIsInMemory(long partitionId, boolean isInMemory, boolean checkInMemory) {
         idToInMemory.put(partitionId, isInMemory);
-        if (checkInMemory) {
-            if (isInMemory) {
-                Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partitionId);
-            } else {
-                Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(partitionId);
-            }
-        }
     }
 
     public TTabletType getTabletType(long partitionId) {
@@ -270,7 +258,7 @@ public class PartitionInfo implements Writable {
                              boolean isInMemory) {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
-        setIsInMemory(partitionId, isInMemory);
+        idToInMemory.put(partitionId, isInMemory);
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
@@ -299,7 +287,7 @@ public class PartitionInfo implements Writable {
         idToReplicationNum.remove(oldPartitionId);
         idToReplicationNum.put(newPartitionId, restoreReplicationNum);
         idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
-        setIsInMemory(newPartitionId, idToInMemory.remove(oldPartitionId), false);
+        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
     }
 
     @Override

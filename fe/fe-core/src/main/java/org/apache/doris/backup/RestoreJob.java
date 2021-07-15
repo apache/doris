@@ -787,14 +787,6 @@ public class RestoreJob extends AbstractJob {
                                 + " already exist in db: " + db.getFullName());
                         return;
                     }
-                    if (tbl.getType() == TableType.OLAP) {
-                        OlapTable olapTable = (OlapTable) tbl;
-                        for (Partition partition : ((OlapTable) tbl).getAllPartitions()) {
-                            if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
-                                Catalog.getCurrentInvertedIndex().addPartitionIdToInMemorySet(partition.getId());
-                            }
-                        }
-                    }
                 } finally {
                     db.writeUnlock();
                 }
@@ -1552,9 +1544,6 @@ public class RestoreJob extends AbstractJob {
                                     Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
                                 }
                             }
-                            if (restoreOlapTable.getPartitionInfo().getIsInMemory(part.getId())) {
-                                Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(part.getId());
-                            }
                         }
                     } finally {
                         restoreTbl.writeUnlock();
@@ -1573,9 +1562,6 @@ public class RestoreJob extends AbstractJob {
                         restoreTbl.getName(), entry.second.getName());
                 restoreTbl.writeLock();
                 try {
-                    if (restoreTbl.getPartitionInfo().getIsInMemory(entry.second.getId())) {
-                        Catalog.getCurrentInvertedIndex().removePartitionIdFromInMemorySet(entry.second.getId());
-                    }
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {
                     restoreTbl.writeUnlock();
