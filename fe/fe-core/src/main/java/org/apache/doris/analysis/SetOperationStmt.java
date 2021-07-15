@@ -180,10 +180,10 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTableRefs(tblRefs, parentViewNameSet);
+            op.getQueryStmt().getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
     }
 
