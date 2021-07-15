@@ -472,7 +472,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<String> strings = Lists.newArrayList();
         for (Expr expr : exprs) {
-            strings.add(expr.debugString());
+            String exprStr = expr.debugString();
+            if (exprStr != null) {
+                strings.add(exprStr);
+            }
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
     }
