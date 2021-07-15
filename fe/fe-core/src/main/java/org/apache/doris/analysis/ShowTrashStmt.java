@@ -29,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
@@ -38,8 +37,6 @@ import java.util.List;
 import java.util.Map;
 
 public class ShowTrashStmt extends ShowStmt {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("Backend").add("TrashUsedCapacity").build();
     private List<Backend> backends = Lists.newArrayList();
 
     public ShowTrashStmt(List<String> backends) {
