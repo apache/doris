@@ -17,6 +17,7 @@
 package org.apache.doris.flink.table;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.flink.exception.StreamLoadException;
 import org.apache.doris.flink.rest.models.RespContent;
 import org.slf4j.Logger;
@@ -36,6 +37,8 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 /**
@@ -54,8 +57,9 @@ public class DorisStreamLoad implements Serializable{
     private String db;
     private String tbl;
     private String authEncoding;
+    private Properties streamLoadProp;
 
-    public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd) {
+    public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd,Properties streamLoadProp) {
         this.hostPort = hostPort;
         this.db = db;
         this.tbl = tbl;
@@ -63,6 +67,7 @@ public class DorisStreamLoad implements Serializable{
         this.passwd = passwd;
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        this.streamLoadProp = streamLoadProp;
     }
 
     public String getLoadUrlStr() {
@@ -89,6 +94,9 @@ public class DorisStreamLoad implements Serializable{
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        for(Map.Entry<Object, Object> entry : streamLoadProp.entrySet()){
+            conn.addRequestProperty(String.valueOf(entry.getKey()),String.valueOf(entry.getValue()));
+        }
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -133,11 +141,15 @@ public class DorisStreamLoad implements Serializable{
     }
 
     private LoadResponse loadBatch(String value) {
-        Calendar calendar = Calendar.getInstance();
-        String label = String.format("flink_connector_%s%02d%02d_%02d%02d%02d_%s",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
-                UUID.randomUUID().toString().replaceAll("-", ""));
+        String label = streamLoadProp.getProperty("label");
+        if(StringUtils.isBlank(label)){
+            Calendar calendar = Calendar.getInstance();
+            label = String.format("flink_connector_%s%02d%02d_%02d%02d%02d_%s",
+                    calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                    calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                    UUID.randomUUID().toString().replaceAll("-", ""));
+
+        }
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;

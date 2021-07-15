@@ -34,6 +34,8 @@ import org.apache.flink.table.utils.TableSchemaUtils;
 
 import java.time.Duration;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT;
@@ -149,6 +151,9 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 					"default value is 1s.");
 
 
+	// Prefix for Doris StreamLoad specific properties.
+	public static final String STREAM_LOAD_PROP_PREFIX = "sink.properties.";
+
 	@Override
 	public String factoryIdentifier() {
 		return "doris"; // used for matching to `connector = '...'`
@@ -234,27 +239,39 @@ public final class DorisDynamicTableFactory implements  DynamicTableSourceFactor
 		return builder.build();
 	}
 
-	private DorisExecutionOptions getDorisExecutionOptions(ReadableConfig readableConfig) {
+	private DorisExecutionOptions getDorisExecutionOptions(ReadableConfig readableConfig,Properties streamLoadProp) {
 		final DorisExecutionOptions.Builder builder = DorisExecutionOptions.builder();
 		builder.setBatchSize(readableConfig.get(SINK_BUFFER_FLUSH_MAX_ROWS));
 		builder.setMaxRetries(readableConfig.get(SINK_MAX_RETRIES));
 		builder.setBatchIntervalMs(readableConfig.get(SINK_BUFFER_FLUSH_INTERVAL).toMillis());
+		builder.setStreamLoadProp(streamLoadProp);
 		return builder.build();
 	}
 
+	private Properties getStreamLoadProp(Map<String, String> tableOptions){
+		final Properties streamLoadProp = new Properties();
+
+		for(Map.Entry<String,String> entry : tableOptions.entrySet()){
+			if(entry.getKey().startsWith(STREAM_LOAD_PROP_PREFIX)){
+				String subKey = entry.getKey().substring((STREAM_LOAD_PROP_PREFIX).length());
+				streamLoadProp.put(subKey, entry.getValue());
+			}
+		}
+		return streamLoadProp;
+	}
 
 	@Override
 	public DynamicTableSink createDynamicTableSink(Context context) {
-		// either implement your custom validation logic here ...
-		// or use the provided helper utility
 		final FactoryUtil.TableFactoryHelper helper = FactoryUtil.createTableFactoryHelper(this, context);
 		// validate all options
-		helper.validate();
+		helper.validateExcept(STREAM_LOAD_PROP_PREFIX);
+
+		Properties streamLoadProp = getStreamLoadProp(context.getCatalogTable().getOptions());
 		// create and return dynamic table source
 		return new DorisDynamicTableSink(
 				getDorisOptions(helper.getOptions()),
 				getDorisReadOptions(helper.getOptions()),
-				getDorisExecutionOptions(helper.getOptions())
+				getDorisExecutionOptions(helper.getOptions(),streamLoadProp)
 		);
 	}
 }
