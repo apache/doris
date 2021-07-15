@@ -216,7 +216,7 @@ int64_t BackendService::get_trash_used_capacity() {
     std::vector<DataDirInfo> data_dir_infos;
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
 
-    for (auto& root_path_info : data_dir_infos) {
+    for (const auto& root_path_info : data_dir_infos) {
         std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
         std::filesystem::path trash_path(lhs_trash_path);
         result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
