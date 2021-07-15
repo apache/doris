@@ -17,7 +17,7 @@
 
 package org.apache.doris.master;
 
-import com.google.common.collect.Sets;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -77,6 +77,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -679,6 +680,7 @@ public class ReportHandler extends Daemon {
         int deleteFromBackendCounter = 0;
         int addToMetaCounter = 0;
         AgentBatchTask batchTask = new AgentBatchTask();
+        // This means that the meta of all backend tablets can be found in fe, we only need to process tablets with invalid Schema
         if (foundTabletsWithValidSchema.size() + foundTabletsWithInvalidSchema.size() == backendTablets.size()) {
             for (Long tabletId : foundTabletsWithInvalidSchema.keySet()) {
                 // this tablet is found in meta but with invalid schema hash. delete it.
