@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW BACKENDS",
+    "title": "SHOW TRASH",
     "language": "zh-CN"
 }
 ---

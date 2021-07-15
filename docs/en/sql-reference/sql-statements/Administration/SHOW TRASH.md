@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW BACKENDS",
-    "language": "zh-CN"
+    "title": "SHOW TRASH",
+    "language": "en"
 }
 ---
 
@@ -34,7 +34,7 @@ This statement is used to view trash used capacity on some backends.
         SHOW TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
 
     Explain:
-    
+
         1. BackendId Indicates the ID of the backend node.
         2. Backend The format is BackendHost:BackendHeartBeatPort of the node. 
         3. TrashUsedCapacity Indicates that the garbage data of the node occupies space. 
