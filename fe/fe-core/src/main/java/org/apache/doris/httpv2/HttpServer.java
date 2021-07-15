@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2;
 
 import org.apache.doris.PaloFe;
+import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -85,7 +86,7 @@ public class HttpServer extends SpringBootServletInitializer {
         // To avoid some unexpected behavior.
         System.setProperty("spring.devtools.restart.enabled", "false");
         System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
-        properties.put("logging.config", dorisHome + "/conf/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
+        properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)

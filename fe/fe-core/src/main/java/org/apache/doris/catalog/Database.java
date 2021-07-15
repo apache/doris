@@ -74,7 +74,7 @@ public class Database extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
     // empirical value.
-    // assume that the time a lock is held by thread is less then 100ms
+    // assume that the time a lock is held by thread is less than 100ms
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
     private long id;
