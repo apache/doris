@@ -57,12 +57,12 @@ under the License.
     3. 展示指定 db 的Stream Load任务，指定 label 为 "load_example_db_20140102"
         SHOW STREAM LOAD FROM example_db WHERE LABEL = "load_example_db_20140102";
         
-    4. 展示指定 db 的Stream Load任务，指定 status 为 "success", 并按 LoadStartTime 降序排序
-        SHOW STREAM LOAD FROM example_db WHERE STATUS = "success" ORDER BY LoadStartTime DESC;
+    4. 展示指定 db 的Stream Load任务，指定 status 为 "success", 并按 StartTime 降序排序
+        SHOW STREAM LOAD FROM example_db WHERE STATUS = "success" ORDER BY StartTime DESC;
         
-    5. 展示指定 db 的导入任务 并按 LoadStartTime 降序排序,并从偏移量5开始显示10条查询结果
-        SHOW STREAM LOAD FROM example_db ORDER BY LoadStartTime DESC limit 5,10;
-        SHOW STREAM LOAD FROM example_db ORDER BY LoadStartTime DESC limit 10 offset 5;
+    5. 展示指定 db 的导入任务 并按 StartTime 降序排序,并从偏移量5开始显示10条查询结果
+        SHOW STREAM LOAD FROM example_db ORDER BY StartTime DESC limit 5,10;
+        SHOW STREAM LOAD FROM example_db ORDER BY StartTime DESC limit 10 offset 5;
 
 ## keyword
     SHOW,STREAM LOAD
