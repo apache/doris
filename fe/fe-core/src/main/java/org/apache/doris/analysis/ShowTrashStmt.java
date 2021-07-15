@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
@@ -77,7 +78,7 @@ public class ShowTrashStmt extends ShowStmt {
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : TITLE_NAMES) {
+        for (String title : TrashProcNode.TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
