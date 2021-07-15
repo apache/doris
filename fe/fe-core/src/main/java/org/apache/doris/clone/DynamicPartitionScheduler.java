@@ -285,6 +285,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 RangeUtils.checkRangeIntersect(reservePartitionKeyRange, checkDropPartitionKey);
                 if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) <= 0) {
                     String dropPartitionName = olapTable.getPartition(checkDropPartitionId).getName();
+                    // Do not drop the partition "by force", or the partition will be dropped directly instread of being in
+                    // catalog recycle bin. This is for safe reason.
                     dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
                 }
             } catch (DdlException e) {

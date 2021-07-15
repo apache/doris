@@ -20,7 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.http.rest.RestBaseResult;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -37,6 +37,20 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 // Get load information of one load job
+// To be compatible with old api, we return like this:
+// {
+//     "status": "OK",
+//     "msg": "Success",
+//     "jobInfo": {
+//         "dbName": "default_cluster:db1",
+//         "tblNames": ["tbl1"],
+//         "label": "abc",
+//         "clusterName": "default_cluster",
+//         "state": "FINISHED",
+//         "failMsg": "",
+//         "trackingUrl": "\\N"
+//     }
+// }
 @RestController
 public class GetLoadInfoAction extends RestBaseController {
 
@@ -55,13 +69,13 @@ public class GetLoadInfoAction extends RestBaseController {
                 request.getParameter(LABEL_KEY),
                 ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
-            return ResponseEntityBuilder.badRequest("No database selected");
+            return new RestBaseResult("No database selected");
         }
         if (Strings.isNullOrEmpty(info.label)) {
-            return ResponseEntityBuilder.badRequest("No label selected");
+            return new RestBaseResult("No label selected");
         }
         if (Strings.isNullOrEmpty(info.clusterName)) {
-            return ResponseEntityBuilder.badRequest("No cluster selected");
+            return new RestBaseResult("No cluster selected");
         }
 
         RedirectView redirectView = redirectToMaster(request, response);
@@ -83,9 +97,20 @@ public class GetLoadInfoAction extends RestBaseController {
             try {
                 catalog.getLoadManager().getLoadJobInfo(info);
             } catch (DdlException e1) {
-                return ResponseEntityBuilder.okWithCommonError(e1.getMessage());
+                return new RestBaseResult(e.getMessage());
             }
         }
-        return ResponseEntityBuilder.ok(info);
+        return new Result(info);
+    }
+
+    // This is just same as Result in http/rest/GetLoadInfoAction.java
+    // for compatibility.
+    private static class Result extends RestBaseResult {
+        public Load.JobInfo jobInfo;
+
+        public Result(Load.JobInfo info) {
+            jobInfo = info;
+        }
     }
 }
+
