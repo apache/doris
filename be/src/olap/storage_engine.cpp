@@ -385,7 +385,7 @@ int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_pat
         return std::filesystem::file_size(file_path);
     }
     int64_t sum_size = 0;
-    for (auto& it : std::filesystem::directory_iterator(file_path)) {
+    for (const auto& it : std::filesystem::directory_iterator(file_path)) {
         sum_size += get_file_or_directory_size(it.path());
     }
     return sum_size;
