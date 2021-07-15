@@ -35,7 +35,7 @@ public class SpringLog4j2Config {
         Writer writer = null;
         try {
             // log4j2-spring.xml file path
-            File file = new File(confDir + SPRING_LOG_XML_FILE);
+            File file = new File(confDir + "/" + SPRING_LOG_XML_FILE);
             if (!file.exists()) {
                 file.createNewFile();
                 //write file

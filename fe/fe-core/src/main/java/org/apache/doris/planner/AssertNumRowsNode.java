@@ -29,7 +29,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * Assert num rows node is used to determine whether the number of rows is less then desired num of rows.
+ * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
  * The rows are the result of subqueryString.
  * If the number of rows is more than the desired num of rows, the query will be cancelled.
  * The cancelled reason will be reported by Backend and displayed back to the user.
