@@ -1729,8 +1729,7 @@ public class ShowExecutor {
             if (trashUsedCapacityB != null) {
                 List<String> backendInfo = new ArrayList<String>();
                 backendInfo.add(String.valueOf(backend.getId()));
-                backendInfo.add(backend.getHost());
-                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+                backendInfo.add(backend.getHost() + ":" + String.valueOf(backend.getHeartbeatPort()));
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
                 results.add(backendInfo);

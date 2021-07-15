@@ -38,7 +38,7 @@ import java.util.Map;
 
 public class ShowTrashStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("BackendHost").add("BackendHeartbeatPort").add("TrashUsedCapacity").build();
+            .add("Backend").add("TrashUsedCapacity").build();
     private List<Backend> backends = Lists.newArrayList();
 
     public ShowTrashStmt(List<String> backends) {
@@ -55,6 +55,7 @@ public class ShowTrashStmt extends ShowStmt {
             for (String backend : backends) {
                 if (backendsID.get(backend) != null) {
                     this.backends.add(backendsInfo.get(backendsID.get(backend)));
+                    backendsID.remove(backend); // avoid repetition
                 }
             }
         }

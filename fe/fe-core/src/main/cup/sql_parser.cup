@@ -331,8 +331,6 @@ nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
 
-nonterminal opt_trash_string_list;
-
 nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
@@ -2556,7 +2554,7 @@ show_param ::=
     {:
         RESULT = new ShowBackendsStmt();
     :}
-    | KW_TRASH KW_ON string_list:backends
+    | KW_TRASH KW_ON LPAREN string_list:backends RPAREN
     {:
         RESULT = new ShowTrashStmt(backends);
     :}
