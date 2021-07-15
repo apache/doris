@@ -133,7 +133,7 @@ public class PartitionInfo implements Writable {
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
-        setIsInMemory(partitionId, desc.isInMemory());
+        idToInMemory.put(partitionId, desc.isInMemory());
 
         return partitionItem;
     }
