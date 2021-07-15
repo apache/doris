@@ -281,7 +281,7 @@ public class OlapTable extends Table {
             indexName = getIndexNameById(indexId);
             Preconditions.checkState(indexName != null);
         }
-        // Nullable when meta is less then VERSION_74
+        // Nullable when meta is less than VERSION_74
         if (keysType == null) {
             keysType = this.keysType;
         }
