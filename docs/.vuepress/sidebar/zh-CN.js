@@ -319,8 +319,6 @@ module.exports = [
               "ltrim",
               "money_format",
               "null_or_empty",
-              "regexp_extract",
-              "regexp_replace",
               "repeat",
               "reverse",
               "right",
@@ -329,6 +327,24 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              {
+                title: "模糊匹配",
+                directoryPath: "like/",
+                children: [
+                  "like",
+                  "not_like",
+                ],
+              },
+              {
+                title: "正则匹配",
+                directoryPath: "regexp/",
+                children: [
+                  "regexp",
+                  "regexp_extract",
+                  "regexp_replace",
+                  "not_regexp",
+                ],
+              },
             ],
           },
           {
