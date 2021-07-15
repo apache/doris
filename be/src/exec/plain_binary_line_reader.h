@@ -17,36 +17,24 @@
 
 #pragma once
 
-#include <memory>
+#include "exec/line_reader.h"
 
 namespace doris {
 
-class ExecEnv;
-class StreamLoadContext;
-class Status;
-class TTxnCommitAttachment;
-class StreamLoadPipe;
+class FileReader;
 
-class StreamLoadExecutor {
+class PlainBinaryLineReader : public LineReader {
 public:
-    StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
+    PlainBinaryLineReader(FileReader* file_reader);
 
-    Status begin_txn(StreamLoadContext* ctx);
+    virtual ~PlainBinaryLineReader();
 
-    Status commit_txn(StreamLoadContext* ctx);
+    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
 
-    void rollback_txn(StreamLoadContext* ctx);
-
-    Status execute_plan_fragment(StreamLoadContext* ctx);
-
-    Status execute_plan_fragment(StreamLoadContext* ctx, std::shared_ptr<StreamLoadPipe> pipe);
-private:
-    // collect the load statistics from context and set them to stat
-    // return true if stat is set, otherwise, return false
-    bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
+    virtual void close() override;
 
 private:
-    ExecEnv* _exec_env;
+    FileReader* _file_reader;
 };
 
 } // namespace doris

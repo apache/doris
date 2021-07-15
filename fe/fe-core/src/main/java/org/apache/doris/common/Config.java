@@ -433,6 +433,13 @@ public class Config extends ConfigBase {
     public static int publish_version_timeout_second = 30; // 30 seconds
 
     /**
+     * Maximal waiting time for all data inserted before one transaction to be committed
+     * This is the timeout second for the command "commit"
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int commit_timeout_second = 30; // 30 seconds
+
+    /**
      * minimal intervals between two publish version action
      */
     @ConfField public static int publish_version_interval_ms = 10;

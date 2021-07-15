@@ -278,6 +278,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return isAnalyzed;
     }
 
+    public void checkValueValid() throws AnalysisException {}
+
     public ExprId getId() {
         return id;
     }
@@ -1778,4 +1780,5 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         return false;
     }
+
 }

@@ -1809,8 +1809,15 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        long txnId = showStmt.getTxnId();
+        Long txnId = showStmt.getTxnId();
+        String label = showStmt.getLabel();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        if (!label.isEmpty()) {
+            txnId = transactionMgr.getTransactionId(db.getId(), label);
+            if (txnId == null) {
+                throw new AnalysisException("transaction with label " + label + " does not exist");
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
     }
 

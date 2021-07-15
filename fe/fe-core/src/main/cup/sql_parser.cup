@@ -292,10 +292,11 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
+    link_stmt, migrate_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
     import_preceding_filter_stmt;
 
+nonterminal String transaction_label;
 nonterminal ImportColumnDesc import_column_desc;
 nonterminal List<ImportColumnDesc> import_column_descs;
 
@@ -687,6 +688,8 @@ stmt ::=
     | backup_stmt : stmt
     {: RESULT = stmt; :}
     | restore_stmt : stmt
+    {: RESULT = stmt; :}
+    | transaction_stmt : stmt
     {: RESULT = stmt; :}
     | unsupported_stmt : stmt
     {: RESULT = stmt; :}
@@ -4783,20 +4786,38 @@ truncate_stmt ::=
     :}
     ;
 
-unsupported_stmt ::=
-    KW_START KW_TRANSACTION opt_with_consistent_snapshot:v
+transaction_stmt ::=
+    KW_BEGIN
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionBeginStmt();
     :}
-    | KW_BEGIN opt_work:work
+    | KW_BEGIN KW_WITH KW_LABEL transaction_label:label
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionBeginStmt(label);
     :}
     | KW_COMMIT opt_work opt_chain opt_release
     {:
-        RESULT = new UnsupportedStmt();
+        RESULT = new TransactionCommitStmt();
     :}
     | KW_ROLLBACK opt_work opt_chain opt_release
+    {:
+        RESULT = new TransactionRollbackStmt();
+    :}
+    ;
+
+transaction_label ::=
+    /* empty */
+    {:
+        RESULT = null;
+    :}
+    | ident:label
+    {:
+        RESULT = label;
+    :}
+    ;
+
+unsupported_stmt ::=
+    KW_START KW_TRANSACTION opt_with_consistent_snapshot:v
     {:
         RESULT = new UnsupportedStmt();
     :}

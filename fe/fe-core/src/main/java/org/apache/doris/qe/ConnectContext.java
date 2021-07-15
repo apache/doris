@@ -19,7 +19,9 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -27,6 +29,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.collect.Lists;
 
@@ -64,6 +67,9 @@ public class ConnectContext {
     protected volatile boolean isKilled;
     // Db
     protected volatile String currentDb = "";
+    protected volatile long currentDbId = -1;
+    // Transaction
+    protected volatile TransactionEntry txnEntry = null;
     // cluster name
     protected volatile String clusterName = "";
     // username@host of current login user
@@ -154,6 +160,30 @@ public class ConnectContext {
         queryDetail = null;
     }
 
+    public boolean isTxnModel() {
+        return txnEntry != null && txnEntry.isTxnModel();
+    }
+    public boolean isTxnIniting() {
+        return txnEntry != null && txnEntry.isTxnIniting();
+    }
+    public boolean isTxnBegin() {
+        return txnEntry != null && txnEntry.isTxnBegin();
+    }
+    public void closeTxn() {
+        if (isTxnModel()) {
+            if (isTxnBegin()) {
+                try {
+                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
+                } catch (UserException e) {
+                    LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
+                            txnEntry.getTxnConf().getTxnId(), e);
+                }
+            }
+            txnEntry = null;
+        }
+    }
+
     // Just for unit test
     public void resetSessionVariables() {
         sessionVariable = VariableMgr.newSessionVariable();
@@ -197,6 +227,18 @@ public class ConnectContext {
 
     public void setThreadLocalInfo() {
         threadLocalInfo.set(this);
+    }
+
+    public long getCurrentDbId() {
+        return currentDbId;
+    }
+
+    public TransactionEntry getTxnEntry() {
+        return txnEntry;
+    }
+
+    public void setTxnEntry(TransactionEntry txnEntry) {
+        this.txnEntry = txnEntry;
     }
 
     public TResourceInfo toResourceCtx() {
@@ -315,6 +357,12 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
+        Database database = Catalog.getCurrentCatalog().getDb(db);
+        if (database == null) {
+            currentDbId = -1;
+        } else {
+            currentDbId = database.getId();
+        }
     }
 
     public void setExecutor(StmtExecutor executor) {

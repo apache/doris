@@ -244,6 +244,18 @@ enum PaloInternalServiceVersion {
   V1
 }
 
+struct TTxnParams {
+  1: optional bool need_txn
+  2: optional string auth_code_uuid
+  3: optional i64 thrift_rpc_timeout_ms
+  4: optional string db
+  5: optional string tbl
+  6: optional string user_ip
+  7: optional i64 txn_id
+  8: optional Types.TUniqueId fragment_instance_id
+  9: optional i64 db_id
+  10: optional double max_filter_ratio
+}
 
 // ExecPlanFragment
 
@@ -299,6 +311,7 @@ struct TExecPlanFragmentParams {
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
   16: optional bool is_simplified_param
+  17: optional TTxnParams txn_conf
 }
 
 struct TExecPlanFragmentResult {
