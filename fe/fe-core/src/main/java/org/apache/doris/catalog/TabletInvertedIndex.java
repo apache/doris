@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -92,7 +92,7 @@ public class TabletInvertedIndex {
     // backend id -> (tablet id -> replica)
     private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
 
-    private Set<Long> partitionIdInMemorySet = Sets.newConcurrentHashSet();
+    private volatile ImmutableSet<Long> partitionIdInMemorySet = ImmutableSet.of();
 
     public TabletInvertedIndex() {
     }
@@ -304,22 +304,6 @@ public class TabletInvertedIndex {
         } finally {
             readUnlock();
         }
-    }
-
-    public void addPartitionIdToInMemorySet(long partitionId) {
-        if (!Catalog.isCheckpointThread()) {
-            partitionIdInMemorySet.add(partitionId);
-        }
-    }
-
-    public void removePartitionIdFromInMemorySet(long partitionId) {
-        if (!Catalog.isCheckpointThread()) {
-            partitionIdInMemorySet.remove(partitionId);
-        }
-    }
-
-    public boolean isInMemorySetContainsPartitionId(long partitionId) {
-        return partitionIdInMemorySet.contains(partitionId);
     }
 
     private boolean needSync(Replica replicaInFe, TTabletInfo backendTabletInfo) {
@@ -631,6 +615,10 @@ public class TabletInvertedIndex {
         } finally {
             writeUnlock();
         }
+    }
+
+    public void setPartitionIdInMemorySet(ImmutableSet<Long> partitionIdInMemorySet) {
+        this.partitionIdInMemorySet = partitionIdInMemorySet;
     }
 
     public Map<Long, Long> getReplicaToTabletMap() {

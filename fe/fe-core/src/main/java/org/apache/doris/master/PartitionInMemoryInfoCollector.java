@@ -17,6 +17,7 @@
 
 package org.apache.doris.master;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -46,6 +47,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
     private void updatePartitionInMemoryInfo() {
         Catalog catalog = Catalog.getCurrentCatalog();
         TabletInvertedIndex tabletInvertedIndex = catalog.getTabletInvertedIndex();
+        ImmutableSet.Builder builder = ImmutableSet.builder();
         List<Long> dbIdList = catalog.getDbIds();
         for (Long dbId : dbIdList) {
             Database db = catalog.getDb(dbId);
@@ -68,13 +70,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                         for (Partition partition : olapTable.getAllPartitions()) {
                             if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
                                 partitionInMemoryCount++;
-                                if (!tabletInvertedIndex.isInMemorySetContainsPartitionId(partition.getId())) {
-                                    tabletInvertedIndex.addPartitionIdToInMemorySet(partition.getId());
-                                }
-                            } else {
-                                if (tabletInvertedIndex.isInMemorySetContainsPartitionId(partition.getId())) {
-                                    tabletInvertedIndex.removePartitionIdFromInMemorySet(partition.getId());
-                                }
+                                builder.add(partition.getId());
                             }
                         }
                     } finally {
@@ -88,7 +84,8 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                 LOG.warn("Update database[" + db.getFullName() + "] partition in memory info failed", e);
             }
         }
-
+        ImmutableSet<Long> partitionIdInMemorySet = builder.build();
+        tabletInvertedIndex.setPartitionIdInMemorySet(partitionIdInMemorySet);
     }
 
 
