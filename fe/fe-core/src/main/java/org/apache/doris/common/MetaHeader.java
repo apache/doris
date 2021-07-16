@@ -25,6 +25,18 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.Arrays;
 
+/**
+ * Header Format:
+ * - Magic String (4 bytes)
+ * - Header Length (4 bytes)
+ * |- Header -----------------------------|
+ * | |- Json Header ---------------|      |
+ * | | - version                   |      |
+ * | | - other key/value(undecided)|      |
+ * | |-----------------------------|      |
+ * |--------------------------------------|
+ */
+
 public class MetaHeader {
     private static final Logger LOG = LogManager.getLogger(MetaHeader.class);
 

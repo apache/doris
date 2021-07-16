@@ -28,6 +28,20 @@ import java.io.RandomAccessFile;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Footer Format:
+ * |- Footer -----------------------------|
+ * | |- object index --------------|      |
+ * | | - index a                   |      |
+ * | | - index b                   |      |
+ * | | ...                         |      |
+ * | |-----------------------------|      |
+ * | - other value(undecided)             |
+ * |--------------------------------------|
+ * - Footer Length (8 bytes)
+ * - Magic String (4 bytes)
+ */
+
 public class MetaFooter {
     private static final Logger LOG = LogManager.getLogger(MetaFooter.class);
 
