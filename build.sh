@@ -21,9 +21,9 @@
 # Usage: 
 #    sh build.sh --help
 # Eg:
-#    sh build.sh        		build all
-#    sh build.sh  --be         		build Backend without clean
-#    sh build.sh  --fe --clean 		clean and build Frontend and Spark Dpp application
+#    sh build.sh                        build all
+#    sh build.sh  --be                  build Backend without clean
+#    sh build.sh  --fe --clean          clean and build Frontend and Spark Dpp application
 #    sh build.sh  --fe --be --clean     clean and build Frontend, Spark Dpp application and Backend
 #    sh build.sh  --spark-dpp           build Spark DPP application alone
 #    sh build.sh  --fe --ui             build Frontend web ui with npm
