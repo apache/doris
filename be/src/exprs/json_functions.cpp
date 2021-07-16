@@ -281,6 +281,16 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         return nullptr;
     }
 
+    if (parsed_paths.size() == 1) {
+        // the json path is "$", just return entire document
+        // wrapper an array
+        rapidjson::Value* array_obj = nullptr;
+        array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
+        array_obj->SetArray();
+        array_obj->PushBack(*document, mem_allocator);
+        return array_obj;
+    }
+
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == nullptr || root == document) { // not found
         return nullptr;
@@ -299,6 +309,11 @@ rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json(
         rapidjson::Document::AllocatorType& mem_allocator) {
     if (!parsed_paths[0].is_valid) {
         return nullptr;
+    }
+
+    if (parsed_paths.size() == 1) {
+        // the json path is "$", just return entire document
+        return document;
     }
 
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
