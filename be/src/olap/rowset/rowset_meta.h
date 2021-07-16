@@ -269,7 +269,7 @@ public:
     // otherwise, score is 1.
     uint32_t get_compaction_score() const {
         uint32_t score = 0;
-        if (num_segments() > 0 && !is_segments_overlapping()) {
+        if ((num_segments() > 0 && !is_segments_overlapping()) || has_delete_predicate()) {
             score = 1;
         } else {
             score = num_segments();
