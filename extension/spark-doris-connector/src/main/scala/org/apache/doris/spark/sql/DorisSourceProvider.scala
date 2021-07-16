@@ -17,14 +17,74 @@
 
 package org.apache.doris.spark.sql
 
+import org.apache.doris.spark.DorisStreamLoad
+import org.apache.doris.spark.exception.{DorisException}
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.SQLContext
-import org.apache.spark.sql.sources.{BaseRelation, DataSourceRegister, RelationProvider}
+import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
+import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
+import org.apache.spark.sql.types.StructType
 
-private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with Logging {
+import scala.collection.mutable.ListBuffer
+
+private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with Logging {
   override def shortName(): String = "doris"
 
   override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation = {
     new DorisRelation(sqlContext, Utils.params(parameters, log))
   }
+
+
+  /**
+   * df.save
+   */
+  override def createRelation(sqlContext: SQLContext,
+                              mode: SaveMode, parameters: Map[String, String],
+                              data: DataFrame): BaseRelation = {
+    val beHostPort: String = parameters.getOrElse(DorisOptions.beHostPort, throw new DorisException("beHostPort is empty"))
+
+    val dbName: String = parameters.getOrElse(DorisOptions.dbName, throw new DorisException("dbName is empty"))
+
+    val tbName: String = parameters.getOrElse(DorisOptions.tbName, throw new DorisException("tbName is empty"))
+
+    val user: String = parameters.getOrElse(DorisOptions.user, throw new DorisException("user is empty"))
+
+    val password: String = parameters.getOrElse(DorisOptions.password, throw new DorisException("password is empty"))
+
+    val maxRowCount: Long = parameters.getOrElse(DorisOptions.maxRowCount, "1024").toLong
+
+    val dorisStreamLoader = new DorisStreamLoad(beHostPort, dbName, tbName, user, password)
+
+    data.foreachPartition(partition => {
+
+      val buffer = ListBuffer[String]()
+      partition.foreach(row => {
+        val rowString = row.toSeq.mkString("\t")
+        println("---->>>>>" + rowString)
+        buffer += rowString
+        if (buffer.size > maxRowCount) {
+          dorisStreamLoader.load(buffer.mkString("\n"))
+          buffer.clear()
+        }
+      })
+      if (buffer.nonEmpty) {
+        dorisStreamLoader.load(buffer.mkString("\n"))
+        buffer.clear()
+      }
+    })
+    new BaseRelation {
+      override def sqlContext: SQLContext = unsupportedException
+
+      override def schema: StructType = unsupportedException
+
+      override def needConversion: Boolean = unsupportedException
+
+      override def sizeInBytes: Long = unsupportedException
+
+      override def unhandledFilters(filters: Array[Filter]): Array[Filter] = unsupportedException
+
+      private def unsupportedException =
+        throw new UnsupportedOperationException("BaseRelation from doris write operation is not usable.")
+    }
+  }
+
 }
