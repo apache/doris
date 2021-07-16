@@ -476,7 +476,7 @@ under the License.
             <dependency>
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp-ws</artifactId>
-                <version>4.7.2</version>
+                <version>3.4.2</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/com.squareup.okio/okio -->
