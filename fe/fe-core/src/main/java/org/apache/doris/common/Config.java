@@ -1028,7 +1028,7 @@ public class Config extends ConfigBase {
     /*
      * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true)
     public static int db_used_data_quota_update_interval_secs = 300;
 
     /**
@@ -1437,4 +1437,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int default_max_query_instances = -1;
+
+    /*
+     * One master daemon thread will update global partition in memory info every partition_in_memory_update_interval_secs
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int partition_in_memory_update_interval_secs = 300;
 }

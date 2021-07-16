@@ -159,6 +159,7 @@ import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -214,9 +215,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -306,7 +307,8 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
-    private UpdateDbUsedDataQuotaDaemon updateDbUsedDataQuotaDaemon;
+    private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
+    private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -492,7 +494,8 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
-        this.updateDbUsedDataQuotaDaemon = new UpdateDbUsedDataQuotaDaemon();
+        this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
+        this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1304,8 +1307,10 @@ public class Catalog {
         routineLoadTaskScheduler.start();
         // start dynamic partition task
         dynamicPartitionScheduler.start();
-        // start daemon thread to update db used data quota for db txn manager periodly
-        updateDbUsedDataQuotaDaemon.start();
+        // start daemon thread to update db used data quota for db txn manager periodically
+        dbUsedDataQuotaInfoCollector.start();
+        // start daemon thread to update global partition in memory information periodically
+        partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
     }
 

@@ -318,6 +318,10 @@ public class TabletInvertedIndex {
         }
     }
 
+    public boolean isInMemorySetContainsPartitionId(long partitionId) {
+        return partitionIdInMemorySet.contains(partitionId);
+    }
+
     private boolean needSync(Replica replicaInFe, TTabletInfo backendTabletInfo) {
         if (backendTabletInfo.isSetUsed() && !backendTabletInfo.isUsed()) {
             // tablet is bad, do not sync
