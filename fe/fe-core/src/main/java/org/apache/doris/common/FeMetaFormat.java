@@ -18,8 +18,7 @@
 package org.apache.doris.common;
 
 public enum FeMetaFormat {
-    COR1("COR1", "v1"),
-    ETL1("ETL1", "v1");
+    COR1("COR1", "v1");
 
     private final String magicString;
     private final String version;
