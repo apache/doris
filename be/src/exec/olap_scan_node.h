@@ -34,6 +34,7 @@
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
 #include "util/spinlock.h"
+#include "vec/exec/volap_scanner.h"
 
 namespace doris {
 class IRuntimeFilter;
@@ -148,7 +149,7 @@ protected:
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
-    Status start_scan_thread(RuntimeState* state);
+    virtual Status start_scan_thread(RuntimeState* state);
 
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
@@ -179,7 +180,6 @@ protected:
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
 
-private:
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
     // according to the calling relationship
@@ -194,7 +194,14 @@ private:
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
 
+    static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
+                            bool is_begin_include, bool is_end_include,
+                            const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                            std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                            RuntimeProfile* profile);
+
     friend class OlapScanner;
+    friend class doris::vectorized::VOlapScanner;
 
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
@@ -356,6 +363,8 @@ private:
 
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
+
+    RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
 };
 
 } // namespace doris

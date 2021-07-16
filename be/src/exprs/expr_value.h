@@ -175,11 +175,11 @@ struct ExprValue {
             return &large_int_val;
 
         case TYPE_FLOAT:
-            float_val = std::numeric_limits<float>::min();
+            float_val = std::numeric_limits<float>::lowest();
             return &float_val;
 
         case TYPE_DOUBLE:
-            double_val = std::numeric_limits<double>::min();
+            double_val = std::numeric_limits<double>::lowest();
             return &double_val;
 
         case TYPE_DECIMALV2:

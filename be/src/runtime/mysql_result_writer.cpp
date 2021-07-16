@@ -29,12 +29,19 @@
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
 
+#include "vec/core/block.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
-                                     const std::vector<ExprContext*>& output_expr_ctxs,
-                                     RuntimeProfile* parent_profile)
-        : _sinker(sinker),
+                                     const std::vector<ExprContext*>& output_expr_ctxs, RuntimeProfile* parent_profile)
+        : ResultWriter(),
+          _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
           _row_buffer(NULL),
           _parent_profile(parent_profile) {}
@@ -49,8 +56,7 @@ Status MysqlResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
 
-    _row_buffer = new (std::nothrow) MysqlRowBuffer();
-
+    _row_buffer = new(std::nothrow) MysqlRowBuffer();
     if (NULL == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
     }

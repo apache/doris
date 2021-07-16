@@ -17,7 +17,6 @@
 
 #include "olap_scanner.h"
 
-#include <cstring>
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"

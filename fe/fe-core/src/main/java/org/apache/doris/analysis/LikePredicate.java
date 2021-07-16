@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.util.Objects;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
-
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
@@ -31,6 +27,10 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import java.util.Objects;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 public class LikePredicate extends Predicate {
 
@@ -52,14 +52,14 @@ public class LikePredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltin(ScalarFunction.createBuiltin(
-                Operator.LIKE.name(), Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false, Type.BOOLEAN,
+                Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                false,
                 "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
                 "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
                 "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
         functionSet.addBuiltin(ScalarFunction.createBuiltin(
-                Operator.REGEXP.name(), Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false, Type.BOOLEAN,
+                Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+                false,
                 "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
                 "_ZN5doris13LikePredicate13regex_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
                 "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
@@ -140,4 +140,5 @@ public class LikePredicate extends Predicate {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
+
 }

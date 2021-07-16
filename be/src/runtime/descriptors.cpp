@@ -27,6 +27,10 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/descriptors.pb.h"
 
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_nullable.h"
+
 namespace doris {
 using boost::algorithm::join;
 
@@ -80,6 +84,21 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
+}
+
+vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    auto data_column = type().get_data_type_ptr()->create_column();
+    if (is_nullable()) {
+        return doris::vectorized::ColumnNullable::create(std::move(data_column), doris::vectorized::ColumnUInt8::create());
+    }
+    return data_column;
+}
+
+vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+    if (is_nullable()) {
+        return std::make_shared<vectorized::DataTypeNullable>(type().get_data_type_ptr());
+    }
+    return type().get_data_type_ptr();
 }
 
 std::string SlotDescriptor::debug_string() const {
@@ -282,10 +301,12 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
         : _tuple_idx_nullable_map(nullable_tuples) {
     DCHECK(nullable_tuples.size() == row_tuples.size());
     DCHECK_GT(row_tuples.size(), 0);
+    _num_materialized_slots = 0;
     _num_null_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
+        _num_materialized_slots += tupleDesc->num_materialized_slots();
         _num_null_slots += tupleDesc->num_null_slots();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != NULL);
@@ -459,6 +480,20 @@ std::string RowDescriptor::debug_string() const {
     ss << "] ";
 
     return ss.str();
+}
+
+
+int RowDescriptor::get_column_id(int slot_id) const {
+    int column_id_counter = 0;
+    for(const auto tuple_desc:_tuple_desc_map) {
+        for(const auto slot:tuple_desc->slots()) {
+            if(slot->id() == slot_id) {
+                return column_id_counter;
+            }
+            column_id_counter++;
+        }
+    }
+    return -1;
 }
 
 Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tbl,

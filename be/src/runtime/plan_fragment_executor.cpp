@@ -41,6 +41,9 @@
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
+#include "vec/core/block.h"
+#include "vec/exec/vexchange_node.h"
+#include "vec/sink/data_sink.h"
 
 namespace doris {
 
@@ -162,6 +165,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                     _plan);
     }
 
+
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
@@ -169,8 +173,21 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
-        static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+        if (_runtime_state->enable_vectorized_exec()) {
+            static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
+        } else {
+            static_cast<ExchangeNode *>(exch_node)->set_num_senders(num_senders);
+        }
     }
+//    // for vexchange node
+//    exch_nodes.clear();
+//    _plan->collect_nodes(TPlanNodeType::VEXCHANGE_NODE, &exch_nodes);
+//    for (auto exch_node : exch_nodes) {
+//        DCHECK_EQ(exch_node->type(), TPlanNodeType::VEXCHANGE_NODE);
+//        int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
+//        DCHECK_GT(num_senders, 0);
+//        static_cast<doris::vectorized::VExchangeNode*>(exch_node)->set_num_senders(num_senders);
+//    }
 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
     // set scan ranges
@@ -197,7 +214,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -222,6 +239,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
                                   _runtime_state->instance_mem_tracker().get()));
+    _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
@@ -249,8 +267,12 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
         _report_thread_active = true;
     }
-
-    Status status = open_internal();
+    Status status = Status::OK();
+    if (_runtime_state->enable_vectorized_exec()) {
+        status = open_vectorized_internal();
+    } else {
+        status = open_internal();
+    }
 
     if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
@@ -261,6 +283,85 @@ Status PlanFragmentExecutor::open() {
 
     update_status(status);
     return status;
+}
+
+Status PlanFragmentExecutor::open_vectorized_internal() {
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        SCOPED_TIMER(profile()->total_time_counter());
+        RETURN_IF_ERROR(_plan->open(_runtime_state.get()));
+    }
+    if (_sink == nullptr) {
+        return Status::OK();
+    }
+    {
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        RETURN_IF_ERROR(_sink->open(runtime_state()));
+    }
+    doris::vectorized::Block* block = nullptr;
+    while (true) {
+        {
+            SCOPED_CPU_TIMER(_fragment_cpu_timer);
+            RETURN_IF_ERROR(get_vectorized_internal(&block));
+        }
+
+        if (block == NULL) {
+            break;
+        } 
+
+        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_CPU_TIMER(_fragment_cpu_timer);
+        // Collect this plan and sub plan statistics, and send to parent plan.
+        if (_collect_query_statistics_with_every_batch) {
+            _collect_query_statistics();
+        }
+        auto vsink = static_cast<doris::vectorized::VDataSink*>(_sink.get());
+        RETURN_IF_ERROR(vsink->send(runtime_state(), block));
+    }
+    {
+        SCOPED_TIMER(profile()->total_time_counter());
+        _collect_query_statistics();
+        Status status;
+        {
+            std::lock_guard<std::mutex> l(_status_lock);
+            status = _status;
+        }
+        status = _sink->close(runtime_state(), status);
+        RETURN_IF_ERROR(status);
+    }
+    // Setting to NULL ensures that the d'tor won't double-close the sink.
+    _sink.reset(nullptr);
+    _done = true;
+
+    release_thread_token();
+
+    stop_report_thread();
+    send_report(true);
+
+    return Status::OK();
+}
+Status PlanFragmentExecutor::get_vectorized_internal(::doris::vectorized::Block** block) {
+    if (_done) {
+        *block = nullptr;
+        return Status::OK();
+    }
+
+    while (!_done) {
+        _block->clear();
+        SCOPED_TIMER(profile()->total_time_counter());
+        auto vexec_node = static_cast<doris::ExecNode*>(_plan);
+        RETURN_IF_ERROR(vexec_node->get_next(_runtime_state.get(), _block.get(), &_done));
+
+        if (_block->rows() > 0) {
+            COUNTER_UPDATE(_rows_produced_counter, _block->rows());
+            *block = _block.get();
+            break;
+        }
+
+        *block = nullptr;
+    }
+
+    return Status::OK();
 }
 
 Status PlanFragmentExecutor::open_internal() {

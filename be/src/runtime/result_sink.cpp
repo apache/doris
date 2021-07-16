@@ -29,6 +29,8 @@
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 
+#include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
@@ -122,6 +124,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(NULL) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;

@@ -32,6 +32,10 @@
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch_interface.hpp"
 
+namespace doris::vectorized {
+class Block;
+}
+
 namespace doris {
 
 class BufferedTupleStream2;
@@ -40,6 +44,7 @@ class Tuple;
 class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
+
 
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
@@ -306,6 +311,8 @@ public:
     // pool and io buffers.
     // we firstly update dest resource, and then reset current resource
     void transfer_resource_ownership(RowBatch* dest);
+
+    vectorized::Block convert_to_vec_block() const;
 
     void copy_row(TupleRow* src, TupleRow* dest) {
         memcpy(dest, src, _num_tuples_per_row * sizeof(Tuple*));

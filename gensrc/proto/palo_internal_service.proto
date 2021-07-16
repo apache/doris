@@ -38,7 +38,10 @@ service PInternalService {
     rpc update_cache(doris.PUpdateCacheRequest) returns (doris.PCacheResponse);
     rpc fetch_cache(doris.PFetchCacheRequest) returns (doris.PFetchCacheResult);
     rpc clear_cache(doris.PClearCacheRequest) returns (doris.PCacheResponse);
+
     rpc merge_filter(doris.PMergeFilterRequest) returns (doris.PMergeFilterResponse);
     rpc apply_filter(doris.PPublishFilterRequest) returns (doris.PPublishFilterResponse);
+
     rpc fold_constant_expr(doris.PConstantExprRequest) returns (doris.PConstantExprResult);
+    rpc transmit_block(doris.PTransmitDataParams) returns (doris.PTransmitDataResult);
 };

@@ -229,7 +229,7 @@ void NewAggFnEvaluator::Close(const vector<NewAggFnEvaluator*>& evals, RuntimeSt
 
 void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_slot_desc,
                                    Tuple* dst) {
-    if (src->is_null) {
+    if (src->is_null && dst_slot_desc.is_nullable()) {
         dst->set_null(dst_slot_desc.null_indicator_offset());
         return;
     }
@@ -531,14 +531,14 @@ void NewAggFnEvaluator::Merge(Tuple* src, Tuple* dst) {
 }
 
 void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc,
-                                            Tuple* dst, void* fn) {
+                                            Tuple* dst, void* fn, bool add_null) {
     // No fn was given and the src and dst are identical. Nothing to be done.
     if (fn == nullptr && src == dst) return;
     // src != dst means we are performing a Finalize(), so even if fn == null we
     // still must copy the value of the src slot into dst.
 
     const SlotDescriptor& slot_desc = intermediate_slot_desc();
-    bool src_slot_null = src->is_null(slot_desc.null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(slot_desc.null_indicator_offset());
     void* src_slot = nullptr;
     if (!src_slot_null) src_slot = src->get_slot(slot_desc.tuple_offset());
 
