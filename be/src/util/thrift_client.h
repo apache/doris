@@ -38,10 +38,6 @@
 #include "util/thrift_server.h"
 
 namespace doris {
-
-template <class InterfaceType>
-class ThriftClient;
-
 // Super class for templatized thrift clients.
 class ThriftClientImpl {
 public:
@@ -75,10 +71,7 @@ protected:
               _port(port),
               _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
 
-private:
-    template <class InterfaceType>
-    friend class ThriftClient;
-
+protected:
     std::string _ipaddress;
     int _port;
 
