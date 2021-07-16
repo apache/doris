@@ -100,7 +100,7 @@ public class TrashProcNode implements ProcNodeInterface {
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
             } else {
-                backendInfo.add("null");
+                backendInfo.add("");
             }
             infos.add(backendInfo);
         }
