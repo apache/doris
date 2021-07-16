@@ -68,7 +68,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                         for (Partition partition : olapTable.getAllPartitions()) {
                             if (olapTable.getPartitionInfo().getIsInMemory(partition.getId())) {
                                 partitionInMemoryCount++;
-                                if (tabletInvertedIndex.isInMemorySetContainsPartitionId(partition.getId())) {
+                                if (!tabletInvertedIndex.isInMemorySetContainsPartitionId(partition.getId())) {
                                     tabletInvertedIndex.addPartitionIdToInMemorySet(partition.getId());
                                 }
                             } else {
