@@ -17,14 +17,16 @@
 
 package org.apache.doris.spark.sql
 
+import org.apache.commons.collections.CollectionUtils
 import org.apache.doris.spark.DorisStreamLoad
-import org.apache.doris.spark.exception.{DorisException}
+import org.apache.doris.spark.exception.DorisException
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
 import org.apache.spark.sql.types.StructType
 
 import scala.collection.mutable.ListBuffer
+import scala.util.Random
 
 private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with Logging {
   override def shortName(): String = "doris"
@@ -52,14 +54,15 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
 
     val maxRowCount: Long = parameters.getOrElse(DorisOptions.maxRowCount, "1024").toLong
 
-    val dorisStreamLoader = new DorisStreamLoad(beHostPort, dbName, tbName, user, password)
+    val splitHost = beHostPort.split(";")
+    val choosedBeHost = splitHost(Random.nextInt(splitHost.length))
+    val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dbName, tbName, user, password)
 
     data.foreachPartition(partition => {
 
       val buffer = ListBuffer[String]()
       partition.foreach(row => {
         val rowString = row.toSeq.mkString("\t")
-        println("---->>>>>" + rowString)
         buffer += rowString
         if (buffer.size > maxRowCount) {
           dorisStreamLoader.load(buffer.mkString("\n"))
