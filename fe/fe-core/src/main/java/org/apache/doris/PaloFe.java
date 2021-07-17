@@ -25,6 +25,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
+import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.qe.QeService;
@@ -103,6 +104,12 @@ public class PaloFe {
             LOG.info("Palo FE starting...");
 
             FrontendOptions.init();
+
+            if (Config.enable_bdbje_debug_mode) {
+                // Start in BDB Debug mode
+                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                return;
+            }
 
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);
