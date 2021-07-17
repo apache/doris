@@ -17,12 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
@@ -49,17 +43,22 @@ import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Collections;
 import java.util.List;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 

@@ -17,9 +17,6 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import lombok.Getter;
-import lombok.Setter;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.parquet.ParquetReader;
@@ -42,6 +39,9 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import lombok.Getter;
+import lombok.Setter;
 
 @RestController
 @RequestMapping("/rest/v2")
