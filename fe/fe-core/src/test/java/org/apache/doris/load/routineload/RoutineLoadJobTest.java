@@ -139,9 +139,10 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
         Deencapsulation.setField(routineLoadJob, "progress", currentProgress);
         routineLoadJob.afterAborted(transactionState, true, txnStatusChangeReasonString);
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, routineLoadJob.getState());
-        Assert.assertEquals(new Long(1), Deencapsulation.getField(routineLoadJob, "abortedTaskNum"));
+        Assert.assertEquals(new Long(1), Deencapsulation.getField(jobStatistic, "abortedTaskNum"));
     }
 
     @Test
@@ -279,13 +280,14 @@ public class RoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.RUNNING);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
-        Deencapsulation.setField(routineLoadJob, "currentErrorRows", 1);
-        Deencapsulation.setField(routineLoadJob, "currentTotalRows", 99);
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
+        Deencapsulation.setField(jobStatistic, "currentErrorRows", 1);
+        Deencapsulation.setField(jobStatistic, "currentTotalRows", 99);
         Deencapsulation.invoke(routineLoadJob, "updateNumOfData", 2L, 0L, 0L, 1L, 1L, false);
 
         Assert.assertEquals(RoutineLoadJob.JobState.RUNNING, Deencapsulation.getField(routineLoadJob, "state"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(routineLoadJob, "currentErrorRows"));
-        Assert.assertEquals(new Long(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
+        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
+        Assert.assertEquals(new Long(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
 
     }
 

@@ -250,6 +250,7 @@ public class RoutineLoadManager implements Writable {
         RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
                 resumeRoutineLoadStmt.getName());
 
+        routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
         routineLoadJob.autoResumeCount = 0;
         routineLoadJob.firstResumeTimestamp = 0;
         routineLoadJob.autoResumeLock = false;
