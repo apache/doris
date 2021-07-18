@@ -245,7 +245,7 @@ public class BrokerUtil {
      * @return byte[]
      * @throws UserException if broker op failed or not only one file
      */
-    public static byte[] readFile(String path, BrokerDesc brokerDesc) throws UserException {
+    public static byte[] readFile(String path, BrokerDesc brokerDesc, long maxReadLen) throws UserException {
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         boolean failed = true;
@@ -292,8 +292,12 @@ public class BrokerUtil {
             fd = tOpenReaderResponse.getFd();
 
             // read
+            long readLen = fileSize;
+            if (maxReadLen > 0 && maxReadLen < fileSize) {
+                readLen = maxReadLen;
+            }
             TBrokerPReadRequest tPReadRequest = new TBrokerPReadRequest(
-                    TBrokerVersion.VERSION_ONE, fd, 0, fileSize);
+                    TBrokerVersion.VERSION_ONE, fd, 0, readLen);
             TBrokerReadResponse tReadResponse = null;
             try {
                 tReadResponse = client.pread(tPReadRequest);
@@ -506,7 +510,7 @@ public class BrokerUtil {
         return new TNetworkAddress(broker.ip, broker.port);
     }
 
-    private static TPaloBrokerService.Client borrowClient(TNetworkAddress address) throws UserException {
+    public static TPaloBrokerService.Client borrowClient(TNetworkAddress address) throws UserException {
         TPaloBrokerService.Client client = null;
         try {
             client = ClientPool.brokerPool.borrowObject(address);
