@@ -1257,13 +1257,13 @@ public class Config extends ConfigBase {
      * enable spark load for temporary use
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = false;
+    public static boolean enable_spark_load = true;
 
     /**
      * enable use odbc table
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = false;
+    public static boolean enable_odbc_table = true;
 
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
