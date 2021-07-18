@@ -139,6 +139,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.http.meta.MetaBaseAction;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.journal.bdbje.BDBEnvironment;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportChecker;
@@ -162,6 +163,8 @@ import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.metric.collector.BDBJEMetricHandler;
+import org.apache.doris.metric.collector.MetricCollector;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -348,6 +351,12 @@ public class Catalog {
     private String token;
     // For checkpoint and observer memory replayed marker
     private AtomicLong replayedJournalId;
+
+    private BDBEnvironment bdbEnvironment = null;
+
+    private MetricCollector metricCollector = null;
+
+    private BDBJEMetricHandler bdbjeMetricHandler = null;
 
     private static Catalog CHECKPOINT = null;
     private static long checkpointThreadId = -1;
@@ -634,6 +643,14 @@ public class Catalog {
 
     public AuditEventProcessor getAuditEventProcessor() {
         return auditEventProcessor;
+    }
+
+    public BDBJEMetricHandler getBDBJEMetricHandler(){
+        return this.bdbjeMetricHandler;
+    }
+
+    public void setBDBEnvironment(BDBEnvironment bdbEnvironment){
+        this.bdbEnvironment = bdbEnvironment;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -1223,6 +1240,16 @@ public class Catalog {
 
         MetricRepo.init();
 
+        // init bdbje metric handler
+        if(Config.enable_monitor && bdbjeMetricHandler == null) {
+            bdbjeMetricHandler = new BDBJEMetricHandler(bdbEnvironment);
+        }
+
+        if (Config.enable_monitor && metricCollector == null) {
+            metricCollector = new MetricCollector(bdbjeMetricHandler);
+            metricCollector.startWriteMetric();
+        }
+
         canRead.set(true);
         isReady.set(true);
 
@@ -1359,6 +1386,17 @@ public class Catalog {
         startNonMasterDaemonThreads();
 
         MetricRepo.init();
+
+        //init bdbje metric handler
+        if(Config.enable_monitor && bdbjeMetricHandler == null) {
+            bdbjeMetricHandler = new BDBJEMetricHandler(bdbEnvironment);
+        }
+
+        // Only the master needs to collect metric.
+        if (metricCollector != null) {
+            metricCollector.close();
+            metricCollector = null;
+        }
     }
 
     /*

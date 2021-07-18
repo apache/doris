@@ -218,10 +218,14 @@ public class BDBEnvironment {
     public ReplicatedEnvironment getReplicatedEnvironment() {
         return replicatedEnvironment;
     }
-    
+
+    public Database openDatabase(String dbName){
+        return openDatabase(dbName, null);
+    }
+
     // return the database reference with the given name
     // also try to close previous opened database.
-    public Database openDatabase(String dbName) {
+    public Database openDatabase(String dbName, DatabaseConfig newDbConfig) {
         Database db = null;
         lock.writeLock().lock();
         try {
@@ -266,7 +270,11 @@ public class BDBEnvironment {
             // open the specified database.
             // the first parameter null means auto-commit
             try {
-                db = replicatedEnvironment.openDatabase(null, dbName, dbConfig);
+                if (newDbConfig != null) {
+                    db = replicatedEnvironment.openDatabase(null, dbName, newDbConfig);
+                } else {
+                    db = replicatedEnvironment.openDatabase(null, dbName, dbConfig);
+                }
                 openedDatabases.add(db);
             } catch (Exception e) {
                 LOG.warn("catch an exception when open database {}", dbName, e);

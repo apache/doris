@@ -40,7 +40,7 @@ public class DorisHttpPostObjectAggregator extends HttpObjectAggregator {
     protected boolean isStartMessage(HttpObject msg) throws Exception {
         if (msg instanceof HttpMessage) {
             HttpRequest request = (HttpRequest) msg;
-            if (request.method().equals(HttpMethod.POST)) {
+            if (request.method().equals(HttpMethod.POST) || request.method().equals(HttpMethod.GET)) {
                 startAggregated = true;
                 return true;
             }

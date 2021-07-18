@@ -1401,6 +1401,18 @@ public class Config extends ConfigBase {
     public static boolean enable_fe_heartbeat_by_thrift = false;
 
     /**
+     * If set to true, FE will store metric data periodically, and open monitoring service.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_monitor = false;
+
+    /**
+     * metric time to live days.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int metric_ttl = 30;
+
+    /**
      * If set to true, FE will be started in BDBJE debug mode
      */
     @ConfField

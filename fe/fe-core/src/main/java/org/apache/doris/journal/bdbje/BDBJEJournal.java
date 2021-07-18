@@ -360,6 +360,7 @@ public class BDBJEJournal implements Journal {
                                      helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
             }
         }
+        Catalog.getCurrentCatalog().setBDBEnvironment(bdbEnvironment);
     }
     
     @Override
