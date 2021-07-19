@@ -539,6 +539,7 @@ module.exports = [
               "STREAM LOAD",
               "alter-routine-load",
               "insert",
+              "UPDATE",
             ],
           },
           {

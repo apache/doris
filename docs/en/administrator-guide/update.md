@@ -32,6 +32,7 @@ If we need to modify or update the data in Doris, we can use the UPDATE command.
 
 + To modify the value of a row that meets certain conditions.
 + Point updates, small updates, where the rows to be updated are preferably a very small part of the entire table.
++ Only could be used in Unique table
 
 ## Explanation of terms
 
@@ -122,4 +123,4 @@ Therefore, when using Doris, you must be careful to control the concurrency of U
 
 ## Version
 
-Doris Version 0.14.7 +
+Doris Version 0.15.x +
