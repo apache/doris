@@ -88,6 +88,8 @@ public class Database extends MetaObject implements Writable {
 
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
+    // user define encryptKey for current db
+    private DatabaseEncryptKey dbEncryptKey;
 
     private volatile long dataQuotaBytes;
 
@@ -118,6 +120,7 @@ public class Database extends MetaObject implements Writable {
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
+        this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
     public void readLock() {
@@ -512,6 +515,9 @@ public class Database extends MetaObject implements Writable {
             }
         }
 
+        // write encryptKeys
+        dbEncryptKey.write(out);
+
         out.writeLong(replicaQuotaSize);
     }
 
@@ -555,6 +561,11 @@ public class Database extends MetaObject implements Writable {
 
                 name2Function.put(name, builder.build());
             }
+        }
+
+        // read encryptKeys
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_102) {
+            dbEncryptKey = DatabaseEncryptKey.read(in);
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
@@ -736,5 +747,76 @@ public class Database extends MetaObject implements Writable {
 
     public boolean isInfoSchemaDb() {
         return ClusterNamespace.getNameFromFullName(fullQualifiedName).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME);
+    }
+
+    public synchronized void addEncryptKey(EncryptKey encryptKey) throws UserException {
+        addEncryptKeyImpl(encryptKey, false);
+        Catalog.getCurrentCatalog().getEditLog().logAddEncryptKey(encryptKey);
+    }
+
+    public synchronized void replayAddEncryptKey(EncryptKey encryptKey) {
+        try {
+            addEncryptKeyImpl(encryptKey, true);
+        } catch (UserException e) {
+            Preconditions.checkArgument(false);
+        }
+    }
+
+    private void addEncryptKeyImpl(EncryptKey encryptKey, boolean isReplay) throws UserException {
+        String keyName = encryptKey.getEncryptKeyName().getKeyName();
+        EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
+        if (!isReplay) {
+            if (existKey != null) {
+                if (existKey.isIdentical(encryptKey)) {
+                    throw new UserException("encryptKey [" + existKey.getEncryptKeyName().toString() + "] already exists");
+                }
+            }
+        }
+
+        dbEncryptKey.getName2EncryptKey().put(keyName, encryptKey);
+    }
+
+    public synchronized void dropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
+        dropEncryptKeyImpl(encryptKeySearchDesc);
+        Catalog.getCurrentCatalog().getEditLog().logDropEncryptKey(encryptKeySearchDesc);
+    }
+
+    public synchronized void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
+        try {
+            dropEncryptKeyImpl(encryptKeySearchDesc);
+        } catch (UserException e) {
+            Preconditions.checkArgument(false);
+        }
+    }
+
+    private void dropEncryptKeyImpl(EncryptKeySearchDesc encryptKeySearchDesc) throws UserException {
+        String keyName = encryptKeySearchDesc.getKeyEncryptKeyName().getKeyName();
+        EncryptKey existKey = dbEncryptKey.getName2EncryptKey().get(keyName);
+        if (existKey == null) {
+            throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
+        }
+        boolean isFound = false;
+        if (encryptKeySearchDesc.isIdentical(existKey)) {
+            isFound = true;
+        }
+        if (!isFound) {
+            throw new UserException("Unknown encryptKey, encryptKey=" + encryptKeySearchDesc.toString());
+        }
+        dbEncryptKey.getName2EncryptKey().remove(keyName);
+    }
+
+    public synchronized List<EncryptKey> getEncryptKeys() {
+        List<EncryptKey> encryptKeys = Lists.newArrayList();
+        for (Map.Entry<String, EncryptKey> entry : dbEncryptKey.getName2EncryptKey().entrySet()) {
+            encryptKeys.add(entry.getValue());
+        }
+        return encryptKeys;
+    }
+
+    public synchronized EncryptKey getEncryptKey(String keyName) {
+        if (dbEncryptKey.getName2EncryptKey().containsKey(keyName)) {
+            return dbEncryptKey.getName2EncryptKey().get(keyName);
+        }
+        return null;
     }
 }

@@ -176,6 +176,8 @@ public class OperationType {
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
     public static final short OP_DROP_SMALL_FILE = 252;
+    public static final short OP_CREATE_ENCRYPTKEY = 253;
+    public static final short OP_DROP_ENCRYPTKEY = 254;
 
     // dynamic partition 261~265
     public static final short OP_DYNAMIC_PARTITION = 261;
