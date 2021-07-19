@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Helper class that drives the transformation of Exprs according to a given list of
@@ -68,6 +69,10 @@ public class ExprRewriter {
         do {
             oldNumChanges = numChanges_;
             for (ExprRewriteRule rule: rules_) {
+                // when foldConstantByBe is on, fold all constant expr by BE instead of applying FoldConstantsRule in FE.
+                if (rule instanceof FoldConstantsRule && analyzer.safeIsEnableFoldConstantByBe()) {
+                    continue;
+                }
                 rewrittenExpr = applyRuleRepeatedly(rewrittenExpr, rule, analyzer);
             }
         } while (oldNumChanges != numChanges_);
@@ -84,6 +89,25 @@ public class ExprRewriter {
             numChanges_++;
         }
         return rewrittenExpr;
+    }
+
+    /**
+     * FoldConstantsRule rewrite
+     */
+    public void rewriteConstant(Map<String, Expr> exprMap, Analyzer analyzer) throws AnalysisException {
+        if (exprMap.isEmpty()) {
+            return;
+        }
+        boolean changed = false;
+        // rewrite constant expr
+        for (ExprRewriteRule rule : rules_) {
+            if (rule instanceof FoldConstantsRule) {
+                changed = ((FoldConstantsRule) rule).apply(exprMap, analyzer, changed);
+            }
+        }
+        if (changed) {
+            ++numChanges_;
+        }
     }
 
     /**

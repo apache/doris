@@ -17,10 +17,12 @@
 
 package org.apache.doris.http.action;
 
-import org.apache.commons.validator.routines.UrlValidator;
+import io.netty.handler.codec.http.HttpMethod;
+
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.ProcDirInterface;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
@@ -36,13 +38,12 @@ import org.apache.doris.qe.ShowResultSet;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
+import org.apache.commons.validator.routines.UrlValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
-
-import io.netty.handler.codec.http.HttpMethod;
 
 public class SystemAction extends WebBaseAction {
     private static final Logger LOG = LogManager.getLogger(SystemAction.class);
@@ -85,7 +86,7 @@ public class SystemAction extends WebBaseAction {
 
         List<String> columnNames = null;
         List<List<String>> rows = null;
-        if (!Catalog.getCurrentCatalog().isMaster()) {
+        if (!Catalog.getCurrentCatalog().isMaster() && !Config.enable_bdbje_debug_mode) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),

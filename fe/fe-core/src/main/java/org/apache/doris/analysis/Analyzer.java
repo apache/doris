@@ -41,6 +41,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
@@ -268,6 +269,7 @@ public class Analyzer {
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
             rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteEncryptKeyRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
@@ -851,7 +853,6 @@ public class Analyzer {
 
     /**
      * register expr id
-     *
      * @param expr
      */
     void registerExprId(Expr expr) {
@@ -1625,6 +1626,13 @@ public class Analyzer {
             return false;
         }
         return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+    }
+    
+    public boolean safeIsEnableFoldConstantByBe() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableFoldConstantByBe();
     }
 
     /**

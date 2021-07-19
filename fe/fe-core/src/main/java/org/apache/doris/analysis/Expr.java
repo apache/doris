@@ -34,6 +34,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -284,7 +285,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return id;
     }
 
-    protected void setId(ExprId id) {
+    public void setId(ExprId id) {
         this.id = id;
     }
 
@@ -472,10 +473,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<String> strings = Lists.newArrayList();
         for (Expr expr : exprs) {
-            String exprStr = expr.debugString();
-            if (exprStr != null) {
-                strings.add(exprStr);
-            }
+            strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
     }

@@ -175,4 +175,21 @@ public class SysVariableDesc extends Expr {
     public String toString() {
         return toSql();
     }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof SysVariableDesc)) {
+            return false;
+        }
+        if (!name.equals(((SysVariableDesc) obj).getName())) {
+            return false;
+        }
+        if (!setType.equals(((SysVariableDesc) obj).getSetType())) {
+            return false;
+        }
+        return literalExpr.equals(((SysVariableDesc) obj).getLiteralExpr());
+    }
 }

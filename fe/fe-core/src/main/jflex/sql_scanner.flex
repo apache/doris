@@ -171,6 +171,8 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("duplicate", new Integer(SqlParserSymbols.KW_DUPLICATE));
         keywordMap.put("else", new Integer(SqlParserSymbols.KW_ELSE));
         keywordMap.put("enable", new Integer(SqlParserSymbols.KW_ENABLE));
+        keywordMap.put("encryptkey", new Integer(SqlParserSymbols.KW_ENCRYPTKEY));
+        keywordMap.put("encryptkeys", new Integer(SqlParserSymbols.KW_ENCRYPTKEYS));
         keywordMap.put("end", new Integer(SqlParserSymbols.KW_END));
         keywordMap.put("engine", new Integer(SqlParserSymbols.KW_ENGINE));
         keywordMap.put("engines", new Integer(SqlParserSymbols.KW_ENGINES));

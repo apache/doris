@@ -21,8 +21,7 @@
 #include <stdint.h>
 
 #include <roaring/roaring.hh>
-#include <set>
-#include <unordered_set>
+#include <parallel_hashmap/phmap.h>
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
@@ -81,7 +80,7 @@ class VectorizedRowBatch;
     template <class type>                                                                       \
     class CLASS : public ColumnPredicate {                                                      \
     public:                                                                                     \
-        CLASS(uint32_t column_id, std::unordered_set<type>&& values, bool is_opposite = false); \
+        CLASS(uint32_t column_id, phmap::flat_hash_set<type>&& values, bool is_opposite = false); \
         virtual void evaluate(VectorizedRowBatch* batch) const override;                        \
         void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;        \
         void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                      \
@@ -93,7 +92,7 @@ class VectorizedRowBatch;
                                 uint32_t num_rows, Roaring* bitmap) const override;             \
                                                                                                 \
     private:                                                                                    \
-        std::unordered_set<type> _values;                                                       \
+        phmap::flat_hash_set<type> _values;                                                       \
     };
 
 IN_LIST_PRED_CLASS_DEFINE(InListPredicate)

@@ -30,6 +30,8 @@ namespace doris {
 // more friendly to CPU Cache, and it is easier to use SIMD instructions to
 // speed up the implementation.
 
+// BlockBloomFilter will not store null values, and will always return a false if the input is null.
+
 class BlockBloomFilter {
 public:
     explicit BlockBloomFilter();
@@ -51,7 +53,9 @@ public:
     void insert(uint32_t hash) noexcept;
     // Same as above with convenience of hashing the key.
     void insert(const Slice& key) noexcept {
-        insert(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        if (key.data) {
+            insert(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        }
     }
 
     // Finds an element in the BloomFilter, returning true if it is found and false (with
@@ -59,7 +63,11 @@ public:
     bool find(uint32_t hash) const noexcept;
     // Same as above with convenience of hashing the key.
     bool find(const Slice& key) const noexcept {
-        return find(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        if (key.data) {
+            return find(HashUtil::murmur_hash3_32(key.data, key.size, _hash_seed));
+        } else {
+            return false;
+        }
     }
 
     // Computes the logical OR of this filter with 'other' and stores the result in this

@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+
 public class OperationType {
     public static final short OP_INVALID = -1;
     public static final short OP_SAVE_NEXTID = 0;
@@ -173,6 +176,8 @@ public class OperationType {
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
     public static final short OP_DROP_SMALL_FILE = 252;
+    public static final short OP_CREATE_ENCRYPTKEY = 253;
+    public static final short OP_DROP_ENCRYPTKEY = 254;
 
     // dynamic partition 261~265
     public static final short OP_DYNAMIC_PARTITION = 261;
@@ -196,4 +201,24 @@ public class OperationType {
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
+
+    // get opcode name by op codeStri
+    public static String getOpName(short opCode) {
+        try {
+            Field[] fields = OperationType.class.getDeclaredFields();
+            for (Field field : fields) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                short s = field.getShort(null);
+                if (s != opCode) {
+                    continue;
+                }
+                return field.getName();
+            }
+        } catch (Exception e) {
+            return "Not Found: " + e.getMessage();
+        }
+        return "Not Found";
+    }
 }

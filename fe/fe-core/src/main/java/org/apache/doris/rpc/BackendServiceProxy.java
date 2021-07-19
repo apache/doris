@@ -20,6 +20,7 @@ package org.apache.doris.rpc;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -207,6 +208,17 @@ public class BackendServiceProxy {
             return client.commit(pRequest);
         } catch (Throwable e) {
             LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(
+            TNetworkAddress address, TFoldConstantParams tParams) throws RpcException, TException {
+        final InternalService.PConstantExprRequest pRequest = InternalService.PConstantExprRequest.newBuilder()
+                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tParams))).build();
+
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.foldConstantExpr(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to fold constant expr, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

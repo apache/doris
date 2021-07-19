@@ -451,6 +451,7 @@ struct TMasterOpRequest {
     17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
     18: optional i64 insert_visible_timeout_ms // deprecated, move into session_variables
     19: optional map<string, string> session_variables
+    20: optional bool foldConstantByBe
 }
 
 struct TColumnDefinition {

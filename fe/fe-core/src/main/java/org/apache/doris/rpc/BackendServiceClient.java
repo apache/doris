@@ -89,4 +89,7 @@ public class BackendServiceClient {
         return stub.commit(request);
     }
 
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
+        return stub.foldConstantExpr(request);
+    }
 }
