@@ -107,6 +107,7 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    fold_constant_mgr.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
     odbc_table_sink.cpp	

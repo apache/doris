@@ -23,10 +23,12 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
+#include "runtime/fold_constant_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/runtime_state.h"
 #include "service/brpc.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -284,6 +286,43 @@ void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* co
         LOG(WARNING) << "apply filter meet error" << st.to_string();
     }
     st.to_protobuf(response->mutable_status());
+}
+
+template<typename T>
+void PInternalServiceImpl<T>::fold_constant_expr(
+    google::protobuf::RpcController* cntl_base,
+    const PConstantExprRequest* request,
+    PConstantExprResult* response,
+    google::protobuf::Closure* done) {
+
+    brpc::ClosureGuard closure_guard(done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+
+    Status st = Status::OK();
+    if (request->has_request()) {
+        st = _fold_constant_expr(request->request(), response);
+    } else {
+        // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
+        st = _fold_constant_expr(cntl->request_attachment().to_string(), response);
+    }
+    if (!st.ok()) {
+        LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st.get_error_msg();
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
+template<typename T>
+Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_request,
+                                                    PConstantExprResult* response) {
+
+    TFoldConstantParams t_request;
+    {
+        const uint8_t* buf = (const uint8_t*)ser_request.data();
+        uint32_t len = ser_request.size();
+        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
+    }
+    FoldConstantMgr mgr(_exec_env);
+    return mgr.fold_constant_expr(t_request, response);
 }
 template class PInternalServiceImpl<PBackendService>;
 template class PInternalServiceImpl<palo::PInternalService>;

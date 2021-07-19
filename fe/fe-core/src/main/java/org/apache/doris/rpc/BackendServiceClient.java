@@ -76,4 +76,8 @@ public class BackendServiceClient {
     public Future<InternalService.PProxyResult> getInfo(InternalService.PProxyRequest request) {
         return stub.getInfo(request);
     }
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
+        return stub.foldConstantExpr(request);
+    }
 }

@@ -853,7 +853,6 @@ public class Analyzer {
 
     /**
      * register expr id
-     *
      * @param expr
      */
     void registerExprId(Expr expr) {
@@ -1627,6 +1626,13 @@ public class Analyzer {
             return false;
         }
         return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+    }
+    
+    public boolean safeIsEnableFoldConstantByBe() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableFoldConstantByBe();
     }
 
     /**
