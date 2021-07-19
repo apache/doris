@@ -299,14 +299,14 @@ public class OlapScanNode extends ScanNode {
         computeTupleState(analyzer);
 
         /**
-         * Compute InAccurate stats before mv selector and tablet pruning.
+         * Compute InAccurate cardinality before mv selector and tablet pruning.
          * - Accurate statistical information relies on the selector of materialized views and bucket reduction.
          * - However, Those both processes occur after the reorder algorithm is completed.
-         * - When Join reorder is turned on, the computeStats() must be completed before the reorder algorithm.
-         * - So only an inaccurate statistical information can be calculated here.
+         * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
+         * - So only an inaccurate cardinality can be calculated here.
          */
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeInaccurateStats(analyzer);
+            computeInaccurateCardinality();
         }
     }
 
@@ -326,9 +326,8 @@ public class OlapScanNode extends ScanNode {
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeOldRowSizeAndCardinality();
-        }
+        // Relatively accurate cardinality according to ScanRange in getScanRangeLocations
+        computeStats(analyzer);
         computeNumNodes();
     }
 
@@ -338,7 +337,9 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public void computeOldRowSizeAndCardinality() {
+    @Override
+    public void computeStats(Analyzer analyzer) {
+        super.computeStats(analyzer);
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality;
             capCardinalityAtLimit();
@@ -357,7 +358,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     /**
-     * Calculate inaccurate stats such as: cardinality.
+     * Calculate inaccurate cardinality.
      * cardinality: the value of cardinality is the sum of rowcount which belongs to selectedPartitionIds
      * The cardinality here is actually inaccurate, it will be greater than the actual value.
      * There are two reasons
@@ -369,11 +370,8 @@ public class OlapScanNode extends ScanNode {
      * 1. Calculate how many rows were scanned
      * 2. Apply conjunct
      * 3. Apply limit
-     *
-     * @param analyzer
      */
-    private void computeInaccurateStats(Analyzer analyzer) {
-        super.computeStats(analyzer);
+    private void computeInaccurateCardinality() {
         // step1: Calculate how many rows were scanned
         cardinality = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
