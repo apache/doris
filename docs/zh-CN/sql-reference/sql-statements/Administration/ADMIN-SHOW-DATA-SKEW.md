@@ -31,12 +31,12 @@ under the License.
 
     语法：
 
-        ADMIN SHOW DATA SKEW FROM [db_name.]tbl_name [PARTITION (p1)];
+        ADMIN SHOW DATA SKEW FROM [db_name.]tbl_name PARTITION (partition_name);
 
     说明：
 
         1. 必须指定且仅指定一个分区。对于非分区表，分区名称同表名。
-		2. 结果将展示指定分区下，各个分桶的数据量，以及每个分桶数据量在总数据量中的占比。
+        2. 结果将展示指定分区下，各个分桶的数据量，以及每个分桶数据量在总数据量中的占比。
         
 ## example
 
