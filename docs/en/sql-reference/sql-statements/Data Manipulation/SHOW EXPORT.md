@@ -28,15 +28,15 @@ under the License.
 ## Description
 This statement is used to show the execution of the specified export task
 Grammar:
-SHOW EXPORT
-[FROM both names]
-[
-WHERE
-[ID = your_job_id]
-[STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
-]
-[ORDER BY ...]
-[LIMIT limit];
+        SHOW EXPORT
+        [FROM db_name]
+        [
+            WHERE
+            [ID = your_job_id]
+            [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
+        ]
+        [ORDER BY ...]
+        [LIMIT limit];
 
 Explain:
 1) If db_name is not specified, use the current default DB
@@ -46,16 +46,16 @@ Explain:
 
 ## example
 1. Show all export tasks of default DB
-SHOW EXPORT;
+    SHOW EXPORT;
 
 2. Show the export tasks of the specified db, sorted in descending order by StartTime
-SHOW EXPORT FROM example_db ORDER BY StartTime DESC;
+    SHOW EXPORT FROM example_db ORDER BY StartTime DESC;
 
 3. Show the export task of the specified db, state is "exporting" and sorted in descending order by StartTime
-SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
+    SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
 
 4. Show the export task of specifying dB and job_id
-SHOW EXPORT FROM example_db WHERE ID = job_id;
+    SHOW EXPORT FROM example_db WHERE ID = job_id;
 
 ## keyword
 SHOW,EXPORT

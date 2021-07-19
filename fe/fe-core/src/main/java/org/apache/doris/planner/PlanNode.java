@@ -293,6 +293,13 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.conjuncts.addAll(conjuncts);
     }
 
+    public void addConjunct(Expr conjunct) {
+        if (conjuncts == null) {
+            conjuncts = Lists.newArrayList();
+        }
+        conjuncts.add(conjunct);
+    }
+
     public void setAssignedConjuncts(Set<ExprId> conjuncts) {
         assignedConjuncts = conjuncts;
     }

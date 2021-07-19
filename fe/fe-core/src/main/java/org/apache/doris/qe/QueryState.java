@@ -70,6 +70,9 @@ public class QueryState {
     }
 
     public void setOk() {
+        if (stateType == MysqlStateType.OK) {
+            return;
+        }
         setOk(0, 0, null);
     }
 

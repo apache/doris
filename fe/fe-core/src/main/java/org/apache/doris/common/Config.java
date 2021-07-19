@@ -1450,4 +1450,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
+    
+    @ConfField(masterOnly = true)
+    public static boolean enable_concurrent_update = false;
 }

@@ -81,7 +81,5 @@ public class ThreadPoolManagerTest {
         Assert.assertEquals(0, testFixedThreaddPool.getActiveCount());
         Assert.assertEquals(0, testFixedThreaddPool.getQueue().size());
         Assert.assertEquals(4, testFixedThreaddPool.getCompletedTaskCount());
-
-
     }
 }

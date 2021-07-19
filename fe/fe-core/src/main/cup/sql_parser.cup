@@ -331,6 +331,7 @@ nonterminal QueryStmt set_operation_with_order_by_or_limit;
 nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
+nonterminal UpdateStmt update_stmt;
 
 nonterminal BackupStmt backup_stmt;
 nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
@@ -685,6 +686,8 @@ stmt ::=
     | sync_stmt : stmt
     {: RESULT = stmt; :}
     | insert_stmt : stmt
+    {: RESULT = stmt; :}
+    | update_stmt : stmt
     {: RESULT = stmt; :}
     | backup_stmt : stmt
     {: RESULT = stmt; :}
@@ -3114,6 +3117,14 @@ insert_source ::=
     query_stmt:query
     {:
         RESULT = new InsertSource(query);
+    :}
+    ;
+
+// update stmt
+update_stmt ::=
+    KW_UPDATE table_name:tbl KW_SET expr_list:setExprs where_clause:whereClause
+    {:
+        RESULT = new UpdateStmt(tbl, setExprs, whereClause);
     :}
     ;
 

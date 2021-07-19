@@ -369,6 +369,10 @@ public class ConnectContext {
         this.executor = executor;
     }
 
+    public StmtExecutor getExecutor() {
+        return executor;
+    }
+
     public void cleanup() {
         mysqlChannel.close();
         threadLocalInfo.remove();
