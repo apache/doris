@@ -16,7 +16,7 @@ Pulsar IO Doris可以同步Pulsar中存储的数据到Doris。
 sh build.sh
 ```
 
-**直接编译可能会报错，可以先把src/test/java/org/apache/pulsar/io/doris/DorisPulsarIOTest.java中的producerMessage和testSendData方法注释掉即可**
+**直接编译可能会报错，你可以先把src/test/java/org/apache/pulsar/io/doris/DorisPulsarIOTest.java中的producerMessage和testSendData方法注释掉即可**
 
 编译成功后，会在 `output/` 目录下生成文件 `pulsar-io-doris-2.8.0.nar`。 在`Pulsar集群` 中的安装目录下创建文件夹 `connector` ，然后把此文件复制到其中，之后通过nar包位置来启动sink操作。
 
