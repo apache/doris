@@ -349,6 +349,7 @@ void PInternalServiceImpl<T>::rollback(google::protobuf::RpcController* controll
     }
 }
 
+template<typename T>
 void PInternalServiceImpl<T>::fold_constant_expr(
     google::protobuf::RpcController* cntl_base,
     const PConstantExprRequest* request,
