@@ -319,6 +319,15 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
+// fold constant expr
+struct TExprMap {
+  1: required map<string, Exprs.TExpr> expr_map
+}
+
+struct TFoldConstantParams {
+  1: required map<string, map<string, Exprs.TExpr>> expr_map
+  2: required TQueryGlobals query_globals
+}
 
 // TransmitData
 struct TTransmitDataParams {

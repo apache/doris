@@ -325,6 +325,25 @@ message PPublishFilterResponse {
     required PStatus status = 1;
 };
 
+message PExprResult {
+    required PScalarType type = 1;
+    required string content = 2;
+    required bool success = 3;
+};
+
+message PExprResultMap {
+    map<string, PExprResult> map = 1;
+};
+
+message PConstantExprRequest {
+	optional bytes request = 1;
+};
+
+message PConstantExprResult {
+    required PStatus status = 1;
+    map<string, PExprResultMap> expr_result_map = 2;
+};
+
 // NOTE(zc): If you want to add new method here,
 // you MUST add same method to palo_internal_service.proto
 service PBackendService {
@@ -341,5 +360,6 @@ service PBackendService {
     rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
+    rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
 };
 

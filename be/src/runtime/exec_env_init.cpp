@@ -38,6 +38,7 @@
 #include "runtime/etl_job_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
+#include "runtime/fold_constant_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
@@ -98,6 +99,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
+    _fold_constant_mgr = new FoldConstantMgr(this);
     _master_info = new TMasterInfo();
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
@@ -250,6 +252,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_job_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_fold_constant_mgr);
     SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_thread_pool);
