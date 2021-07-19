@@ -33,7 +33,6 @@ BEGIN;
 INSERT INTO table_name ...
 COMMIT;
 ```
-
 ```
 BEGIN [ WITH LABEL label];
 INSERT INTO table_name ...
