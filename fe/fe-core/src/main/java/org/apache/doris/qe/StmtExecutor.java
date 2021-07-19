@@ -544,12 +544,17 @@ public class StmtExecutor implements ProfileWriter {
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+            ExprRewriter rewriter = analyzer.getExprRewriter();
+            rewriter.reset();
+            if (context.getSessionVariable().isEnableFoldConstantByBe()) {
+                // fold constant expr
+                parsedStmt.foldConstant(rewriter);
+
+            }
             // Apply expr and subquery rewrites.
             ExplainOptions explainOptions = parsedStmt.getExplainOptions();
             boolean reAnalyze = false;
 
-            ExprRewriter rewriter = analyzer.getExprRewriter();
-            rewriter.reset();
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
             if (analyzer.containSubquery()) {

@@ -538,6 +538,16 @@ public enum PrimitiveType {
                 return FLOAT;
             case DOUBLE:
                 return DOUBLE;
+            case DATE:
+                return DATE;
+            case DATETIME:
+                return DATETIME;
+            case BINARY:
+                return BINARY;
+            case DECIMALV2:
+                return DECIMALV2;
+            case TIME:
+                return TIME;
             case VARCHAR:
                 return VARCHAR;
             case CHAR:

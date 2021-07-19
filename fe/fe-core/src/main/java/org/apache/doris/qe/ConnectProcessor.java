@@ -421,6 +421,9 @@ public class ConnectProcessor {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
         }
+        if (request.isFoldConstantByBe()) {
+            ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
+        }
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());

@@ -87,13 +87,21 @@ public:
                       const ::doris::PMergeFilterRequest* request,
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+                      
     void apply_filter(::google::protobuf::RpcController* controller,
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
 
+    void fold_constant_expr(google::protobuf::RpcController* controller,
+                            const PConstantExprRequest* request,
+                            PConstantExprResult* response,
+                            google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(const std::string& s_request);
+
+    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
 private:
     ExecEnv* _exec_env;
