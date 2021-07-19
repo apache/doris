@@ -46,6 +46,7 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
@@ -85,6 +86,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
@@ -214,6 +216,8 @@ public class ShowExecutor {
             handleShowFunctions();
         } else if (stmt instanceof ShowCreateFunctionStmt) {
             handleShowCreateFunction();
+        } else if (stmt instanceof ShowEncryptKeysStmt) {
+            handleShowEncryptKeys();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -407,6 +411,46 @@ public class ShowExecutor {
         resultRow.add(function.toSql(false));
         resultRowSet.add(resultRow);
         resultSet = new ShowResultSet(showCreateFunctionStmt.getMetaData(), resultRowSet);
+    }
+
+    // Handle show encryptkeys
+    private void handleShowEncryptKeys() throws AnalysisException {
+        ShowEncryptKeysStmt showStmt = (ShowEncryptKeysStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        List<EncryptKey> encryptKeys = db.getEncryptKeys();
+
+        List<List<Comparable>> rowSet = Lists.newArrayList();
+        for (EncryptKey encryptKey : encryptKeys) {
+            List<Comparable> row = encryptKey.getInfo();
+            // like predicate
+            if (showStmt.getWild() == null || showStmt.like(encryptKey.getEncryptKeyName().getKeyName())) {
+                rowSet.add(row);
+            }
+
+        }
+
+        // sort function rows by first column asc
+        ListComparator<List<Comparable>> comparator = null;
+        OrderByPair orderByPair = new OrderByPair(0, false);
+        comparator = new ListComparator<>(orderByPair);
+        Collections.sort(rowSet, comparator);
+        List<List<String>> resultRowSet = Lists.newArrayList();
+
+        Set<String> encryptKeyNameSet = new HashSet<>();
+        for (List<Comparable> row : rowSet) {
+            List<String> resultRow = Lists.newArrayList();
+            for (Comparable column : row) {
+                resultRow.add(column.toString());
+            }
+            resultRowSet.add(resultRow);
+            encryptKeyNameSet.add(resultRow.get(0));
+        }
+
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
     private void handleShowProc() throws AnalysisException {
