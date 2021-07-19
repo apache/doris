@@ -530,6 +530,14 @@ TEST_F(DateTimeValueTest, from_date_format_str) {
     value.to_string(str);
     ASSERT_STREQ("2015-01-05 12:34:56", str);
 
+    // %T
+    format_str = "%W %U %Y";
+    value_str = "Tuesday 00 2002";
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
+    value.to_string(str);
+    ASSERT_STREQ("2002-01-01", str);
+
     // hour
     format_str = "%Y-%m-%d %H %i %s";
     value_str = "88-2-1 03 4 5";
