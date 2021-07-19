@@ -64,6 +64,7 @@ public class AlterTest {
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
+        Config.disable_storage_medium_check = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
 
         // create connect context

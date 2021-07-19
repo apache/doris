@@ -395,7 +395,7 @@ public class RestoreJob extends AbstractJob {
      * A. Table already exist
      *      A1. Partition already exist, generate file mapping
      *      A2. Partition does not exist, add restored partition to the table.
-     *          Reset all index/tablet/replica id, and create replica on BE outside the db lock.
+     *          Reset all index/tablet/replica id, and create replica on BE outside the table lock.
      * B. Table does not exist
      *      B1. Add table to the db, reset all table/index/tablet/replica id,
      *          and create replica on BE outside the db lock.
@@ -1566,7 +1566,6 @@ public class RestoreJob extends AbstractJob {
                 } finally {
                     restoreTbl.writeUnlock();
                 }
-
             }
 
             // remove restored resource
