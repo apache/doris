@@ -208,6 +208,9 @@ public class BackendServiceProxy {
             return client.commit(pRequest);
         } catch (Throwable e) {
             LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
 
     public Future<InternalService.PConstantExprResult> foldConstantExpr(
             TNetworkAddress address, TFoldConstantParams tParams) throws RpcException, TException {
