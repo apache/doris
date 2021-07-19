@@ -27,11 +27,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class UpdateDbUsedDataQuotaDaemon extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(UpdateDbUsedDataQuotaDaemon.class);
+public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(DbUsedDataQuotaInfoCollector.class);
 
-    public UpdateDbUsedDataQuotaDaemon() {
-        super("UpdateDbUsedDataQuota", Config.db_used_data_quota_update_interval_secs * 1000);
+    public DbUsedDataQuotaInfoCollector() {
+        super("DbUsedDataQuotaInfoCollector", Config.db_used_data_quota_update_interval_secs * 1000);
     }
 
     @Override

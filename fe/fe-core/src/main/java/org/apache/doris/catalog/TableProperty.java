@@ -163,7 +163,7 @@ public class TableProperty implements Writable {
         return replicationNum;
     }
 
-    public boolean IsInMemory() {
+    public boolean isInMemory() {
         return isInMemory;
     }
 

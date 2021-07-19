@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -43,6 +44,7 @@ public class CreateTableTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        Config.disable_storage_medium_check = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
 
         // create connect context
@@ -131,7 +133,7 @@ public class CreateTableTest {
                         + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1');"));
 
-        ConfigBase.setMutableConfig("enable_strict_storage_medium_check", "false");
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tb7(key1 int, key2 varchar(10)) \n"
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
@@ -254,7 +256,7 @@ public class CreateTableTest {
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '1');"));
 
-        ConfigBase.setMutableConfig("enable_strict_storage_medium_check", "true");
+        ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium is SSD in all backends. need: 1",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
