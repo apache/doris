@@ -159,6 +159,7 @@ import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -214,9 +215,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -306,7 +307,8 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
-    private UpdateDbUsedDataQuotaDaemon updateDbUsedDataQuotaDaemon;
+    private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
+    private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -492,7 +494,8 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
-        this.updateDbUsedDataQuotaDaemon = new UpdateDbUsedDataQuotaDaemon();
+        this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
+        this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1304,8 +1307,10 @@ public class Catalog {
         routineLoadTaskScheduler.start();
         // start dynamic partition task
         dynamicPartitionScheduler.start();
-        // start daemon thread to update db used data quota for db txn manager periodly
-        updateDbUsedDataQuotaDaemon.start();
+        // start daemon thread to update db used data quota for db txn manager periodically
+        dbUsedDataQuotaInfoCollector.start();
+        // start daemon thread to update global partition in memory information periodically
+        partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
     }
 
@@ -3407,7 +3412,7 @@ public class Catalog {
         }
     }
 
-    public void replayErasePartition(long partitionId) throws DdlException {
+    public void replayErasePartition(long partitionId) {
         Catalog.getCurrentRecycleBin().replayErasePartition(partitionId);
     }
 
@@ -3449,7 +3454,7 @@ public class Catalog {
         Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = new HashMap<Long, MaterializedIndex>();
+        Map<Long, MaterializedIndex> indexMap = new HashMap<>();
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
@@ -3771,8 +3776,7 @@ public class Catalog {
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
-        Set<Long> tabletIdSet = new HashSet<Long>();
-
+        Set<Long> tabletIdSet = new HashSet<>();
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
@@ -3866,7 +3870,6 @@ public class Catalog {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-
             // only remove from memory, because we have not persist it
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 getColocateTableIndex().removeTable(tableId);
@@ -4355,7 +4358,7 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    if (Config.enable_strict_storage_medium_check) {
+                    if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
@@ -5543,7 +5546,7 @@ public class Catalog {
 
         // need to update partition info meta
         for(Partition partition: table.getPartitions()) {
-            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
         }
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
@@ -5575,7 +5578,7 @@ public class Catalog {
             // need to replay partition info meta
             if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
                 for(Partition partition: olapTable.getPartitions()) {
-                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                 }
             }
         } finally {
