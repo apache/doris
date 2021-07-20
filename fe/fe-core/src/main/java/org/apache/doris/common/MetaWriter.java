@@ -49,6 +49,7 @@ import java.util.List;
  * | |--------------------------------------|     |
  * |                                              |
  * | |- Footer -----------------------------|     |
+ * | | | - Checksum (8 bytes)               |     |
  * | | |- object index --------------|      |     |
  * | | | - index a                   |      |     |
  * | | | - index b                   |      |     |
@@ -119,9 +120,8 @@ public class MetaWriter {
             checksum = catalog.savePlugins(dos, checksum);
             metaIndices.add(new MetaIndex("deleteHandler", dos.getCount()));
             checksum = catalog.saveDeleteHandler(dos, checksum);
-            dos.writeLong(checksum);
         }
-        MetaFooter.write(imageFile, metaIndices);
+        MetaFooter.write(imageFile, metaIndices, checksum);
 
         long saveImageEndTime = System.currentTimeMillis();
         LOG.info("finished save image {} in {} ms. checksum is {}",

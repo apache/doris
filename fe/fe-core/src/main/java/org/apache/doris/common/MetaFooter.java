@@ -31,6 +31,7 @@ import java.util.List;
 /**
  * Footer Format:
  * |- Footer -----------------------------|
+ * | - Checksum (8 bytes)                 |
  * | |- object index --------------|      |
  * | | - index a                   |      |
  * | | - index b                   |      |
@@ -46,10 +47,12 @@ public class MetaFooter {
     private static final Logger LOG = LogManager.getLogger(MetaFooter.class);
 
     private static final long FOOTER_LENGTH_SIZE = 8L;
-    public static final MetaFooter EMPTY_FOOTER = new MetaFooter(null, 0L);
+    private static final long CHECKSUM_LENGTH_SIZE = 8L;
 
+    // checksum
+    public long checksum;
     // length of footer
-    private long length;
+    public long length;
     // meta indices
     public List<MetaIndex> metaIndices;
 
@@ -63,10 +66,15 @@ public class MetaFooter {
             if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
                 LOG.warn("Image file {} format mismatch. Expected magic number is {}, actual is {}",
                         imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicNumber.getBytes()));
-                return EMPTY_FOOTER;
+                // this will compatible with old image
+                long footerIndex = fileLength - CHECKSUM_LENGTH_SIZE;
+                raf.seek(footerIndex);
+                long checksum = raf.readLong();
+                return new MetaFooter(Lists.newArrayList(), checksum, CHECKSUM_LENGTH_SIZE);
             }
             long footerIndex = footerLengthIndex - footerLength;
             raf.seek(footerIndex);
+            long checksum = raf.readLong();
             int indexNum = raf.readInt();
             List<MetaIndex> metaIndices = Lists.newArrayList();
             for (int i = 0; i < indexNum; i++) {
@@ -74,14 +82,15 @@ public class MetaFooter {
                 metaIndices.add(index);
             }
             LOG.info("Image footer length: {}, indices: {}", footerLength, metaIndices.toArray());
-            return new MetaFooter(metaIndices, footerLength);
+            return new MetaFooter(metaIndices, checksum, footerLength);
         }
     }
 
-    public static void write(File imageFile, List<MetaIndex> metaIndices) throws IOException {
+    public static void write(File imageFile, List<MetaIndex> metaIndices, long checksum) throws IOException {
         try(RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             long startIndex = raf.length();
             raf.seek(startIndex);
+            raf.writeLong(checksum);
             raf.writeInt(metaIndices.size());
             for (MetaIndex metaIndex : metaIndices) {
                 MetaIndex.write(raf, metaIndex);
@@ -92,7 +101,8 @@ public class MetaFooter {
         }
     }
 
-    public MetaFooter(List<MetaIndex> metaIndices, long length) {
+    public MetaFooter(List<MetaIndex> metaIndices, long checksum, long length) {
+        this.checksum = checksum;
         this.metaIndices = metaIndices;
         this.length = length;
     }

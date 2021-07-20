@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.catalog.Catalog;
+
 import com.google.common.base.Preconditions;
 
 import org.apache.commons.io.IOUtils;
@@ -49,6 +50,7 @@ import java.io.IOException;
  * | |--------------------------------------|     |
  * |                                              |
  * | |- Footer -----------------------------|     |
+ * | | - Checksum (8 bytes)                 |     |
  * | | |- object index --------------|      |     |
  * | | | - index a                   |      |     |
  * | | | - index b                   |      |     |
@@ -99,14 +101,14 @@ public class MetaReader {
             checksum = catalog.loadSmallFiles(dis, checksum);
             checksum = catalog.loadPlugins(dis, checksum);
             checksum = catalog.loadDeleteHandler(dis, checksum);
-
-            long remoteChecksum = dis.readLong();
-            Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
         }
 
         MetaFooter metaFooter = MetaFooter.read(imageFile);
+        long remoteChecksum = metaFooter.checksum;
+        Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
 
         long loadImageEndTime = System.currentTimeMillis();
         LOG.info("finished to load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
     }
+
 }
