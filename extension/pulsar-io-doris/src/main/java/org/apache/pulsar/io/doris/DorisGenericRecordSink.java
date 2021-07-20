@@ -67,16 +67,19 @@ public class DorisGenericRecordSink extends DorisAbstractSink<GenericRecord> {
         httpPut.setHeader("label", label);
         httpPut.setEntity(entity);
 
-        CloseableHttpResponse response = client.execute(httpPut);
-        String loadResult = "";
-        if (response.getEntity() != null) {
-            loadResult = EntityUtils.toString(response.getEntity());
+        try (CloseableHttpResponse response = client.execute(httpPut)) {
+            String loadResult = "";
+            if (response.getEntity() != null) {
+                loadResult = EntityUtils.toString(response.getEntity());
+            }
+
+            log.info("The json returned by the current request：" + loadResult);
+
+            Map<String, String> dorisLoadResultMap = parseDorisLoadResultJsonToMap(loadResult);
+            processLoadJobResult(content, swapRecordList, response, dorisLoadResultMap, failJobRetryCount, jobLabelRepeatRetryCount);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-
-        log.info("The json returned by the current request：" + loadResult);
-
-        Map<String, String> dorisLoadResultMap = parseDorisLoadResultJsonToMap(loadResult);
-        processLoadJobResult(content, swapRecordList, response, dorisLoadResultMap, failJobRetryCount, jobLabelRepeatRetryCount);
     }
 
     @Override
