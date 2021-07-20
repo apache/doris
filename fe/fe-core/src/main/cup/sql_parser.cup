@@ -2627,7 +2627,7 @@ show_param ::=
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);
-	}
+    :}
     ;
 
 opt_tmp ::=
