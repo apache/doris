@@ -214,7 +214,7 @@ There are different data types among different databases. Here, the types in eac
 
 ### SQLServer
 
-|  SQLServer  | Doris  |             替换方案              |
+|  SQLServer  | Doris  |             Alternation rules              |
 | :------: | :----: | :-------------------------------: |
 |  BOOLEAN  | BOOLEAN  |                         |
 |   CHAR   |  CHAR  |            Only UTF8 encoding is supported            |
