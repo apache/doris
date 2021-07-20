@@ -26,17 +26,19 @@ import java.util.Properties;
 /**
  * JDBC sink batch options.
  */
-public class DorisExecutionOptions  implements Serializable {
+public class DorisExecutionOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final Integer batchSize;
     private final Integer maxRetries;
     private final Long batchIntervalMs;
 
-    /** Properties for the StreamLoad. */
+    /**
+     * Properties for the StreamLoad.
+     */
     private final Properties streamLoadProp;
 
-    public DorisExecutionOptions(Integer batchSize, Integer maxRetries,Long batchIntervalMs,Properties streamLoadProp) {
+    public DorisExecutionOptions(Integer batchSize, Integer maxRetries, Long batchIntervalMs, Properties streamLoadProp) {
         Preconditions.checkArgument(maxRetries >= 0);
         this.batchSize = batchSize;
         this.maxRetries = maxRetries;
@@ -94,7 +96,7 @@ public class DorisExecutionOptions  implements Serializable {
         }
 
         public DorisExecutionOptions build() {
-            return new DorisExecutionOptions(batchSize,maxRetries,batchIntervalMs,streamLoadProp);
+            return new DorisExecutionOptions(batchSize, maxRetries, batchIntervalMs, streamLoadProp);
         }
     }
 

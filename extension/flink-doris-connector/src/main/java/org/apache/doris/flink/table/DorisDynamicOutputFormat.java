@@ -45,7 +45,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * DorisDynamicOutputFormat
  **/
-public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
+public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
 
     private static final Logger LOG = LoggerFactory.getLogger(DorisDynamicOutputFormat.class);
     private static final String FIELD_DELIMITER_KEY = "column_separator";
@@ -56,11 +56,10 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     private final String fieldDelimiter;
     private final String lineDelimiter;
 
-    private  DorisOptions options ;
-    private  DorisReadOptions readOptions;
-    private  DorisExecutionOptions executionOptions;
+    private DorisOptions options;
+    private DorisReadOptions readOptions;
+    private DorisExecutionOptions executionOptions;
     private DorisStreamLoad dorisStreamLoad;
-
 
 
     private final List<String> batch = new ArrayList<>();
@@ -70,12 +69,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     private transient ScheduledFuture<?> scheduledFuture;
     private transient volatile Exception flushException;
 
-    public DorisDynamicOutputFormat(DorisOptions option,DorisReadOptions readOptions,DorisExecutionOptions executionOptions) {
+    public DorisDynamicOutputFormat(DorisOptions option, DorisReadOptions readOptions, DorisExecutionOptions executionOptions) {
         this.options = option;
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
-        this.fieldDelimiter = executionOptions.getStreamLoadProp().getProperty(FIELD_DELIMITER_KEY,FIELD_DELIMITER_DEFAULT);
-        this.lineDelimiter = executionOptions.getStreamLoadProp().getProperty(LINE_DELIMITER_KEY,LINE_DELIMITER_DEFAULT);
+        this.fieldDelimiter = executionOptions.getStreamLoadProp().getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT);
+        this.lineDelimiter = executionOptions.getStreamLoadProp().getProperty(LINE_DELIMITER_KEY, LINE_DELIMITER_DEFAULT);
     }
 
     @Override
@@ -84,14 +83,14 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
 
     @Override
     public void open(int taskNumber, int numTasks) throws IOException {
-               dorisStreamLoad = new DorisStreamLoad(
+        dorisStreamLoad = new DorisStreamLoad(
                 getBackend(),
                 options.getTableIdentifier().split("\\.")[0],
                 options.getTableIdentifier().split("\\.")[1],
                 options.getUsername(),
                 options.getPassword(),
                 executionOptions.getStreamLoadProp());
-        LOG.info("Streamload BE:{}",dorisStreamLoad.getLoadUrlStr());
+        LOG.info("Streamload BE:{}", dorisStreamLoad.getLoadUrlStr());
 
         if (executionOptions.getBatchIntervalMs() != 0 && executionOptions.getBatchSize() != 1) {
             this.scheduler = Executors.newScheduledThreadPool(1, new ExecutorThreadFactory("doris-streamload-output-format"));
@@ -128,11 +127,11 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     private void addBatch(RowData row) {
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         GenericRowData rowData = (GenericRowData) row;
-        for(int i = 0; i < row.getArity(); ++i) {
+        for (int i = 0; i < row.getArity(); ++i) {
             Object field = rowData.getField(i);
-            if(field != null){
+            if (field != null) {
                 value.add(field.toString());
-            }else{
+            } else {
                 value.add(NULL_VALUE);
             }
         }
@@ -161,12 +160,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
 
     public synchronized void flush() throws IOException {
         checkFlushException();
-        if(batch.isEmpty()){
+        if (batch.isEmpty()) {
             return;
         }
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
-                dorisStreamLoad.load(String.join(this.lineDelimiter,batch));
+                dorisStreamLoad.load(String.join(this.lineDelimiter, batch));
                 batch.clear();
                 break;
             } catch (StreamLoadException e) {
@@ -176,7 +175,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
                 }
                 try {
                     dorisStreamLoad.setHostPort(getBackend());
-                    LOG.warn("streamload error,switch be: {}",dorisStreamLoad.getLoadUrlStr(), e);
+                    LOG.warn("streamload error,switch be: {}", dorisStreamLoad.getLoadUrlStr(), e);
                     Thread.sleep(1000 * i);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
@@ -187,10 +186,10 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
     }
 
 
-    private String getBackend() throws IOException{
+    private String getBackend() throws IOException {
         try {
             //get be url from fe
-           return  RestService.randomBackend(options,readOptions, LOG);
+            return RestService.randomBackend(options, readOptions, LOG);
         } catch (IOException | DorisException e) {
             LOG.error("get backends info fail");
             throw new IOException(e);
@@ -251,7 +250,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData>  {
 
         public DorisDynamicOutputFormat build() {
             return new DorisDynamicOutputFormat(
-                    optionsBuilder.build(),readOptions,executionOptions
+                    optionsBuilder.build(), readOptions, executionOptions
             );
         }
     }

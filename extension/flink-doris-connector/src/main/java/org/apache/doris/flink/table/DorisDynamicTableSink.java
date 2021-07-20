@@ -63,7 +63,7 @@ public class DorisDynamicTableSink implements DynamicTableSink {
 
     @Override
     public DynamicTableSink copy() {
-        return new DorisDynamicTableSink(options,readOptions,executionOptions);
+        return new DorisDynamicTableSink(options, readOptions, executionOptions);
     }
 
     @Override
