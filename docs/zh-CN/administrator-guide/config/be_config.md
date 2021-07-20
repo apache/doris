@@ -1405,3 +1405,10 @@ webserver默认工作线程数
     DEBUG = 1
   ```
 * 默认值: 0
+
+
+### `max_zone_map_index_size`
+
+* 类型: int16
+* 描述: zone map索引最长的长度，超过该长度的索引值会被截断，zone map索引转变为开区间
+* 默认值: 512

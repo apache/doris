@@ -618,6 +618,10 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
 // else we will call sync method
 CONF_mBool(runtime_filter_use_async_rpc, "true");
+
+// max index size for zone map. if value length longer than this
+// doris will cut the index only keep `max_zone_map_index_size`
+CONF_mInt16(max_zone_map_index_size, "512");
 } // namespace config
 
 } // namespace doris

@@ -1396,3 +1396,9 @@ The size of the buffer before flashing
     DEBUG = 1
   ```
 * Default: 0
+
+### `max_zone_map_index_size`
+
+* Type: int16
+* Description: The maximum index length of zonemap, beyond which the index will be truncated and the index will become an open interval.
+* Default: 512

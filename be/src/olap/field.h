@@ -66,12 +66,23 @@ public:
     inline const std::string& name() const { return _name; }
 
     virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
+    virtual inline void set_to_zone_map_max(char* buf) const {
+        set_to_max(buf);
+    }
+
     inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    inline void set_to_zone_map_min(char* buf) const {
+        set_to_min(buf);
+    }
 
     // This function allocate memory from pool, other than allocate_memory
     // reserve memory from continuous memory.
     virtual inline char* allocate_value(MemPool* pool) const {
         return (char*)pool->allocate(_type_info->size());
+    }
+
+    virtual inline char* allocate_zone_map_value(MemPool* pool) const {
+        return allocate_value(pool);
     }
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
@@ -102,6 +113,8 @@ public:
     virtual char* allocate_memory(char* cell_ptr, char* variable_ptr) const { return variable_ptr; }
 
     virtual size_t get_variable_len() const { return 0; }
+
+    virtual void modify_zone_map_index(char*) const {};
 
     virtual Field* clone() const {
         auto* local = new Field();
@@ -484,9 +497,40 @@ public:
         return Field::allocate_string_value(pool);
     }
 
+    // To prevent zone map cost too many memory, if varchar length
+    // longer than `config::max_zone_map_index_size`. we just allocate
+    // `config::max_zone_map_index_size` of memory
+    char* allocate_zone_map_value(MemPool *pool) const override {
+        char* type_value = (char*)pool->allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = config::max_zone_map_index_size > _length ? _length :
+                config::max_zone_map_index_size;
+        slice->data = (char*)pool->allocate(slice->size);
+        return type_value;
+    }
+
+    // only varchar filed need modify zone map index when zone map max_value
+    // index longer than `config::max_zone_map_index_size`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == config::max_zone_map_index_size) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
+    }
+
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         slice->size = _length - OLAP_STRING_MAX_BYTES;
+        memset(slice->data, 0xFF, slice->size);
+    }
+
+    void set_to_zone_map_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        int length = _length < config::max_zone_map_index_size ? _length :
+                config::max_zone_map_index_size;
+        slice->size = length - OLAP_STRING_MAX_BYTES;
         memset(slice->data, 0xFF, slice->size);
     }
 };
