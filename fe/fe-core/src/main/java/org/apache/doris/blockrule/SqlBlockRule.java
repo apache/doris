@@ -39,13 +39,13 @@ public class SqlBlockRule implements Writable {
     // the rule name, cluster unique
     private String name;
 
-    // default stands for all users
-    private String user;
-
     private String sql;
 
     // sql md5
     private String sqlHash;
+
+    // whether effective global
+    private Boolean global;
 
     // whether to use the rule
     private Boolean enable;
@@ -54,28 +54,24 @@ public class SqlBlockRule implements Writable {
         this.name = name;
     }
 
-    public SqlBlockRule(String name, String user, String sql, String sqlHash, Boolean enable) {
+    public SqlBlockRule(String name, String sql, String sqlHash, Boolean global, Boolean enable) {
         this.name = name;
-        this.user = user;
         this.sql = sql;
         this.sqlHash = sqlHash;
+        this.global = global;
         this.enable = enable;
     }
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getSqlHash(), stmt.isEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.isGlobal(), stmt.isEnable());
     }
 
     public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getUser(), stmt.getSql(), stmt.getSqlHash(), stmt.getEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getGlobal(), stmt.getEnable());
     }
 
     public String getName() {
         return name;
-    }
-
-    public String getUser() {
-        return user;
     }
 
     public String getSql() {
@@ -86,12 +82,12 @@ public class SqlBlockRule implements Writable {
         return sqlHash;
     }
 
-    public Boolean getEnable() {
-        return enable;
+    public Boolean getGlobal() {
+        return global;
     }
 
-    public void setUser(String user) {
-        this.user = user;
+    public Boolean getEnable() {
+        return enable;
     }
 
     public void setSql(String sql) {
@@ -102,12 +98,16 @@ public class SqlBlockRule implements Writable {
         this.sqlHash = sqlHash;
     }
 
+    public void setGlobal(Boolean global) {
+        this.global = global;
+    }
+
     public void setEnable(Boolean enable) {
         this.enable = enable;
     }
 
     public List<String> getShowInfo() {
-        return Lists.newArrayList(this.name, this.user, this.sql, String.valueOf(this.enable));
+        return Lists.newArrayList(this.name, this.sql, String.valueOf(this.enable));
     }
 
     @Override

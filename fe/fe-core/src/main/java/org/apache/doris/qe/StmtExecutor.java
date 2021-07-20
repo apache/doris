@@ -324,9 +324,6 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             if (parsedStmt instanceof QueryStmt) {
-                QueryStmt queryStmt = (QueryStmt) this.parsedStmt;
-                // match sql
-                matchSql(queryStmt);
                 context.getState().setIsQuery(true);
                 MetricRepo.COUNTER_QUERY_BEGIN.increase(1L);
                 int retryTime = Config.max_query_retry_time;
@@ -1463,13 +1460,6 @@ public class StmtExecutor implements ProfileWriter {
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
-
-    private void matchSql(QueryStmt queryStmt) throws AnalysisException {
-        String sql = queryStmt.getOrigStmt().originStmt;
-        String user = context.getUserIdentity().getUser();
-        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(sql, user);
-    }
-
 
 }
 

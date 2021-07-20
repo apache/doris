@@ -50,7 +50,7 @@ public class SqlBlockRuleMgrTest {
     @Test(expected = AnalysisException.class)
     public void testRegexMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
-        SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", "default", ".* join .*", null, true);
+        SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", ".* join .*", null, true, true);
         Pattern sqlPattern = Pattern.compile(sqlRule.getSql());
         SqlBlockRuleMgr.matchSql(sqlRule, sql, sqlPattern);
     }
@@ -60,7 +60,7 @@ public class SqlBlockRuleMgrTest {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
         String hashSql = DigestUtils.md5Hex(sql);
         System.out.println(hashSql);
-        SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", "default", null, hashSql, true);
+        SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, hashSql, true, true);
         SqlBlockRuleMgr.matchSql(sqlRule, sql, null);
     }
 
@@ -69,7 +69,6 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRuleMgr sqlBlockRuleMgr = new SqlBlockRuleMgr();
         Map<String, String> properties = new HashMap<>();
         properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
-        properties.put(CreateSqlBlockRuleStmt.USER_PROPERTY, SqlBlockRule.DEFAULT_USER);
         properties.put(CreateSqlBlockRuleStmt.ENABLE_PROPERTY, "true");
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
         stmt.analyze(analyzer);

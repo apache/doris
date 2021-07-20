@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -39,29 +38,29 @@ import java.util.Optional;
  syntax:
       CREATE SQL_BLOCK_RULE `rule_name` PROPERTIES
       (
-          user = default,
           sql = select * from a,
+          global = false
           enable = true
       )
 */
 public class CreateSqlBlockRuleStmt extends DdlStmt {
 
-    public static final String USER_PROPERTY = "user";
-
     public static final String SQL_PROPERTY = "sql";
 
     public static final String SQL_HASH_PROPERTY = "sqlHash";
+
+    public static final String GLOBAL_PROPERTY = "global";
 
     public static final String ENABLE_PROPERTY = "enable";
 
     private final String ruleName;
 
-    // default stands for all users
-    private String user;
-
     private String sql;
 
     private String sqlHash;
+
+    // whether effective global
+    private boolean global;
 
     // whether to use the rule
     private boolean enable;
@@ -71,9 +70,9 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     private static final String NAME_TYPE = "SQL BLOCK RULE NAME";
 
     public static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(USER_PROPERTY)
             .add(SQL_PROPERTY)
             .add(SQL_HASH_PROPERTY)
+            .add(GLOBAL_PROPERTY)
             .add(ENABLE_PROPERTY)
             .build();
 
@@ -96,16 +95,9 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     }
 
     private void setProperties(Map<String, String> properties) throws UserException {
-        this.user = properties.get(USER_PROPERTY);
-        // if not default, need check whether user exist
-        if (!SqlBlockRule.DEFAULT_USER.equals(user)) {
-            boolean existUser = Catalog.getCurrentCatalog().getAuth().getTablePrivTable().doesUsernameExist(user);
-            if (!existUser) {
-                throw new AnalysisException(user + " does not exist");
-            }
-        }
         this.sql = properties.get(SQL_PROPERTY);
         this.sqlHash = properties.get(SQL_HASH_PROPERTY);
+        this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false, GLOBAL_PROPERTY + " should be a boolean");
         this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
     }
 
@@ -124,16 +116,16 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
         return ruleName;
     }
 
-    public String getUser() {
-        return user;
-    }
-
     public String getSql() {
         return sql;
     }
 
     public String getSqlHash() {
         return sqlHash;
+    }
+
+    public boolean isGlobal() {
+        return global;
     }
 
     public boolean isEnable() {

@@ -28,18 +28,32 @@ under the License.
 
 支持按用户配置SQL黑名单，通过正则匹配的方式拒绝指定SQL
 
-## 具体操作
+## 规则
 
 对SQL规则增删改查
 - 创建SQL阻止规则
-    - user：规则生效的用户，default代表所有用户都生效，如果同时命中指定用户和default的规则，default规则优先
-    - sql：匹配规则(基于正则匹配,特殊字符需要转译)
-    - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值
-    - enable：是否开启阻止规则
-> CREATE SQL_BLOCK_RULE test_rule PROPERTIES("user"="default","sql"="select \\* from test_table","sqlHash":null,"enable"="true")
+    - sql：匹配规则(基于正则匹配,特殊字符需要转译)，可选
+    - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值，可选
+    - global：是否全局(所有用户)生效，默认为false  
+    - enable：是否开启阻止规则，默认为true
+```
+CREATE SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","sqlHash":null,"enable"="true")
+```
 - 查看已配置的SQL阻止规则，不指定规则名则为查看所有规则
-> SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
-- 修改SQL阻止规则，允许对user/sql/enable等每一项进行修改
-> ALTER SQL_BLOCK_RULE test_rule PROPERTIES("user"="default","sql"="select \\* from test_table","enable"="true")
+```
+SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
+```
+- 修改SQL阻止规则，允许对sql/global/enable等每一项进行修改
+```
+ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
+```
 - 删除SQL阻止规则，支持多规则，以`,`隔开
-> DROP SQL_BLOCK_RULE test_rule1,test_rule2
+```
+DROP SQL_BLOCK_RULE test_rule1,test_rule2
+```
+
+## 用户规则绑定
+如果配置global=false，则需要配置指定用户的规则绑定，多个规则使用`,`分隔
+```
+SET PROPERTY FOR 'jack' 'bind_sql_block_rules' = 'test_rule1,test_rule2'
+```

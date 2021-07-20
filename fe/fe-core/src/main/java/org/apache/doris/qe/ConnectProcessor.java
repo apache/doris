@@ -50,8 +50,8 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -181,6 +181,13 @@ public class ConnectProcessor {
             // impossible
             LOG.error("UTF8 is not supported in this environment.");
             ctx.getState().setError("Unsupported character set(UTF-8)");
+            return;
+        }
+        try {
+            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, ctx.getQualifiedUser());
+        } catch (AnalysisException e) {
+            LOG.error(e.getMessage());
+            ctx.getState().setError(e.getMessage());
             return;
         }
         ctx.getAuditEventBuilder().reset();

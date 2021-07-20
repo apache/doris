@@ -28,18 +28,32 @@ under the License.
 
 Support SQL block rule by user level, by regex way to deny specify SQL
 
-## Specific operation
+## Rule
 
 SQL block rule CRUD
 - create SQL block rule
-    - user：For users whose rule is in effect, default means that all users are in effect. If both the specified user and the default rule are hit, the default rule takes precedence
     - sql：Regex pattern，Special characters need to be translated
-    - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log 
-    - enable：Whether to enable block rule
-> CREATE SQL_BLOCK_RULE test_rule PROPERTIES("user"="default","sql"="select \\* from test_table","sqlHash":null,"enable"="true")
+    - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log
+    - global: Whether global(all users)is in effect, false by default
+    - enable：Whether to enable block rule，true by default
+```
+CREATE SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","sqlHash":null,"global"="false","enable"="true")
+```
 - show configured SQL block rules, or show all rules if you do not specify a rule name
-> SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
-- alter SQL block rule，Allows changes user/sql/enable anyone
-> ALTER SQL_BLOCK_RULE test_rule PROPERTIES("user"="default","sql"="select \\* from test_table","enable"="true")
+```
+SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
+```
+- alter SQL block rule，Allows changes sql/global/enable anyone
+```
+ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
+```
 - drop SQL block rule，Support multiple rules, separated by `,`
-> DROP SQL_BLOCK_RULE test_rule1,test_rule2
+```
+DROP SQL_BLOCK_RULE test_rule1,test_rule2
+```
+
+## User bind rules
+If global=false is configured, the rules binding for the specified user needs to be configured, with multiple rules separated by ', '
+```
+SET PROPERTY FOR 'jack' 'bind_sql_block_rules' = 'test_rule1,test_rule2'
+```

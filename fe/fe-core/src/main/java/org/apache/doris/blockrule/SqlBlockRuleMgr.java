@@ -44,18 +44,16 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class SqlBlockRuleMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(SqlBlockRuleMgr.class);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
-    private Map<String, List<SqlBlockRule>> userToSqlBlockRuleMap = Maps.newConcurrentMap();
 
     private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
 
@@ -117,14 +115,14 @@ public class SqlBlockRuleMgr implements Writable {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
             }
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
-            if (StringUtils.isEmpty(sqlBlockRule.getUser())) {
-                sqlBlockRule.setUser(originRule.getUser());
-            }
             if (StringUtils.isEmpty(sqlBlockRule.getSql())) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
             if (StringUtils.isEmpty(sqlBlockRule.getSqlHash())) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
+            }
+            if (sqlBlockRule.getGlobal() == null) {
+                sqlBlockRule.setGlobal(originRule.getGlobal());
             }
             if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
@@ -143,17 +141,10 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void unprotectedUpdate(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.getOrDefault(sqlBlockRule.getUser(), new ArrayList<>());
-        sqlBlockRules.removeIf(rule -> sqlBlockRule.getName().equals(rule.getName()));
-        sqlBlockRules.add(sqlBlockRule);
-        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
     }
 
     public void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.getOrDefault(sqlBlockRule.getUser(), new ArrayList<>());
-        sqlBlockRules.add(sqlBlockRule);
-        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
         String sql = sqlBlockRule.getSql();
         if (StringUtils.isNotEmpty(sql)) {
             sqlPatternMap.put(sql, Pattern.compile(sql));
@@ -187,22 +178,25 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void unprotectedDrop(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.remove(sqlBlockRule.getName());
-        List<SqlBlockRule> sqlBlockRules = userToSqlBlockRuleMap.get(sqlBlockRule.getUser());
-        sqlBlockRules.removeIf(rule -> sqlBlockRule.getName().equals(rule.getName()));
-        userToSqlBlockRuleMap.put(sqlBlockRule.getUser(), sqlBlockRules);
+        // todo: remove UserProperty
     }
 
     public void matchSql(String sql, String user) throws AnalysisException {
-        List<SqlBlockRule> defaultRules = userToSqlBlockRuleMap.getOrDefault(SqlBlockRule.DEFAULT_USER, new ArrayList<>());
-        for (SqlBlockRule rule : defaultRules) {
+        // match global rule
+        List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
+        for (SqlBlockRule rule : globalRules) {
             Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
             matchSql(rule, sql, sqlPattern);
         }
         // match user rule
-        List<SqlBlockRule> userRules = userToSqlBlockRuleMap.getOrDefault(user, new ArrayList<>());
-        for (SqlBlockRule rule : userRules) {
-            Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-            matchSql(rule, sql, sqlPattern);
+        String binSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getBindSqlBlockRules(user);
+        if (StringUtils.isNotEmpty(binSqlBlockRules)) {
+            String[] split = binSqlBlockRules.split(",");
+            for (String ruleName : split) {
+                SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
+                Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
+                matchSql(rule, sql, sqlPattern);
+            }
         }
     }
 

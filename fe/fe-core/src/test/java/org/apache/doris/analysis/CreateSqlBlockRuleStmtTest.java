@@ -54,7 +54,6 @@ public class CreateSqlBlockRuleStmtTest {
     public void testNormal() throws UserException {
         Map<String, String> properties = new HashMap<>();
         properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
-        properties.put(CreateSqlBlockRuleStmt.USER_PROPERTY, SqlBlockRule.DEFAULT_USER);
         properties.put(CreateSqlBlockRuleStmt.ENABLE_PROPERTY, "true");
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
         stmt.analyze(analyzer);

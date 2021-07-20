@@ -1134,6 +1134,15 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public String getBindSqlBlockRules(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getBindSqlBlockRules(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {

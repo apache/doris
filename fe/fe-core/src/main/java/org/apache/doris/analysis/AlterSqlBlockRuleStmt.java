@@ -17,9 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -29,17 +27,16 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
-import java.util.Optional;
 
 public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private final String ruleName;
 
-    private String user;
-
     private String sql;
 
     private String sqlHash;
+
+    private Boolean global;
 
     private Boolean enable;
 
@@ -62,18 +59,12 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
         setProperties(properties);
     }
 
-    private void setProperties(Map<String, String> properties) throws UserException {
-        this.user = properties.get(CreateSqlBlockRuleStmt.USER_PROPERTY);
-        // if not default, need check whether user exist
-        if (StringUtils.isNotEmpty(user) &&  !SqlBlockRule.DEFAULT_USER.equals(user)) {
-            boolean existUser = Catalog.getCurrentCatalog().getAuth().getTablePrivTable().doesUsernameExist(user);
-            if (!existUser) {
-                throw new AnalysisException(user + " does not exist");
-            }
-        }
+    private void setProperties(Map<String, String> properties) {
         this.sql = properties.get(CreateSqlBlockRuleStmt.SQL_PROPERTY);
         this.sqlHash = properties.get(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY);
         // allow null, represents no modification
+        String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
+        this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;
         String enableStr = properties.get(CreateSqlBlockRuleStmt.ENABLE_PROPERTY);
         this.enable = StringUtils.isNotEmpty(enableStr) ? Boolean.parseBoolean(enableStr) : null;
     }
@@ -82,12 +73,12 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
         return ruleName;
     }
 
-    public String getUser() {
-        return user;
-    }
-
     public String getSql() {
         return sql;
+    }
+
+    public Boolean getGlobal() {
+        return global;
     }
 
     public Boolean getEnable() {

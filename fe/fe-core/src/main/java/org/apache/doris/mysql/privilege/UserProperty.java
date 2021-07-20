@@ -66,6 +66,7 @@ public class UserProperty implements Writable {
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
+    private static final String PROP_BIND_SQL_BLOCK_RULES = "bind_sql_block_rules";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -88,6 +89,18 @@ public class UserProperty implements Writable {
      *  We never persist the resolved IPs.
      */
     private WhiteList whiteList = new WhiteList();
+
+    // the binding of sql_block_rule name, multiple are separated by ','
+    private String bindSqlBlockRules;
+
+    @Deprecated
+    private byte[] password;
+    @Deprecated
+    private boolean isAdmin = false;
+    @Deprecated
+    private boolean isSuperuser = false;
+    @Deprecated
+    private Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
 
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
@@ -119,6 +132,15 @@ public class UserProperty implements Writable {
 
     public long getMaxQueryInstances() {
         return commonProperties.getMaxQueryInstances();// maxQueryInstances;
+    }
+
+    public String getBindSqlBlockRules() {
+        return bindSqlBlockRules;
+    }
+
+    @Deprecated
+    public byte[] getPassword() {
+        return password;
     }
 
     public WhiteList getWhiteList() {
@@ -227,6 +249,12 @@ public class UserProperty implements Writable {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
                 }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_BIND_SQL_BLOCK_RULES)) {
+                // set property "bind_sql_block_rules" = "test_rule1,test_rule2"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_BIND_SQL_BLOCK_RULES + " format error");
+                }
+                bindSqlBlockRules = value;
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -381,6 +409,9 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList("resolved IPs", Joiner.on(";").join(ips)));
         }
 
+        // bind_sql_block_rules
+        result.add(Lists.newArrayList(PROP_BIND_SQL_BLOCK_RULES, bindSqlBlockRules));
+
         // sort
         Collections.sort(result, new Comparator<List<String>>() {
             @Override
@@ -426,6 +457,8 @@ public class UserProperty implements Writable {
 
         // common properties
         commonProperties.write(out);
+
+        Text.writeString(out, bindSqlBlockRules);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -513,6 +546,10 @@ public class UserProperty implements Writable {
         // common properties
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
             this.commonProperties = CommonUserProperties.read(in);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
+            bindSqlBlockRules = Text.readString(in);
         }
     }
 }
