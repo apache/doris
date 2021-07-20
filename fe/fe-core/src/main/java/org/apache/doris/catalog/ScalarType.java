@@ -92,8 +92,6 @@ public class ScalarType extends Type {
                 return createCharType(len);
             case VARCHAR:
                 return createVarcharType(len);
-            case DECIMAL:
-                return createDecimalType(precision, scale);
             case DECIMALV2:
                 return createDecimalV2Type(precision, scale);
             default:
@@ -135,8 +133,6 @@ public class ScalarType extends Type {
                 return DATETIME;
             case TIME:
                 return TIME;
-            case DECIMAL:
-                return (ScalarType) createDecimalType();
             case DECIMALV2:
                 return DEFAULT_DECIMALV2;
             case LARGEINT:
@@ -183,7 +179,6 @@ public class ScalarType extends Type {
             case "TIME":
                 return TIME;
             case "DECIMAL":
-                return (ScalarType) createDecimalType();
             case "DECIMALV2":
                 return (ScalarType) createDecimalV2Type();
             case "LARGEINT":
@@ -207,29 +202,12 @@ public class ScalarType extends Type {
         return type;
     }
 
-    public static ScalarType createDecimalType() {
-        return DEFAULT_DECIMAL;
-    }
-
     public static ScalarType createDecimalV2Type() {
         return DEFAULT_DECIMALV2;
     }
 
-    public static ScalarType createDecimalType(int precision) {
-        return createDecimalType(precision, DEFAULT_SCALE);
-    }
-
     public static ScalarType createDecimalV2Type(int precision) {
         return createDecimalV2Type(precision, DEFAULT_SCALE);
-    }
-
-    public static ScalarType createDecimalType(int precision, int scale) {
-        // Preconditions.checkState(precision >= 0); // Enforced by parser
-        // Preconditions.checkState(scale >= 0); // Enforced by parser.
-        ScalarType type = new ScalarType(PrimitiveType.DECIMAL);
-        type.precision = precision;
-        type.scale = scale;
-        return type;
     }
 
     public static ScalarType createDecimalV2Type(int precision, int scale) {
@@ -238,16 +216,6 @@ public class ScalarType extends Type {
         ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
         type.precision = precision;
         type.scale = scale;
-        return type;
-    }
-
-    // Identical to createDecimalType except that higher precisions are truncated
-    // to the max storable precision. The BE will report overflow in these cases
-    // (think of this as adding ints to BIGINT but BIGINT can still overflow).
-    public static ScalarType createDecimalTypeInternal(int precision, int scale) {
-        ScalarType type = new ScalarType(PrimitiveType.DECIMAL);
-        type.precision = Math.min(precision, MAX_PRECISION);
-        type.scale = Math.min(type.precision, scale);
         return type;
     }
 
@@ -289,11 +257,6 @@ public class ScalarType extends Type {
                 return "CHAR(*)";
             }
             return "CHAR(" + len + ")";
-        } else  if (type == PrimitiveType.DECIMAL) {
-            if (isWildcardDecimal()) {
-                return "DECIMAL(*,*)";
-            }
-            return "DECIMAL(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
                 return "DECIMAL(*,*)";
@@ -318,9 +281,6 @@ public class ScalarType extends Type {
             case VARCHAR:
                 stringBuilder.append("varchar").append("(").append(len).append(")");
                 break;
-            case DECIMAL:
-                stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
-                break;
             case DECIMALV2:
                 stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
                 break;
@@ -342,6 +302,9 @@ public class ScalarType extends Type {
             case DATETIME:
             case HLL:
             case BITMAP:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
+            case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:
@@ -371,7 +334,6 @@ public class ScalarType extends Type {
                 node.setScalarType(scalarType);
                 break;
             }
-            case DECIMAL:
             case DECIMALV2: {
                 node.setType(TTypeNodeType.SCALAR);
                 TScalarType scalarType = new TScalarType();
@@ -400,18 +362,20 @@ public class ScalarType extends Type {
     }
 
     public int decimalPrecision() {
-        Preconditions.checkState(type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2);
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2);
         return precision;
     }
 
     public int decimalScale() {
-        Preconditions.checkState(type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2);
+        Preconditions.checkState(type == PrimitiveType.DECIMALV2);
         return scale;
     }
 
     @Override
     public PrimitiveType getPrimitiveType() { return type; }
     public int ordinal() { return type.ordinal(); }
+
+    @Override
     public int getLength() { return len; }
     public void setLength(int len) {this.len = len; }
     public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
@@ -423,7 +387,7 @@ public class ScalarType extends Type {
 
     @Override
     public boolean isWildcardDecimal() {
-        return (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2)
+        return (type == PrimitiveType.DECIMALV2)
                 && precision == -1 && scale == -1;
     }
 
@@ -437,18 +401,6 @@ public class ScalarType extends Type {
         return type == PrimitiveType.CHAR && len == -1;
     }
 
-    /**
-     *  Returns true if this type is a fully specified (not wild card) decimal.
-     */
-    @Override
-    public boolean isFullySpecifiedDecimal() {
-        if (!isDecimal() && !isDecimalV2()) return false;
-        if (isWildcardDecimal()) return false;
-        if (precision <= 0 || precision > MAX_PRECISION) return false;
-        if (scale < 0 || scale > precision) return false;
-        return true;
-    }
-
     @Override
     public boolean isFixedLengthType() {
         return type == PrimitiveType.BOOLEAN || type == PrimitiveType.TINYINT
@@ -456,7 +408,7 @@ public class ScalarType extends Type {
                 || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
                 || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2
-                || type == PrimitiveType.CHAR || type == PrimitiveType.DECIMAL;
+                || type == PrimitiveType.CHAR;
     }
 
     @Override
@@ -513,11 +465,8 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.HLL && scalarType.isStringType()) {
             return true;
         }
-        if ((isDecimal() || isDecimalV2()) && scalarType.isWildcardDecimal()) {
+        if (isDecimalV2() && scalarType.isWildcardDecimal()) {
             Preconditions.checkState(!isWildcardDecimal());
-            return true;
-        }
-        if (isDecimal() && scalarType.isDecimal()) {
             return true;
         }
         if (isDecimalV2() && scalarType.isDecimalV2()) {
@@ -541,7 +490,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
+        if ( type == PrimitiveType.DECIMALV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -555,8 +504,6 @@ public class ScalarType extends Type {
             return ScalarType.DOUBLE;
         } else if (isNull()) {
             return ScalarType.NULL;
-        } else if (isDecimal()) {
-            return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (isDecimalV2()) {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
         } else if (isLargeIntType()) {
@@ -570,8 +517,6 @@ public class ScalarType extends Type {
         Preconditions.checkState(isNumericType() || isNull());
         if (type == PrimitiveType.DOUBLE || type == PrimitiveType.BIGINT || isNull()) {
             return this;
-        } else if (type == PrimitiveType.DECIMAL) {
-            return createDecimalTypeInternal(MAX_PRECISION, scale);
         } else if (type == PrimitiveType.DECIMALV2) {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
         }
@@ -586,17 +531,16 @@ public class ScalarType extends Type {
         switch (type) {
             case NULL_TYPE:
                 return Type.NULL;
-            case DECIMAL:
             case DECIMALV2:
                 return this;
             case TINYINT:
-                return createDecimalType(3);
+                return createDecimalV2Type(3);
             case SMALLINT:
-                return createDecimalType(5);
+                return createDecimalV2Type(5);
             case INT:
-                return createDecimalType(10);
+                return createDecimalV2Type(10);
             case BIGINT:
-                return createDecimalType(19);
+                return createDecimalV2Type(19);
             case FLOAT:
                 return createDecimalV2TypeInternal(MAX_PRECISION, 9);
             case DOUBLE:
@@ -613,8 +557,8 @@ public class ScalarType extends Type {
      * the decimal point must be greater or equal.
      */
     public boolean isSupertypeOf(ScalarType o) {
-        Preconditions.checkState(isDecimal() || isDecimalV2());
-        Preconditions.checkState(o.isDecimal() || o.isDecimalV2());
+        Preconditions.checkState(isDecimalV2());
+        Preconditions.checkState(o.isDecimalV2());
         if (isWildcardDecimal()) {
             return true;
         }
@@ -658,47 +602,13 @@ public class ScalarType extends Type {
             return createVarcharType(Math.max(t1.len, t2.len));
         }
 
-        if ((t1.isDecimal() || t1.isDecimalV2()) && t2.isDate()
-                || t1.isDate() && (t2.isDecimal() || t2.isDecimalV2())) {
+        if (t1.isDecimalV2() && t2.isDate()
+                || t1.isDate() && t2.isDecimalV2()) {
             return INVALID;
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             return DECIMALV2;
-        }
-
-        if (t1.isDecimal() || t2.isDecimal()) {
-            return DECIMAL;
-//            // The case of decimal and float/double must be handled carefully. There are two
-//            // modes: strict and non-strict. In non-strict mode, we convert to the floating
-//            // point type, since it can contain a larger range of values than any decimal (but
-//            // has lower precision in some parts of its range), so it is generally better.
-//            // In strict mode, we avoid conversion in either direction because there are also
-//            // decimal values (e.g. 0.1) that cannot be exactly represented in binary
-//            // floating point.
-//            // TODO: it might make sense to promote to double in many cases, but this would
-//            // require more work elsewhere to avoid breaking things, e.g. inserting decimal
-//            // literals into float columns.
-//            if (t1.isFloatingPointType()) return strict ? INVALID : t1;
-//            if (t2.isFloatingPointType()) return strict ? INVALID : t2;
-//
-//            // Allow casts between decimal and numeric types by converting
-//            // numeric types to the containing decimal type.
-//            ScalarType t1Decimal = t1.getMinResolutionDecimal();
-//            ScalarType t2Decimal = t2.getMinResolutionDecimal();
-//            if (t1Decimal.isInvalid() || t2Decimal.isInvalid()) return Type.INVALID;
-//            Preconditions.checkState(t1Decimal.isDecimal());
-//            Preconditions.checkState(t2Decimal.isDecimal());
-//
-//            if (t1Decimal.equals(t2Decimal)) {
-//                Preconditions.checkState(!(t1.isDecimal() && t2.isDecimal()));
-//                // The containing decimal type for a non-decimal type is always an exclusive
-//                // upper bound, therefore the decimal has higher precision.
-//                return t1Decimal;
-//            }
-//            if (t1Decimal.isSupertypeOf(t2Decimal)) return t1;
-//            if (t2Decimal.isSupertypeOf(t1Decimal)) return t2;
-//            return TypesUtil.getDecimalAssignmentCompatibleType(t1Decimal, t2Decimal);
         }
 
         PrimitiveType smallerType =
@@ -751,8 +661,6 @@ public class ScalarType extends Type {
                 return 12;
             case DATE:
                 return 3;
-            case DECIMAL:
-                return 40;
             case CHAR:
             case VARCHAR:
                 return len;
@@ -772,7 +680,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
             thrift.setLen(len);
         }
-        if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
+        if (type == PrimitiveType.DECIMALV2) {
             thrift.setPrecision(precision);
             thrift.setScale(scale);
         }

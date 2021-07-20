@@ -59,13 +59,16 @@ public:
 
     // for write
     Status init(uint64_t n, double fpp, HashStrategyPB strategy) {
+        return this->init(optimal_bit_num(n, fpp) / 8, strategy);
+    }
+
+    Status init(uint64_t filter_size, HashStrategyPB strategy) {
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
         } else {
             return Status::InvalidArgument(strings::Substitute("invalid strategy:$0", strategy));
         }
-        _num_bytes = _optimal_bit_num(n, fpp) / 8;
-        // make sure _num_bytes is power of 2
+        _num_bytes = filter_size;
         DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _size = _num_bytes + 1;
         // reserve last byte for null flag
@@ -78,7 +81,7 @@ public:
 
     // for read
     // use deep copy to acquire the data
-    Status init(char* buf, uint32_t size, HashStrategyPB strategy) {
+    Status init(const char* buf, uint32_t size, HashStrategyPB strategy) {
         DCHECK(size > 1);
         if (strategy == HASH_MURMUR3_X64_64) {
             _hash_func = murmur_hash3_x64_64;
@@ -92,19 +95,20 @@ public:
         memcpy(_data, buf, size);
         _size = size;
         _num_bytes = _size - 1;
+        DCHECK((_num_bytes & (_num_bytes - 1)) == 0);
         _has_null = (bool*)(_data + _num_bytes);
         return Status::OK();
     }
 
     void reset() { memset(_data, 0, _size); }
 
-    uint64_t hash(char* buf, uint32_t size) const {
+    uint64_t hash(const char* buf, uint32_t size) const {
         uint64_t hash_code;
         _hash_func(buf, size, DEFAULT_SEED, &hash_code);
         return hash_code;
     }
 
-    void add_bytes(char* buf, uint32_t size) {
+    void add_bytes(const char* buf, uint32_t size) {
         if (buf == nullptr) {
             *_has_null = true;
             return;
@@ -134,13 +138,20 @@ public:
     virtual void add_hash(uint64_t hash) = 0;
     virtual bool test_hash(uint64_t hash) const = 0;
 
-private:
+    Status merge(const BloomFilter* other) {
+        DCHECK(other->size() == _size);
+        for (uint32_t i = 0; i < other->size(); i++) {
+            _data[i] |= other->_data[i];
+        }
+        return Status::OK();
+    }
+
     // Compute the optimal bit number according to the following rule:
     //     m = -n * ln(fpp) / (ln(2) ^ 2)
     // n: expected distinct record number
     // fpp: false positive probability
     // the result will be power of 2
-    uint32_t _optimal_bit_num(uint64_t n, double fpp);
+    static uint32_t optimal_bit_num(uint64_t n, double fpp);
 
 protected:
     // bloom filter data

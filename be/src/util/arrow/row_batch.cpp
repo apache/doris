@@ -73,7 +73,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
-    case TYPE_DECIMAL:
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
@@ -237,12 +236,6 @@ public:
                         reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
                 std::string temp(v, len);
                 ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
-                break;
-            }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                std::string decimal_str = decimal_val->to_string();
-                ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str)));
                 break;
             }
             default: {

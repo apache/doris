@@ -114,5 +114,9 @@ public class StructType extends Type {
             field.toThrift(container, node);
         }
     }
+    @Override
+    public String toString() {
+        return toSql(0);
+    }
 }
 

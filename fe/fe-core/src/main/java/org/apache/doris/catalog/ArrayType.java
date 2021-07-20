@@ -17,25 +17,68 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Describes an ARRAY type.
  */
 public class ArrayType extends Type {
-    private final Type itemType;
+
+    @SerializedName(value = "itemType")
+    private Type itemType;
+
+    public ArrayType() {
+        this.itemType = NULL;
+    }
 
     public ArrayType(Type itemType) {
         this.itemType = itemType;
     }
 
+    public void setItemType(Type itemType) {
+        this.itemType = itemType;
+    }
+
     public Type getItemType() {
         return itemType;
+    }
+
+    @Override
+    public PrimitiveType getPrimitiveType() {
+        return PrimitiveType.ARRAY;
+    }
+
+    @Override
+    public boolean matchesType(Type t) {
+        if (equals(t)) {
+            return true;
+        }
+
+        if (!t.isArrayType()) {
+            return false;
+        }
+
+        if (itemType.isNull()) {
+            return true;
+        }
+
+        return itemType.matchesType(((ArrayType) t).itemType);
+    }
+
+    public static ArrayType create() {
+        return new ArrayType();
+    }
+
+    public static ArrayType create(Type type) {
+        return new ArrayType(type);
     }
 
     @Override
@@ -76,6 +119,46 @@ public class ArrayType extends Type {
         structStr = structStr.substring(lpad);
         return String.format("%sARRAY<%s>", leftPadding, structStr);
     }
+
+    @Override
+    public boolean isSupported() {
+        if (!Config.enable_complex_type_support) {
+            return false;
+        }
+
+        if (itemType.isNull()) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public String toString() {
+        return toSql(0);
+    }
+
+    @Override
+    public TColumnType toColumnTypeThrift() {
+        TColumnType thrift = new TColumnType();
+        thrift.type = PrimitiveType.ARRAY.toThrift();
+        return thrift;
+    }
+
+    @Override
+    public boolean isFixedLengthType() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsTablePartitioning() {
+        if (!isSupported() || isComplexType()) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int getSlotSize() {
+        return PrimitiveType.ARRAY.getSlotSize();
+    }
 }
-
-

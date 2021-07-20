@@ -140,6 +140,12 @@ struct TQueryOptions {
   31: optional bool enable_spilling = false;
   // whether enable parallel merge in exchange node
   32: optional bool enable_enable_exchange_node_parallel_merge = false;
+
+  // Time in ms to wait until runtime filters are delivered.
+  33: optional i32 runtime_filter_wait_time_ms = 1000
+
+  // if the right table is greater than this value in the hash join,  we will ignore IN filter
+  34: optional i32 runtime_filter_max_in_num = 1024;
 }
     
 
@@ -157,6 +163,27 @@ struct TPlanFragmentDestination {
   // ... which is being executed on this server
   2: required Types.TNetworkAddress server
   3: optional Types.TNetworkAddress brpc_server
+}
+
+struct TRuntimeFilterTargetParams {
+  1: required Types.TUniqueId target_fragment_instance_id
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+}
+
+struct TRuntimeFilterParams {
+  // Runtime filter merge instance address
+  1: optional Types.TNetworkAddress runtime_filter_merge_addr
+
+  // Runtime filter ID to the instance address of the fragment,
+  // that is expected to use this runtime filter
+  2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
+
+  // Runtime filter ID to the runtime filter desc
+  3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
+
+  // Number of Runtime filter producers
+  4: optional map<i32, i32> runtime_filter_builder_num
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment
@@ -191,6 +218,8 @@ struct TPlanFragmentExecParams {
   9: optional i32 sender_id
   10: optional i32 num_senders
   11: optional bool send_query_statistics_with_every_batch
+  // Used to merge and send runtime filter
+  12: optional TRuntimeFilterParams runtime_filter_params
 }
 
 // Global query parameters assigned by the coordinator.
@@ -290,6 +319,15 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
+// fold constant expr
+struct TExprMap {
+  1: required map<string, Exprs.TExpr> expr_map
+}
+
+struct TFoldConstantParams {
+  1: required map<string, map<string, Exprs.TExpr>> expr_map
+  2: required TQueryGlobals query_globals
+}
 
 // TransmitData
 struct TTransmitDataParams {

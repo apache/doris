@@ -109,29 +109,18 @@ public:
                                                          const doris_udf::StringVal& val);
 
     // Avg for decimals.
-    static void decimal_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
     static void decimalv2_avg_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
-    static void decimal_avg_update(doris_udf::FunctionContext* ctx,
-                                   const doris_udf::DecimalVal& src, doris_udf::StringVal* dst);
     static void decimalv2_avg_update(doris_udf::FunctionContext* ctx,
                                      const doris_udf::DecimalV2Val& src, doris_udf::StringVal* dst);
-    static void decimal_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
-                                  doris_udf::StringVal* dst);
     static void decimalv2_avg_merge(FunctionContext* ctx, const doris_udf::StringVal& src,
                                     doris_udf::StringVal* dst);
     static doris_udf::StringVal decimalv2_avg_serialize(doris_udf::FunctionContext* ctx,
                                                         const doris_udf::StringVal& src);
-    static void decimal_avg_remove(doris_udf::FunctionContext* ctx,
-                                   const doris_udf::DecimalVal& src, doris_udf::StringVal* dst);
     static void decimalv2_avg_remove(doris_udf::FunctionContext* ctx,
                                      const doris_udf::DecimalV2Val& src, doris_udf::StringVal* dst);
 
-    static doris_udf::DecimalVal decimal_avg_get_value(doris_udf::FunctionContext* ctx,
-                                                       const doris_udf::StringVal& val);
     static doris_udf::DecimalV2Val decimalv2_avg_get_value(doris_udf::FunctionContext* ctx,
                                                            const doris_udf::StringVal& val);
-    static doris_udf::DecimalVal decimal_avg_finalize(doris_udf::FunctionContext* ctx,
-                                                      const doris_udf::StringVal& val);
     static doris_udf::DecimalV2Val decimalv2_avg_finalize(doris_udf::FunctionContext* ctx,
                                                           const doris_udf::StringVal& val);
     // SumUpdate, SumMerge
@@ -207,8 +196,6 @@ public:
                                                    doris_udf::StringVal* dst);
     static void count_or_sum_distinct_decimalv2_init(doris_udf::FunctionContext* ctx,
                                                      doris_udf::StringVal* dst);
-    static void count_or_sum_distinct_decimal_update(FunctionContext* ctx, DecimalVal& src,
-                                                     StringVal* dst);
     static void count_or_sum_distinct_decimalv2_update(FunctionContext* ctx, DecimalV2Val& src,
                                                        StringVal* dst);
     static void count_or_sum_distinct_decimal_merge(FunctionContext* ctx, StringVal& src,
@@ -223,8 +210,6 @@ public:
                                                      const StringVal& state_sv);
     static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                        const StringVal& state_sv);
-    static DecimalVal sum_distinct_decimal_finalize(FunctionContext* ctx,
-                                                    const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                         const StringVal& state_sv);
 
@@ -265,11 +250,16 @@ public:
     // variance/stddev for decimals.
     static void decimalv2_knuth_var_init(FunctionContext* context, StringVal* val);
     static void knuth_var_update(FunctionContext* context, const DecimalV2Val& src, StringVal* val);
-    static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src, StringVal* val);
-    static DecimalV2Val decimalv2_knuth_var_finalize(FunctionContext* context, const StringVal& val);
-    static DecimalV2Val decimalv2_knuth_var_pop_finalize(FunctionContext* context, const StringVal& val);
-    static DecimalV2Val decimalv2_knuth_stddev_finalize(FunctionContext* context, const StringVal& val);
-    static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
+    static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src,
+                                          StringVal* val);
+    static DecimalV2Val decimalv2_knuth_var_finalize(FunctionContext* context,
+                                                     const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_var_pop_finalize(FunctionContext* context,
+                                                         const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_finalize(FunctionContext* context,
+                                                        const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context,
+                                                            const StringVal& val);
 
     /// ----------------------------- Analytic Functions ---------------------------------
     /// Analytic functions implement the UDA interface (except Merge(), Serialize()) and are

@@ -98,6 +98,11 @@ public abstract class Predicate extends Expr {
                 && ((BinaryPredicate) expr).getOp().isEquivalence();
     }
 
+    public static boolean isUnNullSafeEquivalencePredicate(Expr expr) {
+        return (expr instanceof BinaryPredicate)
+                && ((BinaryPredicate) expr).getOp().isUnNullSafeEquivalence();
+    }
+
     public static boolean canPushDownPredicate(Expr expr) {
         if (!(expr instanceof Predicate)) {
             return false;

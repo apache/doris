@@ -444,9 +444,13 @@ public class ColocateTableIndex implements Writable {
     public void replayAddTableToGroup(ColocatePersistInfo info) {
         Database db = Catalog.getCurrentCatalog().getDb(info.getGroupId().dbId);
         Preconditions.checkNotNull(db);
-        OlapTable tbl = (OlapTable)db.getTable(info.getTableId());
-        Preconditions.checkNotNull(tbl);
-        
+        OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
+        if (tbl == null) {
+            LOG.warn("table {} does not exist when replaying rename rollup. db: {}",
+                    info.getTableId(), info.getGroupId().dbId);
+            return;
+        }
+
         writeLock();
         try {
             if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {

@@ -27,6 +27,7 @@
 namespace doris {
 
 struct StringValue;
+struct CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
 class TupleRow;
@@ -154,14 +155,20 @@ public:
         return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
     }
 
+    CollectionValue* get_collection_slot(int offset) {
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
+        return reinterpret_cast<CollectionValue*>(reinterpret_cast<char*>(this) + offset);
+    }
+
+    const CollectionValue* get_collection_slot(int offset) const {
+        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
+        return reinterpret_cast<const CollectionValue*>(reinterpret_cast<const char*>(this) +
+                                                        offset);
+    }
+
     DateTimeValue* get_datetime_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
         return reinterpret_cast<DateTimeValue*>(reinterpret_cast<char*>(this) + offset);
-    }
-
-    DecimalValue* get_decimal_slot(int offset) {
-        DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DecimalValue*>(reinterpret_cast<char*>(this) + offset);
     }
 
     DecimalV2Value* get_decimalv2_slot(int offset) {

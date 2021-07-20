@@ -156,6 +156,10 @@ public class Function implements Writable {
         return retType;
     }
 
+    public void setReturnType(Type type) {
+        this.retType = type;
+    }
+
     public Type[] getArgs() {
         return argTypes;
     }
@@ -469,8 +473,6 @@ public class Function implements Writable {
             case DATE:
             case DATETIME:
                 return "datetime_val";
-            case DECIMAL:
-                return "decimal_val";
             case DECIMALV2:
                 return "decimalv2_val";
             default:
@@ -508,8 +510,6 @@ public class Function implements Writable {
             case DATE:
             case DATETIME:
                 return "DateTimeVal";
-            case DECIMAL:
-                return "DecimalVal";
             case DECIMALV2:
                 return "DecimalV2Val";
             default:

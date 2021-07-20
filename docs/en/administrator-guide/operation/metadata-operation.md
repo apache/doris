@@ -277,6 +277,59 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 
 **Note: If the Image file is large, the entire process can take a long time, so during this time, make sure Master FE does not generate a new image file via checkpoint. When the image.ckpt file in the meta_dir/image directory on the Master FE node is observed to be as large as the image.xxx file, the image.ckpt file can be deleted directly.**
 
+### View data in BDBJE
+
+The metadata log of FE is stored in BDBJE in the form of Key-Value. In some abnormal situations, FE may not be started due to metadata errors. In this case, Doris provides a way to help users query the data stored in BDBJE to facilitate troubleshooting.
+
+First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`, and then start FE through `sh start_fe.sh --daemon`.
+
+At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
+
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+
+```
+mysql> show proc "/bdbje";
++----------+---------------+---------+
+| DbNames  | JournalNumber | Comment |
++----------+---------------+---------+
+| 110589   | 4273          |         |
+| epochDB  | 4             |         |
+| metricDB | 430694        |         |
++----------+---------------+---------+
+```
+
+The first level directory will display all the database names in BDBJE and the number of entries in each database.
+
+```
+mysql> show proc "/bdbje/110589";
++-----------+
+| JournalId |
++-----------+
+| 1         |
+| 2         |
+
+...
+| 114858    |
+| 114859    |
+| 114860    |
+| 114861    |
++-----------+
+4273 rows in set (0.06 sec)
+```
+
+Entering the second level, all the entry keys under the specified database will be listed.
+
+```
+mysql> show proc "/bdbje/110589/114861";
++-----------+--------------+---------------------------------------------+
+| JournalId | OpType       | Data                                        |
++-----------+--------------+---------------------------------------------+
+| 114861    | OP_HEARTBEAT | org.apache.doris.persist.HbPackage@6583d5fb |
++-----------+--------------+---------------------------------------------+
+1 row in set (0.05 sec)
+```
+
+The third level can display the value information of the specified key.
 
 ## Best Practices
 

@@ -127,7 +127,7 @@ public class IndexDef {
         if (indexType == IndexType.BITMAP) {
             String indexColName = column.getName();
             PrimitiveType colType = column.getDataType();
-            if (!(colType.isDateType() || colType.isDecimalType() || colType.isFixedPointType() ||
+            if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isFixedPointType() ||
                           colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in bitmap index. "
                         + "invalid column: " + indexColName);

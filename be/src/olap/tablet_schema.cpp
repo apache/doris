@@ -72,6 +72,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
         type = OLAP_FIELD_TYPE_OBJECT;
+    } else if (0 == upper_type_str.compare("ARRAY")) {
+        type = OLAP_FIELD_TYPE_ARRAY;
     } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
@@ -172,7 +174,7 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
         return "STRUCT";
 
     case OLAP_FIELD_TYPE_ARRAY:
-        return "LIST";
+        return "ARRAY";
 
     case OLAP_FIELD_TYPE_MAP:
         return "MAP";
@@ -244,7 +246,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::VARCHAR:
     case TPrimitiveType::HLL:
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-    case TPrimitiveType::DECIMAL:
+    case TPrimitiveType::ARRAY:
+        return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
@@ -320,7 +323,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _visible = column.visible();
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        DCHECK(column.children_columns_size() == 1) << "LIST type has more than 1 children types.";
+        DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(0));
         add_sub_column(child_column);
@@ -353,6 +356,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
     column->set_visible(_visible);
+
+    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+        DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
+        ColumnPB* child = column->add_children_columns();
+        _sub_columns[0].to_schema_pb(child);
+    }
 }
 
 uint32_t TabletColumn::mem_size() const {

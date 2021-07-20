@@ -28,6 +28,7 @@
 //#include "runtime/mem_tracker.h"
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/data.pb.h"
+#include "runtime/collection_value.h"
 #include "util/debug_util.h"
 
 using std::vector;
@@ -55,7 +56,13 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    if (config::enable_partitioned_aggregation) {
+        _mem_tracker->Consume(_tuple_ptrs_size);
+        _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
+        DCHECK(_tuple_ptrs != NULL);
+    } else {
+        _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    }
 }
 
 // TODO: we want our input_batch's tuple_data to come from our (not yet implemented)
@@ -81,7 +88,13 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    if (config::enable_partitioned_aggregation) {
+        _mem_tracker->Consume(_tuple_ptrs_size);
+        _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
+        DCHECK(_tuple_ptrs != nullptr);
+    } else {
+        _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    }
 
     uint8_t* tuple_data = nullptr;
     if (input_batch.is_compressed()) {
@@ -126,7 +139,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
         TupleRow* row = get_row(i);
         std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if ((*desc)->string_slots().empty()) {
+            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty()) {
                 continue;
             }
             Tuple* tuple = row->get_tuple(j);
@@ -145,6 +158,42 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
                 // this works fine in version 0.10, however in 0.11 this will lead to an invalid
                 // length. So we make the high bits zero here.
                 string_val->len &= 0x7FFFFFFFL;
+            }
+
+            // copy collection slots
+            vector<SlotDescriptor*>::const_iterator slot_collection =
+                    (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
+
+                CollectionValue* array_val =
+                        tuple->get_collection_slot((*slot_collection)->tuple_offset());
+
+                // assgin data and null_sign pointer position in tuple_data
+                int data_offset = reinterpret_cast<intptr_t>(array_val->data());
+                array_val->set_data(reinterpret_cast<char*>(tuple_data + data_offset));
+                int null_offset = reinterpret_cast<intptr_t>(array_val->null_signs());
+                array_val->set_null_signs(reinterpret_cast<bool*>(tuple_data + null_offset));
+
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                // copy every string item
+                for (int i = 0; i < array_val->length(); ++i) {
+                    if (array_val->is_null_at(i)) {
+                        continue;
+                    }
+
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->data() + i * item_type.get_slot_size());
+
+                    if (dst_item_v->len != 0) {
+                        int offset = reinterpret_cast<intptr_t>(dst_item_v->ptr);
+                        dst_item_v->ptr = reinterpret_cast<char*>(tuple_data + offset);
+                    }
+                }
             }
         }
     }
@@ -173,7 +222,13 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     _tuple_ptrs_size = _num_rows * input_batch.row_tuples.size() * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    if (config::enable_partitioned_aggregation) {
+        _mem_tracker->Consume(_tuple_ptrs_size);
+        _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
+        DCHECK(_tuple_ptrs != NULL);
+    } else {
+        _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    }
 
     uint8_t* tuple_data = NULL;
     if (input_batch.is_compressed) {
@@ -221,7 +276,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
         TupleRow* row = get_row(i);
         std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if ((*desc)->string_slots().empty()) {
+            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty()) {
                 continue;
             }
 
@@ -243,6 +298,40 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
                 // this works fine in version 0.10, however in 0.11 this will lead to an invalid
                 // length. So we make the high bits zero here.
                 string_val->len &= 0x7FFFFFFFL;
+            }
+
+            // copy collection slot
+            vector<SlotDescriptor*>::const_iterator slot_collection =
+                    (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
+                CollectionValue* array_val =
+                        tuple->get_collection_slot((*slot_collection)->tuple_offset());
+
+                int offset = reinterpret_cast<intptr_t>(array_val->data());
+                array_val->set_data(reinterpret_cast<char*>(tuple_data + offset));
+                int null_offset = reinterpret_cast<intptr_t>(array_val->null_signs());
+                array_val->set_null_signs(reinterpret_cast<bool*>(tuple_data + null_offset));
+
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                // copy string item
+                for (int i = 0; i < array_val->length(); ++i) {
+                    if (array_val->is_null_at(i)) {
+                        continue;
+                    }
+
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->data() + i * item_type.get_slot_size());
+
+                    if (dst_item_v->len != 0) {
+                        int offset = reinterpret_cast<intptr_t>(dst_item_v->ptr);
+                        dst_item_v->ptr = reinterpret_cast<char*>(tuple_data + offset);
+                    }
+                }
             }
         }
     }
@@ -266,6 +355,12 @@ void RowBatch::clear() {
     close_tuple_streams();
     for (int i = 0; i < _blocks.size(); ++i) {
         _blocks[i]->del();
+    }
+    if (config::enable_partitioned_aggregation) {
+        DCHECK(_tuple_ptrs != NULL);
+        free(_tuple_ptrs);
+        _mem_tracker->Release(_tuple_ptrs_size);
+        _tuple_ptrs = NULL;
     }
     _cleared = true;
 }
@@ -450,6 +545,8 @@ void RowBatch::reset() {
     _capacity = _tuple_ptrs_size / (_num_tuples_per_row * sizeof(Tuple*));
     _has_in_flight_row = false;
 
+    // TODO: Change this to Clear() and investigate the repercussions.
+    _tuple_data_pool->free_all();
     _agg_object_pool.reset(new ObjectPool());
     for (int i = 0; i < _io_buffers.size(); ++i) {
         _io_buffers[i]->return_buffer();
@@ -467,6 +564,9 @@ void RowBatch::reset() {
     }
     _blocks.clear();
     _auxiliary_mem_usage = 0;
+    if (!config::enable_partitioned_aggregation) {
+        _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
+    }
     _need_to_return = false;
     _flush = FlushMode::NO_FLUSH_RESOURCES;
     _needs_deep_copy = false;
@@ -564,7 +664,14 @@ void RowBatch::acquire_state(RowBatch* src) {
     _num_rows = src->_num_rows;
     _capacity = src->_capacity;
     _need_to_return = src->_need_to_return;
-    std::swap(_tuple_ptrs, src->_tuple_ptrs);
+    if (!config::enable_partitioned_aggregation) {
+        // Tuple pointers are allocated from tuple_data_pool_ so are transferred.
+        _tuple_ptrs = src->_tuple_ptrs;
+        src->_tuple_ptrs = NULL;
+    } else {
+        // tuple_ptrs_ were allocated with malloc so can be swapped between batches.
+        std::swap(_tuple_ptrs, src->_tuple_ptrs);
+    }
     src->transfer_resource_ownership(this);
 }
 
@@ -605,6 +712,37 @@ int RowBatch::total_byte_size() {
                 }
                 StringValue* string_val = tuple->get_string_slot((*slot)->tuple_offset());
                 result += string_val->len;
+            }
+
+            // compute slot collection size
+            vector<SlotDescriptor*>::const_iterator slot_collection =
+                    (*desc)->collection_slots().begin();
+            for (; slot_collection != (*desc)->collection_slots().end(); ++slot_collection) {
+                DCHECK((*slot_collection)->type().is_collection_type());
+                if (tuple->is_null((*slot_collection)->null_indicator_offset())) {
+                    continue;
+                }
+                // compute data null_signs size
+                CollectionValue* array_val =
+                        tuple->get_collection_slot((*slot_collection)->tuple_offset());
+                result += array_val->length() * sizeof(bool);
+
+                const TypeDescriptor& item_type = (*slot_collection)->type().children.at(0);
+                result += array_val->length() * item_type.get_slot_size();
+
+                if (!item_type.is_string_type()) {
+                    continue;
+                }
+
+                // compute string type item size
+                for (int i = 0; i < array_val->length(); ++i) {
+                    if (array_val->is_null_at(i)) {
+                        continue;
+                    }
+                    StringValue* dst_item_v = reinterpret_cast<StringValue*>(
+                            (uint8_t*)array_val->data() + i * item_type.get_slot_size());
+                    result += dst_item_v->len;
+                }
             }
         }
     }

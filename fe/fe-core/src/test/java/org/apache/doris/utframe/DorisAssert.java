@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
@@ -89,6 +90,19 @@ public class DorisAssert {
     public DorisAssert dropTable(String tableName) throws Exception {
         DropTableStmt dropTableStmt =
                 (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + ";", ctx);
+        Catalog.getCurrentCatalog().dropTable(dropTableStmt);
+        return this;
+    }
+
+    public DorisAssert withView(String sql) throws Exception {
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
+        return this;
+    }
+
+    public DorisAssert dropView(String tableName) throws Exception {
+        DropTableStmt dropTableStmt =
+                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
         return this;
     }

@@ -32,8 +32,8 @@ under the License.
 
 `VARCHAR append_trailing_char_if_absent(VARCHAR str, VARCHAR trailing_char)`
 
-If the s string is non-empty and does not contain the c character at the end, it appends the c character to the end.
-Trailing_char contains only one character, and it will return NULL if contains more than one character
+If the @str string is non-empty and does not contain the @trailing_char character at the end, it appends the @trailing_char character to the end.
+@trailing_char contains only one character, and it will return NULL if contains more than one character
 
 ## example
 

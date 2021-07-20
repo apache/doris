@@ -751,8 +751,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     /**
-     * This method is only used to deserialize the text mate which version is less then 86.
-     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather then here.
+     * This method is only used to deserialize the text mate which version is less than 86.
+     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather than here.
      */
     public static RollupJobV2 read(DataInput in) throws IOException {
         Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);

@@ -80,6 +80,10 @@ public class AlterOperations {
         return currentOps.contains(AlterOpType.REPLACE_TABLE);
     }
 
+    public boolean hasModifyBucketNumOp() {
+        return currentOps.contains(AlterOpType.MODIFY_DISTRIBUTION);
+    }
+
     public boolean contains(AlterOpType op) {
         return currentOps.contains(op);
     }

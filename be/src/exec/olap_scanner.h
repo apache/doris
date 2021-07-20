@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "exec/olap_utils.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -55,7 +56,9 @@ public:
     ~OlapScanner();
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
-                   const std::vector<TCondition>& filters);
+                   const std::vector<TCondition>& filters,
+                   const std::vector<std::pair<std::string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                           bloom_filters);
 
     Status open();
 
@@ -83,14 +86,19 @@ public:
         _watcher.start();
     }
 
-    int64_t update_wait_worker_timer() {
-        return _watcher.elapsed_time();
+    int64_t update_wait_worker_timer() { return _watcher.elapsed_time(); }
+
+    void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
+        _use_pushdown_conjuncts = has_pushdown_conjuncts;
     }
 
+    std::vector<bool>* mutable_runtime_filter_marks() { return &_runtime_filter_marks; }
 
 private:
     Status _init_params(const std::vector<OlapScanRange*>& key_ranges,
-                        const std::vector<TCondition>& filters);
+                        const std::vector<TCondition>& filters,
+                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                                bloom_filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 
@@ -98,14 +106,16 @@ private:
     void _update_realtime_counter();
 
 private:
-
     RuntimeState* _runtime_state;
     OlapScanNode* _parent;
     const TupleDescriptor* _tuple_desc; /**< tuple descriptor */
     RuntimeProfile* _profile;
     const std::vector<SlotDescriptor*>& _string_slots;
+    const std::vector<SlotDescriptor*>& _collection_slots;
 
     std::vector<ExprContext*> _conjunct_ctxs;
+    // to record which runtime filters have been used
+    std::vector<bool> _runtime_filter_marks;
 
     int _id;
     bool _is_open;

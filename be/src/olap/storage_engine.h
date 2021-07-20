@@ -245,11 +245,15 @@ private:
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
-    vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
-                                                       std::vector<DataDir*>& data_dirs,
-                                                       bool check_score);
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
-    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
+                                                            std::vector<DataDir*>& data_dirs,
+                                                            bool check_score);
+
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+                                                CompactionType compaction_type);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
+                                               CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 

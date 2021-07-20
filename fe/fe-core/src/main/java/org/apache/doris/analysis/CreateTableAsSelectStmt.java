@@ -58,7 +58,7 @@ public class CreateTableAsSelectStmt extends StatementBase {
 
         // TODO(zc): support char, varchar and decimal
         for (Expr expr : tmpStmt.getResultExprs()) {
-            if (expr.getType().isDecimal() || expr.getType().isDecimalV2() || expr.getType().isStringType()) {
+            if (expr.getType().isDecimalV2() || expr.getType().isStringType()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNSUPPORTED_TYPE_IN_CTAS, expr.getType());
             }
         }

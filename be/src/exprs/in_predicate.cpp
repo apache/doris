@@ -19,8 +19,8 @@
 
 #include <sstream>
 
-#include "exprs/expr_context.h"
 #include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
@@ -36,12 +36,12 @@ InPredicate::InPredicate(const TExprNode& node)
 
 InPredicate::~InPredicate() {}
 
-Status InPredicate::prepare(RuntimeState* state, const TypeDescriptor& type) {
+Status InPredicate::prepare(RuntimeState* state, HybridSetBase* hset) {
     if (_is_prepare) {
         return Status::OK();
     }
-    _hybrid_set.reset(HybridSetBase::create_set(type.type));
-    if (NULL == _hybrid_set.get()) {
+    _hybrid_set.reset(hset);
+    if (NULL == _hybrid_set) {
         return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
