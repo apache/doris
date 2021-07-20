@@ -79,7 +79,7 @@ public class DynamicPartitionUtil {
                     + TimeUnit.HOUR.toString() + " when type of partition column "
                     + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE.toString());
         } else if (PrimitiveType.getIntegerTypes().contains(partitionColumn.getDataType())
-           && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+                && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             // The partition column's type is INT, not support HOUR
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
                     + TimeUnit.HOUR.toString() + " when type of partition column "
@@ -152,6 +152,20 @@ public class DynamicPartitionUtil {
         return Boolean.valueOf(create);
     }
 
+    private static void checkHistoryPartitionNum(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+        }
+        try {
+            int historyPartitionNum = Integer.parseInt(val);
+            if (historyPartitionNum < 0 && historyPartitionNum != DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_HISTORY_PARTITION_NUM_ZERO);
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+        }
+    }
+
     private static void checkStartDayOfMonth(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -212,19 +226,17 @@ public class DynamicPartitionUtil {
         if (properties == null) {
             return false;
         }
-        return properties.containsKey(DynamicPartitionProperty.TIME_UNIT) ||
-                properties.containsKey(DynamicPartitionProperty.TIME_ZONE) ||
-                properties.containsKey(DynamicPartitionProperty.START) ||
-                properties.containsKey(DynamicPartitionProperty.END) ||
-                properties.containsKey(DynamicPartitionProperty.PREFIX) ||
-                properties.containsKey(DynamicPartitionProperty.BUCKETS) ||
-                properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM) ||
-                properties.containsKey(DynamicPartitionProperty.ENABLE) ||
-                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK) ||
-                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH) ||
-                properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM);
+
+        for (String key : properties.keySet()) {
+            if (key.startsWith(DynamicPartitionProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
     }
 
+    // Check if all requried properties has been set.
+    // And also check all optional properties, if not set, set them to default value.
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -240,6 +252,7 @@ public class DynamicPartitionUtil {
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
+        String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         if (!(Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
                 Strings.isNullOrEmpty(timeZone) &&
@@ -247,7 +260,8 @@ public class DynamicPartitionUtil {
                 Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
                 Strings.isNullOrEmpty(buckets) &&
-                Strings.isNullOrEmpty(createHistoryPartition))) {
+                Strings.isNullOrEmpty(createHistoryPartition) &&
+                Strings.isNullOrEmpty(historyPartitionNum))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -272,6 +286,10 @@ public class DynamicPartitionUtil {
             if (Strings.isNullOrEmpty(createHistoryPartition)) {
                 properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
             }
+            if (Strings.isNullOrEmpty(historyPartitionNum)) {
+                properties.put(DynamicPartitionProperty.HISTORY_PARTITION_NUM,
+                        String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM));
+            }
         }
         return true;
     }
@@ -292,6 +310,7 @@ public class DynamicPartitionUtil {
         }
     }
 
+    // Analyze all properties to check their validation
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
@@ -348,13 +367,36 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, val);
         }
 
+        if (properties.containsKey(DynamicPartitionProperty.HISTORY_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+            checkHistoryPartitionNum(val);
+            properties.remove(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.HISTORY_PARTITION_NUM, val);
+        }
+
         // Check the number of dynamic partitions that need to be created to avoid creating too many partitions at once.
         // If create_history_partition is false, history partition is not considered.
+        // If create_history_partition is true, will pre-create history partition according the valid value from
+        // start and history_partition_num.
+        //
+        int expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
+            expectCreatePartitionNum = end - start;
+        } else {
+            int historyPartitionNum = Integer.valueOf(analyzedProperties.getOrDefault(DynamicPartitionProperty.HISTORY_PARTITION_NUM,
+                    String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM)));
+            if (historyPartitionNum != DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM) {
+                expectCreatePartitionNum = end - Math.max(start, -historyPartitionNum);
+            } else {
+                if (start == Integer.MIN_VALUE) {
+                    throw new DdlException("Provide start or history_partition_num property when creating history partition");
+                }
+                expectCreatePartitionNum = end - start;
+            }
         }
-        if (hasEnd && (end - start > Config.max_dynamic_partition_num)) {
-            throw new DdlException("Too many dynamic partitions: " + (end - start) + ". Limit: " + Config.max_dynamic_partition_num);
+        if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)) {
+            throw new DdlException("Too many dynamic partitions: " + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {

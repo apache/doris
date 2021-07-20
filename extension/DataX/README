@@ -27,20 +27,45 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
 1. `doriswriter/`
 
-     This directory is the code directory of doriswriter, and this part of the code should be in the Doris code base.
+    This directory is the code directory of doriswriter, and this part of the code should be in the Doris code base.
+
+    The help doc can be found in `doriswriter/doc`
     
 2. `init_env.sh`
 
-     The script mainly performs the following steps:
+    The script mainly performs the following steps:
     
-     1. Git clone the DataX code base to the local
-     2. Softlink the `doriswriter/` directory to `DataX/doriswriter`.
-     3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
+    1. Git clone the DataX code base to the local
+    2. Softlink the `doriswriter/` directory to `DataX/doriswriter`.
+    3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
+    4. Change httpclient version from 4.5 to 4.5.13 in DataX/core/pom.xml
+
+        > httpclient v4.5 can not handle redirect 307 correctly. 
     
-     After that, developers can enter `DataX/` for development. And the changes in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code.
+    After that, developers can enter `DataX/` for development. And the changes in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code.
 
 ### How to build
 
 1. Run `init_env.sh`
 2. Modify code of doriswriter in `DataX/doriswriter`
-3. Commit code of doriswriter in `doriswriter`
+3. Build doriswriter
+    
+    1. Build doriswriter along:
+
+        `mvn clean install -pl plugin-rdbms-util,doriswriter -DskipTests`
+
+    2. Build DataX:
+
+        `mvn package assembly:assembly -Dmaven.test.skip=true`
+
+        The output will be in `target/datax/datax/`.
+
+        > hdfsreader, hdfswriter and oscarwriter needs some extra jar packages. If you don't need to use these components, you can comment out the corresponding module in DataX/pom.xml.
+    
+4. Commit code of doriswriter in `doriswriter`
+
+### About DataX
+
+DataX is an open source version of Alibaba Cloud DataWorks data integration, an offline data synchronization tool/platform widely used in Alibaba Group. DataX implements efficient data synchronization functions between various heterogeneous data sources including MySQL, Oracle, SqlServer, Postgre, HDFS, Hive, ADS, HBase, TableStore (OTS), MaxCompute (ODPS), Hologres, DRDS, etc.
+
+More details can be found at: `https://github.com/alibaba/DataX/`

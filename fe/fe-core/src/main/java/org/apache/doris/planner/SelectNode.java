@@ -18,14 +18,15 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.common.UserException;
 import org.apache.doris.analysis.Expr;
-
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
 /**
@@ -54,16 +55,29 @@ public class SelectNode extends PlanNode {
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-      analyzer.markConjunctsAssigned(conjuncts);
-      computeStats(analyzer);
-      createDefaultSmap(analyzer);
+        super.init(analyzer);
+        analyzer.markConjunctsAssigned(conjuncts);
+        computeStats(analyzer);
     }
 
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        cardinality = getChild(0).cardinality;
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Select: cardinality={}", this.cardinality);
+        }
+    }
+
+    @Override
+    protected void computeOldCardinality() {
         long cardinality = getChild(0).cardinality;
-        double selectivity = computeSelectivity();
+        double selectivity = computeOldSelectivity();
         if (cardinality < 0 || selectivity < 0) {
             this.cardinality = -1;
         } else {

@@ -1048,6 +1048,15 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public long getMaxQueryInstances(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {

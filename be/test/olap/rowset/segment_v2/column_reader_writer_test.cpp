@@ -31,8 +31,8 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/file_utils.h"
 #include "test_util/test_util.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -221,9 +221,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 }
 
 template <FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
-void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows,
+void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, int num_rows,
                               std::string test_name) {
-    Collection* src = src_data;
+    CollectionValue* src = src_data;
     ColumnMetaPB meta;
     TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
@@ -375,7 +375,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
     size_t num_item = num_array * 3;
 
     uint8_t* array_is_null = new uint8_t[BitmapSize(num_array)];
-    Collection* array_val = new Collection[num_array];
+    CollectionValue* array_val = new CollectionValue[num_array];
     bool* item_is_null = new bool[num_item];
     uint8_t* item_val = new uint8_t[num_item];
     for (int i = 0; i < num_item; ++i) {
@@ -388,9 +388,9 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
             if (is_null) {
                 continue;
             }
-            array_val[array_index].data = &item_val[i];
-            array_val[array_index].null_signs = &item_is_null[i];
-            array_val[array_index].length = 3;
+            array_val[array_index].set_data(&item_val[i]);
+            array_val[array_index].set_null_signs(&item_is_null[i]);
+            array_val[array_index].set_length(3);
         }
     }
     test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
@@ -400,7 +400,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
     delete[] item_val;
     delete[] item_is_null;
 
-    array_val = new Collection[num_array];
+    array_val = new CollectionValue[num_array];
     Slice* varchar_vals = new Slice[3];
     item_is_null = new bool[3];
     for (int i = 0; i < 3; ++i) {
@@ -415,9 +415,9 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
         if (is_null) {
             continue;
         }
-        array_val[i].data = varchar_vals;
-        array_val[i].null_signs = item_is_null;
-        array_val[i].length = 3;
+        array_val[i].set_data(varchar_vals);
+        array_val[i].set_null_signs(item_is_null);
+        array_val[i].set_length(3);
     }
     test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(
             array_val, array_is_null, num_array, "null_array_chars");

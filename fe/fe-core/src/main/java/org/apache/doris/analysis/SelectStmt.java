@@ -324,17 +324,22 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
         for (TableRef tblRef : fromClause_) {
-            if (tblRef instanceof InlineViewRef) {
-                QueryStmt inlineStmt = ((InlineViewRef) tblRef).getViewStmt();
-                inlineStmt.getTableRefs(tblRefs, parentViewNameSet);
-            } else {
-                if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
-                    continue;
+            try {
+                TableRef tmpTblRef = analyzer.resolveTableRef(tblRef);
+                if (tmpTblRef instanceof InlineViewRef) {
+                    QueryStmt inlineStmt = ((InlineViewRef) tmpTblRef).getViewStmt();
+                    inlineStmt.getTableRefs(analyzer, tblRefs, parentViewNameSet);
+                } else {
+                    if (isViewTableRef(tmpTblRef.getName().toString(), parentViewNameSet)) {
+                        continue;
+                    }
+                    tblRefs.add(tmpTblRef);
                 }
-                tblRefs.add(tblRef);
+            } catch (AnalysisException e) {
+                // This table may have been dropped, ignore it.
             }
         }
     }
@@ -515,7 +520,10 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString_ = toSql();
         }
-        reorderTable(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            LOG.debug("use old reorder logical in select stmt");
+            reorderTable(analyzer);
+        }
 
         resolveInlineViewRefs(analyzer);
 
@@ -1313,6 +1321,194 @@ public class SelectStmt extends QueryStmt {
         if (orderByElements != null) {
             for (OrderByElement orderByElem : orderByElements) {
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
+            }
+        }
+    }
+
+    @Override
+    public void collectExprs(Map<String, Expr> exprMap) {
+        // subquery
+        List<Subquery> subqueryExprs = Lists.newArrayList();
+
+        // select clause
+        for (SelectListItem item : selectList.getItems()) {
+            if (item.isStar()) {
+                continue;
+            }
+            // register expr id
+            registerExprId(item.getExpr());
+
+            exprMap.put(item.getExpr().getId().toString(), item.getExpr());
+
+            // equal subquery in select list
+            if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                item.getExpr().collect(Subquery.class, subqueryExprs);
+            }
+        }
+
+        // from clause
+        for (TableRef ref : fromClause_) {
+            Preconditions.checkState(ref.isAnalyzed);
+            if (ref.onClause != null) {
+                registerExprId(ref.onClause);
+                exprMap.put(ref.onClause.getId().toString(), ref.onClause);
+            }
+        }
+
+        if (whereClause != null) {
+            registerExprId(whereClause);
+            exprMap.put(whereClause.getId().toString(), whereClause);
+            whereClause.collect(Subquery.class, subqueryExprs);
+
+        }
+        if (havingClause != null) {
+            registerExprId(havingClause);
+            exprMap.put(havingClause.getId().toString(), havingClause);
+            havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
+        }
+        for (Subquery subquery : subqueryExprs) {
+            registerExprId(subquery);
+            subquery.getStatement().collectExprs(exprMap);
+        }
+        if (groupByClause != null) {
+            ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
+            if (groupingExprs != null) {
+                for (Expr expr : groupingExprs) {
+                    if (containAlias(expr)) {
+                        continue;
+                    }
+                    registerExprId(expr);
+                    exprMap.put(expr.getId().toString(), expr);
+                }
+            }
+            List<Expr> oriGroupingExprs = groupByClause.getOriGroupingExprs();
+            if (oriGroupingExprs != null) {
+                for (Expr expr : oriGroupingExprs) {
+                    /*
+                     * Suppose there is a query statement:
+                     *
+                     * ```
+                     * select
+                     *     i_item_sk as b
+                     * from item
+                     * group by b
+                     * order by b desc
+                     * ```
+                     *
+                     * where `b` is an alias for `i_item_sk`.
+                     *
+                     * When analyze is done, it becomes
+                     *
+                     * ```
+                     * SELECT
+                     *     `i_item_sk`
+                     * FROM `item`
+                     * GROUP BY `b`
+                     * ORDER BY `b` DESC
+                     * ```
+                     * Aliases information of groupBy and orderBy clauses is recorded in `QueryStmt.aliasSMap`.
+                     * The select clause has it's own alias info in `SelectListItem.alias`.
+                     *
+                     * Aliases expr in the `group by` and `order by` clauses are not analyzed, i.e. `Expr.isAnalyzed=false`
+                     * Subsequent constant folding will analyze the unanalyzed Expr before collecting the constant
+                     * expressions, preventing the `INVALID_TYPE` expr from being sent to BE.
+                     *
+                     * But when analyzing the alias, the meta information corresponding to the slot cannot be found
+                     * in the catalog, an error will be reported.
+                     *
+                     * So the alias needs to be removed here.
+                     *
+                     */
+                    if (containAlias(expr)) {
+                        continue;
+                    }
+                    registerExprId(expr);
+                    exprMap.put(expr.getId().toString(), expr);
+                }
+            }
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElem : orderByElements) {
+                // same as above
+                if (containAlias(orderByElem.getExpr())) {
+                    continue;
+                }
+                registerExprId(orderByElem.getExpr());
+                exprMap.put(orderByElem.getExpr().getId().toString(), orderByElem.getExpr());
+            }
+        }
+    }
+
+    @Override
+    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {
+        // subquery
+        List<Subquery> subqueryExprs = Lists.newArrayList();
+        for (SelectListItem item : selectList.getItems()) {
+            if (item.isStar()) {
+                continue;
+            }
+            item.setExpr(rewrittenExprMap.get(item.getExpr().getId().toString()));
+            // equal subquery in select list
+            if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                item.getExpr().collect(Subquery.class, subqueryExprs);
+            }
+        }
+
+        // from clause
+        for (TableRef ref : fromClause_) {
+            if (ref.onClause != null) {
+                ref.setOnClause(rewrittenExprMap.get(ref.onClause.getId().toString()));
+            }
+        }
+
+        if (whereClause != null) {
+            setWhereClause(rewrittenExprMap.get(whereClause.getId().toString()));
+            whereClause.collect(Subquery.class, subqueryExprs);
+        }
+        if (havingClause != null) {
+            havingClause = rewrittenExprMap.get(havingClause.getId().toString());
+            havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
+        }
+
+        for (Subquery subquery : subqueryExprs) {
+            subquery.getStatement().putBackExprs(rewrittenExprMap);
+        }
+
+        if (groupByClause != null) {
+            ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
+            if (groupingExprs != null) {
+                ArrayList<Expr> newGroupingExpr = new ArrayList<>();
+                for (Expr expr : groupingExprs) {
+                    if (expr.getId() == null) {
+                        newGroupingExpr.add(expr);
+                    } else {
+                        newGroupingExpr.add(rewrittenExprMap.get(expr.getId().toString()));
+                    }
+                }
+                groupByClause.setGroupingExpr(newGroupingExpr);
+
+            }
+            List<Expr> oriGroupingExprs = groupByClause.getOriGroupingExprs();
+            if (oriGroupingExprs != null) {
+                ArrayList<Expr> newOriGroupingExprs = new ArrayList<>();
+                for (Expr expr : oriGroupingExprs) {
+                    if (expr.getId() == null) {
+                        newOriGroupingExprs.add(expr);
+                    } else {
+                        newOriGroupingExprs.add(rewrittenExprMap.get(expr.getId().toString()));
+                    }
+                }
+                groupByClause.setOriGroupingExprs(newOriGroupingExprs);
+            }
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElem : orderByElements) {
+                Expr expr = orderByElem.getExpr();
+                if (expr.getId() == null) {
+                    orderByElem.setExpr(expr);
+                } else {
+                    orderByElem.setExpr(rewrittenExprMap.get(expr.getId().toString()));
+                }
             }
         }
     }

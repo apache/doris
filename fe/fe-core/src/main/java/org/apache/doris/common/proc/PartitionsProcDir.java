@@ -214,7 +214,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             // for range partitions, we return partitions in ascending range order by default.
             // this is to be consistent with the behaviour before 0.12
             if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
-                partitionIds = tblPartitionInfo.getSortedItemMap(isTempPartition).stream()
+                partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
                 Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();

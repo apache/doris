@@ -53,6 +53,7 @@ public class ListPartitionInfo extends PartitionInfo{
         return partitionInfo;
     }
 
+    @Override
     public PartitionItem createAndCheckPartitionItem(SinglePartitionDesc desc, boolean isTemp) throws DdlException {
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();

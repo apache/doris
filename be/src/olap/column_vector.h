@@ -64,7 +64,7 @@ template class DataBuffer<double>;
 template class DataBuffer<decimal12_t>;
 template class DataBuffer<uint24_t>;
 template class DataBuffer<Slice>;
-template class DataBuffer<Collection>;
+template class DataBuffer<CollectionValue>;
 
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
@@ -155,9 +155,7 @@ public:
         return reinterpret_cast<uint8_t*>(&_data[idx]);
     }
 
-    ScalarCppType* scalar_cell_ptr(size_t idx) {
-        return &_data[idx];
-    }
+    ScalarCppType* scalar_cell_ptr(size_t idx) { return &_data[idx]; }
 
 private:
     DataBuffer<ScalarCppType> _data;
@@ -166,8 +164,9 @@ private:
 // util class for read array's null signs.
 class ArrayNullColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ArrayNullColumnVectorBatch(ColumnVectorBatch* array) :
-    ColumnVectorBatch(get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_TINYINT), false), _array(array) {}
+    explicit ArrayNullColumnVectorBatch(ColumnVectorBatch* array)
+            : ColumnVectorBatch(get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_TINYINT), false),
+              _array(array) {}
 
     ~ArrayNullColumnVectorBatch() override = default;
 
@@ -194,7 +193,7 @@ private:
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
-                                    ScalarColumnVectorBatch<uint64_t>* offsets,
+                                    ScalarColumnVectorBatch<uint32_t>* offsets,
                                     ColumnVectorBatch* elements);
     ~ArrayColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
@@ -205,7 +204,7 @@ public:
 
     // Get the start of the data.
     uint8_t* data() const override {
-        return reinterpret_cast<uint8*>(const_cast<Collection*>(_data.data()));
+        return reinterpret_cast<uint8*>(const_cast<CollectionValue*>(_data.data()));
     }
 
     // Get the idx's cell_ptr
@@ -216,9 +215,7 @@ public:
     // Get thr idx's cell_ptr for write
     uint8_t* mutable_cell_ptr(size_t idx) override { return reinterpret_cast<uint8*>(&_data[idx]); }
 
-    size_t item_offset(size_t idx) const {
-        return *(_offsets->scalar_cell_ptr(idx));
-    }
+    size_t item_offset(size_t idx) const { return *(_offsets->scalar_cell_ptr(idx)); }
 
     /**
      * Change array size to offset in this batch
@@ -252,23 +249,22 @@ public:
     void get_offset_by_length(size_t start_idx, size_t size);
 
     size_t get_item_size(size_t start_idx, size_t size) {
-        return *(_offsets->scalar_cell_ptr(start_idx + size)) - *(_offsets->scalar_cell_ptr(start_idx));
+        return *(_offsets->scalar_cell_ptr(start_idx + size)) -
+               *(_offsets->scalar_cell_ptr(start_idx));
     }
 
-    ArrayNullColumnVectorBatch get_null_as_batch() {
-        return ArrayNullColumnVectorBatch(this);
-    }
+    ArrayNullColumnVectorBatch get_null_as_batch() { return ArrayNullColumnVectorBatch(this); }
 
     // Generate collection slots.
     void prepare_for_read(size_t start_idx, size_t end_idx, bool item_has_null);
 
 private:
-    DataBuffer<Collection> _data;
+    DataBuffer<CollectionValue> _data;
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 
     // Stores each array's start offsets in _elements.
-    std::unique_ptr<ScalarColumnVectorBatch<uint64_t>> _offsets;
+    std::unique_ptr<ScalarColumnVectorBatch<uint32_t>> _offsets;
 };
 
 template class ScalarColumnVectorBatch<bool>;

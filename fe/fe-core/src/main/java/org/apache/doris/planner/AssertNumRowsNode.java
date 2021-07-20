@@ -17,19 +17,25 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.AssertNumRowsElement;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TAssertNumRowsNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
- * Assert num rows node is used to determine whether the number of rows is less then desired num of rows.
+ * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
  * The rows are the result of subqueryString.
  * If the number of rows is more than the desired num of rows, the query will be cancelled.
  * The cancelled reason will be reported by Backend and displayed back to the user.
  */
 public class AssertNumRowsNode extends PlanNode {
+    private static final Logger LOG = LogManager.getLogger(AssertNumRowsNode.class);
 
     private long desiredNumOfRows;
     private String subqueryString;
@@ -44,6 +50,18 @@ public class AssertNumRowsNode extends PlanNode {
         this.tupleIds.addAll(input.getTupleIds());
         this.tblRefIds.addAll(input.getTblRefIds());
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
+    }
+
+    @Override
+    public void init(Analyzer analyzer) throws UserException {
+        super.init(analyzer);
+        super.computeStats(analyzer);
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            cardinality = 1;
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats AssertNumRows: cardinality={}", cardinality);
+        }
     }
 
     @Override

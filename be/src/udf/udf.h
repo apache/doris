@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
@@ -42,9 +43,9 @@ struct IntVal;
 struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
-struct DecimalVal;
 struct DecimalV2Val;
 struct HllVal;
+struct CollectionVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -66,7 +67,7 @@ public:
         TYPE_LARGEINT,
         TYPE_FLOAT,
         TYPE_DOUBLE,
-        TYPE_DECIMAL,
+        TYPE_DECIMAL_DEPRACTED,
         TYPE_DATE,
         TYPE_DATETIME,
         TYPE_CHAR,
@@ -75,7 +76,8 @@ public:
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
-        TYPE_OBJECT
+        TYPE_OBJECT,
+        TYPE_ARRAY
     };
 
     struct TypeDesc {
@@ -87,6 +89,9 @@ public:
 
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
+
+        // only vaild if type == TYPE_ARRAY
+        std::vector<TypeDesc> children;
     };
 
     struct UniqueId {
@@ -643,37 +648,6 @@ struct StringVal : public AnyVal {
                 size_t buf2_len);
 };
 
-struct DecimalVal : public AnyVal {
-    int8_t int_len;
-    int8_t frac_len;
-    bool sign;
-    int32_t buffer[9] = {0};
-
-    // Default value is zero
-    DecimalVal() : int_len(0), frac_len(0), sign(false) {
-        // Do nothing here
-    }
-
-    static DecimalVal null() {
-        DecimalVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    void set_to_zero() {
-        memset(buffer, 0, sizeof(int32_t) * 9);
-        int_len = 0;
-        frac_len = 0;
-        sign = 0;
-    }
-
-    void set_to_abs_value() { sign = false; }
-
-    bool operator==(const DecimalVal& other) const;
-
-    bool operator!=(const DecimalVal& other) const { return !(*this == other); }
-};
-
 struct DecimalV2Val : public AnyVal {
     __int128 val;
 
@@ -750,6 +724,26 @@ struct HllVal : public StringVal {
     void agg_merge(const HllVal& other);
 };
 
+struct CollectionVal : public AnyVal {
+    void* data;
+    uint32_t length;
+    // item has no null value if has_null is false.
+    // item ```may``` has null value if has_null is true.
+    bool has_null;
+    // null bitmap
+    bool* null_signs;
+
+    CollectionVal() = default;
+
+    CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
+            : data(data), length(length), has_null(has_null), null_signs(null_signs){};
+
+    static CollectionVal null() {
+        CollectionVal val;
+        val.is_null = true;
+        return val;
+    }
+};
 typedef uint8_t* BufferVal;
 } // namespace doris_udf
 
@@ -762,10 +756,10 @@ using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::StringVal;
-using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
+using doris_udf::CollectionVal;
 
 #endif

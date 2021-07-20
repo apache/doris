@@ -42,6 +42,13 @@ public:
         return t;
     }
 
+    template <class T>
+    T* add_array(T* t) {
+        std::lock_guard<SpinLock> l(_lock);
+        _objects.emplace_back(Element{t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
+        return t;
+    }
+
     void clear() {
         std::lock_guard<SpinLock> l(_lock);
         for (Element& elem : _objects) elem.delete_fn(elem.obj);
@@ -57,14 +64,14 @@ private:
     DISALLOW_COPY_AND_ASSIGN(ObjectPool);
 
     /// A generic deletion function pointer. Deletes its first argument.
-    using DeleteFn =  void (*)(void*);
+    using DeleteFn = void (*)(void*);
 
     /// For each object, a pointer to the object and a function that deletes it.
     struct Element {
         void* obj;
         DeleteFn delete_fn;
     };
-    
+
     std::vector<Element> _objects;
     SpinLock _lock;
 };

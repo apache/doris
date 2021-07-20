@@ -17,17 +17,13 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.CheckedMath;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -36,17 +32,18 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TUnionNode;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.commons.collections.CollectionUtils;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Node that merges the results of its child plans, Normally, this is done by
@@ -131,12 +128,24 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        computeCardinality();
+    }
+
+    @Override
+    protected void computeOldCardinality() {
+        computeCardinality();
+    }
+
+    private void computeCardinality() {
         cardinality = constExprLists_.size();
         for (PlanNode child : children) {
             // ignore missing child cardinality info in the hope it won't matter enough
             // to change the planning outcome
             if (child.cardinality > 0) {
-                cardinality = addCardinalities(cardinality, child.cardinality);
+                cardinality = CheckedMath.checkedAdd(cardinality, child.cardinality);
             }
         }
         // The number of nodes of a set operation node is -1 (invalid) if all the referenced tables
@@ -145,30 +154,11 @@ public abstract class SetOperationNode extends PlanNode {
         if (numNodes == -1) {
             numNodes = 1;
         }
-        cardinality = capAtLimit(cardinality);
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("stats Union: cardinality=" + Long.toString(cardinality));
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.trace("stats Union: cardinality=" + cardinality);
         }
     }
-
-    protected long capAtLimit(long cardinality) {
-        if (hasLimit()) {
-            if (cardinality == -1) {
-                return limit;
-            } else {
-                return Math.min(cardinality, limit);
-            }
-        }
-        return cardinality;
-    }
-
-    /*
-    @Override
-    public void computeResourceProfile(TQueryOptions queryOptions) {
-        // TODO: add an estimate
-        resourceProfile_ = new ResourceProfile(0, 0);
-    }
-    */
 
     /**
      * Returns true if rows from the child with 'childTupleIds' and 'childResultExprs' can
@@ -270,7 +260,7 @@ public abstract class SetOperationNode extends PlanNode {
     @Override
     public void init(Analyzer analyzer) {
         Preconditions.checkState(conjuncts.isEmpty());
-        computeMemLayout(analyzer);
+        computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
         // except Node must not reorder the child
         if (!(this instanceof ExceptNode)) {

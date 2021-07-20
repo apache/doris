@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -38,6 +39,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,13 +92,11 @@ public class Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
-                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                    if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
                             }
 
-                    if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
-                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                    if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
                             }
 
@@ -183,10 +183,26 @@ public class Planner {
         if (selectFailed) {
             throw new MVSelectFailedException("Failed to select materialize view");
         }
-        // compute mem layout *before* finalize(); finalize() may reference
-        // TupleDescriptor.avgSerializedSize
+
+        /**
+         * - Under normal circumstances, computeMemLayout() will be executed
+         *     at the end of the init function of the plan node.
+         * Such as :
+         * OlapScanNode {
+         *     init () {
+         *         analyzer.materializeSlots(conjuncts);
+         *         computeTupleStatAndMemLayout(analyzer);
+         *         computeStat();
+         *     }
+         * }
+         * - However Doris is currently unable to determine
+         *     whether it is possible to cut or increase the columns in the tuple after PlanNode.init().
+         * - Therefore, for the time being, computeMemLayout() can only be placed
+         *     after the completion of the entire single node planner.
+         */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+        
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -203,7 +219,13 @@ public class Planner {
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
-        if (statement instanceof InsertStmt) {
+        // Create runtime filters.
+        if (!ConnectContext.get().getSessionVariable().getRuntimeFilterMode().toUpperCase()
+                .equals(TRuntimeFilterMode.OFF.name())) {
+            RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
+        }
+
+	if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

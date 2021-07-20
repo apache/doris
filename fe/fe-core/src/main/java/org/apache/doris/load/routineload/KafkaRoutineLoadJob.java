@@ -63,6 +63,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -341,17 +342,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected String getStatistic() {
-        Map<String, Object> summary = Maps.newHashMap();
-        summary.put("totalRows", Long.valueOf(totalRows));
-        summary.put("loadedRows", Long.valueOf(totalRows - errorRows - unselectedRows));
-        summary.put("errorRows", Long.valueOf(errorRows));
-        summary.put("unselectedRows", Long.valueOf(unselectedRows));
-        summary.put("receivedBytes", Long.valueOf(receivedBytes));
-        summary.put("taskExecuteTimeMs", Long.valueOf(totalTaskExcutionTimeMs));
-        summary.put("receivedBytesRate", Long.valueOf(receivedBytes / totalTaskExcutionTimeMs * 1000));
-        summary.put("loadRowsRate", Long.valueOf((totalRows - errorRows - unselectedRows) / totalTaskExcutionTimeMs * 1000));
-        summary.put("committedTaskNum", Long.valueOf(committedTaskNum));
-        summary.put("abortedTaskNum", Long.valueOf(abortedTaskNum));
+        Map<String, Object> summary = this.jobStatistic.summary();
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
     }
@@ -492,6 +483,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     protected String customPropertiesJsonToString() {
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(customProperties);
+    }
+
+    @Override
+    protected Map<String, String> getDataSourceProperties() {
+        Map<String, String> dataSourceProperties = Maps.newHashMap();
+        dataSourceProperties.put("kafka_broker_list", brokerList);
+        dataSourceProperties.put("kafka_topic", topic);
+        return dataSourceProperties;
+    }
+
+    @Override
+    protected Map<String, String> getCustomProperties() {
+        Map<String, String> ret = new HashMap<>();
+        customProperties.forEach((k, v) -> ret.put("property." + k, v));
+        return ret;
     }
 
     @Override

@@ -140,9 +140,6 @@ public:
                                              const doris_udf::DoubleVal& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::DecimalVal& v);
-
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::DecimalV2Val& v);
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
@@ -180,6 +177,9 @@ public:
 
     static StringVal replace(FunctionContext* context, const StringVal& origStr,
                              const StringVal& oldStr, const StringVal& newStr);
+
+    static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
+                                    const doris_udf::StringVal& str);
 };
 } // namespace doris
 

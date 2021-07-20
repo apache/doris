@@ -156,8 +156,10 @@ message ColumnMetaPB {
 
     repeated ColumnMetaPB children_columns = 10;
 
-    // required by array/struct/map reader to create child reader. 
+    // required by array/struct/map reader to create child reader.
     optional uint64 num_rows = 11;
+    repeated string children_column_names = 12;
+
 }
 
 message SegmentFooterPB {

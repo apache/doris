@@ -61,13 +61,13 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -834,6 +834,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying drop rollup. db: {}", tableId, db.getId());
+            return;
+        }
         olapTable.writeLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {

@@ -148,7 +148,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         }
 
         // 3. find merge cross the clause
-        if (analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
+        if (analyzer.getContext() != null && analyzer.getContext().getSessionVariable().isExtractWideRangeExpr()) {
             Expr wideCommonExpr = findWideRangeExpr(clearExprs);
             if (wideCommonExpr != null) {
                 commonFactorList.add(wideCommonExpr);

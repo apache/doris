@@ -148,7 +148,7 @@ void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTablet
     TColumn k10;
     k10.column_name = "k10";
     k10.__set_is_key(true);
-    k10.column_type.type = TPrimitiveType::DECIMAL;
+    k10.column_type.type = TPrimitiveType::DECIMALV2;
     k10.column_type.__set_precision(6);
     k10.column_type.__set_scale(3);
     request->tablet_schema.columns.push_back(k10);
@@ -221,7 +221,7 @@ void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTablet
     TColumn v10;
     v10.column_name = "v10";
     v10.__set_is_key(false);
-    v10.column_type.type = TPrimitiveType::DECIMAL;
+    v10.column_type.type = TPrimitiveType::DECIMALV2;
     v10.column_type.__set_precision(6);
     v10.column_type.__set_scale(3);
     v10.__set_aggregation_type(TAggregationType::SUM);
@@ -438,8 +438,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalValue decimal_value(1.1);
-        *(DecimalValue*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
+        DecimalV2Value decimal_value(1.1);
+        *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
 
         *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
         *(int16_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -32767;
@@ -463,8 +463,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalValue val_decimal(1.1);
-        *(DecimalValue*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
+        DecimalV2Value val_decimal(1.1);
+        *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);
         ASSERT_EQ(OLAP_SUCCESS, res);

@@ -12,6 +12,9 @@ _Put an `x` in the boxes that apply_
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Documentation Update (if none of the other choices apply)
 - [ ] Code refactor (Modify the code structure, format the code, etc...)
+- [ ] Optimization. Including functional usability improvements and performance improvements.
+- [ ] Dependency. Such as changes related to third-party components.
+- [ ] Other.
 
 ## Checklist
 

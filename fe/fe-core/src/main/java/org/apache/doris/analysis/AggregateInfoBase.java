@@ -165,7 +165,7 @@ public abstract class AggregateInfoBase {
                         if (!intermediateType.isWildcardDecimal()) {
                             slotDesc.setType(intermediateType);
                         } else {
-                            Preconditions.checkState(expr.getType().isDecimal() || expr.getType().isDecimalV2());
+                            Preconditions.checkState(expr.getType().isDecimalV2());
                         }
                     }
                 }

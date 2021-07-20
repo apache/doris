@@ -341,6 +341,9 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+    if (USE_AVX2)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
+    endif()
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
@@ -366,7 +369,7 @@ set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations

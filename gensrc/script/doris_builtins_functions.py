@@ -99,6 +99,21 @@ visible_functions = [
         '_ZN5doris9Operators20bitnot_large_int_valEPN9doris_udf'
         '15FunctionContextERKNS1_11LargeIntValE'],
 
+    # array functions
+    [['array'], 'ARRAY', ['INT', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'],
+        '_ZN5doris14ArrayFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
+    [['array'], 'ARRAY', ['ARRAY', '...'], '', ''],
+    [['array'], 'ARRAY', ['MAP', '...'], '', ''],
+    [['array'], 'ARRAY', ['STRUCT', '...'], '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['ARRAY', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'VARCHAR'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['MAP', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'INT'],  '', ''],
+    [['%element_extract%'], 'VARCHAR', ['STRUCT', 'VARCHAR'],  '', ''],
+
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
@@ -403,8 +418,6 @@ visible_functions = [
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['abs'], 'SMALLINT', ['TINYINT'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10TinyIntValE'],
-    [['abs'], 'DECIMAL', ['DECIMAL'],
-        '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
     [['abs'], 'DECIMALV2', ['DECIMALV2'],
         '_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
 
@@ -508,9 +521,6 @@ visible_functions = [
     [['mod'], 'LARGEINT', ['LARGEINT', 'LARGEINT'],
             '_ZN5doris9Operators31mod_large_int_val_large_int_valEPN9doris_udf'
             '15FunctionContextERKNS1_11LargeIntValES6_'],
-    [['mod'], 'DECIMAL', ['DECIMAL', 'DECIMAL'],
-            '_ZN5doris16DecimalOperators27mod_decimal_val_decimal_valEPN9doris_udf'
-            '15FunctionContextERKNS1_10DecimalValES6_'],
     [['mod'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'],
             '_ZN5doris18DecimalV2Operators31mod_decimalv2_val_decimalv2_valEPN9doris_udf'
             '15FunctionContextERKNS1_12DecimalV2ValES6_'],
@@ -525,9 +535,6 @@ visible_functions = [
     [['positive'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions15positive_doubleEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValE'],
-    [['positive'], 'DECIMAL', ['DECIMAL'],
-            '_ZN5doris13MathFunctions16positive_decimalEPN9doris_udf'
-            '15FunctionContextERKNS1_10DecimalValE'],
     [['positive'], 'DECIMALV2', ['DECIMALV2'],
             '_ZN5doris13MathFunctions16positive_decimalEPN9doris_udf'
             '15FunctionContextERKNS1_12DecimalV2ValE'],
@@ -537,9 +544,6 @@ visible_functions = [
     [['negative'], 'DOUBLE', ['DOUBLE'],
             '_ZN5doris13MathFunctions15negative_doubleEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValE'],
-    [['negative'], 'DECIMAL', ['DECIMAL'],
-            '_ZN5doris13MathFunctions16negative_decimalEPN9doris_udf'
-            '15FunctionContextERKNS1_10DecimalValE'],
     [['negative'], 'DECIMALV2', ['DECIMALV2'],
             '_ZN5doris13MathFunctions16negative_decimalEPN9doris_udf'
             '15FunctionContextERKNS1_12DecimalV2ValE'],
@@ -560,8 +564,6 @@ visible_functions = [
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_9DoubleValE'],
     [['least'], 'DATETIME', ['DATETIME', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_11DateTimeValE'],
-    [['least'], 'DECIMAL', ['DECIMAL', '...'],
-            '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
     [['least'], 'DECIMALV2', ['DECIMALV2', '...'],
             '_ZN5doris13MathFunctions5leastEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
     [['least'], 'VARCHAR', ['VARCHAR', '...'],
@@ -581,8 +583,6 @@ visible_functions = [
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_8FloatValE'],
     [['greatest'], 'DOUBLE', ['DOUBLE', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_9DoubleValE'],
-    [['greatest'], 'DECIMAL', ['DECIMAL', '...'],
-            '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_10DecimalValE'],
     [['greatest'], 'DECIMALV2', ['DECIMALV2', '...'],
             '_ZN5doris13MathFunctions8greatestEPN9doris_udf15FunctionContextEiPKNS1_12DecimalV2ValE'],
     [['greatest'], 'DATETIME', ['DATETIME', '...'],
@@ -603,7 +603,6 @@ visible_functions = [
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
     [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], ''],
-    [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
     [['if'], 'BITMAP', ['BOOLEAN', 'BITMAP', 'BITMAP'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -619,7 +618,6 @@ visible_functions = [
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['nullif'], 'DATE', ['DATE', 'DATE'], ''],
-    [['nullif'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
     [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
@@ -636,7 +634,6 @@ visible_functions = [
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
     [['ifnull'], 'DATETIME', ['DATE', 'DATETIME'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATE'], ''],
-    [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     [['ifnull'], 'BITMAP', ['BITMAP', 'BITMAP'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -652,7 +649,6 @@ visible_functions = [
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DATE', ['DATE', '...'], ''],
-    [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
     [['coalesce'], 'BITMAP', ['BITMAP', '...'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -696,6 +692,8 @@ visible_functions = [
 	'_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bit_length'], 'INT', ['VARCHAR'],
+            '_ZN5doris15StringFunctions10bit_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['char_length', 'character_length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions16char_utf8_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
    [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
@@ -763,8 +761,6 @@ visible_functions = [
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_11LargeIntValE'],
     [['money_format'], 'VARCHAR', ['DOUBLE'],
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_9DoubleValE'],
-    [['money_format'], 'VARCHAR', ['DECIMAL'],
-        '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_10DecimalValE'],
     [['money_format'], 'VARCHAR', ['DECIMALV2'],
         '_ZN5doris15StringFunctions12money_formatEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValE'],
      [['split_part'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'INT'],
@@ -907,7 +903,19 @@ non_null_result_with_null_param_functions = [
     'ifnull',
     'nullif',
     'null_or_empty',
-    'coalesce'
+    'coalesce',
+    'array'
+]
+
+# Nondeterministic functions may return different results each time they are called
+nondeterministic_functions = [
+    'rand',
+    'now',
+    'current_timestamp',
+    'curdate',
+    'curtime',
+    'current_time',
+    'utc_timestamp'
 ]
 
 invisible_functions = [

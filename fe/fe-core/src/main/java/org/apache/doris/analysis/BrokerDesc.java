@@ -67,6 +67,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         }
         tryConvertToS3();
     }
+
     public BrokerDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
         this.properties = properties;

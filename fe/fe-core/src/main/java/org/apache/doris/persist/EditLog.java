@@ -29,8 +29,11 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -661,6 +664,16 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayDropFunction(function);
                     break;
                 }
+                case OperationType.OP_CREATE_ENCRYPTKEY: {
+                    final EncryptKey encryptKey = (EncryptKey) journal.getData();
+                    EncryptKeyHelper.replayCreateEncryptKey(encryptKey);
+                    break;
+                }
+                case OperationType.OP_DROP_ENCRYPTKEY: {
+                    EncryptKeySearchDesc encryptKeySearchDesc = (EncryptKeySearchDesc) journal.getData();
+                    EncryptKeyHelper.replayDropEncryptKey(encryptKeySearchDesc);
+                    break;
+                }
                 case OperationType.OP_BACKEND_TABLETS_INFO: {
                     BackendTabletsInfo backendTabletsInfo = (BackendTabletsInfo) journal.getData();
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
@@ -753,6 +766,11 @@ public class EditLog {
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog modifyTablePropertyOperationLog = (ModifyTablePropertyOperationLog) journal.getData();
                     catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
+                    break;
+                }
+                case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
+                    ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
@@ -1272,6 +1290,14 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_FUNCTION, function);
     }
 
+    public void logAddEncryptKey(EncryptKey encryptKey) {
+        logEdit(OperationType.OP_CREATE_ENCRYPTKEY, encryptKey);
+    }
+
+    public void logDropEncryptKey(EncryptKeySearchDesc desc) {
+        logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
+    }
+
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
     }
@@ -1338,6 +1364,10 @@ public class EditLog {
 
     public void logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_REPLICATION_NUM, info);
+    }
+
+    public void logModifyDefaultDistributionBucketNum(ModifyTableDefaultDistributionBucketNumOperationLog info) {
+        logEdit(OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM, info);
     }
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {

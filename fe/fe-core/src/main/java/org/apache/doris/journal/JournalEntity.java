@@ -28,6 +28,8 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.EncryptKey;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -66,6 +68,7 @@ import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -483,6 +486,16 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_ENCRYPTKEY: {
+                data = EncryptKey.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_ENCRYPTKEY: {
+                data = EncryptKeySearchDesc.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_BACKEND_TABLETS_INFO: {
                 data = BackendTabletsInfo.read(in);
                 isRead = true;
@@ -559,6 +572,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
             case OperationType.OP_MODIFY_REPLICATION_NUM: {
                 data = ModifyTablePropertyOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
+                data = ModifyTableDefaultDistributionBucketNumOperationLog.read(in);
                 isRead = true;
                 break;
             }

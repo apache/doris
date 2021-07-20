@@ -17,10 +17,17 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating)
-# Usage:
-#    sh build.sh        build both Backend and Frontend.
-#    sh build.sh -clean clean previous output and build.
+# This script is used to compile Apache Doris(incubating).
+# Usage: 
+#    sh build.sh --help
+# Eg:
+#    sh build.sh                            build all
+#    sh build.sh  --be                      build Backend without clean
+#    sh build.sh  --fe --clean              clean and build Frontend and Spark Dpp application, without web UI
+#    sh build.sh  --fe --be --clean         clean and build Frontend, Spark Dpp application and Backend, without web UI
+#    sh build.sh  --spark-dpp               build Spark DPP application alone
+#    sh build.sh  --fe --ui                 build Frontend web ui with npm
+#    sh build.sh  --fe --be --ui --clean    clean and build Frontend, Spark Dpp application, Backend and web UI
 #
 # You need to make sure all thirdparty libraries have been
 # compiled and installed correctly.
@@ -50,10 +57,10 @@ Usage: $0 <options>
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
-    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
+    $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
+    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
-    $0 --fe --ui                         build Frontend web ui with npm
+    $0 --fe --ui                            build Frontend web ui with npm
   "
   exit 1
 }
@@ -135,6 +142,9 @@ fi
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
+if [[ -z ${USE_AVX2} ]]; then
+    USE_AVX2=ON
+fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
 fi
@@ -149,6 +159,7 @@ echo "Get params:
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
+    USE_AVX2            -- $USE_AVX2
 "
 
 # Clean and build generated code
@@ -180,6 +191,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             ${CMAKE_USE_CCACHE} \
             -DWITH_MYSQL=${WITH_MYSQL} \
             -DWITH_LZO=${WITH_LZO} \
+            -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install

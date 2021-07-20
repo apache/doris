@@ -662,7 +662,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         if (status == DORIS_SUCCESS) {
             VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
-                    << ", push_type: " << push_req.push_type;
+                        << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;
@@ -1147,9 +1147,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_storage_medium(root_path_info.storage_medium);
-            disk.__set_disk_total_capacity(static_cast<double>(root_path_info.disk_capacity));
-            disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
-            disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
+            disk.__set_disk_total_capacity(root_path_info.disk_capacity);
+            disk.__set_data_used_capacity(root_path_info.data_used_capacity);
+            disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
         }
@@ -1226,11 +1226,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (upload_request.__isset.storage_backend && upload_request.storage_backend == TStorageBackendType::S3) {
-            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_prop));
+        if (upload_request.__isset.storage_backend &&
+            upload_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
+                                            upload_request.broker_prop));
         } else {
-            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
-                                      upload_request.broker_prop));
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
+                                            upload_request.broker_addr,
+                                            upload_request.broker_prop));
         }
         Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
@@ -1290,13 +1293,16 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         std::vector<int64_t> downloaded_tablet_ids;
 
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (download_request.__isset.storage_backend && download_request.storage_backend == TStorageBackendType::S3) {
-            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_prop));
+        if (download_request.__isset.storage_backend &&
+            download_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
+                                            download_request.broker_prop));
         } else {
-            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_addr,
-                                        download_request.broker_prop));
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
+                                            download_request.broker_addr,
+                                            download_request.broker_prop));
         }
-        Status status = loader->download(download_request.src_dest_map,  &downloaded_tablet_ids);
+        Status status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
 
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1349,8 +1355,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         string snapshot_path;
         bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
-        OLAPStatus make_snapshot_status =
-                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
+        OLAPStatus make_snapshot_status = SnapshotManager::instance()->make_snapshot(
+                snapshot_request, &snapshot_path, &allow_incremental_clone);
         if (make_snapshot_status != OLAP_SUCCESS) {
             status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
                                   ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED
@@ -1559,10 +1565,10 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     AgentStatus status = _master_client->report(request, &result);
     bool is_report_success = false;
     if (status != DORIS_SUCCESS) {
-        LOG(WARNING) << "report " << TYPE_STRING(type)  << " failed. status: " << status
+        LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status
                      << ", master host: " << _master_info.network_address.hostname
                      << ", port:" << _master_info.network_address.port;
-    } else if  (result.status.status_code != TStatusCode::OK) {
+    } else if (result.status.status_code != TStatusCode::OK) {
         std::stringstream ss;
         if (!result.status.error_msgs.empty()) {
             ss << result.status.error_msgs[0];
@@ -1570,12 +1576,13 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
                 ss << "," << result.status.error_msgs[i];
             }
         }
-        LOG(WARNING) << "finish report " << TYPE_STRING(type) << " failed. status:" << result.status.status_code
+        LOG(WARNING) << "finish report " << TYPE_STRING(type)
+                     << " failed. status:" << result.status.status_code
                      << ", error msg:" << ss.str();
     } else {
         is_report_success = true;
-        LOG(INFO) << "finish report " << TYPE_STRING(type) << ". master host: "
-                  << _master_info.network_address.hostname
+        LOG(INFO) << "finish report " << TYPE_STRING(type)
+                  << ". master host: " << _master_info.network_address.hostname
                   << ", port: " << _master_info.network_address.port;
     }
     switch (type) {

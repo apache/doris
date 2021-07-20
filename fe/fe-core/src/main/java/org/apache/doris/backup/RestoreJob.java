@@ -70,9 +70,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -82,6 +79,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -395,7 +395,7 @@ public class RestoreJob extends AbstractJob {
      * A. Table already exist
      *      A1. Partition already exist, generate file mapping
      *      A2. Partition does not exist, add restored partition to the table.
-     *          Reset all index/tablet/replica id, and create replica on BE outside the db lock.
+     *          Reset all index/tablet/replica id, and create replica on BE outside the table lock.
      * B. Table does not exist
      *      B1. Add table to the db, reset all table/index/tablet/replica id,
      *          and create replica on BE outside the db lock.
@@ -506,7 +506,6 @@ public class RestoreJob extends AbstractJob {
                 return;
             }
         }
-
 
         // Check and prepare meta objects.
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -1567,7 +1566,6 @@ public class RestoreJob extends AbstractJob {
                 } finally {
                     restoreTbl.writeUnlock();
                 }
-
             }
 
             // remove restored resource

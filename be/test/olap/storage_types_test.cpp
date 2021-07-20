@@ -146,7 +146,7 @@ TEST(TypesTest, copy_and_equal) {
 }
 
 template <FieldType item_type>
-void common_test_array(Collection src_val) {
+void common_test_array(CollectionValue src_val) {
     TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
     if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
@@ -160,7 +160,7 @@ void common_test_array(Collection src_val) {
     ASSERT_EQ(item_type, array_type->item_type_info()->type());
 
     { // test deep copy
-        Collection dst_val;
+        CollectionValue dst_val;
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, &pool);
@@ -170,7 +170,7 @@ void common_test_array(Collection src_val) {
     { // test direct copy
         bool null_signs[50];
         uint8_t data[50];
-        Collection dst_val(data, sizeof(null_signs), null_signs);
+        CollectionValue dst_val(data, sizeof(null_signs), null_signs);
         array_type->direct_copy((char*)&dst_val, (char*)&src_val);
         ASSERT_TRUE(array_type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
@@ -180,45 +180,45 @@ void common_test_array(Collection src_val) {
 TEST(ArrayTypeTest, copy_and_equal) {
     bool bool_array[3] = {true, false, true};
     bool null_signs[3] = {true, true, true};
-    common_test_array<OLAP_FIELD_TYPE_BOOL>(Collection(bool_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_BOOL>(CollectionValue(bool_array, 3, null_signs));
 
     uint8_t tiny_int_array[3] = {3, 4, 5};
-    common_test_array<OLAP_FIELD_TYPE_TINYINT>(Collection(tiny_int_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_TINYINT>(CollectionValue(tiny_int_array, 3, null_signs));
 
     int16_t small_int_array[3] = {123, 234, 345};
-    common_test_array<OLAP_FIELD_TYPE_SMALLINT>(Collection(small_int_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_SMALLINT>(CollectionValue(small_int_array, 3, null_signs));
 
     int32_t int_array[3] = {-123454321, 123454321, 323412343};
-    common_test_array<OLAP_FIELD_TYPE_INT>(Collection(int_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_INT>(CollectionValue(int_array, 3, null_signs));
 
     uint32_t uint_array[3] = {123454321, 2342341, 52435234};
-    common_test_array<OLAP_FIELD_TYPE_UNSIGNED_INT>(Collection(uint_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_UNSIGNED_INT>(CollectionValue(uint_array, 3, null_signs));
 
     int64_t bigint_array[3] = {123454321123456789L, 23534543234L, -123454321123456789L};
-    common_test_array<OLAP_FIELD_TYPE_BIGINT>(Collection(bigint_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_BIGINT>(CollectionValue(bigint_array, 3, null_signs));
 
     __int128 large_int_array[3] = {1234567899L, 1234567899L, -12345631899L};
-    common_test_array<OLAP_FIELD_TYPE_LARGEINT>(Collection(large_int_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_LARGEINT>(CollectionValue(large_int_array, 3, null_signs));
 
     float float_array[3] = {1.11, 2.22, -3.33};
-    common_test_array<OLAP_FIELD_TYPE_FLOAT>(Collection(float_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_FLOAT>(CollectionValue(float_array, 3, null_signs));
 
     double double_array[3] = {12221.11, 12221.11, -12221.11};
-    common_test_array<OLAP_FIELD_TYPE_DOUBLE>(Collection(double_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_DOUBLE>(CollectionValue(double_array, 3, null_signs));
 
     decimal12_t decimal_array[3] = {{123, 234}, {345, 453}, {4524, 2123}};
-    common_test_array<OLAP_FIELD_TYPE_DECIMAL>(Collection(decimal_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_DECIMAL>(CollectionValue(decimal_array, 3, null_signs));
 
     uint24_t date_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
                               (2008 << 9) | (2 << 5) | 1};
-    common_test_array<OLAP_FIELD_TYPE_DATE>(Collection(date_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
 
     int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};
-    common_test_array<OLAP_FIELD_TYPE_DATETIME>(Collection(datetime_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_DATETIME>(CollectionValue(datetime_array, 3, null_signs));
 
     Slice char_array[3] = {"12345abcde", "12345abcde", "asdf322"};
-    common_test_array<OLAP_FIELD_TYPE_CHAR>(Collection(char_array, 3, null_signs));
-    common_test_array<OLAP_FIELD_TYPE_VARCHAR>(Collection(char_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_CHAR>(CollectionValue(char_array, 3, null_signs));
+    common_test_array<OLAP_FIELD_TYPE_VARCHAR>(CollectionValue(char_array, 3, null_signs));
 }
 
 } // namespace doris
