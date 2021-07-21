@@ -1048,6 +1048,16 @@ Default：5
 
 Export checker's running interval.
 
+### load_parallelism
+
+Default: 1
+
+IsMutable：true
+
+MasterOnly：true
+
+Default parallelism of the load execution plan on a single node when the broker load is submitted.
+
 ### max_broker_concurrency
 
 Default：10

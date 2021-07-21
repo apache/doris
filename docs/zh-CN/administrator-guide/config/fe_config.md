@@ -1049,6 +1049,16 @@ colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 导出检查器的运行间隔
 
+### load_parallelism
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+单个节点导入的默认并发度
+
 ### max_broker_concurrency
 
 默认值：10
