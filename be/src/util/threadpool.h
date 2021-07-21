@@ -188,9 +188,9 @@ public:
         SERIAL,
 
         // Tasks submitted via this token may be executed concurrently.
-        CONCURRENT,
+        CONCURRENT
     };
-    std::unique_ptr<ThreadPoolToken> new_token(ExecutionMode mode);
+    std::unique_ptr<ThreadPoolToken> new_token(ExecutionMode mode, int max_concurrency = INT_MAX);
 
     // Return the number of threads currently running (or in the process of starting up)
     // for this thread pool.
@@ -362,6 +362,13 @@ public:
     // Returns true if all submissions are complete, false otherwise.
     bool wait_for(const MonoDelta& delta);
 
+    bool need_dispatch();
+
+    size_t num_tasks() {
+        MutexLock l(&_pool->_lock);
+        return _entries.size();
+    }
+
 private:
     // All possible token states. Legal state transitions:
     //   IDLE      -> RUNNING: task is submitted via token
@@ -400,7 +407,7 @@ private:
     // Constructs a new token.
     //
     // The token may not outlive its thread pool ('pool').
-    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode);
+    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency = INT_MAX);
 
     // Changes this token's state to 'new_state' taking actions as needed.
     void transition(State new_state);
@@ -418,7 +425,7 @@ private:
     ThreadPool::ExecutionMode mode() const { return _mode; }
 
     // Token's configured execution mode.
-    const ThreadPool::ExecutionMode _mode;
+    ThreadPool::ExecutionMode _mode;
 
     // Pointer to the token's thread pool.
     ThreadPool* _pool;
@@ -436,6 +443,13 @@ private:
     // Number of worker threads currently executing tasks belonging to this
     // token.
     int _active_threads;
+    // The max number of tasks that can be ran concurrenlty. This is to limit
+    // the concurrency of a thread pool token, and default is INT_MAX(no limited)
+    int _max_concurrency;
+    // Number of tasks which has been submitted to the thread pool's queue.
+    int _num_submitted_tasks;
+    // Number of tasks which has not been submitted to the thread pool's queue.
+    int _num_unsubmitted_tasks;
 
     DISALLOW_COPY_AND_ASSIGN(ThreadPoolToken);
 };
