@@ -366,7 +366,7 @@ MasterOnly：true
 
 Whether to enable spark load temporarily, it is not enabled by default
 
-### enable_strict_storage_medium_check
+### disable_storage_medium_check
 
 Default：false
 
@@ -374,12 +374,8 @@ IsMutable：true
 
 MasterOnly：true
 
-This configuration indicates that when the table is being built, it checks for the presence of the appropriate storage medium in the cluster. For example, when the user specifies that the storage medium is' SSD 'when the table is built, but only' HDD 'disks exist in the cluster,
-
-If this parameter is' True ', the error 'Failed to find enough host in all Backends with storage medium with storage medium is SSD, need 3'.
-
-If this parameter is' False ', no error is reported when the table is built. Instead, the table is built on a disk with 'HDD' as the storage medium
-
+If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
+  
 ### drop_backend_after_decommission
 
 Default：false

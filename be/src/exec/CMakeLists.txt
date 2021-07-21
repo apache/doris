@@ -54,6 +54,7 @@ set(EXEC_FILES
     olap_common.cpp
     tablet_info.cpp
     tablet_sink.cpp
+    plain_binary_line_reader.cpp
     plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
