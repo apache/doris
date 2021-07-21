@@ -461,7 +461,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
-    Vec
+#    Vec
     Plugin
     ${WL_END_GROUP}
 )
@@ -632,7 +632,7 @@ add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
-add_subdirectory(${SRC_DIR}/vec)
+#add_subdirectory(${SRC_DIR}/vec)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -684,11 +684,11 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/runtime)
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/vec/core)
-    add_subdirectory(${TEST_DIR}/vec/exprs)
-    add_subdirectory(${TEST_DIR}/vec/function)
-    add_subdirectory(${TEST_DIR}/vec/runtime)
-    add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
+#    add_subdirectory(${TEST_DIR}/vec/core)
+#    add_subdirectory(${TEST_DIR}/vec/exprs)
+#    add_subdirectory(${TEST_DIR}/vec/function)
+#    add_subdirectory(${TEST_DIR}/vec/runtime)
+#    add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
     add_subdirectory(${TEST_DIR}/plugin)
     add_subdirectory(${TEST_DIR}/plugin/example)
 endif ()

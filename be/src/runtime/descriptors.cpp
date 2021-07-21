@@ -27,9 +27,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/descriptors.pb.h"
 
-#include "vec/core/columns_with_type_and_name.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/data_types/data_type_nullable.h"
+//#include "vec/core/columns_with_type_and_name.h"
+//#include "vec/columns/column_nullable.h"
+//#include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
 using boost::algorithm::join;
@@ -86,20 +86,20 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_materialized(_is_materialized);
 }
 
-vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
-    auto data_column = type().get_data_type_ptr()->create_column();
-    if (is_nullable()) {
-        return doris::vectorized::ColumnNullable::create(std::move(data_column), doris::vectorized::ColumnUInt8::create());
-    }
-    return data_column;
-}
-
-vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    if (is_nullable()) {
-        return std::make_shared<vectorized::DataTypeNullable>(type().get_data_type_ptr());
-    }
-    return type().get_data_type_ptr();
-}
+//vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+//    auto data_column = type().get_data_type_ptr()->create_column();
+//    if (is_nullable()) {
+//        return doris::vectorized::ColumnNullable::create(std::move(data_column), doris::vectorized::ColumnUInt8::create());
+//    }
+//    return data_column;
+//}
+//
+//vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+//    if (is_nullable()) {
+//        return std::make_shared<vectorized::DataTypeNullable>(type().get_data_type_ptr());
+//    }
+//    return type().get_data_type_ptr();
+//}
 
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;

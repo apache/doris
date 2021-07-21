@@ -28,12 +28,13 @@
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
-#include "vec/data_types/data_type_bitmap.h"
-#include "vec/data_types/data_type_date.h"
-#include "vec/data_types/data_type_date_time.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
+
+//#include "vec/data_types/data_type_bitmap.h"
+//#include "vec/data_types/data_type_date.h"
+//#include "vec/data_types/data_type_date_time.h"
+//#include "vec/data_types/data_type_decimal.h"
+//#include "vec/data_types/data_type_number.h"
+//#include "vec/data_types/data_type_string.h"
 
 namespace doris {
 
@@ -268,51 +269,51 @@ struct TypeDescriptor {
         return -1;
     }
 
-    inline doris::vectorized::DataTypePtr get_data_type_ptr() const {
-        switch (type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            return std::make_shared<vectorized::DataTypeInt8>();
-
-        case TYPE_SMALLINT:
-            return std::make_shared<vectorized::DataTypeInt16>();
-
-        case TYPE_INT:
-            return std::make_shared<vectorized::DataTypeInt32>();
-
-        case TYPE_FLOAT:
-            return std::make_shared<vectorized::DataTypeFloat32>();
-
-        case TYPE_BIGINT:
-            return std::make_shared<vectorized::DataTypeInt64>();
-
-        case TYPE_LARGEINT:
-            return std::make_shared<vectorized::DataTypeInt128>();
-        case TYPE_DATE:
-            return std::make_shared<vectorized::DataTypeDate>();
-        case TYPE_DATETIME:
-            return std::make_shared<vectorized::DataTypeDateTime>();
-        case TYPE_TIME:
-        case TYPE_DOUBLE:
-            return std::make_shared<vectorized::DataTypeFloat64>();
-
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-            return std::make_shared<vectorized::DataTypeString>();
-        case TYPE_OBJECT:
-            return std::make_shared<vectorized::DataTypeBitMap>();
-
-        case TYPE_DECIMALV2:
-            return std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
-
-        case INVALID_TYPE:
-        default:
-            DCHECK(false);
-        }
-        // For llvm complain
-        return nullptr;
-    }
+//    inline doris::vectorized::DataTypePtr get_data_type_ptr() const {
+//        switch (type) {
+//        case TYPE_BOOLEAN:
+//        case TYPE_TINYINT:
+//            return std::make_shared<vectorized::DataTypeInt8>();
+//
+//        case TYPE_SMALLINT:
+//            return std::make_shared<vectorized::DataTypeInt16>();
+//
+//        case TYPE_INT:
+//            return std::make_shared<vectorized::DataTypeInt32>();
+//
+//        case TYPE_FLOAT:
+//            return std::make_shared<vectorized::DataTypeFloat32>();
+//
+//        case TYPE_BIGINT:
+//            return std::make_shared<vectorized::DataTypeInt64>();
+//
+//        case TYPE_LARGEINT:
+//            return std::make_shared<vectorized::DataTypeInt128>();
+//        case TYPE_DATE:
+//            return std::make_shared<vectorized::DataTypeDate>();
+//        case TYPE_DATETIME:
+//            return std::make_shared<vectorized::DataTypeDateTime>();
+//        case TYPE_TIME:
+//        case TYPE_DOUBLE:
+//            return std::make_shared<vectorized::DataTypeFloat64>();
+//
+//        case TYPE_CHAR:
+//        case TYPE_VARCHAR:
+//        case TYPE_HLL:
+//            return std::make_shared<vectorized::DataTypeString>();
+//        case TYPE_OBJECT:
+//            return std::make_shared<vectorized::DataTypeBitMap>();
+//
+//        case TYPE_DECIMALV2:
+//            return std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+//
+//        case INVALID_TYPE:
+//        default:
+//            DCHECK(false);
+//        }
+//        // For llvm complain
+//        return nullptr;
+//    }
 
     static inline int get_decimal_byte_size(int precision) {
         DCHECK_GT(precision, 0);

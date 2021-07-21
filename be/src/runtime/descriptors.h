@@ -103,9 +103,9 @@ public:
 
     std::string debug_string() const;
 
-    doris::vectorized::MutableColumnPtr get_empty_mutable_column() const;
-
-    doris::vectorized::DataTypePtr get_data_type_ptr() const;
+//    doris::vectorized::MutableColumnPtr get_empty_mutable_column() const;
+//
+//    doris::vectorized::DataTypePtr get_data_type_ptr() const;
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
