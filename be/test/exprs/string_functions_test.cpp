@@ -26,6 +26,7 @@
 #include "test_util/test_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
+#include "exprs/vectorization/v_string_functions.h"
 
 namespace doris {
 
@@ -640,6 +641,76 @@ TEST_F(StringFunctionsTest, upper) {
     ASSERT_EQ(StringVal("HELLO, 123"), StringFunctions::upper(ctx, StringVal("hello, 123")));
     ASSERT_EQ(StringVal::null(), StringFunctions::upper(ctx, StringVal::null()));
     ASSERT_EQ(StringVal(""), StringFunctions::upper(ctx, StringVal("")));
+}
+
+TEST_F(StringFunctionsTest, ltrim) {
+    // no blank
+    StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    StringVal res = VStringFunctions::ltrim(src);
+    ASSERT_EQ(src, res);
+    // empty string
+    StringVal src1("");
+    res = VStringFunctions::ltrim(src1);
+    ASSERT_EQ(src1, res);
+    // null string
+    StringVal src2(StringVal::null());
+    res = VStringFunctions::ltrim(src2);
+    ASSERT_EQ(src2, res);
+    // less than 16 blanks
+    StringVal src3("       hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    res = VStringFunctions::ltrim(src3);
+    ASSERT_EQ(src, res);
+    // more than 16 blanks
+    StringVal src4("                   hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    res = VStringFunctions::ltrim(src4);
+    ASSERT_EQ(src, res);
+    // all are blanks, less than 16 blanks
+    StringVal src5("       ");
+    res = VStringFunctions::ltrim(src5);
+    ASSERT_EQ(StringVal(""), res);
+    // all are blanks, more than 16 blanks
+    StringVal src6("                  ");
+    res = VStringFunctions::ltrim(src6);
+    ASSERT_EQ(StringVal(""), res);
+    // src less than 16 length
+    StringVal src7(" 12345678910");
+    res = VStringFunctions::ltrim(src7);
+    ASSERT_EQ(StringVal("12345678910"), res);
+}
+
+TEST_F(StringFunctionsTest, rtrim) {
+    // no blank
+    StringVal src("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    StringVal res = VStringFunctions::rtrim(src);
+    ASSERT_EQ(src, res);
+    // empty string
+    StringVal src1("");
+    res = VStringFunctions::rtrim(src1);
+    ASSERT_EQ(src1, res);
+    // null string
+    StringVal src2(StringVal::null());
+    res = VStringFunctions::rtrim(src2);
+    ASSERT_EQ(src2, res);
+    // less than 16 blanks
+    StringVal src3("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa       ");
+    res = VStringFunctions::rtrim(src3);
+    ASSERT_EQ(src, res);
+    // more than 16 blanks
+    StringVal src4("hello worldaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                      ");
+    res = VStringFunctions::rtrim(src4);
+    ASSERT_EQ(src, res);
+    // all are blanks, less than 16 blanks
+    StringVal src5("       ");
+    res = VStringFunctions::rtrim(src5);
+    ASSERT_EQ(StringVal(""), res);
+    // all are blanks, more than 16 blanks
+    StringVal src6("                  ");
+    res = VStringFunctions::rtrim(src6);
+    ASSERT_EQ(StringVal(""), res);
+    // src less than 16 length
+    StringVal src7("12345678910 ");
+    res = VStringFunctions::rtrim(src7);
+    ASSERT_EQ(StringVal("12345678910"), res);
 }
 
 } // namespace doris
