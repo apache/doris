@@ -21,6 +21,7 @@
 
 #include "common/object_pool.h"
 #include "olap/row.h"
+#include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -310,8 +311,11 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     scan_keys.push_back("char_exceed_length");
     scan_keys.push_back("varchar_exceed_length");
 
+    std::vector<uint32_t> columns{0, 1};
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
+
     RowCursor row;
-    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys);
+    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys, schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 34);
     ASSERT_EQ(row.get_variable_len(), 39);
