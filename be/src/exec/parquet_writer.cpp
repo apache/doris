@@ -36,10 +36,8 @@
 namespace doris {
 
 /// ParquetOutputStream
-ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer) :
-        _file_writer(file_writer),
-        _cur_pos(0),
-        _written_len(0){
+ParquetOutputStream::ParquetOutputStream(FileWriter* file_writer)
+        : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
     set_mode(arrow::io::FileMode::WRITE);
 }
 
@@ -92,7 +90,7 @@ ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
                                            const std::vector<ExprContext*>& output_expr_ctxs,
                                            const std::map<std::string, std::string>& properties,
                                            const std::vector<std::vector<std::string>>& schema)
-        :_output_expr_ctxs(output_expr_ctxs),
+        : _output_expr_ctxs(output_expr_ctxs),
           _str_schema(schema),
           _cur_writed_rows(0),
           _rg_writer(nullptr) {
@@ -102,7 +100,8 @@ ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
     init_parquet_writer();
 }
 
-void ParquetWriterWrapper::parse_properties(const std::map<std::string, std::string>& propertie_map) {
+void ParquetWriterWrapper::parse_properties(
+        const std::map<std::string, std::string>& propertie_map) {
     parquet::WriterProperties::Builder builder;
     for (auto it = propertie_map.begin(); it != propertie_map.end(); it++) {
         std::string property_name = it->first;
@@ -160,7 +159,7 @@ Status ParquetWriterWrapper::parse_schema(const std::vector<std::vector<std::str
 
         std::string data_type = (*column)[1];
         parquet::Type::type parquet_data_type = parquet::Type::BYTE_ARRAY;
-        if (data_type =="boolean") {
+        if (data_type == "boolean") {
             parquet_data_type = parquet::Type::BOOLEAN;
         } else if (data_type.find("int32") != std::string::npos) {
             parquet_data_type = parquet::Type::INT32;
@@ -182,7 +181,8 @@ Status ParquetWriterWrapper::parse_schema(const std::vector<std::vector<std::str
 
         std::string column_name = (*column)[2];
         fields.push_back(parquet::schema::PrimitiveNode::Make(column_name, parquet_repetition_type,
-                                                              parquet::LogicalType::None(), parquet_data_type));
+                                                              parquet::LogicalType::None(),
+                                                              parquet_data_type));
         _schema = std::static_pointer_cast<parquet::schema::GroupNode>(
                 parquet::schema::GroupNode::Make("schema", parquet::Repetition::REQUIRED, fields));
     }
@@ -226,209 +226,195 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
     }
     try {
         for (int index = 0; index < num_columns; ++index) {
-            void *item = _output_expr_ctxs[index]->get_value(row);
+            void* item = _output_expr_ctxs[index]->get_value(row);
             switch (_output_expr_ctxs[index]->root()->type().type) {
-                case TYPE_BOOLEAN: {
-                    if (_str_schema[index][1] != "boolean") {
-                        std::stringstream ss;
-                        ss << "project field type is boolean, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::BoolWriter *col_writer = static_cast<parquet::BoolWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, static_cast<bool*> (item));
-                    } else {
-                        bool default_bool = false;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_bool);
-                    }
-                    break;
-                }
-                case TYPE_TINYINT:
-                case TYPE_SMALLINT:
-                case TYPE_INT: {
-                    if (_str_schema[index][1] != "int32") {
-                        std::stringstream ss;
-                        ss << "project field type is tiny int/small int/int, should use int32, but the definition type of column "
-                                << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::Int32Writer *col_writer = static_cast<parquet::Int32Writer *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, static_cast<int32_t *>(item));
-                    } else {
-                        int32_t default_int32 = 0;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
-                    }
-                    break;
-                }
-                case TYPE_BIGINT: {
-                    if (_str_schema[index][1] != "int64") {
-                        std::stringstream ss;
-                        ss << "project field type is big int, should use int64, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, (int64_t * )(item));
-                    } else {
-                        int64_t default_int644 = 0;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_int644);
-                    }
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    // TODO: not support int_128
-                    // It is better write a default value, because rg_writer need all columns has value before flush to disk.
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
-                    int64_t default_int64 = 0;
-                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
-                    return Status::InvalidArgument("do not support large int type.");
-                }
-                case TYPE_FLOAT: {
-                    if (_str_schema[index][1] != "float") {
-                        std::stringstream ss;
-                        ss << "project field type is float, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::FloatWriter *col_writer = static_cast<parquet::FloatWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, (float_t *) (item));
-                    } else {
-                        float_t default_float = 0.0;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_float);
-                    }
-                    break;
-                }
-                case TYPE_DOUBLE: {
-                    if (_str_schema[index][1] != "double") {
-                        std::stringstream ss;
-                        ss << "project field type is double, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::DoubleWriter *col_writer = static_cast<parquet::DoubleWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        col_writer->WriteBatch(1, nullptr, nullptr, (double_t *) (item));
-                    } else {
-                        double_t default_double = 0.0;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_double);
-                    }
-                    break;
-                }
-                case TYPE_DATETIME:
-                case TYPE_DATE: {
-                    if (_str_schema[index][1] != "int64") {
-                        std::stringstream ss;
-                        ss << "project field type is date/datetime, should use int64, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::Int64Writer *col_writer = static_cast<parquet::Int64Writer *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        const DateTimeValue *time_val = (const DateTimeValue *) (item);
-                        int64_t timestamp = time_val->to_olap_datetime();
-                        col_writer->WriteBatch(1, nullptr, nullptr, &timestamp);
-                    } else {
-                        int64_t default_int64 = 0;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
-                    }
-                    break;
-                }
-                case TYPE_CHAR:
-                case TYPE_VARCHAR: {
-                    if (_str_schema[index][1] != "byte_array") {
-                        std::stringstream ss;
-                        ss << "project field type is char/varchar, should use byte_array, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        const StringValue *string_val = (const StringValue *) (item);
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t *>(string_val->ptr);
-                        value.len = string_val->len;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
-                        parquet::ByteArray value;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                    break;
-                }
-                case TYPE_DECIMAL: {
-                    if (_str_schema[index][1] != "byte_array") {
-                        std::stringstream ss;
-                        ss << "project field type is decimal, should use byte_array, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        const DecimalValue *decimal_val = reinterpret_cast<const DecimalValue *>(item);
-                        std::string decimal_str;
-                        int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-                        if (output_scale > 0 && output_scale <= 30) {
-                            decimal_str = decimal_val->to_string(output_scale);
-                        } else {
-                            decimal_str = decimal_val->to_string();
-                        }
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t *>(&decimal_str);
-                        value.len = decimal_str.length();
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
-                        parquet::ByteArray value;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                    break;
-                }
-                case TYPE_DECIMALV2: {
-                    if (_str_schema[index][1] != "byte_array") {
-                        std::stringstream ss;
-                        ss << "project field type is decimal v2, should use byte_array, but the definition type of column "
-                            << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
-                    }
-                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
-                    parquet::ByteArrayWriter *col_writer = static_cast<parquet::ByteArrayWriter *>(rgWriter->column(index));
-                    if (item != nullptr) {
-                        const DecimalV2Value decimal_val(
-                                reinterpret_cast<const PackedInt128 *>(item)->value);
-                        std::string decimal_str;
-                        int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-                        if (output_scale > 0 && output_scale <= 30) {
-                            decimal_str = decimal_val.to_string(output_scale);
-                        } else {
-                            decimal_str = decimal_val.to_string();
-                        }
-                        parquet::ByteArray value;
-                        value.ptr = reinterpret_cast<const uint8_t *>(&decimal_str);
-                        value.len = decimal_str.length();
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    } else {
-                        parquet::ByteArray value;
-                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
-                    }
-                    break;
-                }
-                default: {
+            case TYPE_BOOLEAN: {
+                if (_str_schema[index][1] != "boolean") {
                     std::stringstream ss;
-                    ss << "unsupported file format: " << _output_expr_ctxs[index]->root()->type().type;
+                    ss << "project field type is boolean, but the definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
                     return Status::InvalidArgument(ss.str());
                 }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::BoolWriter* col_writer =
+                        static_cast<parquet::BoolWriter*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    col_writer->WriteBatch(1, nullptr, nullptr, static_cast<bool*>(item));
+                } else {
+                    bool default_bool = false;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_bool);
+                }
+                break;
+            }
+            case TYPE_TINYINT:
+            case TYPE_SMALLINT:
+            case TYPE_INT: {
+                if (_str_schema[index][1] != "int32") {
+                    std::stringstream ss;
+                    ss << "project field type is tiny int/small int/int, should use int32, but the "
+                          "definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    col_writer->WriteBatch(1, nullptr, nullptr, static_cast<int32_t*>(item));
+                } else {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                }
+                break;
+            }
+            case TYPE_BIGINT: {
+                if (_str_schema[index][1] != "int64") {
+                    std::stringstream ss;
+                    ss << "project field type is big int, should use int64, but the definition "
+                          "type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    col_writer->WriteBatch(1, nullptr, nullptr, (int64_t*)(item));
+                } else {
+                    int64_t default_int644 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int644);
+                }
+                break;
+            }
+            case TYPE_LARGEINT: {
+                // TODO: not support int_128
+                // It is better write a default value, because rg_writer need all columns has value before flush to disk.
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+                int64_t default_int64 = 0;
+                col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+                return Status::InvalidArgument("do not support large int type.");
+            }
+            case TYPE_FLOAT: {
+                if (_str_schema[index][1] != "float") {
+                    std::stringstream ss;
+                    ss << "project field type is float, but the definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::FloatWriter* col_writer =
+                        static_cast<parquet::FloatWriter*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    col_writer->WriteBatch(1, nullptr, nullptr, (float_t*)(item));
+                } else {
+                    float_t default_float = 0.0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_float);
+                }
+                break;
+            }
+            case TYPE_DOUBLE: {
+                if (_str_schema[index][1] != "double") {
+                    std::stringstream ss;
+                    ss << "project field type is double, but the definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::DoubleWriter* col_writer =
+                        static_cast<parquet::DoubleWriter*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    col_writer->WriteBatch(1, nullptr, nullptr, (double_t*)(item));
+                } else {
+                    double_t default_double = 0.0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_double);
+                }
+                break;
+            }
+            case TYPE_DATETIME:
+            case TYPE_DATE: {
+                if (_str_schema[index][1] != "int64") {
+                    std::stringstream ss;
+                    ss << "project field type is date/datetime, should use int64, but the "
+                          "definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                    int64_t timestamp = time_val->to_olap_datetime();
+                    col_writer->WriteBatch(1, nullptr, nullptr, &timestamp);
+                } else {
+                    int64_t default_int64 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+                }
+                break;
+            }
+            case TYPE_CHAR:
+            case TYPE_VARCHAR: {
+                if (_str_schema[index][1] != "byte_array") {
+                    std::stringstream ss;
+                    ss << "project field type is char/varchar, should use byte_array, but the "
+                          "definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    const StringValue* string_val = (const StringValue*)(item);
+                    parquet::ByteArray value;
+                    value.ptr = reinterpret_cast<const uint8_t*>(string_val->ptr);
+                    value.len = string_val->len;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                } else {
+                    parquet::ByteArray value;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                }
+                break;
+            }
+            case TYPE_DECIMALV2: {
+                if (_str_schema[index][1] != "byte_array") {
+                    std::stringstream ss;
+                    ss << "project field type is decimal v2, should use byte_array, but the "
+                          "definition type of column "
+                       << _str_schema[index][2] << " is " << _str_schema[index][1];
+                    return Status::InvalidArgument(ss.str());
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    const DecimalV2Value decimal_val(
+                            reinterpret_cast<const PackedInt128*>(item)->value);
+                    std::string decimal_str;
+                    int output_scale = _output_expr_ctxs[index]->root()->output_scale();
+                    if (output_scale > 0 && output_scale <= 30) {
+                        decimal_str = decimal_val.to_string(output_scale);
+                    } else {
+                        decimal_str = decimal_val.to_string();
+                    }
+                    parquet::ByteArray value;
+                    value.ptr = reinterpret_cast<const uint8_t*>(&decimal_str);
+                    value.len = decimal_str.length();
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                } else {
+                    parquet::ByteArray value;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                }
+                break;
+            }
+            default: {
+                std::stringstream ss;
+                ss << "unsupported file format: " << _output_expr_ctxs[index]->root()->type().type;
+                return Status::InvalidArgument(ss.str());
+            }
             }
         }
     } catch (const std::exception& e) {
@@ -451,11 +437,10 @@ void ParquetWriterWrapper::close() {
         _outstream->Close();
     } catch (const std::exception& e) {
         _rg_writer = nullptr;
-        LOG(WARNING) <<"Parquet writer close error: " << e.what();
+        LOG(WARNING) << "Parquet writer close error: " << e.what();
     }
 }
 
-ParquetWriterWrapper::~ParquetWriterWrapper() {
-}
+ParquetWriterWrapper::~ParquetWriterWrapper() {}
 
 } // namespace doris

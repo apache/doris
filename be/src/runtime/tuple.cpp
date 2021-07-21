@@ -17,10 +17,15 @@
 
 #include "runtime/tuple.h"
 
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
@@ -75,6 +80,59 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
                 char* string_copy = reinterpret_cast<char*>(pool->allocate(string_v->len));
                 memory_copy(string_copy, string_v->ptr, string_v->len);
                 string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(offset) : string_copy);
+            }
+        }
+    }
+
+    // copy collection slot
+    for (auto slot_desc : desc.collection_slots()) {
+        DCHECK(slot_desc->type().is_collection_type());
+        if (dst->is_null(slot_desc->null_indicator_offset())) {
+            continue;
+        }
+
+        // copy collection item
+        CollectionValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
+
+        const TypeDescriptor& item_type = slot_desc->type().children.at(0);
+
+        int coll_byte_size = cv->length() * item_type.get_slot_size();
+        int nulls_size = cv->length() * sizeof(bool);
+
+        int offset = pool->total_allocated_bytes();
+        char* coll_data = reinterpret_cast<char*>(pool->allocate(coll_byte_size + nulls_size));
+
+        // copy data and null_signs
+        if (nulls_size > 0) {
+            cv->set_has_null(true);
+            cv->set_null_signs(reinterpret_cast<bool*>(coll_data) + coll_byte_size);
+            memory_copy(coll_data, cv->null_signs(), nulls_size);
+        } else {
+            cv->set_has_null(false);
+        }
+        memory_copy(coll_data + nulls_size, cv->data(), coll_byte_size);
+
+        // assgin new null_sign and data location
+        cv->set_null_signs(convert_ptrs ? reinterpret_cast<bool*>(offset)
+                                        : reinterpret_cast<bool*>(coll_data));
+        cv->set_data(convert_ptrs ? reinterpret_cast<char*>(offset + nulls_size)
+                                  : coll_data + nulls_size);
+
+        if (!item_type.is_string_type()) {
+            continue;
+        }
+        // when itemtype is string, copy every string item
+        for (int i = 0; i < cv->length(); ++i) {
+            int item_offset = nulls_size + i * item_type.get_slot_size();
+            if (cv->is_null_at(i)) {
+                continue;
+            }
+            StringValue* dst_item_v = reinterpret_cast<StringValue*>(coll_data + item_offset);
+            if (dst_item_v->len != 0) {
+                int offset = pool->total_allocated_bytes();
+                char* string_copy = reinterpret_cast<char*>(pool->allocate(dst_item_v->len));
+                memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
+                dst_item_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(offset) : string_copy);
             }
         }
     }
@@ -137,6 +195,61 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, boo
             *offset += string_v->len;
         }
     }
+
+    // copy collection slots
+    for (auto slot_desc : desc.collection_slots()) {
+        DCHECK(slot_desc->type().is_collection_type());
+        if (dst->is_null(slot_desc->null_indicator_offset())) {
+            continue;
+        }
+        // get cv to copy elements
+        CollectionValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
+        const TypeDescriptor& item_type = slot_desc->type().children.at(0);
+
+        int coll_byte_size = cv->length() * item_type.get_slot_size();
+        int nulls_size = cv->length() * sizeof(bool);
+
+        // copy null_sign
+        memory_copy(*data, cv->null_signs(), nulls_size);
+        // copy data
+        memory_copy(*data + nulls_size, cv->data(), coll_byte_size);
+
+        if (!item_type.is_string_type()) {
+            cv->set_null_signs(convert_ptrs ? reinterpret_cast<bool*>(*offset)
+                                            : reinterpret_cast<bool*>(*data));
+            cv->set_data(convert_ptrs ? reinterpret_cast<char*>(*offset + nulls_size)
+                                      : *data + nulls_size);
+            *data += coll_byte_size + nulls_size;
+            *offset += coll_byte_size + nulls_size;
+            continue;
+        }
+
+        // when item is string type, copy every item
+        char* base_data = *data;
+        int base_offset = *offset;
+
+        *data += coll_byte_size + nulls_size;
+        *offset += coll_byte_size + nulls_size;
+
+        for (int i = 0; i < cv->length(); ++i) {
+            int item_offset = nulls_size + i * item_type.get_slot_size();
+            if (cv->is_null_at(i)) {
+                continue;
+            }
+            StringValue* dst_item_v = reinterpret_cast<StringValue*>(base_data + item_offset);
+            if (dst_item_v->len != 0) {
+                memory_copy(*data, dst_item_v->ptr, dst_item_v->len);
+                dst_item_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
+                *data += dst_item_v->len;
+                *offset += dst_item_v->len;
+            }
+        }
+        // assgin new null_sign and data location
+        cv->set_null_signs(convert_ptrs ? reinterpret_cast<bool*>(base_offset)
+                                        : reinterpret_cast<bool*>(base_data));
+        cv->set_data(convert_ptrs ? reinterpret_cast<char*>(base_offset + nulls_size)
+                                  : base_data + nulls_size);
+    }
 }
 
 template <bool collect_string_vals>
@@ -166,6 +279,8 @@ void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
                    (expr_type == TYPE_HLL));
         } else if ((slot_type == TYPE_DATE) || (slot_type == TYPE_DATETIME)) {
             DCHECK((expr_type == TYPE_DATE) || (expr_type == TYPE_DATETIME));
+        } else if (slot_type == TYPE_ARRAY) {
+            DCHECK((expr_type == TYPE_ARRAY));
         } else {
             DCHECK(slot_type == TYPE_NULL || slot_type == expr_type);
         }

@@ -654,6 +654,20 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public Long getTransactionId(String label) {
+        readLock();
+        try {
+            Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
+            if (existingTxnIds == null || existingTxnIds.isEmpty()) {
+                return null;
+            }
+            // find the latest txn (which id is largest)
+            return existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<TransactionState> getCommittedTxnList() {
         readLock();
         try {
@@ -1289,6 +1303,11 @@ public class DatabaseTransactionMgr {
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when update catalog after committed. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 Partition partition = table.getPartition(partitionId);
@@ -1324,6 +1343,11 @@ public class DatabaseTransactionMgr {
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when update catalog after visible. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();

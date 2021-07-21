@@ -64,6 +64,7 @@ public class AlterTest {
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
+        Config.disable_storage_medium_check = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
 
         // create connect context
@@ -625,6 +626,37 @@ public class AlterTest {
         Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertNotNull(replace3.getIndexIdByName("r1"));
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+    }
+
+    @Test
+    public void testModifyBucketNum() throws Exception {
+        String stmt = "CREATE TABLE test.bucket\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "ENGINE = OLAP\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"100000\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"200000\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"300000\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
+        alterTable(modifyBucketNumStmt, false);
+        OlapTable bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(1, bucket.getDefaultDistributionInfo().getBucketNum());
+
+        modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 30;";
+        alterTable(modifyBucketNumStmt, false);
+        bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(30, bucket.getDefaultDistributionInfo().getBucketNum());
+
     }
 
     private boolean checkAllTabletsExists(List<Long> tabletIds) {

@@ -82,6 +82,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     // should be unexpected exception, so print warn log
                     if (context.getCurrentUserIdentity() != null) {
                         LOG.warn("connect processor exception because ", e);
+                    } else if (e instanceof Error) {
+                        LOG.error("connect processor exception because ", e);
                     } else {
                         // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
                         LOG.debug("connect processor exception because ", e);

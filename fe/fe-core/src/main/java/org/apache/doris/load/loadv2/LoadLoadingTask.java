@@ -106,7 +106,7 @@ public class LoadLoadingTask extends LoadTask {
 
     @Override
     protected void executeTask() throws Exception{
-        LOG.info("begin to execute loading task. load id: {} job: {}. db: {}, tbl: {}. left retry: {}",
+        LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
@@ -140,7 +140,7 @@ public class LoadLoadingTask extends LoadTask {
     private void actualExecute(Coordinator curCoordinator) throws Exception {
         int waitSecond = (int) (getLeftTimeMs() / 1000);
         if (waitSecond <= 0) {
-            throw new LoadException("failed to execute plan when the left time is less then 0");
+            throw new LoadException("failed to execute plan when the left time is less than 0");
         }
 
         if (LOG.isDebugEnabled()) {

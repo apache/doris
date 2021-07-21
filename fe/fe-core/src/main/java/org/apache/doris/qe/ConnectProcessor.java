@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe;
 
-import avro.shaded.com.google.common.collect.Lists;
 import com.google.common.base.Strings;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -50,6 +50,11 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
+
+
+import com.google.common.collect.Lists;
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -147,7 +152,13 @@ public class ConnectProcessor {
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            ctx.getAuditEventBuilder().setStmt(origStmt);
+            if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
+                // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
+                int length = Math.min(1024, origStmt.length());
+                ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
+            } else {
+                ctx.getAuditEventBuilder().setStmt(origStmt);
+            }
         }
         
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
@@ -413,6 +424,9 @@ public class ConnectProcessor {
         if (request.isSetCurrentUserIdent()) {
             UserIdentity currentUserIdentity = UserIdentity.fromThrift(request.getCurrentUserIdent());
             ctx.setCurrentUserIdentity(currentUserIdentity);
+        }
+        if (request.isFoldConstantByBe()) {
+            ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
         }
 
         if (request.isSetSessionVariables()) {

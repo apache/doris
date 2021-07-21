@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -43,6 +44,13 @@ abstract public class ScanNode extends PlanNode {
         this.desc = desc;
     }
 
+    @Override
+    public void init(Analyzer analyzer) throws UserException {
+        super.init(analyzer);
+        // materialize conjuncts in where
+        analyzer.materializeSlots(conjuncts);
+    }
+
     /**
      * Helper function to parse a "host:port" address string into TNetworkAddress
      * This is called with ipaddress:port when doing scan range assigment.
@@ -54,6 +62,8 @@ abstract public class ScanNode extends PlanNode {
         result.port = Integer.parseInt(hostPort[1]);
         return result;
     }
+
+    public TupleDescriptor getTupleDesc() { return desc; }
 
     public void setColumnFilters(Map<String, PartitionColumnFilter> columnFilters) {
         this.columnFilters = columnFilters;

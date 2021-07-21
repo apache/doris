@@ -181,13 +181,30 @@ Default：The default is true after the official 0.14.0 version is released, and
 
 HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
 
-### http_max_file_size
+### jetty_server_acceptors
 
-### http_max_request_size
+Default：2
 
-Default：100MB
+### jetty_server_selectors
 
-The above two parameters are the http v2 version, the web maximum upload file limit, the default is 100MB, you can modify it according to your needs.
+Default：4
+
+### jetty_server_workers
+
+Default：0
+
+With the above three parameters, Jetty's thread architecture model is very simple, divided into acceptors, selectors and workers three thread pools. Acceptors are responsible for accepting new connections, and then hand them over to selectors to process the unpacking of the HTTP message protocol, and finally workers process the request. The first two thread pools adopt a non-blocking model, and one thread can handle the read and write of many sockets, so the number of thread pools is small.
+
+For most projects, only 1-2 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
+
+Worker thread pool is not set by default, set according to your needs
+
+
+### jetty_server_max_http_post_size
+
+Default：100 * 1024 * 1024  （100MB）
+
+This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
 
 ### frontend_address
 
@@ -349,7 +366,7 @@ MasterOnly：true
 
 Whether to enable spark load temporarily, it is not enabled by default
 
-### enable_strict_storage_medium_check
+### disable_storage_medium_check
 
 Default：false
 
@@ -357,12 +374,8 @@ IsMutable：true
 
 MasterOnly：true
 
-This configuration indicates that when the table is being built, it checks for the presence of the appropriate storage medium in the cluster. For example, when the user specifies that the storage medium is' SSD 'when the table is built, but only' HDD 'disks exist in the cluster,
-
-If this parameter is' True ', the error 'Failed to find enough host in all Backends with storage medium with storage medium is SSD, need 3'.
-
-If this parameter is' False ', no error is reported when the table is built. Instead, the table is built on a disk with 'HDD' as the storage medium
-
+If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
+  
 ### drop_backend_after_decommission
 
 Default：false
@@ -1997,3 +2010,10 @@ Load label cleaner will run every *label_clean_interval_second* to clean the out
 Default：30
 
 the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted  we should make this interval as short as possible and each clean cycle as soon as possible
+
+
+### `default_max_query_instances`
+
+The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
+
+The default value is -1。

@@ -26,12 +26,13 @@
 #include <string>
 
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/collection.h"
+#include "gutil/strings/numbers.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h" // for TabletColumn
 #include "olap/uint24.h"
+#include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
@@ -154,33 +155,33 @@ public:
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
 
     inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
-        if (l_value->length != r_value->length) {
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
+        if (l_value->length() != r_value->length()) {
             return false;
         }
-        size_t len = l_value->length;
+        size_t len = l_value->length();
 
-        if (!l_value->has_null && !r_value->has_null) {
+        if (!l_value->has_null() && !r_value->has_null()) {
             for (size_t i = 0; i < len; ++i) {
-                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
-                                            (uint8_t*)(r_value->data) + i * _item_size)) {
+                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
             }
         } else {
             for (size_t i = 0; i < len; ++i) {
-                if (l_value->null_signs[i]) {
-                    if (r_value->null_signs[i]) { // both are null
+                if (l_value->is_null_at(i)) {
+                    if (r_value->is_null_at(i)) { // both are null
                         continue;
                     } else { // left is null & right is not null
                         return false;
                     }
-                } else if (r_value->null_signs[i]) { // left is not null & right is null
+                } else if (r_value->is_null_at(i)) { // left is not null & right is null
                     return false;
                 }
-                if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
-                                            (uint8_t*)(r_value->data) + i * _item_size)) {
+                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
             }
@@ -189,16 +190,16 @@ public:
     }
 
     inline int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const Collection*>(left);
-        auto r_value = reinterpret_cast<const Collection*>(right);
-        size_t l_length = l_value->length;
-        size_t r_length = r_value->length;
+        auto l_value = reinterpret_cast<const CollectionValue*>(left);
+        auto r_value = reinterpret_cast<const CollectionValue*>(right);
+        size_t l_length = l_value->length();
+        size_t r_length = r_value->length();
         size_t cur = 0;
 
-        if (!l_value->has_null && !r_value->has_null) {
+        if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_length && cur < r_length) {
-                int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
-                                                  (uint8_t*)(r_value->data) + cur * _item_size);
+                int result = _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                                                  (uint8_t*)(r_value->data()) + cur * _item_size);
                 if (result != 0) {
                     return result;
                 }
@@ -206,15 +207,16 @@ public:
             }
         } else {
             while (cur < l_length && cur < r_length) {
-                if (l_value->null_signs[cur]) {
-                    if (!r_value->null_signs[cur]) { // left is null & right is not null
+                if (l_value->is_null_at(cur)) {
+                    if (!r_value->is_null_at(cur)) { // left is null & right is not null
                         return -1;
                     }
-                } else if (r_value->null_signs[cur]) { // left is not null & right is null
+                } else if (r_value->is_null_at(cur)) { // left is not null & right is null
                     return 1;
                 } else { // both are not null
-                    int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
-                                                      (uint8_t*)(r_value->data) + cur * _item_size);
+                    int result =
+                            _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                                                 (uint8_t*)(r_value->data()) + cur * _item_size);
                     if (result != 0) {
                         return result;
                     }
@@ -233,34 +235,36 @@ public:
     }
 
     inline void shallow_copy(void* dest, const void* src) const override {
-        *reinterpret_cast<Collection*>(dest) = *reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        dest_value->shallow_copy(src_value);
     }
 
     inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
-        dest_value->length = src_value->length;
+        dest_value->set_length(src_value->length());
 
-        size_t item_size = src_value->length * _item_size;
-        size_t nulls_size = src_value->has_null ? src_value->length : 0;
-        dest_value->data = mem_pool->allocate(item_size + nulls_size);
-        dest_value->has_null = src_value->has_null;
-        dest_value->null_signs = src_value->has_null
-                                         ? reinterpret_cast<bool*>(dest_value->data) + item_size
-                                         : nullptr;
+        size_t item_size = src_value->length() * _item_size;
+        size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
+        dest_value->set_data(mem_pool->allocate(item_size + nulls_size));
+        dest_value->set_has_null(src_value->has_null());
+        dest_value->set_null_signs(src_value->has_null()
+                                           ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
+                                                     item_size
+                                           : nullptr);
 
         // copy null_signs
-        if (src_value->has_null) {
-            memory_copy(dest_value->null_signs, src_value->null_signs,
-                        sizeof(bool) * src_value->length);
+        if (src_value->has_null()) {
+            dest_value->copy_null_signs(src_value);
         }
 
         // copy item
-        for (uint32_t i = 0; i < src_value->length; ++i) {
+        for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
-            _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size,
-                                       (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
+            _item_type_info->deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                                       (uint8_t*)(src_value->data()) + i * _item_size, mem_pool);
         }
     }
 
@@ -268,23 +272,22 @@ public:
         deep_copy(dest, src, mem_pool);
     }
 
-    // TODO llj: How to ensure sufficient length of item
     inline void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<Collection*>(dest);
-        auto src_value = reinterpret_cast<const Collection*>(src);
-
-        dest_value->length = src_value->length;
-        dest_value->has_null = src_value->has_null;
-        if (src_value->has_null) {
+        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
+        dest_value->set_length(src_value->length());
+        dest_value->set_has_null(src_value->has_null());
+        if (src_value->has_null()) {
             // direct copy null_signs
-            memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+            memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
+                        src_value->length());
         }
 
         // direct opy item
-        for (uint32_t i = 0; i < src_value->length; ++i) {
+        for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
-            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size,
-                                         (uint8_t*)(src_value->data) + i * _item_size);
+            _item_type_info->direct_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                                         (uint8_t*)(src_value->data()) + i * _item_size);
         }
     }
 
@@ -298,14 +301,14 @@ public:
     }
 
     std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const Collection*>(src);
+        auto src_value = reinterpret_cast<const CollectionValue*>(src);
         std::string result = "[";
 
-        for (size_t i = 0; i < src_value->length; ++i) {
+        for (size_t i = 0; i < src_value->length(); ++i) {
             std::string item =
-                    _item_type_info->to_string((uint8_t*)(src_value->data) + i * _item_size);
+                    _item_type_info->to_string((uint8_t*)(src_value->data()) + i * _item_size);
             result += item;
-            if (i != src_value->length - 1) {
+            if (i != src_value->length() - 1) {
                 result += ", ";
             }
         }
@@ -322,20 +325,21 @@ public:
     }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto value = reinterpret_cast<const Collection*>(data);
-        uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
-        for (size_t i = 0; i < value->length; ++i) {
-            if (value->null_signs[i]) {
+        auto value = reinterpret_cast<const CollectionValue*>(data);
+        auto len = value->length();
+        uint32_t result = HashUtil::hash(&len, sizeof(size_t), seed);
+        for (size_t i = 0; i < len; ++i) {
+            if (value->is_null_at(i)) {
                 result = seed * result;
             } else {
-                result = seed * result +
-                         _item_type_info->hash_code((uint8_t*)(value->data) + i * _item_size, seed);
+                result = seed * result + _item_type_info->hash_code(
+                                                 (uint8_t*)(value->data()) + i * _item_size, seed);
             }
         }
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(Collection); }
+    inline const size_t size() const override { return sizeof(CollectionValue); }
 
     inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
@@ -350,6 +354,8 @@ extern bool is_scalar_type(FieldType field_type);
 
 extern TypeInfo* get_scalar_type_info(FieldType field_type);
 
+extern TypeInfo* get_collection_type_info(FieldType sub_type);
+
 extern TypeInfo* get_type_info(FieldType field_type);
 
 extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
@@ -357,7 +363,7 @@ extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
 extern TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
-static const std::vector<std::string> DATE_FORMATS{
+static const std::vector<std::string> DATE_FORMATS {
         "%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d", "%y/%m/%d",
 };
 
@@ -445,7 +451,7 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
 };
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
-    using CppType = Collection;
+    using CppType = CollectionValue;
 };
 
 template <FieldType field_type>

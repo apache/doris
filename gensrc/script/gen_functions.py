@@ -388,21 +388,20 @@ types = {
   'STRING': ['VARCHAR'],
   'DATE': ['DATE'],
   'DATETIME': ['DATETIME'],
-  'DECIMAL': ['DECIMAL'],
   'DECIMALV2': ['DECIMALV2'],
   'NATIVE_INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT'],
   'INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT'],
   'FLOAT_TYPES': ['FLOAT', 'DOUBLE'],
   'NUMERIC_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE', \
-          'LARGEINT', 'DECIMAL', 'DECIMALV2'],
+          'LARGEINT', 'DECIMALV2'],
   'STRING_TYPES': ['VARCHAR'],
   'DATETIME_TYPES': ['DATE', 'DATETIME'],
   'FIXED_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT'],
   'NATIVE_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'],
   'STRCAST_FIXED_TYPES': ['BOOLEAN', 'SMALLINT', 'INT', 'BIGINT'],
   'ALL_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT', 'FLOAT',\
-                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMAL', 'DECIMALV2'],
-  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMAL', 'DECIMALV2'],
+                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMALV2'],
+  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMALV2'],
 }
 
 # Operation, [ReturnType], [[Args1], [Args2], ... [ArgsN]]
@@ -414,7 +413,6 @@ functions = [
   ['Divide', ['MAX_TYPES'], [['MAX_TYPES'], ['MAX_TYPES']]],
   ['Int_Divide', ['INT_TYPES'], [['INT_TYPES'], ['INT_TYPES']]],
   ['Mod', ['INT_TYPES'], [['INT_TYPES'], ['INT_TYPES']]],
-  ['Mod', ['DECIMAL'], [['DECIMAL'], ['DECIMAL']]],
   ['Mod', ['DECIMALV2'], [['DECIMALV2'], ['DECIMALV2']]],
   ['Mod', ['DOUBLE'], [['DOUBLE'], ['DOUBLE']], double_mod],
   ['BitAnd', ['INT_TYPES'], [['INT_TYPES'], ['INT_TYPES']]],
@@ -447,12 +445,6 @@ functions = [
   ['Lt', ['BOOLEAN'], [['DATETIME'], ['DATETIME']],],
   ['Ge', ['BOOLEAN'], [['DATETIME'], ['DATETIME']],],
   ['Le', ['BOOLEAN'], [['DATETIME'], ['DATETIME']],],
-  ['Eq', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
-  ['Ne', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
-  ['Gt', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
-  ['Lt', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
-  ['Ge', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
-  ['Le', ['BOOLEAN'], [['DECIMAL'], ['DECIMAL']],],
   ['Eq', ['BOOLEAN'], [['DECIMALV2'], ['DECIMALV2']],],
   ['Ne', ['BOOLEAN'], [['DECIMALV2'], ['DECIMALV2']],],
   ['Gt', ['BOOLEAN'], [['DECIMALV2'], ['DECIMALV2']],],
@@ -467,18 +459,13 @@ functions = [
   ['Cast', ['INT'], [['NATIVE_TYPES'], ['INT']]],
   ['Cast', ['BIGINT'], [['NATIVE_TYPES'], ['BIGINT']]],
   ['Cast', ['LARGEINT'], [['NATIVE_TYPES'], ['LARGEINT']]],
-  ['Cast', ['LARGEINT'], [['DECIMAL'], ['LARGEINT']]],
   ['Cast', ['LARGEINT'], [['DECIMALV2'], ['LARGEINT']]],
   ['Cast', ['NATIVE_TYPES'], [['LARGEINT'], ['NATIVE_TYPES']]],
   ['Cast', ['FLOAT'], [['NATIVE_TYPES'], ['FLOAT']]],
   ['Cast', ['DOUBLE'], [['NATIVE_TYPES'], ['DOUBLE']]],
-  ['Cast', ['DECIMAL'], [['FIXED_TYPES'], ['DECIMAL']]],
   ['Cast', ['DECIMALV2'], [['FIXED_TYPES'], ['DECIMALV2']]],
-  ['Cast', ['DECIMAL'], [['FLOAT'], ['DECIMAL']], float_to_decimal],
   ['Cast', ['DECIMALV2'], [['FLOAT'], ['DECIMALV2']], float_to_decimal],
-  ['Cast', ['DECIMAL'], [['DOUBLE'], ['DECIMAL']], double_to_decimal],
   ['Cast', ['DECIMALV2'], [['DOUBLE'], ['DECIMALV2']], double_to_decimal],
-  ['Cast', ['NATIVE_TYPES'], [['DECIMAL'], ['NATIVE_TYPES']]],
   ['Cast', ['NATIVE_TYPES'], [['DECIMALV2'], ['NATIVE_TYPES']]],
   ['Cast', ['NATIVE_INT_TYPES'], [['STRING'], ['NATIVE_INT_TYPES']], string_to_int],
   ['Cast', ['LARGEINT'], [['STRING'], ['LARGEINT']], string_to_int],
@@ -488,7 +475,6 @@ functions = [
   ['Cast', ['STRING'], [['FLOAT'], ['STRING']], float_to_string],
   ['Cast', ['STRING'], [['DOUBLE'], ['STRING']], double_to_string],
   ['Cast', ['STRING'], [['TINYINT'], ['STRING']], tinyint_to_string],
-  ['Cast', ['STRING'], [['DECIMAL'], ['STRING']], decimal_to_string],
   ['Cast', ['STRING'], [['DECIMALV2'], ['STRING']], decimal_to_string],
   # Datetime cast
   ['Cast', ['DATE'], [['NUMERIC_TYPES'], ['DATE']], numeric_to_date],
@@ -524,7 +510,6 @@ native_types = {
   'DATE': 'Date',
   'DATETIME': 'DateTime',
   'TIME': 'double',
-  'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
 
@@ -542,7 +527,6 @@ implemented_types = {
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
   'TIME': 'double',
-  'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
 result_fields = {
@@ -558,7 +542,6 @@ result_fields = {
   'DATE': 'datetime_val',
   'DATETIME': 'datetime_val',
   'TIME': 'double_val',
-  'DECIMAL': 'decimal_val',
   'DECIMALV2': 'decimalv2_val',
 }
 

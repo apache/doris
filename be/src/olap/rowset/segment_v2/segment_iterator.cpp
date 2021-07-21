@@ -177,13 +177,13 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     if (key_range.lower_key != nullptr) {
         for (auto cid : key_range.lower_key->schema()->column_ids()) {
             column_set.emplace(cid);
-            key_fields.emplace_back(key_range.lower_key->schema()->column(cid));
+            key_fields.emplace_back(key_range.lower_key->column_schema(cid));
         }
     }
     if (key_range.upper_key != nullptr) {
         for (auto cid : key_range.upper_key->schema()->column_ids()) {
             if (column_set.count(cid) == 0) {
-                key_fields.emplace_back(key_range.upper_key->schema()->column(cid));
+                key_fields.emplace_back(key_range.upper_key->column_schema(cid));
                 column_set.emplace(cid);
             }
         }

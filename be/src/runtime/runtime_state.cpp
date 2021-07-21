@@ -35,6 +35,7 @@
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
@@ -53,6 +54,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
         : _fragment_mem_tracker(nullptr),
           _profile("Fragment " + print_id(fragment_instance_id)),
           _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _is_cancelled(false),
@@ -78,6 +80,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _fragment_mem_tracker(nullptr),
           _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
@@ -93,6 +96,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _error_log_file_path(""),
           _error_log_file(nullptr),
           _instance_buffer_reservation(new ReservationTracker) {
+    if (fragment_exec_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
+    }
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -216,8 +222,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _query_mem_tracker =
             MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
                                       _exec_env->process_mem_tracker(), true, false);
-    _instance_mem_tracker = MemTracker::CreateTracker(
-            &_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
+    _instance_mem_tracker =
+            MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
@@ -241,6 +247,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
                                                        std::numeric_limits<int64_t>::max());
     }
 
+    // filter manager depends _instance_mem_tracker
+    _runtime_filter_mgr->init();
     return Status::OK();
 }
 

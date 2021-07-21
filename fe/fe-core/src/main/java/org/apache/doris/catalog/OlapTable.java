@@ -281,7 +281,7 @@ public class OlapTable extends Table {
             indexName = getIndexNameById(indexId);
             Preconditions.checkState(indexName != null);
         }
-        // Nullable when meta is less then VERSION_74
+        // Nullable when meta is less than VERSION_74
         if (keysType == null) {
             keysType = this.keysType;
         }
@@ -387,6 +387,17 @@ public class OlapTable extends Table {
         return null;
     }
 
+    @Override
+    public long getUpdateTime() {
+        long updateTime = tempPartitions.getUpdateTime();
+        for (Partition p : idToPartition.values()) {
+            if (p.getVisibleVersionTime() > updateTime) {
+                updateTime = p.getVisibleVersionTime();
+            }
+        }
+        return updateTime;
+    }
+
     // this is only for schema change.
     public void renameIndexForSchemaChange(String name, String newName) {
         long idxId = indexNameToId.remove(name);
@@ -431,23 +442,14 @@ public class OlapTable extends Table {
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
                 long newPartId = catalog.getNextId();
-                partitionInfo.idToDataProperty.put(newPartId,
-                                                        partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                partitionInfo.getIdToItem(false).put(newPartId,
-                        partitionInfo.getIdToItem(false).remove(entry.getValue()));
-                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), (short) restoreReplicationNum, false);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
             // Single partitioned
             long newPartId = catalog.getNextId();
             for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
-                partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
-                partitionInfo.idToReplicationNum.remove(entry.getValue());
-                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
-                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
+                partitionInfo.resetPartitionIdForRestore(newPartId, entry.getValue(), (short) restoreReplicationNum, true);
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }
@@ -922,12 +924,37 @@ public class OlapTable extends Table {
         return tTableDescriptor;
     }
 
+    @Override
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getAvgRowLength() {
+        long rowCount = 0;
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    @Override
+    public long getDataLength() {
+        long dataSize = 0;
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            dataSize += entry.getValue().getBaseIndex().getDataSize();
+        }
+        return dataSize;
     }
 
     @Override
@@ -1493,7 +1520,7 @@ public class OlapTable extends Table {
 
     public Boolean isInMemory() {
         if (tableProperty != null) {
-            return tableProperty.IsInMemory();
+            return tableProperty.isInMemory();
         }
         return false;
     }

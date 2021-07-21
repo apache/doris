@@ -38,7 +38,6 @@ import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.time.DateTimeException;
 import java.time.ZoneId;
-import java.util.Calendar;
 import java.util.Date;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
@@ -73,13 +72,16 @@ public class TimeUtils {
                     + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|(1[0-9])|(2[0-8]))))))"
                     + "(\\s(((0?[0-9])|([1][0-9])|([2][0-3]))\\:([0-5]?[0-9])((\\s)|(\\:([0-5]?[0-9])))))?$");
     
-    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]{0,1}\\d{1,2}\\:\\d{2}$");
+    private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]?\\d{1,2}:\\d{2}$");
 
     public static Date MIN_DATE = null;
     public static Date MAX_DATE = null;
     
     public static Date MIN_DATETIME = null;
     public static Date MAX_DATETIME = null;
+
+    private static ThreadLocal<SimpleDateFormat> datetimeFormatThreadLocal =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
 
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
@@ -148,11 +150,11 @@ public class TimeUtils {
         return dateFormat.format(new Date(timeStamp));
     }
 
-    public static synchronized String longToTimeString(long timeStamp) {
+    public static String longToTimeString(long timeStamp) {
+        SimpleDateFormat datetimeFormatTimeZone = datetimeFormatThreadLocal.get();
         TimeZone timeZone = getTimeZone();
-        SimpleDateFormat dateFormatTimeZone = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        dateFormatTimeZone.setTimeZone(timeZone);
-        return longToTimeString(timeStamp, dateFormatTimeZone);
+        datetimeFormatTimeZone.setTimeZone(timeZone);
+        return longToTimeString(timeStamp, datetimeFormatTimeZone);
     }
     
     public static synchronized Date getTimeAsDate(String timeString) {
@@ -208,32 +210,7 @@ public class TimeUtils {
         return format(date, type.getPrimitiveType());
     }
 
-    /*
-     * only used for ETL
-     */
-    public static long dateTransform(long time, PrimitiveType type) {
-        Calendar cal = Calendar.getInstance(TIME_ZONE);
-        cal.setTimeInMillis(time);
-
-        int year = cal.get(Calendar.YEAR);
-        int month = cal.get(Calendar.MONTH) + 1;
-        int day = cal.get(Calendar.DAY_OF_MONTH);
-
-        if (type == PrimitiveType.DATE) {
-            return year * 16 * 32L + month * 32 + day;
-        } else if (type == PrimitiveType.DATETIME) {
-            // datetime
-            int hour = cal.get(Calendar.HOUR_OF_DAY);
-            int minute = cal.get(Calendar.MINUTE);
-            int second = cal.get(Calendar.SECOND);
-            return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
-        } else {
-            Preconditions.checkState(false, "invalid date type: " + type);
-            return -1L;
-        }
-    }
-
-    public static long timeStringToLong(String timeStr) {
+    public static synchronized long timeStringToLong(String timeStr) {
         Date d;
         try {
             d = DATETIME_FORMAT.parse(timeStr);
@@ -244,7 +221,7 @@ public class TimeUtils {
     }
 
     public static long timeStringToLong(String timeStr, TimeZone timeZone) {
-        SimpleDateFormat dateFormatTimeZone = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        SimpleDateFormat dateFormatTimeZone = datetimeFormatThreadLocal.get();
         dateFormatTimeZone.setTimeZone(timeZone);
         Date d;
         try {

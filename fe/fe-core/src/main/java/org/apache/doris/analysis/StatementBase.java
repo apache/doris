@@ -171,6 +171,16 @@ public abstract class StatementBase implements ParseNode {
                 "rewriteExprs() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
+    /**
+     * fold constant exprs in statement
+     * @throws AnalysisException
+     * @param rewriter
+     */
+    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+        throw new IllegalStateException(
+                "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
+    }
+
     public String getClusterName() {
         return clusterName;
     }

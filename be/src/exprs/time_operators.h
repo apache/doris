@@ -43,7 +43,6 @@ public:
     static DoubleVal cast_to_double_val(FunctionContext*, const DoubleVal&);
     static StringVal cast_to_string_val(FunctionContext*, const DoubleVal&);
     static DateTimeVal cast_to_datetime_val(FunctionContext*, const DoubleVal&);
-    static DecimalVal cast_to_decimal_val(FunctionContext*, const DoubleVal&);
 };
 } // namespace doris
 #endif

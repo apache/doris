@@ -19,10 +19,10 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/collection.h"
 #include "olap/field.h"
 #include "olap/tablet_schema_helper.h"
 #include "olap/types.cpp"
+#include "runtime/collection_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -72,7 +72,8 @@ void test_read_write_scalar_column_vector(const TypeInfo* type_info, const uint8
 }
 
 template <FieldType item_type>
-void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, size_t array_size, Collection* result) {
+void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, size_t array_size,
+                                         CollectionValue* result) {
     DCHECK(array_size > 1);
 
     using ItemType = typename TypeTraits<item_type>::CppType;
@@ -85,7 +86,8 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
 
     size_t array_init_size = array_size / 2;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    ASSERT_TRUE(ColumnVectorBatch::create(array_init_size, true, array_type_info, field, &cvb).ok());
+    ASSERT_TRUE(
+            ColumnVectorBatch::create(array_init_size, true, array_type_info, field, &cvb).ok());
 
     auto* array_cvb = reinterpret_cast<ArrayColumnVectorBatch*>(cvb.get());
     ColumnVectorBatch* item_cvb = array_cvb->elements();
@@ -93,7 +95,8 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
 
     // first write
     for (size_t i = 0; i < array_init_size; ++i) {
-        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &(result[i].length), sizeof(segment_v2::ordinal_t));
+        uint32_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(1 + i), &len, sizeof(uint32_t));
     }
     array_cvb->set_null_bits(0, array_init_size, false);
     array_cvb->get_offset_by_length(0, array_init_size);
@@ -101,7 +104,8 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
     size_t first_write_item = array_cvb->item_offset(array_init_size) - array_cvb->item_offset(0);
     ASSERT_TRUE(item_cvb->resize(first_write_item).ok());
     for (size_t i = 0; i < array_init_size; ++i) {
-        memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data, result[i].length * ITEM_TYPE_SIZE);
+        memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data(),
+               result[i].length() * ITEM_TYPE_SIZE);
     }
 
     item_cvb->set_null_bits(0, first_write_item, false);
@@ -110,7 +114,8 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
     // second write
     ASSERT_TRUE(array_cvb->resize(array_size).ok());
     for (int i = array_init_size; i < array_size; ++i) {
-        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &(result[i].length), sizeof(segment_v2::ordinal_t));
+        uint32_t len = result[i].length();
+        memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(uint32_t));
     }
     array_cvb->set_null_bits(array_init_size, array_size - array_init_size, false);
     array_cvb->get_offset_by_length(array_init_size, array_size - array_init_size);
@@ -119,14 +124,16 @@ void test_read_write_array_column_vector(const ArrayTypeInfo* array_type_info, s
     ASSERT_TRUE(item_cvb->resize(total_item_size).ok());
 
     for (size_t i = array_init_size; i < array_size; ++i) {
-        memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data, result[i].length * ITEM_TYPE_SIZE);
+        memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data(),
+               result[i].length() * ITEM_TYPE_SIZE);
     }
     size_t second_write_item = total_item_size - first_write_item;
     item_cvb->set_null_bits(first_write_item, second_write_item, false);
     array_cvb->prepare_for_read(0, array_size, false);
 
     for (size_t idx = 0; idx < array_size; ++idx) {
-        ASSERT_TRUE(array_type_info->equal(&result[idx], array_cvb->cell_ptr(idx))) << "idx:" << idx;
+        ASSERT_TRUE(array_type_info->equal(&result[idx], array_cvb->cell_ptr(idx)))
+                << "idx:" << idx;
     }
     delete field;
 }
@@ -158,7 +165,7 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
     size_t num_array = 1024;
     size_t num_item = num_array * 3;
     {
-        auto* array_val = new Collection[num_array];
+        auto* array_val = new CollectionValue[num_array];
         bool null_signs[3] = {false, false, false};
 
         auto* item_val = new uint8_t[num_item];
@@ -167,14 +174,15 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
             item_val[i] = i;
             if (i % 3 == 0) {
                 size_t array_index = i / 3;
-                array_val[array_index].data = &item_val[i];
-                array_val[array_index].null_signs = null_signs;
-                array_val[array_index].length = 3;
+                array_val[array_index].set_data(&item_val[i]);
+                array_val[array_index].set_null_signs(null_signs);
+                array_val[array_index].set_length(3);
             }
         }
         auto type_info = reinterpret_cast<ArrayTypeInfo*>(
                 ArrayTypeInfoResolver::instance()->get_type_info(OLAP_FIELD_TYPE_TINYINT));
-        test_read_write_array_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, num_array, array_val);
+        test_read_write_array_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, num_array,
+                                                                     array_val);
 
         delete[] array_val;
         delete[] item_val;

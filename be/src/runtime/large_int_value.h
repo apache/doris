@@ -26,7 +26,6 @@
 #include <sstream>
 #include <string>
 
-#include "runtime/decimal_value.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 

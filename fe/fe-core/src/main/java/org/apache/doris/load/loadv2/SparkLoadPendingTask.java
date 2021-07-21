@@ -320,7 +320,7 @@ public class SparkLoadPendingTask extends LoadTask {
         // decimal precision scale
         int precision = 0;
         int scale = 0;
-        if (type.isDecimalType() || type.isDecimalV2Type()) {
+        if (type.isDecimalV2Type()) {
             precision = column.getPrecision();
             scale = column.getScale();
         }
@@ -340,7 +340,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 partitionColumnRefs.add(column.getName());
             }
 
-            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getSortedItemMap(false)) {
+            for (Map.Entry<Long, PartitionItem> entry : rangePartitionInfo.getPartitionItemEntryList(false, true)) {
                 long partitionId = entry.getKey();
                 if (!partitionIds.contains(partitionId)) {
                     continue;
