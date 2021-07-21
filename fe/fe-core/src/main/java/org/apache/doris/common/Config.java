@@ -128,6 +128,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
+    @ConfField public static int load_parallelism = 1;
+
     // For some high frequency load job such as
     // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
     // Remove the finished job or task if expired.
