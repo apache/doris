@@ -15,38 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "exec/plain_binary_line_reader.h"
 
-#include <memory>
+#include "common/status.h"
+#include "exec/file_reader.h"
 
 namespace doris {
 
-class ExecEnv;
-class StreamLoadContext;
-class Status;
-class TTxnCommitAttachment;
-class StreamLoadPipe;
+PlainBinaryLineReader::PlainBinaryLineReader(FileReader* file_reader)
+        : _file_reader(file_reader) {
+}
 
-class StreamLoadExecutor {
-public:
-    StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
+PlainBinaryLineReader::~PlainBinaryLineReader() {
+    close();
+}
 
-    Status begin_txn(StreamLoadContext* ctx);
+void PlainBinaryLineReader::close() {
+}
 
-    Status commit_txn(StreamLoadContext* ctx);
-
-    void rollback_txn(StreamLoadContext* ctx);
-
-    Status execute_plan_fragment(StreamLoadContext* ctx);
-
-    Status execute_plan_fragment(StreamLoadContext* ctx, std::shared_ptr<StreamLoadPipe> pipe);
-private:
-    // collect the load statistics from context and set them to stat
-    // return true if stat is set, otherwise, return false
-    bool collect_load_stat(StreamLoadContext* ctx, TTxnCommitAttachment* attachment);
-
-private:
-    ExecEnv* _exec_env;
-};
+Status PlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+    std::unique_ptr<uint8_t[]> file_buf;
+    int64_t read_size = 0;
+    RETURN_IF_ERROR(_file_reader->read_one_message(&file_buf, &read_size));
+    *ptr = file_buf.release();
+    *size = read_size;
+    if (read_size == 0) {
+        *eof = true;
+    }
+    return Status::OK();
+}
 
 } // namespace doris
