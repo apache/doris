@@ -187,6 +187,10 @@ public class InsertStmt extends DdlStmt {
         return tblName.getDb();
     }
 
+    public String getTbl() {
+        return tblName.getTbl();
+    }
+
     public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -291,6 +295,10 @@ public class InsertStmt extends DdlStmt {
 
         analyzePlanHints(analyzer);
 
+        if (analyzer.getContext().isTxnModel()) {
+            return;
+        }
+
         // create data sink
         createDataSink();
 
@@ -298,10 +306,10 @@ public class InsertStmt extends DdlStmt {
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        if (Strings.isNullOrEmpty(label)) {
+            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
+        }
         if (!isExplain() && !isTransactionBegin) {
-            if (Strings.isNullOrEmpty(label)) {
-                label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
-            }
 
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
@@ -720,7 +728,9 @@ public class InsertStmt extends DdlStmt {
         if (col.getDataType().equals(expr.getType().getPrimitiveType())) {
             return expr;
         }
-        return expr.castTo(col.getType());
+        Expr newExpr = expr.castTo(col.getType());
+        newExpr.checkValueValid();
+        return newExpr;
     }
 
     public void prepareExpressions() throws UserException {

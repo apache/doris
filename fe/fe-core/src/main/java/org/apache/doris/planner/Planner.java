@@ -225,7 +225,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	if (statement instanceof InsertStmt) {
+	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

@@ -654,6 +654,20 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public Long getTransactionId(String label) {
+        readLock();
+        try {
+            Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
+            if (existingTxnIds == null || existingTxnIds.isEmpty()) {
+                return null;
+            }
+            // find the latest txn (which id is largest)
+            return existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<TransactionState> getCommittedTxnList() {
         readLock();
         try {
