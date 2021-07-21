@@ -1019,6 +1019,16 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         memset(slice->data, 0, slice->size);
     }
 
+    static void direct_copy_may_cut(void* dest, const void* src) {
+        auto l_slice = reinterpret_cast<Slice*>(dest);
+        auto r_slice = reinterpret_cast<const Slice*>(src);
+
+        auto min_size = MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size :
+                MAX_ZONE_MAP_INDEX_SIZE;
+        memory_copy(l_slice->data, r_slice->data, min_size);
+        l_slice->size = min_size;
+    }
+
     static uint32_t hash_code(const void* data, uint32_t seed) {
         auto slice = reinterpret_cast<const Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
@@ -1061,16 +1071,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
             deep_copy(dest, src, mem_pool);
         }
         return OLAP_ERR_INVALID_SCHEMA;
-    }
-
-    static void direct_copy_may_cut(void* dest, const void* src) {
-        auto l_slice = reinterpret_cast<Slice*>(dest);
-        auto r_slice = reinterpret_cast<const Slice*>(src);
-
-        auto min_size = config::max_zone_map_index_size >= r_slice->size ? r_slice->size :
-                config::max_zone_map_index_size;
-        memory_copy(l_slice->data, r_slice->data, min_size);
-        l_slice->size = min_size;
     }
 
     static void set_to_min(void* buf) {

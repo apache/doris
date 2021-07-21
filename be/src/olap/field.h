@@ -469,6 +469,37 @@ public:
         slice->size = _length;
         memset(slice->data, 0xFF, slice->size);
     }
+
+    // To prevent zone map cost too many memory, if varchar length
+    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
+    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
+    char* allocate_zone_map_value(MemPool *pool) const override {
+        char* type_value = (char*)pool->allocate(sizeof(Slice));
+        auto slice = reinterpret_cast<Slice*>(type_value);
+        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length :
+                MAX_ZONE_MAP_INDEX_SIZE;
+        slice->data = (char*)pool->allocate(slice->size);
+        return type_value;
+    }
+
+    // only varchar filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
+    }
+
+     void set_to_zone_map_max(char* ch) const override {
+        auto slice = reinterpret_cast<Slice*>(ch);
+        int length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length :
+                MAX_ZONE_MAP_INDEX_SIZE;
+        slice->size = length;
+        memset(slice->data, 0xFF, slice->size);
+    }
 };
 
 class VarcharField : public Field {
@@ -498,24 +529,24 @@ public:
     }
 
     // To prevent zone map cost too many memory, if varchar length
-    // longer than `config::max_zone_map_index_size`. we just allocate
-    // `config::max_zone_map_index_size` of memory
+    // longer than `MAX_ZONE_MAP_INDEX_SIZE`. we just allocate
+    // `MAX_ZONE_MAP_INDEX_SIZE` of memory
     char* allocate_zone_map_value(MemPool *pool) const override {
         char* type_value = (char*)pool->allocate(sizeof(Slice));
         auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = config::max_zone_map_index_size > _length ? _length :
-                config::max_zone_map_index_size;
+        slice->size = MAX_ZONE_MAP_INDEX_SIZE > _length ? _length :
+                MAX_ZONE_MAP_INDEX_SIZE;
         slice->data = (char*)pool->allocate(slice->size);
         return type_value;
     }
 
     // only varchar filed need modify zone map index when zone map max_value
-    // index longer than `config::max_zone_map_index_size`. so here we add one
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
     // for the last byte
     // In UTF8 encoding, here do not appear 0xff in last byte
     void modify_zone_map_index(char* src) const override {
         auto slice = reinterpret_cast<Slice*>(src);
-        if (slice->size == config::max_zone_map_index_size) {
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
             slice->mutable_data()[slice->size - 1] += 1;
         }
     }
@@ -528,8 +559,9 @@ public:
 
     void set_to_zone_map_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
-        int length = _length < config::max_zone_map_index_size ? _length :
-                config::max_zone_map_index_size;
+        int length = _length < MAX_ZONE_MAP_INDEX_SIZE ? _length :
+                MAX_ZONE_MAP_INDEX_SIZE;
+
         slice->size = length - OLAP_STRING_MAX_BYTES;
         memset(slice->data, 0xFF, slice->size);
     }
