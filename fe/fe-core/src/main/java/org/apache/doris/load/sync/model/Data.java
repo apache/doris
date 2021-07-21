@@ -23,14 +23,14 @@ import java.util.List;
 
 // Equivalent to a batch send to be
 // T = dataType
-public class Datas<T> {
+public class Data<T> {
     private List<T> datas;
 
-    public Datas() {
+    public Data() {
         this(Lists.newArrayList());
     }
 
-    public Datas(List<T> datas) {
+    public Data(List<T> datas) {
         this.datas = datas;
     }
 

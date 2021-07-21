@@ -28,7 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.sync.SyncChannel;
 import org.apache.doris.load.sync.SyncChannelCallback;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.load.sync.model.Datas;
+import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.service.FrontendOptions;
@@ -71,13 +71,13 @@ public class CanalSyncChannel extends SyncChannel {
 
     private long timeoutSecond;
     private long lastBatchId;
-    private LinkedBlockingQueue<Datas<InternalService.PDataRow>> pendingQueue;
-    private Datas<InternalService.PDataRow> batchBuffer;
+    private LinkedBlockingQueue<Data<InternalService.PDataRow>> pendingQueue;
+    private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
     public CanalSyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
         super(syncJob, db, table, columns, srcDataBase, srcTable);
-        this.batchBuffer = new Datas<>();
+        this.batchBuffer = new Data<>();
         this.pendingQueue = Queues.newLinkedBlockingQueue(128);
         this.lastBatchId = -1L;
         this.timeoutSecond = -1L;
@@ -92,7 +92,7 @@ public class CanalSyncChannel extends SyncChannel {
             if (isTxnBegin()) {
                 while (!pendingQueue.isEmpty()) {
                     try {
-                        Datas<InternalService.PDataRow> rows = pendingQueue.poll(CanalConfigs.channelWaitingTimeoutMs, TimeUnit.MILLISECONDS);
+                        Data<InternalService.PDataRow> rows = pendingQueue.poll(CanalConfigs.channelWaitingTimeoutMs, TimeUnit.MILLISECONDS);
                         if (rows != null) {
                             sendData(rows);
                         }
@@ -188,7 +188,7 @@ public class CanalSyncChannel extends SyncChannel {
                     id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
         }  finally {
-            this.batchBuffer = new Datas<>();
+            this.batchBuffer = new Data<>();
             this.pendingQueue.clear();
             updateBatchId(-1L);
         }
@@ -212,7 +212,7 @@ public class CanalSyncChannel extends SyncChannel {
                     id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } finally {
-            this.batchBuffer = new Datas<>();
+            this.batchBuffer = new Data<>();
             this.pendingQueue.clear();
             updateBatchId(-1L);
         }
@@ -263,7 +263,7 @@ public class CanalSyncChannel extends SyncChannel {
                     beginTxn(batchId);
                 } else {
                     this.pendingQueue.put(this.batchBuffer);
-                    this.batchBuffer = new Datas<>();
+                    this.batchBuffer = new Data<>();
                 }
                 updateBatchId(batchId);
             }
@@ -294,7 +294,7 @@ public class CanalSyncChannel extends SyncChannel {
         return row.build();
     }
 
-    private void sendData(Datas<InternalService.PDataRow> rows) throws TException, TimeoutException,
+    private void sendData(Data<InternalService.PDataRow> rows) throws TException, TimeoutException,
             InterruptedException, ExecutionException {
         Preconditions.checkState(isTxnBegin());
         TransactionEntry txnEntry = txnExecutor.getTxnEntry();
@@ -306,7 +306,7 @@ public class CanalSyncChannel extends SyncChannel {
             InterruptedException, ExecutionException {
         if (batchBuffer.isNotEmpty()) {
             sendData(batchBuffer);
-            batchBuffer = new Datas<>();
+            batchBuffer = new Data<>();
         }
     }
 
