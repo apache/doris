@@ -1440,7 +1440,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
             (!strict_week_number && strict_week_number_year >= 0)) {
             return false;
         }
-        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : _year, 1, 1);
+        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
 
         uint8_t weekday_b = calc_weekday(days, sunday_first);
 
