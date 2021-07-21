@@ -31,6 +31,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
+#include "olap/schema.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -549,14 +550,34 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 
     size_t start_key_size = read_params.start_key.size();
     _keys_param.start_keys.resize(start_key_size, nullptr);
+
+    size_t scan_key_size = read_params.start_key.front().size();
+    if (scan_key_size > _tablet->tablet_schema().num_columns()) {
+        LOG(WARNING)
+                << "Input param are invalid. Column count is bigger than num_columns of schema. "
+                << "column_count=" << scan_key_size
+                << ", schema.num_columns=" << _tablet->tablet_schema().num_columns();
+        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
+    std::vector<uint32_t> columns(scan_key_size);
+    std::iota(columns.begin(), columns.end(), 0);
+
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet->tablet_schema().columns(), columns);
+
     for (size_t i = 0; i < start_key_size; ++i) {
+        if (read_params.start_key[i].size() != scan_key_size) {
+            OLAP_LOG_WARNING("The start_key.at(%ld).size == %ld, not equals the %ld", i, read_params.start_key[i].size(), scan_key_size);
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+
         if ((_keys_param.start_keys[i] = new (nothrow) RowCursor()) == nullptr) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         OLAPStatus res = _keys_param.start_keys[i]->init_scan_key(
-                _tablet->tablet_schema(), read_params.start_key[i].values());
+                _tablet->tablet_schema(), read_params.start_key[i].values(), schema);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
@@ -572,13 +593,18 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     size_t end_key_size = read_params.end_key.size();
     _keys_param.end_keys.resize(end_key_size, nullptr);
     for (size_t i = 0; i < end_key_size; ++i) {
+        if (read_params.end_key[i].size() != scan_key_size) {
+            OLAP_LOG_WARNING("The end_key.at(%ld).size == %ld, not equals the %ld", i, read_params.end_key[i].size(), scan_key_size);
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+
         if ((_keys_param.end_keys[i] = new (nothrow) RowCursor()) == nullptr) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         OLAPStatus res = _keys_param.end_keys[i]->init_scan_key(_tablet->tablet_schema(),
-                                                                read_params.end_key[i].values());
+                                                                read_params.end_key[i].values(), schema);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
