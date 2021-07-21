@@ -113,6 +113,7 @@ public class ConnectScheduler {
     }
 
     public synchronized void unregisterConnection(ConnectContext ctx) {
+        ctx.closeTxn();
         if (connectionMap.remove((long) ctx.getConnectionId()) != null) {
             numberConnection--;
             AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
