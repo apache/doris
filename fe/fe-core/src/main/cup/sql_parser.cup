@@ -234,7 +234,7 @@ parser code {:
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLON, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
@@ -247,7 +247,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
-    KW_JOIN,
+    KW_JOB, KW_JOIN,
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
     KW_LOCAL, KW_LOCATION,
@@ -485,6 +485,15 @@ nonterminal String keyword, ident, ident_or_text, variable_name, text_or_passwor
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
         literal_or_ident;
 
+// sync job
+nonterminal List<ChannelDescription> channel_desc_list;
+nonterminal ChannelDescription channel_desc;
+nonterminal BinlogDesc binlog_desc;
+nonterminal ResumeSyncJobStmt resume_sync_job_stmt;
+nonterminal PauseSyncJobStmt pause_sync_job_stmt;
+nonterminal StopSyncJobStmt stop_sync_job_stmt;
+nonterminal JobName job_name;
+
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -671,6 +680,12 @@ stmt ::=
     | pause_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | resume_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | pause_sync_job_stmt : stmt
+    {: RESULT = stmt; :}
+    | resume_sync_job_stmt : stmt
+    {: RESULT = stmt; :}
+    | stop_sync_job_stmt : stmt
     {: RESULT = stmt; :}
     | stop_routine_load_stmt : stmt
     {: RESULT = stmt; :}
@@ -1225,6 +1240,69 @@ create_stmt ::=
     | KW_CREATE KW_ENCRYPTKEY encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
         RESULT = new CreateEncryptKeyStmt(keyName, keyString);
+    :}
+    /* sync job */
+    | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
+    {:
+        RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
+    :}
+    ;
+
+channel_desc_list ::=
+    channel_desc:desc
+    {:
+        RESULT = Lists.newArrayList(desc);
+    :}
+    | channel_desc_list:list COMMA channel_desc:desc
+    {:
+        list.add(desc);
+        RESULT = list;
+    :}
+    ;
+
+channel_desc ::=
+    KW_FROM ident:srcDatabase DOT ident:srcTableName KW_INTO ident:desTableName opt_partition_names:partitionNames opt_col_list:colList
+    {:
+        RESULT = new ChannelDescription(srcDatabase, srcTableName, desTableName, partitionNames, colList);
+    :}
+    ;
+
+binlog_desc ::=
+    KW_FROM KW_BINLOG LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new BinlogDesc(properties);
+    :}
+;
+
+resume_sync_job_stmt ::=
+    KW_RESUME KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new ResumeSyncJobStmt(jobName);
+    :}
+    ;
+
+pause_sync_job_stmt ::=
+    KW_PAUSE KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new PauseSyncJobStmt(jobName);
+    :}
+    ;
+
+stop_sync_job_stmt ::=
+    KW_STOP KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new StopSyncJobStmt(jobName);
+    :}
+    ;
+
+job_name ::=
+    ident:jobName
+    {:
+        RESULT = new JobName("", jobName);
+    :}
+    | ident:db DOT ident:jobName
+    {:
+        RESULT = new JobName(db, jobName);
     :}
     ;
 
@@ -2639,6 +2717,11 @@ show_param ::=
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);
+    :}
+    /* Show Sync Job */
+    | KW_SYNC KW_JOB opt_db:dbName
+    {:
+        RESULT = new ShowSyncJobStmt(dbName);
     :}
     ;
 

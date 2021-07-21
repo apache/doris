@@ -41,6 +41,7 @@ import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
+import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
@@ -69,6 +70,7 @@ import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
+import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
@@ -86,9 +88,9 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Index;
-import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
@@ -144,7 +146,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -302,6 +303,8 @@ public class ShowExecutor {
             handleShowLoadProfile();
         } else if (stmt instanceof AdminShowDataSkewStmt) {
             handleAdminShowDataSkew();
+        } else if (stmt instanceof ShowSyncJobStmt) {
+            handleShowSyncJobs();
         } else {
             handleEmtpy();
         }
@@ -1727,6 +1730,29 @@ public class ShowExecutor {
         List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowSyncJobs() throws AnalysisException {
+        ShowSyncJobStmt showStmt = (ShowSyncJobStmt) stmt;
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+
+        List<List<Comparable>> syncInfos = catalog.getSyncJobManager().getSyncJobsInfoByDbId(db.getId());
+        Collections.sort(syncInfos, new ListComparator<List<Comparable>>(0));
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> syncInfo : syncInfos) {
+            List<String> row = new ArrayList<String>(syncInfo.size());
+
+            for (Comparable element : syncInfo) {
+                row.add(element.toString());
+            }
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowGrants() {
