@@ -65,6 +65,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -75,6 +76,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -1591,7 +1593,7 @@ public class Load {
         return false;
     }
 
-    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException {
+    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException, AnalysisException {
         // get load job and check state
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -1610,7 +1612,8 @@ public class Load {
                 }
             } else {
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(labelValue)) {
+                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                    if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
                     }
                 }
@@ -1627,7 +1630,7 @@ public class Load {
         }
     }
 
-    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
         // get params
         String dbName = stmt.getDbName();
         String label = stmt.getLabel();
@@ -1654,8 +1657,9 @@ public class Load {
                 }
             } else {
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(label)) {
-                        matchLoadJobs.addAll(entry.getValue());
+                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+                    if (matcher.match(entry.getKey())) {
+                        loadJobs.addAll(entry.getValue());
                     }
                 }
             }
@@ -1904,7 +1908,7 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states) {
+                                                            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1926,7 +1930,8 @@ public class Load {
                             continue;
                         }
                     } else {
-                        if (!label.contains(labelValue)) {
+                        PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                        if (!matcher.match(label)) {
                             continue;
                         }
                     }

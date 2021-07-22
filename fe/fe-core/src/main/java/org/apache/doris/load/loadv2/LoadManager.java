@@ -23,12 +23,15 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
@@ -294,7 +297,7 @@ public class LoadManager implements Writable{
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
     }
 
-    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + stmt.getDbName());
@@ -317,7 +320,8 @@ public class LoadManager implements Writable{
                 }
             } else {
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(stmt.getLabel())) {
+                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(stmt.getLabel(), CaseSensibility.LABEL.getCaseSensibility());
+                    if (matcher.match(entry.getKey())) {
                         matchLoadJobs.addAll(entry.getValue());
                     }
                 }
@@ -503,7 +507,7 @@ public class LoadManager implements Writable{
      *     The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue,
-                                                      boolean accurateMatch, Set<String> statesValue) {
+                                                      boolean accurateMatch, Set<String> statesValue) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
@@ -539,7 +543,8 @@ public class LoadManager implements Writable{
                 } else {
                     // non-accurate match
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                        if (entry.getKey().contains(labelValue)) {
+                        PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                        if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());
                         }
                     }
