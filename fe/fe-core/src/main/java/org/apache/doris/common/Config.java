@@ -1403,14 +1403,14 @@ public class Config extends ConfigBase {
     /**
      * If set to true, FE will store metric data periodically, and open monitoring service.
      */
-    @ConfField(mutable = false, masterOnly = true)
+    @ConfField(masterOnly = true)
     public static boolean enable_monitor = false;
 
     /**
      * metric time to live days.
      */
-    @ConfField(mutable = false, masterOnly = true)
-    public static int metric_ttl = 30;
+    @ConfField(masterOnly = true)
+    public static int metric_ttl = 7;
 
     /**
      * If set to true, FE will be started in BDBJE debug mode

@@ -72,6 +72,10 @@ public class Monitor {
     // read metric from bdbje and calculate monitor.
     public static Object monitoring(long startTime, long endTime, String parameterJson, MonitorType monitorType)
             throws DdlException {
+        // TODO: Currently, when the monitoring data is spot queried from bdbje, many stored data cannot be utilized
+        //  when the time span is relatively large, such as querying the monitoring data of the last 7 days or more.
+        //  Later, we consider periodically merging old data to make the amount of stored data smaller
+        //  and monitoring trends more accurate.
         if (!Config.enable_monitor) {
             throw new DdlException("no enable monitor server.");
         }

@@ -42,6 +42,20 @@ import java.util.concurrent.TimeUnit;
 /**
  * Master of fe use this class to start a thread to get metric data from each node
  * and write it to the bdbje periodically.
+ *
+ * bdbje write performance demo test:
+ * CPU: Intel(R) Xeon(R) Gold 6271C CPU @ 2.60GHz
+ * RAM: 376GB
+ * BDBJE version: 7.3.7
+ * The current collection of metrics each fe needs to persist 11 metrics, be needs to persist 8 metrics,
+ * assuming a cluster has 3 fe, 100 be, then each time a total of 833 metrics need to be persisted.
+ * Using 1 master, 2 follower, the key like '127.0.0.1:8837_query_err_rate_1626878367215', and value like
+ * '1626878367215', the time spent to write 833 different data is 3.0~3.2s,
+ * master occupies about 2% of cpu and less than 0.1% of memory.
+ *
+ * the estimate of data volume:
+ * one day: (11 metric * 3 fe + 6 metric * 100 be) * 4 * 60 * 24 = 3.6 million
+ * 7 days: 25.5 million
  */
 public class MetricCollector {
     private static final Logger LOG = LogManager.getLogger(MetricCollector.class);
