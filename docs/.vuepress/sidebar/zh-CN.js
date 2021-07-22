@@ -432,6 +432,7 @@ module.exports = [
             directoryPath: "Administration/",
             children: [
               "ADMIN CANCEL REPAIR",
+              "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",

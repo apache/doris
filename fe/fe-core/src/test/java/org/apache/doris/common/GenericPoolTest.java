@@ -225,6 +225,10 @@ public class GenericPoolTest {
             // TODO Auto-generated method stub
             return null;
         }
+        @Override
+        public void cleanTrash() throws TException {
+            // TODO Auto-generated method stub
+        }
     }
 
     @Test

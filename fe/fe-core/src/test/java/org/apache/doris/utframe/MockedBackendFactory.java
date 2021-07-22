@@ -273,6 +273,11 @@ public class MockedBackendFactory {
         public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
             return new TStreamLoadRecordResult(Maps.newHashMap());
         }
+
+        @Override
+        public void cleanTrash() throws TException {
+            return;
+        }
     }
 
     // The default Brpc service.

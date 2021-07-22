@@ -339,4 +339,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
+void BackendService::clean_trash() {
+    StorageEngine::instance()->start_trash_sweep(nullptr, true);
+}
 } // namespace doris

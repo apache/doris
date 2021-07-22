@@ -168,6 +168,10 @@ public:
     // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
 
+    // clear trash and snapshot file
+    // option: update disk usage after sweep
+    OLAPStatus start_trash_sweep(double* usage, bool ignore_guard = false);
+
     void stop();
 
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
@@ -236,8 +240,6 @@ private:
 
     void _start_clean_fd_cache();
 
-    // 清理trash和snapshot文件，返回清理后的磁盘使用量
-    OLAPStatus _start_trash_sweep(double* usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
