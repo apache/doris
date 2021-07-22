@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
 #define DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
 
-#include "exec/csv_scanner.h"
 #include "exec/scan_node.h"
 #include "http/http_handler.h"
 #include "runtime/descriptors.h"

@@ -65,6 +65,7 @@ public class LoadLoadingTask extends LoadTask {
     private final long timeoutS;
     private final int loadParallelism;
     private final int sendBatchParallelism;
+    private final boolean loadZeroTolerance;
 
     private LoadingTaskPlanner planner;
 
@@ -75,7 +76,8 @@ public class LoadLoadingTask extends LoadTask {
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
                            long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS, int loadParallelism, int sendBatchParallelism, RuntimeProfile profile) {
+                           long timeoutS, int loadParallelism, int sendBatchParallelism,
+                           boolean loadZeroTolerance, RuntimeProfile profile) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -91,6 +93,7 @@ public class LoadLoadingTask extends LoadTask {
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
         this.sendBatchParallelism = sendBatchParallelism;
+        this.loadZeroTolerance = loadZeroTolerance;
         this.jobProfile = profile;
     }
 
@@ -118,7 +121,7 @@ public class LoadLoadingTask extends LoadTask {
     private void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone());
+                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
         /*
@@ -157,9 +160,9 @@ public class LoadLoadingTask extends LoadTask {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
                 attachment = new BrokerLoadingTaskAttachment(signature,
-                                                             curCoordinator.getLoadCounters(),
-                                                             curCoordinator.getTrackingUrl(),
-                                                             TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
+                        curCoordinator.getLoadCounters(),
+                        curCoordinator.getTrackingUrl(),
+                        TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()));
                 // Create profile of this task and add to the job profile.
                 createProfile(curCoordinator);
             } else {
