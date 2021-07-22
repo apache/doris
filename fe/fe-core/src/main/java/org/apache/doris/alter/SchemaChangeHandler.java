@@ -1417,15 +1417,19 @@ public class SchemaChangeHandler extends AlterHandler {
                 alterJobsV2 -> {
                     if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId()) &&
                             activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
-                        schemaChangeThreadPool.submit(() -> {
-                            if (activeSchemaChangeJobsV2.putIfAbsent(alterJobsV2.getJobId(), alterJobsV2) == null) {
-                                try {
-                                    alterJobsV2.run();
-                                } finally {
-                                    activeSchemaChangeJobsV2.remove(alterJobsV2.getJobId());
+                        if (FeConstants.runningUnitTest) {
+                            alterJobsV2.run();
+                        } else {
+                            schemaChangeThreadPool.submit(() -> {
+                                if (activeSchemaChangeJobsV2.putIfAbsent(alterJobsV2.getJobId(), alterJobsV2) == null) {
+                                    try {
+                                        alterJobsV2.run();
+                                    } finally {
+                                        activeSchemaChangeJobsV2.remove(alterJobsV2.getJobId());
+                                    }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                 });
     }
