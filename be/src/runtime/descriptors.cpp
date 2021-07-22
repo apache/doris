@@ -22,9 +22,7 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "exprs/expr.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/descriptors.pb.h"
 
 namespace doris {
