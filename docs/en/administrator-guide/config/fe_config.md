@@ -1079,7 +1079,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Maximal bytes that a single broker scanner will read.  
+Minimum bytes that a single broker scanner will read.  
 
 ### catalog_trash_expire_second
 
