@@ -287,7 +287,6 @@ types = {
   'STRING': ['VARCHAR'],
   'DATE': ['DATE'],
   'DATETIME': ['DATETIME'],
-  'DECIMAL': ['DECIMAL'],
   'DECIMALV2': ['DECIMALV2'],
   'NATIVE_INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT'],
   'INT_TYPES': ['TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT'],
@@ -296,8 +295,8 @@ types = {
   'NATIVE_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'],
   'STRCAST_TYPES': ['BOOLEAN', 'SMALLINT', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'],
   'ALL_TYPES': ['BOOLEAN', 'TINYINT', 'SMALLINT', 'INT', 'BIGINT', 'LARGEINT', 'FLOAT',\
-                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMAL', 'DECIMALV2'],
-  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMAL', 'DECIMALV2'],
+                     'DOUBLE', 'VARCHAR', 'DATETIME', 'DECIMALV2'],
+  'MAX_TYPES': ['BIGINT', 'LARGEINT', 'DOUBLE', 'DECIMALV2'],
 }
 
 # Operation, [ReturnType], [[Args1], [Args2], ... [ArgsN]]
@@ -326,7 +325,6 @@ native_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
-  'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
 
@@ -343,7 +341,6 @@ implemented_types = {
   'VARCHAR': 'StringValue',
   'DATE': 'DateTimeValue',
   'DATETIME': 'DateTimeValue',
-  'DECIMAL': 'DecimalValue',
   'DECIMALV2': 'DecimalV2Value',
 }
 

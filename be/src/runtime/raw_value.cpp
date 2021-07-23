@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "olap/utils.h"
+#include "runtime/collection_value.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple.h"
 #include "util/types.h"
@@ -165,6 +166,21 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         *stream << reinterpret_cast<const PackedInt128*>(value)->value;
         break;
 
+    case TYPE_ARRAY: {
+        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
+        auto children_type = type.children.at(0);
+        auto iter = src->iterator(children_type.type);
+        *stream << "[";
+        print_value(iter.value(), children_type, scale, stream);
+        iter.next();
+        for (; iter.has_next(); iter.next()) {
+            *stream << ", ";
+            print_value(iter.value(), children_type, scale, stream);
+        }
+        *stream << "]";
+        break;
+    }
+
     default:
         DCHECK(false) << "bad RawValue::print_value() type: " << type;
     }
@@ -292,7 +308,33 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 
         break;
     }
+    case TYPE_ARRAY: {
+        DCHECK_EQ(type.children.size(), 1);
 
+        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
+        CollectionValue* val = reinterpret_cast<CollectionValue*>(dst);
+
+        if (pool != NULL) {
+            auto children_type = type.children.at(0).type;
+            CollectionValue::init_collection(pool, src->size(), children_type, val);
+            ArrayIterator src_iter = src->iterator(children_type);
+            ArrayIterator val_iter = val->iterator(children_type);
+
+            val->copy_null_signs(src);
+
+            while (src_iter.has_next() && val_iter.has_next()) {
+                if (!src_iter.is_null()) {
+                    // write children
+                    write(src_iter.value(), val_iter.value(), children_type, pool);
+                }
+                src_iter.next();
+                val_iter.next();
+            }
+        } else {
+            val->shallow_copy(src);
+        }
+        break;
+    }
     default:
         DCHECK(false) << "RawValue::write(): bad type: " << type;
     }

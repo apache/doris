@@ -73,6 +73,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `batch_size`
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
+* `enable_fold_constant_by_be`
 
 只支持全局生效的变量包括：
 
@@ -387,3 +388,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `extract_wide_range_expr`
 
     用于控制是否开启 「宽泛公因式提取」的优化。取值有两种：true 和 false 。默认情况下开启。
+
+* `enable_fold_constant_by_be`
+
+    用于控制常量折叠的计算方式。默认是 `false`，即在 `FE` 进行计算；若设置为 `true`，则通过 `RPC` 请求经 `BE` 计算。 

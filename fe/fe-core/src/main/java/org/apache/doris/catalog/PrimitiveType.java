@@ -54,6 +54,9 @@ public enum PrimitiveType {
     TIME("TIME", 8, TPrimitiveType.TIME),
     // we use OBJECT type represent BITMAP type in Backend
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
+    ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
+    MAP("MAP", 24, TPrimitiveType.MAP),
+    STRUCT("MAP", 24, TPrimitiveType.STRUCT),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY);
 
@@ -298,6 +301,8 @@ public enum PrimitiveType {
         supportedTypes.add(TIME);
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(BITMAP);
+        supportedTypes.add(ARRAY);
+        supportedTypes.add(MAP);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -533,6 +538,16 @@ public enum PrimitiveType {
                 return FLOAT;
             case DOUBLE:
                 return DOUBLE;
+            case DATE:
+                return DATE;
+            case DATETIME:
+                return DATETIME;
+            case BINARY:
+                return BINARY;
+            case DECIMALV2:
+                return DECIMALV2;
+            case TIME:
+                return TIME;
             case VARCHAR:
                 return VARCHAR;
             case CHAR:
@@ -541,6 +556,12 @@ public enum PrimitiveType {
                 return HLL;
             case OBJECT:
                 return BITMAP;
+            case ARRAY:
+                return ARRAY;
+            case MAP:
+                return MAP;
+            case STRUCT:
+                return STRUCT;
             default:
                 return INVALID_TYPE;
         }
@@ -627,6 +648,10 @@ public enum PrimitiveType {
 
     public boolean isDateType() {
         return (this == DATE || this == DATETIME);
+    }
+
+    public boolean isArrayType(){
+        return this == ARRAY;
     }
 
     public boolean isStringType() {

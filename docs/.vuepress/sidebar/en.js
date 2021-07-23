@@ -182,12 +182,20 @@ module.exports = [
       "privilege",
       "resource-management",
       "running-profile",
+      "runtime-filter",
       "small-file-mgr",
       "sql-mode",
       "time-zone",
       "variables",
     ],
     sidebarDepth: 1,
+  },
+  {
+    title: "Bast Practices",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
   },
   {
     title: "Extending Ability",
@@ -314,8 +322,6 @@ module.exports = [
               "ltrim",
               "money_format",
               "null_or_empty",
-              "regexp_extract",
-              "regexp_replace",
               "repeat",
               "reverse",
               "right",
@@ -324,6 +330,24 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              {
+                title: "fuzzy match",
+                directoryPath: "like/",
+                children: [
+                  "like",
+                  "not_like",
+                ],
+              },
+              {
+                title: "regular match",
+                directoryPath: "regexp/",
+                children: [
+                  "regexp",
+                  "regexp_extract",
+                  "regexp_replace",
+                  "not_regexp",
+                ],
+              },
             ],
           },
           {
@@ -440,6 +464,7 @@ module.exports = [
               "BACKUP",
               "CANCEL ALTER",
               "CANCEL BACKUP",
+              "CREATE ENCRYPTKEY",
               "CANCEL RESTORE",
               "CREATE DATABASE",
               "CREATE INDEX",
@@ -450,6 +475,7 @@ module.exports = [
               "CREATE VIEW",
               "Colocate Join",
               "DROP DATABASE",
+              "DROP ENCRYPTKEY",
               "DROP INDEX",
               "DROP MATERIALIZED VIEW",
               "DROP REPOSITORY",
@@ -458,6 +484,7 @@ module.exports = [
               "HLL",
               "RECOVER",
               "RESTORE",
+              "SHOW ENCRYPTKEYS",
               "TRUNCATE TABLE",
               "create-function",
               "drop-function",
@@ -546,7 +573,8 @@ module.exports = [
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",		
-        "format-code",
+        "java-format-code",
+        "cpp-format-code",
     ],
   },
   {

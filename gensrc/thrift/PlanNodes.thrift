@@ -106,6 +106,7 @@ enum TFileFormatType {
     FORMAT_CSV_DEFLATE,
     FORMAT_ORC,
     FORMAT_JSON,
+    FORMAT_PROTO,
 }
 
 struct THdfsConf {
@@ -381,11 +382,10 @@ struct THashJoinNode {
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
   // equi-join predicate
   3: optional list<Exprs.TExpr> other_join_conjuncts
-  4: optional bool is_push_down
 
   // If true, this join node can (but may choose not to) generate slot filters
   // after constructing the build side that can be applied to the probe side.
-  5: optional bool add_probe_filters
+  4: optional bool add_probe_filters
 }
 
 struct TMergeJoinNode {
@@ -725,7 +725,6 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 }
-
 
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.

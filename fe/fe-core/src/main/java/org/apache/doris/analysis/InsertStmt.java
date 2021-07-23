@@ -129,6 +129,12 @@ public class InsertStmt extends DdlStmt {
      */
     private boolean isTransactionBegin = false;
 
+    private boolean isValuesOrConstantSelect = false;
+
+    public boolean isValuesOrConstantSelect() {
+        return isValuesOrConstantSelect;
+    }
+
     public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
         this.targetPartitionNames = target.getPartitionNames();
@@ -140,6 +146,8 @@ public class InsertStmt extends DdlStmt {
         if (!Strings.isNullOrEmpty(label)) {
             isUserSpecifiedLabel = true;
         }
+
+        this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
 
     // Ctor for CreateTableAsSelectStmt
@@ -179,6 +187,10 @@ public class InsertStmt extends DdlStmt {
         return tblName.getDb();
     }
 
+    public String getTbl() {
+        return tblName.getTbl();
+    }
+
     public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
         // get dbs of statement
         queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
@@ -214,6 +226,11 @@ public class InsertStmt extends DdlStmt {
         this.queryStmt = queryStmt;
     }
 
+    @Override
+    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.foldConstant(rewriter);
+    }
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
@@ -278,6 +295,10 @@ public class InsertStmt extends DdlStmt {
 
         analyzePlanHints(analyzer);
 
+        if (analyzer.getContext().isTxnModel()) {
+            return;
+        }
+
         // create data sink
         createDataSink();
 
@@ -285,10 +306,10 @@ public class InsertStmt extends DdlStmt {
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        if (Strings.isNullOrEmpty(label)) {
+            label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
+        }
         if (!isExplain() && !isTransactionBegin) {
-            if (Strings.isNullOrEmpty(label)) {
-                label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
-            }
 
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
@@ -488,7 +509,7 @@ public class InsertStmt extends DdlStmt {
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
         
         // handle VALUES() or SELECT constant list
-        if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).getTableRefs().isEmpty()) {
+        if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (selectStmt.getValueList() != null) {
                 // INSERT INTO VALUES(...)
@@ -707,7 +728,9 @@ public class InsertStmt extends DdlStmt {
         if (col.getDataType().equals(expr.getType().getPrimitiveType())) {
             return expr;
         }
-        return expr.castTo(col.getType());
+        Expr newExpr = expr.castTo(col.getType());
+        newExpr.checkValueValid();
+        return newExpr;
     }
 
     public void prepareExpressions() throws UserException {

@@ -40,6 +40,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -136,6 +139,9 @@ public:
 
     std::shared_ptr<QueryFragmentsCtx> get_fragments_ctx() { return _fragments_ctx; }
 
+    void set_pipe(std::shared_ptr<StreamLoadPipe> pipe) { _pipe = pipe; }
+    std::shared_ptr<StreamLoadPipe> get_pipe() const { return _pipe; }
+
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
@@ -166,6 +172,8 @@ private:
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
+    // The pipe for data transfering, such as insert.
+    std::shared_ptr<StreamLoadPipe> _pipe;
 };
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
@@ -239,6 +247,9 @@ Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
     _executor.set_abort();
     _executor.cancel();
+    if (_pipe != nullptr) {
+        _pipe->cancel();
+    }
     return Status::OK();
 }
 
@@ -249,6 +260,9 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
         _executor.set_is_report_on_cancel(false);
     }
     _executor.cancel();
+    if (_pipe != nullptr) {
+        _pipe->cancel();
+    }
     return Status::OK();
 }
 
@@ -457,7 +471,63 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
-    return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+    if (params.txn_conf.need_txn) {
+        StreamLoadContext* stream_load_cxt = new StreamLoadContext(_exec_env);
+        stream_load_cxt->db = params.txn_conf.db;
+        stream_load_cxt->db_id = params.txn_conf.db_id;
+        stream_load_cxt->table = params.txn_conf.tbl;
+        stream_load_cxt->txn_id = params.txn_conf.txn_id;
+        stream_load_cxt->id = UniqueId(params.params.query_id);
+        stream_load_cxt->put_result.params = params;
+        stream_load_cxt->use_streaming = true;
+        stream_load_cxt->load_type = TLoadType::MANUL_LOAD;
+        stream_load_cxt->load_src_type = TLoadSourceType::RAW;
+        stream_load_cxt->label = params.import_label;
+        stream_load_cxt->format = TFileFormatType::FORMAT_CSV_PLAIN;
+        stream_load_cxt->timeout_second = 3600;
+        stream_load_cxt->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_cxt->need_commit_self = true;
+        stream_load_cxt->need_rollback = true;
+        // total_length == -1 means read one message from pipe in once time, don't care the length.
+        auto pipe = std::make_shared<StreamLoadPipe>(
+                1024 * 1024 /* max_buffered_bytes */,
+                64 * 1024 /* min_chunk_size */,
+                -1 /* total_length */,
+                true /* use_proto */);
+        stream_load_cxt->body_sink = pipe;
+        stream_load_cxt->max_filter_ratio = params.txn_conf.max_filter_ratio;
+
+        RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_cxt->id, pipe));
+
+        RETURN_IF_ERROR(
+                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt, pipe));
+        set_pipe(params.params.fragment_instance_id, pipe);
+        return Status::OK();
+    } else {
+        return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
+    }
+}
+
+void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_instance_id);
+        if (iter != _fragment_map.end()) {
+            _fragment_map[fragment_instance_id]->set_pipe(pipe);
+        }
+    }
+}
+
+std::shared_ptr<StreamLoadPipe> FragmentMgr::get_pipe(const TUniqueId& fragment_instance_id) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        auto iter = _fragment_map.find(fragment_instance_id);
+        if (iter != _fragment_map.end()) {
+            return _fragment_map[fragment_instance_id]->get_pipe();
+        } else {
+            return nullptr;
+        }
+    }
 }
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {

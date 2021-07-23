@@ -50,6 +50,7 @@ set(RUNTIME_FILES
     #  timestamp_value.cpp
     decimalv2_value.cpp
     large_int_value.cpp
+    collection_value.cpp
     tuple.cpp
     tuple_row.cpp
     vectorized_row_batch.cpp
@@ -106,6 +107,7 @@ set(RUNTIME_FILES
     mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
+    fold_constant_mgr.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
     odbc_table_sink.cpp	

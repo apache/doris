@@ -200,12 +200,11 @@ public:
     }
 
     // used for after tablet cloned to clear stale rowset
-    void clear_stale_rowset() {
-        _stale_rs_metas.clear();
-    }
+    void clear_stale_rowset() { _stale_rs_metas.clear(); }
 
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
+    void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);

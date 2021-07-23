@@ -20,6 +20,7 @@ package org.apache.doris.rpc;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -31,6 +32,7 @@ import org.apache.thrift.TSerializer;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 
@@ -164,6 +166,62 @@ public class BackendServiceProxy {
             return client.getInfo(request);
         } catch (Throwable e) {
             LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PSendDataResult> sendData(
+            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            throws RpcException {
+
+        final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
+        pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.addAllData(data);
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.sendData(pRequest.build());
+        } catch (Throwable e) {
+            LOG.warn("failed to send data, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.rollback(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to rollback, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.commit(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(
+            TNetworkAddress address, TFoldConstantParams tParams) throws RpcException, TException {
+        final InternalService.PConstantExprRequest pRequest = InternalService.PConstantExprRequest.newBuilder()
+                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tParams))).build();
+
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.foldConstantExpr(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to fold constant expr, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

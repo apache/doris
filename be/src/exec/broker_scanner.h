@@ -27,6 +27,7 @@
 #include "exec/base_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -99,6 +100,7 @@ private:
 
     std::string _value_separator;
     std::string _line_delimiter;
+    TFileFormatType::type _file_format_type;
     int _value_separator_length;
     int _line_delimiter_length;
 

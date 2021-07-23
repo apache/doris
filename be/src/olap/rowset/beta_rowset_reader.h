@@ -54,9 +54,9 @@ public:
     }
 
 private:
+    RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
-    RowsetReaderContext* _context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats;
 

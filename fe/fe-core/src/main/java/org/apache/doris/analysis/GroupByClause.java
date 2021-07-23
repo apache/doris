@@ -118,6 +118,10 @@ public class GroupByClause implements ParseNode {
         return oriGroupingExprs;
     }
 
+    public void setOriGroupingExprs(ArrayList<Expr> list) {
+        oriGroupingExprs = list;
+    }
+
     public ArrayList<Expr> getGroupingExprs() {
         if (!exprGenerated) {
             try {
@@ -128,6 +132,10 @@ public class GroupByClause implements ParseNode {
             }
         }
         return groupingExprs;
+    }
+
+    public void setGroupingExpr(ArrayList<Expr> list) {
+        groupingExprs = list;
     }
 
     // generate grouping exprs from group by, grouping sets, cube, rollup clause

@@ -352,7 +352,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否临时启用 spark load，默认不启用
 
-### enable_strict_storage_medium_check
+### disable_storage_medium_check
 
 默认值：false
 
@@ -360,9 +360,7 @@ show data （其他用法：HELP SHOW DATA）
 
 是否为 Master FE 节点独有的配置项：true
 
-如果设置为 true，FE 将在创建表时通过存储介质检查后端可用容量
-
-参数 `enable_strict_storage_medium_check` 为 `False` 该参数只是一个“尽力而为”的设置。即使集群内没有设置 SSD 存储介质，也不会报错，而是自动存储在可用的数据目录中。 同样，如果 SSD 介质不可访问、空间不足，都可能导致数据初始直接存储在其他可用介质上。而数据到期迁移到 HDD 时，如果 HDD 介质不可访问、空间不足，也可能迁移失败（但是会不断尝试）。 如果FE参数 `enable_strict_storage_medium_check` 为 `True` 则当集群内没有设置 SSD 存储介质时，会报错 `Failed to find enough host in all backends with storage medium is SSD`
+如果 disable_storage_medium_check 为true， ReportHandler 将不会检查 tablet 的存储介质， 并使得存储冷却功能失效，默认值为false。当您不关心 tablet 的存储介质是什么时，可以将值设置为true 。
 
 ### drop_backend_after_decommission
 

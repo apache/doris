@@ -82,6 +82,7 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
@@ -158,6 +159,7 @@ import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -174,6 +176,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -212,9 +215,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
-import org.apache.doris.transaction.UpdateDbUsedDataQuotaDaemon;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -304,7 +307,8 @@ public class Catalog {
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
     private DeleteHandler deleteHandler;
-    private UpdateDbUsedDataQuotaDaemon updateDbUsedDataQuotaDaemon;
+    private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
+    private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -490,7 +494,8 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
         this.deleteHandler = new DeleteHandler();
-        this.updateDbUsedDataQuotaDaemon = new UpdateDbUsedDataQuotaDaemon();
+        this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
+        this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -849,8 +854,9 @@ public class Catalog {
                     // nodeName should be like "192.168.1.1_9217_1620296111213"
                     // and the selfNode should be the prefix of nodeName.
                     // If not, it means that the ip used last time is different from this time, which is not allowed.
+                    // But is metadata_failure_recovery is true, we will not check it because this may be a FE migration.
                     String[] split = nodeName.split("_");
-                    if (!selfNode.first.equalsIgnoreCase(split[0])) {
+                    if (Config.metadata_failure_recovery.equals("false") && !selfNode.first.equalsIgnoreCase(split[0])) {
                         throw new IOException("the self host " + selfNode.first + " does not equal to the host in ROLE" +
                                 " file " + split[0] + ". You need to set 'priority_networks' config in fe.conf to match" +
                                 " the host " + split[0]);
@@ -1301,8 +1307,10 @@ public class Catalog {
         routineLoadTaskScheduler.start();
         // start dynamic partition task
         dynamicPartitionScheduler.start();
-        // start daemon thread to update db used data quota for db txn manager periodly
-        updateDbUsedDataQuotaDaemon.start();
+        // start daemon thread to update db used data quota for db txn manager periodically
+        dbUsedDataQuotaInfoCollector.start();
+        // start daemon thread to update global partition in memory information periodically
+        partitionInMemoryInfoCollector.start();
         streamLoadRecordMgr.start();
     }
 
@@ -2196,7 +2204,7 @@ public class Catalog {
         return checksum;
     }
 
-	public long saveResources(DataOutputStream out, long checksum) throws IOException {
+    public long saveResources(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getResourceMgr().write(out);
         return checksum;
     }
@@ -3404,7 +3412,7 @@ public class Catalog {
         }
     }
 
-    public void replayErasePartition(long partitionId) throws DdlException {
+    public void replayErasePartition(long partitionId) {
         Catalog.getCurrentRecycleBin().replayErasePartition(partitionId);
     }
 
@@ -3446,7 +3454,7 @@ public class Catalog {
         Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = new HashMap<Long, MaterializedIndex>();
+        Map<Long, MaterializedIndex> indexMap = new HashMap<>();
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
@@ -3768,8 +3776,7 @@ public class Catalog {
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
-        Set<Long> tabletIdSet = new HashSet<Long>();
-
+        Set<Long> tabletIdSet = new HashSet<>();
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
@@ -3863,7 +3870,6 @@ public class Catalog {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
             }
-
             // only remove from memory, because we have not persist it
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 getColocateTableIndex().removeTable(tableId);
@@ -4352,7 +4358,7 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    if (Config.enable_strict_storage_medium_check) {
+                    if (!Config.disable_storage_medium_check) {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
                     } else {
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
@@ -5540,7 +5546,7 @@ public class Catalog {
 
         // need to update partition info meta
         for(Partition partition: table.getPartitions()) {
-            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+            table.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
         }
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
@@ -5572,9 +5578,83 @@ public class Catalog {
             // need to replay partition info meta
             if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
                 for(Partition partition: olapTable.getPartitions()) {
-                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.isInMemory());
                 }
             }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
+        olapTable.writeLock();
+
+        try {
+            if (olapTable.isColocateTable()) {
+                throw new DdlException("Cannot change default bucket number of colocate table.");
+            }
+    
+            if (olapTable.getPartitionInfo().getType() != PartitionType.RANGE) {
+                throw new DdlException("Only support change partitioned table's distribution.");
+            }
+    
+            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+            if (defaultDistributionInfo.getType() != DistributionInfoType.HASH) {
+                throw new DdlException("Cannot change default bucket number of distribution type " + defaultDistributionInfo.getType());
+            }
+    
+            DistributionDesc distributionDesc = modifyDistributionClause.getDistributionDesc();
+    
+            DistributionInfo distributionInfo = null;
+    
+            List<Column> baseSchema = olapTable.getBaseSchema();
+    
+            if (distributionDesc != null) {
+                distributionInfo = distributionDesc.toDistributionInfo(baseSchema);
+                    // for now. we only support modify distribution's bucket num
+                if (distributionInfo.getType() != DistributionInfoType.HASH) {
+                    throw new DdlException("Cannot change distribution type to " + distributionInfo.getType());
+                }
+    
+                HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                List<Column> newDistriCols = hashDistributionInfo.getDistributionColumns();
+                List<Column> defaultDistriCols = ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns();
+                if (!newDistriCols.equals(defaultDistriCols)) {
+                    throw new DdlException("Cannot assign hash distribution with different distribution cols. "
+                                + "default is: " + defaultDistriCols);
+                }
+    
+                int bucketNum = hashDistributionInfo.getBucketNum();
+                if (bucketNum <= 0) {
+                    throw new DdlException("Cannot assign hash distribution buckets less than 1");
+                }
+    
+                defaultDistributionInfo.setBucketNum(bucketNum);
+    
+                ModifyTableDefaultDistributionBucketNumOperationLog info = new ModifyTableDefaultDistributionBucketNumOperationLog(db.getId(), olapTable.getId(), bucketNum);
+                editLog.logModifyDefaultDistributionBucketNum(info);
+                LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
+            }
+        } finally {
+            olapTable.writeUnlock();
+        }
+    }
+
+    public void replayModifyTableDefaultDistributionBucketNum(short opCode, ModifyTableDefaultDistributionBucketNumOperationLog info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        int bucketNum = info.getBucketNum();
+
+        Database db = getDb(dbId);
+        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying modify table default distribution bucket number log. db: {}", tableId, dbId);
+            return;
+        }
+        olapTable.writeLock();
+        try {
+            DistributionInfo defaultDistributionInfo = olapTable.getDefaultDistributionInfo();
+            defaultDistributionInfo.setBucketNum(bucketNum);
         } finally {
             olapTable.writeUnlock();
         }
@@ -5709,6 +5789,10 @@ public class Catalog {
 
     public boolean isNonNullResultWithNullParamFunction(String funcName) {
         return functionSet.isNonNullResultWithNullParamFunctions(funcName);
+    }
+
+    public boolean isNondeterministicFunction(String funcName) {
+        return functionSet.isNondeterministicFunction(funcName);
     }
 
     /**
@@ -7026,4 +7110,3 @@ public class Catalog {
         }
     }
 }
-

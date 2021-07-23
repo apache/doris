@@ -26,6 +26,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -241,6 +242,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     }
     DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
     auto tuple = input_tuple->deep_copy(*_tuple_desc, _cur_batch->tuple_data_pool());
+
     _cur_batch->get_row(row_no)->set_tuple(0, tuple);
     _cur_batch->commit_last_row();
     _cur_add_batch_request.add_tablet_ids(tablet_id);
@@ -472,6 +474,8 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
+        std::stringstream ss;
+        ss << "index channel has intolerable failure. " << BackendOptions::get_localhost();
         return Status::InternalError(ss.str());
     }
 

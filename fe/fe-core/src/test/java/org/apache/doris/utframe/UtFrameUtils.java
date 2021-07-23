@@ -130,6 +130,11 @@ public class UtFrameUtils {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
         Config.plugin_dir = dorisHome + "/plugins";
+        Config.custom_config_dir = dorisHome + "/conf";
+        File file = new File(Config.custom_config_dir);
+        if (!file.exists()) {
+            file.mkdir();
+        }
 
         int fe_http_port = findValidPort();
         int fe_rpc_port = findValidPort();

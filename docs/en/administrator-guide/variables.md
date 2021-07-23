@@ -75,6 +75,7 @@ Variables that support both session-level and global-level setting include:
 * `parallel_exchange_instance_num`
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
+* `enable_fold_constant_by_be`
 
 Variables that support only global-level setting include:
 
@@ -392,3 +393,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `extract_wide_range_expr`
 
     Used to control whether turn on the 'Wide Common Factors' rule. The value has two: true or false. On by default.
+
+* `enable_fold_constant_by_be`
+
+    Used to control the calculation method of constant folding. The default is `false`, that is, calculation is performed in `FE`; if it is set to `true`, it will be calculated by `BE` through `RPC` request.

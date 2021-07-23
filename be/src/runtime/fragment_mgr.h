@@ -48,6 +48,7 @@ class TExecPlanFragmentParams;
 class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
+class StreamLoadPipe;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -87,6 +88,10 @@ public:
     Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
 
     Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
+
+    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
+
+    std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -69,6 +70,7 @@ public class FunctionCallExpr extends Expr {
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
+    private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
@@ -658,16 +660,18 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        Type[] args = fn.getArgs();
-        if (args.length > 0) {
-            // Implicitly cast all the children to match the function if necessary
-            for (int i = 0; i < argTypes.length; ++i) {
-                // For varargs, we must compare with the last type in callArgs.argTypes.
-                int ix = Math.min(args.length - 1, i);
-                if (!argTypes[i].matchesType(args[ix]) && !(
-                        argTypes[i].isDateType() && args[ix].isDateType())) {
-                    uncheckedCastChild(args[ix], i);
-                    //if (argTypes[i] != args[ix]) castChild(args[ix], i);
+        if (!fn.getFunctionName().getFunction().equals(ELEMENT_EXTRACT_FN_NAME)) {
+            Type[] args = fn.getArgs();
+            if (args.length > 0) {
+                // Implicitly cast all the children to match the function if necessary
+                for (int i = 0; i < argTypes.length; ++i) {
+                    // For varargs, we must compare with the last type in callArgs.argTypes.
+                    int ix = Math.min(args.length - 1, i);
+                    if (!argTypes[i].matchesType(args[ix]) && !(
+                            argTypes[i].isDateType() && args[ix].isDateType())) {
+                        uncheckedCastChild(args[ix], i);
+                        //if (argTypes[i] != args[ix]) castChild(args[ix], i);
+                    }
                 }
             }
         }
@@ -710,6 +714,18 @@ public class FunctionCallExpr extends Expr {
             }
         } else {
             this.type = fn.getReturnType();
+        }
+        // rewrite return type if is nested type function
+        analyzeNestedFunction();
+    }
+
+    // if return type is nested type, need to be determined the sub-element type
+    private void analyzeNestedFunction() {
+        // array
+        if ("array".equalsIgnoreCase(fnName.getFunction())) {
+            if (children.size() > 0) {
+                this.type = new ArrayType(children.get(0).getType());
+            }
         }
     }
 
@@ -798,4 +814,3 @@ public class FunctionCallExpr extends Expr {
         return result;
     }
 }
-

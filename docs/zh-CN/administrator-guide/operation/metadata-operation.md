@@ -278,6 +278,60 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 **注意：如果 Image 文件很大，整个操作过程耗时可能会很长，所以在此期间，要确保 Master FE 不会通过 checkpoint 生成新的 image 文件。
 当观察到 Master FE 节点上 `meta_dir/image`目录下的 `image.ckpt` 文件快和 `image.xxx` 文件一样大时，可以直接删除掉`image.ckpt` 文件。**
 
+### 查看 BDBJE 中的数据
+
+FE 的元数据日志以 Key-Value 的方式存储在 BDBJE 中。某些异常情况下，可能因为元数据错误而无法启动 FE。在这种情况下，Doris 提供一种方式可以帮助用户查询 BDBJE 中存储的数据，以方便进行问题排查。
+
+首先需在 fe.conf 中增加配置：`enable_bdbje_debug_mode=true`，之后通过 `sh start_fe.sh --daemon` 启动 FE。
+
+此时，FE 将进入 debug 模式，仅会启动 http server 和 MySQL server，并打开 BDBJE 实例，但不会进行任何元数据的加载及后续其他启动流程。
+
+这是，我们可以通过访问 FE 的 web 页面，或通过 MySQL 客户端连接到 Doris 后，通过 `show proc /bdbje;` 来查看 BDBJE 中存储的数据。
+
+```
+mysql> show proc "/bdbje";
++----------+---------------+---------+
+| DbNames  | JournalNumber | Comment |
++----------+---------------+---------+
+| 110589   | 4273          |         |
+| epochDB  | 4             |         |
+| metricDB | 430694        |         |
++----------+---------------+---------+
+```
+
+第一级目录会展示 BDBJE 中所有的 database 名称，以及每个 database 中的 entry 数量。
+
+```
+mysql> show proc "/bdbje/110589";
++-----------+
+| JournalId |
++-----------+
+| 1         |
+| 2         |
+
+...
+| 114858    |
+| 114859    |
+| 114860    |
+| 114861    |
++-----------+
+4273 rows in set (0.06 sec)
+```
+
+进入第二级，则会罗列指定 database 下的所有 entry 的 key。
+
+```
+mysql> show proc "/bdbje/110589/114861";
++-----------+--------------+---------------------------------------------+
+| JournalId | OpType       | Data                                        |
++-----------+--------------+---------------------------------------------+
+| 114861    | OP_HEARTBEAT | org.apache.doris.persist.HbPackage@6583d5fb |
++-----------+--------------+---------------------------------------------+
+1 row in set (0.05 sec)
+```
+
+第三级则可以展示指定 key 的 value 信息。
+
 ## 最佳实践
 
 FE 的部署推荐，在 [安装与部署文档](../../installing/install-deploy.md) 中有介绍，这里再做一些补充。

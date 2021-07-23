@@ -23,6 +23,7 @@ import com.alibaba.datax.common.element.Column;
 import com.alibaba.datax.common.element.DateColumn;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.fastjson.JSON;
+
 import org.apache.commons.lang3.time.DateFormatUtils;
 
 import java.util.HashMap;
@@ -30,8 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
+// Convert DataX data to json
 public class DorisJsonCodec {
-
     private static String timeZone = "GMT+8";
     private static TimeZone timeZoner = TimeZone.getTimeZone(timeZone);
 
@@ -48,12 +49,11 @@ public class DorisJsonCodec {
         final Map<String, Object> rowMap = new HashMap<String, Object>(this.fieldNames.size());
         int idx = 0;
         for (final String fieldName : this.fieldNames) {
-            rowMap.put(fieldName, this.columnConvert2String(row.getColumn(idx)));
+            rowMap.put(fieldName, this.convertColumn(row.getColumn(idx)));
             ++idx;
         }
         return JSON.toJSONString(rowMap);
     }
-
 
     /**
      *  convert datax internal  data to string
@@ -61,28 +61,34 @@ public class DorisJsonCodec {
      * @param col
      * @return
      */
-    private String columnConvert2String(final Column col) {
+    private Object convertColumn(final Column col) {
         if (null == col.getRawData()) {
             return null;
         }
-        if (Column.Type.BOOL == col.getType()) {
-            return String.valueOf(col.asLong());
+        Column.Type type = col.getType();
+        switch (type) {
+            case BOOL:
+            case INT:
+            case LONG:
+                return col.asLong();
+            case DOUBLE:
+                return col.asDouble();
+            case STRING:
+                return col.asString();
+            case DATE: {
+                final DateColumn.DateType dateType = ((DateColumn) col).getSubType();
+                switch (dateType) {
+                    case DATE:
+                        return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd", timeZoner);
+                    case DATETIME:
+                        return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd HH:mm:ss", timeZoner);
+                    default:
+                        return col.asString();
+                }
+            }
+            default:
+                // BAD, NULL, BYTES
+                return null;
         }
-        if (Column.Type.DATE != col.getType()) {
-            return col.asString();
-        }
-        final DateColumn.DateType type = ((DateColumn) col).getSubType();
-        if (type == DateColumn.DateType.DATE) {
-            return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd", timeZoner);
-        }
-        if (type == DateColumn.DateType.TIME) {
-            return DateFormatUtils.format(col.asDate(), "HH:mm:ss", timeZoner);
-        }
-        if (type == DateColumn.DateType.DATETIME) {
-            return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd HH:mm:ss", timeZoner);
-        }
-        return null;
     }
-
-
 }

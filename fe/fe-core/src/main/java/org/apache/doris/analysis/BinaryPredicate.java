@@ -133,6 +133,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
+        public boolean isUnNullSafeEquivalence() { return this == EQ; };
+
         public boolean isUnequivalence() { return this == NE; }
     }
 
@@ -618,6 +620,30 @@ public class BinaryPredicate extends Predicate implements Writable {
                 Preconditions.checkState(false, "No defined binary operator.");
         }
         return this;
+    }
+
+    @Override
+    public void setSelectivity() {
+        switch(op) {
+            case EQ:
+            case EQ_FOR_NULL: {
+                Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
+                boolean singlePredicate = isSingleColumnPredicate(slotRefRef, null);
+                if (singlePredicate) {
+                    long distinctValues = slotRefRef.getRef().getNumDistinctValues();
+                    if (distinctValues != -1) {
+                        selectivity = 1.0 / distinctValues;
+                    }
+                }
+                break;
+            } default: {
+                // Reference hive
+                selectivity = 1.0 / 3.0;
+                break;
+            }
+        }
+
+        return;
     }
 
     @Override

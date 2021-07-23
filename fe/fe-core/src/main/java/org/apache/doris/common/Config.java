@@ -433,6 +433,13 @@ public class Config extends ConfigBase {
     public static int publish_version_timeout_second = 30; // 30 seconds
 
     /**
+     * Maximal waiting time for all data inserted before one transaction to be committed
+     * This is the timeout second for the command "commit"
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int commit_timeout_second = 30; // 30 seconds
+
+    /**
      * minimal intervals between two publish version action
      */
     @ConfField public static int publish_version_interval_ms = 10;
@@ -751,9 +758,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backend_down_time_second = 3600; // 1h
+
+    /**
+     * If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium
+     * and disable storage cool down function, the default value is false.
+     * You can set the value true when you don't care what the storage medium of the tablet is.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_storage_medium_check = false;
     /**
      * When create a table(or partition), you can specify its storage medium(HDD or SSD).
-     * If not set, this specifies the default medium when creat.
+     * If not set, this specifies the default medium when created.
      */
     @ConfField public static String default_storage_medium = "HDD";
     /**
@@ -1020,7 +1035,7 @@ public class Config extends ConfigBase {
     /*
      * One master daemon thread will update database used data quota for db txn manager every db_used_data_quota_update_interval_secs
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true)
     public static int db_used_data_quota_update_interval_secs = 300;
 
     /**
@@ -1235,6 +1250,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
+    /*
+     * If set to true, Doris will support complex type
+     */
+    @ConfField
+    public static boolean enable_complex_type_support = false;
     /**
      * If set to true, the backend will be automatically dropped after finishing decommission.
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
@@ -1243,22 +1263,16 @@ public class Config extends ConfigBase {
     public static boolean drop_backend_after_decommission = true;
 
     /**
-     * If set to true, FE will check backend available capacity by storage medium when create table
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_strict_storage_medium_check = false;
-
-    /**
      * enable spark load for temporary use
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_spark_load = false;
+    public static boolean enable_spark_load = true;
 
     /**
      * enable use odbc table
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_odbc_table = false;
+    public static boolean enable_odbc_table = true;
 
     /**
      * Define thrift server's server model, default is TThreadPoolServer model
@@ -1430,4 +1444,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int default_max_query_instances = -1;
+
+    /*
+     * One master daemon thread will update global partition in memory info every partition_in_memory_update_interval_secs
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int partition_in_memory_update_interval_secs = 300;
 }

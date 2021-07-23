@@ -950,7 +950,7 @@ public class SparkLoadJob extends BulkLoadJob {
         }
 
         private void initTDescriptorTable(DescriptorTable descTable) {
-            descTable.computeMemLayout();
+            descTable.computeStatAndMemLayout();
             tDescriptorTable = descTable.toThrift();
         }
     }

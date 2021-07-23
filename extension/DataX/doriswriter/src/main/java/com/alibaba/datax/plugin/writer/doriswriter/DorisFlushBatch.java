@@ -19,29 +19,42 @@
  */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
-import java.util.List;
-
-public class DorisFlushBatch
-{
+// A wrapper class to hold a batch of loaded rows
+public class DorisFlushBatch {
+	private String lineDelimiter;
 	private String label;
-	private Long bytes;
-	private List<String> rows;
+	private long rows = 0;
+	private StringBuilder data = new StringBuilder();
 
-	public DorisFlushBatch(final String label, final Long bytes, final List<String> rows) {
+	public DorisFlushBatch(String lineDelimiter) {
+		this.lineDelimiter = lineDelimiter;
+	}
+
+	public void setLabel(String label) {
 		this.label = label;
-		this.bytes = bytes;
-		this.rows = rows;
 	}
 
 	public String getLabel() {
-		return this.label;
+		return label;
 	}
 
-	public Long getBytes() {
-		return this.bytes;
+	public long getRows() {
+		return rows;
 	}
 
-	public List<String> getRows() {
-		return this.rows;
+	public void putData(String row) {
+		if (data.length() > 0) {
+			data.append(lineDelimiter);
+		}
+		data.append(row);
+		rows++;
+	}
+
+	public StringBuilder getData() {
+		return data;
+	}
+
+	public long getSize() {
+		return data.length();
 	}
 }

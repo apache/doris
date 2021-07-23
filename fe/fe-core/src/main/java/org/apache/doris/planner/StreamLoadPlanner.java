@@ -40,6 +40,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -137,13 +138,20 @@ public class StreamLoadPlanner {
         // create scan node
         scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
-        descTable.computeMemLayout();
+        descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
+
+        int timeout = taskInfo.getTimeout();
+        if (taskInfo instanceof RoutineLoadJob) {
+            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
+            // So that the execution won't be killed before consuming finished.
+            timeout *= 2;
+        }
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout);
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -178,7 +186,7 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
-        queryOptions.setQueryTimeout(taskInfo.getTimeout());
+        queryOptions.setQueryTimeout(timeout);
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
