@@ -561,22 +561,25 @@ public class FileSystemManager {
                             currentStreamOffset, offset);
                 }
             }
-            ByteBuffer buf;
+            // Avoid using the ByteBuffer based read for Hadoop because some FSDataInputStream
+            // implementations are not ByteBufferReadable,
+            // See https://issues.apache.org/jira/browse/HADOOP-14603
+            byte[] buf;
             if (length > readBufferSize) {
-                buf = ByteBuffer.allocate(readBufferSize);
+                buf = new byte[readBufferSize];
             } else {
-                buf = ByteBuffer.allocate((int) length);
+                buf = new byte[(int) length];
             }
             try {
-                int readLength = readByteBufferFully(fsDataInputStream, buf);
+                int readLength = readBytesFully(fsDataInputStream, buf);
                 if (readLength < 0) {
                     throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE,
                             "end of file reached");
                 }
                 if (logger.isDebugEnabled()) {
-                    logger.debug("read buffer from input stream, buffer size:" + buf.capacity() + ", read length:" + readLength);
+                    logger.debug("read buffer from input stream, buffer size:" + buf.length + ", read length:" + readLength);
                 }
-                return buf;
+                return ByteBuffer.wrap(buf, 0, readLength);
             } catch (IOException e) {
                 logger.error("errors while read data from stream", e);
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
@@ -674,27 +677,17 @@ public class FileSystemManager {
         return new TBrokerFD(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
     }
 
-    private int readByteBuffer(FSDataInputStream is, ByteBuffer dest) throws IOException {
-        int pos = dest.position();
-        int result = is.read(dest);
-        if (result > 0) {
-            // Ensure this explicitly since versions before 2.7 read doesn't do it.
-            dest.position(pos + result);
-        }
-        return result;
-    }
-
-    private int readByteBufferFully(FSDataInputStream is, ByteBuffer dest) throws IOException {
-        int result = 0;
-        while (dest.remaining() > 0) {
-            int n = readByteBuffer(is, dest);
+    private int readBytesFully(FSDataInputStream is, byte[] dest) throws IOException {
+        int readLength = 0;
+        while (readLength < dest.length) {
+            int availableReadLength = dest.length - readLength;
+            int n = is.read(dest, readLength, availableReadLength);
             if (n <= 0) {
                 break;
             }
-            result += n;
+            readLength += n;
         }
-        dest.flip();
-        return result;
+        return readLength;
     }
     
     class FileSystemExpirationChecker implements Runnable {
