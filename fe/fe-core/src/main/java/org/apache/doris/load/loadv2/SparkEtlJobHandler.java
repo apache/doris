@@ -33,12 +33,6 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.load.loadv2.etl.SparkEtlJob;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.JsonSyntaxException;
 
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
@@ -46,6 +40,13 @@ import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkLauncher;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
 
 import java.io.File;
 import java.io.IOException;
@@ -245,7 +246,7 @@ public class SparkEtlJobHandler {
             // get dpp result
             String dppResultFilePath = EtlJobConfig.getDppResultFilePath(etlOutputPath);
             try {
-                byte[] data = BrokerUtil.readFile(dppResultFilePath, brokerDesc);
+                byte[] data = BrokerUtil.readFile(dppResultFilePath, brokerDesc, 0);
                 String dppResultStr = new String(data, "UTF-8");
                 DppResult dppResult = new Gson().fromJson(dppResultStr, DppResult.class);
                 if (dppResult != null) {

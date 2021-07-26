@@ -187,8 +187,8 @@ TEST_F(JsonFunctionTest, special_char) {
 
 TEST_F(JsonFunctionTest, json_path1) {
     std::string json_raw_data(
-            "[{\"k1\":\"v1\", \"keyname\":{\"ip\":\"10.10.0.1\", \"value\":20}},{\"k1\":\"v1-1\", "
-            "\"keyname\":{\"ip\":\"10.20.10.1\", \"value\":20}}]");
+            "[{\"k1\":\"v1\",\"keyname\":{\"ip\":\"10.10.0.1\",\"value\":20}},{\"k1\":\"v1-1\","
+            "\"keyname\":{\"ip\":\"10.20.10.1\",\"value\":20}}]");
     rapidjson::Document jsonDoc;
     if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
         ASSERT_TRUE(false);
@@ -207,6 +207,14 @@ TEST_F(JsonFunctionTest, json_path1) {
     for (int i = 0; i < res3->Size(); i++) {
         std::cout << (*res3)[i].GetString() << std::endl;
     }
+
+    res3 = JsonFunctions::get_json_array_from_parsed_json("$", &jsonDoc, jsonDoc.GetAllocator());
+    ASSERT_TRUE(res3->IsArray());
+    rapidjson::StringBuffer buffer;
+    buffer.Clear();
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    (*res3)[0].Accept(writer);
+    ASSERT_EQ(json_raw_data, std::string(buffer.GetString()));
 }
 
 TEST_F(JsonFunctionTest, json_path_get_nullobject) {

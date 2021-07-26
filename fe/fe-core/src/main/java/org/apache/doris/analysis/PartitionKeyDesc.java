@@ -106,20 +106,22 @@ public class PartitionKeyDesc {
             }
         }
 
-        // currently, we do not support MAXVALUE in partition range values. eg: ("100", "200", MAXVALUE);
-        // maybe support later.
-        if (lowerValues != null) {
+        // Currently, we do not support MAXVALUE in multi partition range values. eg: ("100", "200", MAXVALUE);
+        // Because we still don’t support expressing such values on the BE side.
+        // Maybe support later.
+        // But we can support MAXVALUE in single partition values.
+        if (lowerValues != null && lowerValues.size() > 1) {
             for (PartitionValue lowerVal : lowerValues) {
                 if (lowerVal.isMax()) {
-                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
+                    throw new AnalysisException("Not support MAXVALUE in multi partition range values.");
                 }
             }
         }
 
-        if (upperValues != null) {
+        if (upperValues != null && upperValues.size() > 1) {
             for (PartitionValue upperVal : upperValues) {
                 if (upperVal.isMax()) {
-                    throw new AnalysisException("Not support MAXVALUE in partition range values.");
+                    throw new AnalysisException("Not support MAXVALUE in multi partition range values.");
                 }
             }
         }

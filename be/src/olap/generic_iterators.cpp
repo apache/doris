@@ -66,9 +66,9 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     while (row_idx < block->capacity() && _rows_returned < _num_rows) {
         RowBlockRow row = block->row(row_idx);
 
-        for (int i = 0; i < _schema.columns().size(); ++i) {
+        for (int i = 0; i < _schema.num_columns(); ++i) {
             row.set_is_null(i, false);
-            auto& col_schema = _schema.columns()[i];
+            const auto* col_schema = _schema.column(i);
             switch (col_schema->type()) {
             case OLAP_FIELD_TYPE_SMALLINT:
                 *(int16_t*)row.cell_ptr(i) = _rows_returned + i;

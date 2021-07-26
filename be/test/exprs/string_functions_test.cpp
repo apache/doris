@@ -623,6 +623,25 @@ TEST_F(StringFunctionsTest, bit_length) {
     delete context;
 }
 
+TEST_F(StringFunctionsTest, lower) {
+    ASSERT_EQ(StringVal("hello"), StringFunctions::lower(ctx, StringVal("hello")));
+    ASSERT_EQ(StringVal("hello"), StringFunctions::lower(ctx, StringVal("HELLO")));
+    ASSERT_EQ(StringVal("hello123"), StringFunctions::lower(ctx, StringVal("HELLO123")));
+    ASSERT_EQ(StringVal("hello, 123"), StringFunctions::lower(ctx, StringVal("HELLO, 123")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::lower(ctx, StringVal::null()));
+    ASSERT_EQ(StringVal(""), StringFunctions::lower(ctx, StringVal("")));
+}
+
+TEST_F(StringFunctionsTest, upper) {
+    // function test
+    ASSERT_EQ(StringVal("HELLO"), StringFunctions::upper(ctx, StringVal("HELLO")));
+    ASSERT_EQ(StringVal("HELLO"), StringFunctions::upper(ctx, StringVal("hello")));
+    ASSERT_EQ(StringVal("HELLO123"), StringFunctions::upper(ctx, StringVal("hello123")));
+    ASSERT_EQ(StringVal("HELLO, 123"), StringFunctions::upper(ctx, StringVal("hello, 123")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::upper(ctx, StringVal::null()));
+    ASSERT_EQ(StringVal(""), StringFunctions::upper(ctx, StringVal("")));
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {

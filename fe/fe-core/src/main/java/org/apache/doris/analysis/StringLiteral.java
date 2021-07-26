@@ -45,7 +45,7 @@ public class StringLiteral extends LiteralExpr {
     private String value;
     // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
     private String beConverted = "";
-    
+
     public StringLiteral() {
         super();
         type = Type.VARCHAR;

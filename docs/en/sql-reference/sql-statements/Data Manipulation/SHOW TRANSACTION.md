@@ -27,14 +27,16 @@ under the License.
 # SHOW TRANSACTION
 ## description
 
-This syntax is used to view transaction details for the specified transaction id.
+This syntax is used to view transaction details for the specified transaction id or label name.
 
 grammar:
 
 ```
 SHOW TRANSACTION
 [FROM db_name]
-WHERE id = transaction_id;
+WHERE
+[id = transaction_id]
+[label = label_name];
 ```
 
 Example return result:
@@ -80,6 +82,10 @@ ErrorReplicasCount: 0
 2. Specify the db and view the transaction with id 4005:
 
     SHOW TRANSACTION FROM db WHERE ID = 4005;
+
+3. View the transaction with label `label_name`:
+
+    SHOW TRANSACTION WHERE LABEL = 'label_name';
 
 ## keyword
 

@@ -46,6 +46,9 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
     // test not exist val
     int not_exist_val = 0x3355ff;
     ASSERT_FALSE(func->find((const void*)&not_exist_val));
+    // TEST null value
+    func->insert(nullptr);
+    func->find(nullptr);
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
@@ -95,6 +98,8 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
 
     ASSERT_TRUE(func->find_olap_engine((const void*)&fixed_char_true));
     ASSERT_TRUE(func->find_olap_engine((const void*)&fixed_char_false));
+
+    func->find(nullptr);
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_size_test) {

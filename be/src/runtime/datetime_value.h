@@ -155,6 +155,9 @@ public:
 
     DateTimeValue(int64_t t) { from_date_int64(t); }
 
+    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
+        uint32_t minute, uint32_t second, uint32_t microsecond);
+
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
         _neg = 0;
@@ -162,20 +165,18 @@ public:
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
 
-        _year = date / 10000;
+        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+        year = date / 10000;
         date %= 10000;
-        _month = date / 100;
-        _day = date % 100;
-        _hour = time / 10000;
+        month = date / 100;
+        day = date % 100;
+        hour = time / 10000;
         time %= 10000;
-        _minute = time / 100;
-        _second = time % 100;
-        _microsecond = 0;
+        minute = time / 100;
+        second = time % 100;
+        microsecond = 0;
 
-        if (check_range() || check_date()) {
-            return false;
-        }
-        return true;
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond, _type);
     }
 
     uint64_t to_olap_datetime() const {
@@ -187,22 +188,16 @@ public:
     bool from_olap_date(uint64_t date) {
         _neg = 0;
         _type = TIME_DATE;
-        _hour = 0;
-        _minute = 0;
-        _second = 0;
-        _microsecond = 0;
 
-        _day = date & 0x1f;
+        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+
+        day = date & 0x1f;
         date >>= 5;
-
-        _month = date & 0x0f;
+        month = date & 0x0f;
         date >>= 4;
+        year = date;
 
-        _year = date;
-        if (check_range() || check_date()) {
-            return false;
-        }
-        return true;
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond, _type);
     }
 
     uint64_t to_olap_date() const {
@@ -254,9 +249,24 @@ public:
     // compute the length of data format pattern
     static int compute_format_len(const char* format, int len);
 
+    // Return true if range or date is invalid
+    static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
+        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
+
+    static bool check_date(uint32_t year, uint32_t month, uint32_t day);
+
     // Convert this value to uint64_t
     // Will check its type
     int64_t to_int64() const;
+
+    bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
+        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type) {
+        if (check_range(year, month, day, hour, minute, second, microsecond, type)) {
+            return false;
+        }
+        set_time(year, month, day, hour, minute, second, microsecond);
+        return true;
+    };
 
     inline uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
@@ -272,6 +282,7 @@ public:
     int hour() const { return _hour; }
     int minute() const { return _minute; }
     int second() const { return _second; }
+    int microsecond() const { return _microsecond; }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0 || _microsecond != 0;
@@ -455,7 +466,8 @@ public:
 
     int type() const { return _type; }
 
-    bool is_valid_date() const { return !check_range() && !check_date() && _month > 0 && _day > 0; }
+    bool is_valid_date() const { return !check_range(_year, _month, _day,
+            _hour, _minute, _second, _microsecond, _type) && _month > 0 && _day > 0; }
 
 private:
     // Used to make sure sizeof DateTimeValue
@@ -496,10 +508,6 @@ private:
         int64_t tmp = make_packed_time(ymd << 17, 0);
         return _neg ? -tmp : tmp;
     }
-
-    // Return true if range or date is invalid
-    bool check_range() const;
-    bool check_date() const;
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);

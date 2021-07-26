@@ -183,6 +183,7 @@ module.exports = [
       "privilege",
       "resource-management",
       "running-profile",
+      "runtime-filter",
       "segment-v2-usage",
       "small-file-mgr",
       "sql-mode",
@@ -190,6 +191,13 @@ module.exports = [
       "variables",
     ],
     sidebarDepth: 1,
+  },
+  {
+    title: "最佳实践",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
   },
   {
     title: "扩展功能",
@@ -319,8 +327,6 @@ module.exports = [
               "ltrim",
               "money_format",
               "null_or_empty",
-              "regexp_extract",
-              "regexp_replace",
               "repeat",
               "reverse",
               "right",
@@ -329,6 +335,24 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              {
+                title: "模糊匹配",
+                directoryPath: "like/",
+                children: [
+                  "like",
+                  "not_like",
+                ],
+              },
+              {
+                title: "正则匹配",
+                directoryPath: "regexp/",
+                children: [
+                  "regexp",
+                  "regexp_extract",
+                  "regexp_replace",
+                  "not_regexp",
+                ],
+              },
             ],
           },
           {
@@ -447,6 +471,7 @@ module.exports = [
               "CANCEL BACKUP",
               "CANCEL RESTORE",
               "CREATE DATABASE",
+              "CREATE ENCRYPTKEY",
               "CREATE INDEX",
               "CREATE MATERIALIZED VIEW",
               "CREATE REPOSITORY",
@@ -455,6 +480,7 @@ module.exports = [
               "CREATE TABLE",
               "CREATE VIEW",
               "DROP DATABASE",
+              "DROP ENCRYPTKEY",
               "DROP INDEX",
               "DROP MATERIALIZED VIEW",
               "DROP REPOSITORY",
@@ -464,6 +490,7 @@ module.exports = [
               "HLL",
               "RECOVER",
               "RESTORE",
+              "SHOW ENCRYPTKEYS",
               "SHOW RESOURCES",
               "TRUNCATE TABLE",
               "create-function",

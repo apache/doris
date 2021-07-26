@@ -1087,7 +1087,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
         // test where v1 in (10,20,1)
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unordered_set<int32_t> values;
+            phmap::flat_hash_set<int32_t> values;
             values.insert(10);
             values.insert(20);
             values.insert(1);
@@ -1111,7 +1111,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
         // test where v1 not in (10,20)
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unordered_set<int32_t> values;
+            phmap::flat_hash_set<int32_t> values;
             values.insert(10);
             values.insert(20);
             std::unique_ptr<ColumnPredicate> predicate(
