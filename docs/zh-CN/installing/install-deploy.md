@@ -172,13 +172,13 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
     示例说明
 
-    - /home/disk1/doris.HDD, 50  ： 表示存储限制为50GB, HDD;
-    - /home/disk2/doris.SSD 10，存储限制为10GB，SSD；
+    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
     - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
 
 * BE webserver_port端口配置
 
-    如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成断开冲突
+    如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成端口冲突
 
 * 在 FE 中添加所有 BE 节点
 
