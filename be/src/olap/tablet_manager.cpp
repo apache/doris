@@ -629,27 +629,44 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablets_stats(_tablet_stat_cache);
 }
 
-TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
-        CompactionType compaction_type, DataDir* data_dir,
-        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
-        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
+std::map<DataDir*, TabletSharedPtr> TabletManager::find_best_tablet_to_compaction(
+        CompactionType compaction_type, const std::unordered_set<DataDir*>& disks_need_pick_tablet,
+        std::map<DataDir*, std::unordered_set<TTabletId>>& tablet_submitted_compaction,
+        uint32_t* max_score, std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy,
+        bool check_score) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
-    double highest_score = 0.0;
-    uint32_t compaction_score = 0;
-    double tablet_scan_frequency = 0.0;
-    TabletSharedPtr best_tablet;
+    std::map<DataDir*, double> highest_score;
+    std::map<DataDir*, uint32_t> compaction_score;
+    std::map<DataDir*, double> tablet_scan_frequency;
+    std::map<DataDir*, TabletSharedPtr> best_tablet;
+    for (auto disk_iter = disks_need_pick_tablet.begin(); disk_iter != disks_need_pick_tablet.end(); ++disk_iter) {
+        highest_score[*disk_iter] = 0.0;
+        compaction_score[*disk_iter] = 0;
+        tablet_scan_frequency[*disk_iter] = 0.0;
+        best_tablet[*disk_iter] = nullptr;
+    }
+
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
-                if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+                bool need_pick_tablet = true;
+                auto disk_iter = disks_need_pick_tablet.find(tablet_ptr->data_dir());
+                if (disk_iter == disks_need_pick_tablet.end()) {
+                    need_pick_tablet = false;
+                    if (!check_score) {
+                        continue;
+                    }
+                }
+
+                if (!tablet_ptr->can_do_compaction(compaction_type)) {
                     continue;
                 }
 
-                auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
-                if (search != tablet_submitted_compaction.end()) {
+                auto search = tablet_submitted_compaction[tablet_ptr->data_dir()].find(tablet_ptr->tablet_id());
+                if (search != tablet_submitted_compaction[tablet_ptr->data_dir()].end()) {
                     continue;
                 }
 
@@ -691,25 +708,33 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 double tablet_score =
                         config::compaction_tablet_scan_frequency_factor * scan_frequency +
                         config::compaction_tablet_compaction_score_factor *
-                                current_compaction_score;
-                if (tablet_score > highest_score) {
-                    highest_score = tablet_score;
-                    compaction_score = current_compaction_score;
-                    tablet_scan_frequency = scan_frequency;
-                    best_tablet = tablet_ptr;
+                        current_compaction_score;
+                // Even if need_pick_tablet is false, we still calculate compaction score,
+                // So that we can update the max_compaction_score metric.
+                if (need_pick_tablet && tablet_score > highest_score[tablet_ptr->data_dir()]) {
+                    highest_score[tablet_ptr->data_dir()] = tablet_score;
+                    compaction_score[tablet_ptr->data_dir()] = current_compaction_score;
+                    tablet_scan_frequency[tablet_ptr->data_dir()] = scan_frequency;
+                    best_tablet[tablet_ptr->data_dir()] = tablet_ptr;
+                }
+
+                if (current_compaction_score > *max_score) {
+                    *max_score = current_compaction_score;
                 }
             }
         }
     }
 
-    if (best_tablet != nullptr) {
-        VLOG_CRITICAL << "Found the best tablet for compaction. "
-                      << "compaction_type=" << compaction_type_str
-                      << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
-                      << ", compaction_score=" << compaction_score
-                      << ", tablet_scan_frequency=" << tablet_scan_frequency
-                      << ", highest_score=" << highest_score;
-        *score = compaction_score;
+    for (auto disk_iter = disks_need_pick_tablet.begin(); disk_iter != disks_need_pick_tablet.end(); ++disk_iter) {
+        if (best_tablet[*disk_iter] != nullptr) {
+            VLOG_CRITICAL << "Found the best tablet for compaction. "
+                        << "compaction_type=" << compaction_type_str
+                        << ", path=" << (*disk_iter)->path()
+                        << ", tablet_id=" << best_tablet[*disk_iter]->tablet_id()
+                        << ", compaction_score=" << compaction_score[*disk_iter]
+                        << ", tablet_scan_frequency=" << tablet_scan_frequency[*disk_iter]
+                        << ", highest_score=" << highest_score[*disk_iter];
+        }
     }
     return best_tablet;
 }

@@ -690,14 +690,14 @@ bool Tablet::version_for_load_deletion(const Version& version) {
     return rowset->delete_flag();
 }
 
-bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
+bool Tablet::can_do_compaction(CompactionType compaction_type) {
     if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
         // base compaction can only be done for tablet in TABLET_RUNNING state.
         // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
     }
 
-    if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
+    if (!is_used() || !init_succeeded()) {
         return false;
     }
 

@@ -420,7 +420,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
-    std::random_shuffle(data_dirs.begin(), data_dirs.end());
+//    std::random_shuffle(data_dirs.begin(), data_dirs.end());
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when travesing the data dir
@@ -431,6 +431,8 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         copied_cumu_map = _tablet_submitted_cumu_compaction;
         copied_base_map = _tablet_submitted_base_compaction;
     }
+
+    std::unordered_set<DataDir*> disks_need_pick_tablet;
     for (auto data_dir : data_dirs) {
         bool need_pick_tablet = true;
         // We need to reserve at least one Slot for cumulative compaction.
@@ -439,40 +441,30 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // If so, the last Slot can be assigned to Base compaction,
         // otherwise, this Slot needs to be reserved for cumulative compaction.
         int count = copied_cumu_map[data_dir].size() + copied_base_map[data_dir].size();
-        if (count >= config::compaction_task_num_per_disk) {
+        if (count >= config::compaction_task_num_per_disk || data_dir->reach_capacity_limit(0)) {
             // Return if no available slot
             need_pick_tablet = false;
-            if (!check_score) {
-                continue;
-            }
         } else if (count >= config::compaction_task_num_per_disk - 1) {
             // Only one slot left, check if it can be assigned to base compaction task.
             if (compaction_type == CompactionType::BASE_COMPACTION) {
                 if (copied_cumu_map[data_dir].empty()) {
                     need_pick_tablet = false;
-                    if (!check_score) {
-                        continue;
-                    }
                 }
             }
         }
 
-        // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
-        // So that we can update the max_compaction_score metric.
-        if (!data_dir->reach_capacity_limit(0)) {
-            uint32_t disk_max_score = 0;
-            TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
-                    compaction_type, data_dir,
-                    compaction_type == CompactionType::CUMULATIVE_COMPACTION
-                            ? copied_cumu_map[data_dir]
-                            : copied_base_map[data_dir],
-                    &disk_max_score, _cumulative_compaction_policy);
-            if (tablet != nullptr) {
-                if (need_pick_tablet) {
-                    tablets_compaction.emplace_back(tablet);
-                }
-                max_compaction_score = std::max(max_compaction_score, disk_max_score);
-            }
+        if (need_pick_tablet) {
+            disks_need_pick_tablet.emplace(data_dir);
+        }
+    }
+
+    std::map<DataDir*, TabletSharedPtr> tablets_picked = _tablet_manager->find_best_tablet_to_compaction(
+            compaction_type, disks_need_pick_tablet,
+            compaction_type == CompactionType::CUMULATIVE_COMPACTION ? copied_cumu_map : copied_base_map,
+            &max_compaction_score, _cumulative_compaction_policy, check_score);
+    for (auto tablet_iter = tablets_picked.begin(); tablet_iter != tablets_picked.end(); ++tablet_iter) {
+        if (tablet_iter->second != nullptr) {
+            tablets_compaction.emplace_back(tablet_iter->second);
         }
     }
 

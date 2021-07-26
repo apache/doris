@@ -158,7 +158,7 @@ public:
     inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
 
     // operation for compaction
-    bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
+    bool can_do_compaction(CompactionType compaction_type);
     uint32_t calc_compaction_score(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
