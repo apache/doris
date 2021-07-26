@@ -21,10 +21,12 @@ import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.system.Backend;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.util.DebugUtil;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -37,9 +39,10 @@ import java.util.List;
 
 /*
  * Show trash
- * SHOW PROC /trash/
+ * SHOW PROC /trash
+ * SHOW PROC /trash/backendId
  */
-public class TrashProcNode implements ProcNodeInterface {
+public class TrashProcNode implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -52,6 +55,10 @@ public class TrashProcNode implements ProcNodeInterface {
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
         }
+    }
+
+    public TrashProcNode(Backend backend) {
+        backends.add(backend);
     }
     
     @Override
@@ -104,7 +111,32 @@ public class TrashProcNode implements ProcNodeInterface {
             }
             infos.add(backendInfo);
         }
+    }
 
+    @Override
+    public boolean register(String name, ProcNodeInterface node) {
+        return false;
+    }
+
+    @Override
+    public ProcNodeInterface lookup(String beIdStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(beIdStr)) {
+            throw new AnalysisException("Backend id is null");
+        }
+
+        long backendId = -1L;
+        try {
+            backendId = Long.parseLong(beIdStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid backend id format: " + beIdStr);
+        }
+
+        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+        if (backend == null) {
+            throw new AnalysisException("Backend[" + backendId + "] does not exist.");
+        }
+
+        return new TrashProcNode(backend);
     }
 }
 
