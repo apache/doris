@@ -70,11 +70,11 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    std::map<DataDir*, TabletSharedPtr> find_best_tablet_to_compaction(
-            CompactionType compaction_type, const std::unordered_set<DataDir*>& disks_need_pick_tablet,
+    void find_best_tablet_to_compaction(
+            CompactionType compaction_type, std::map<DataDir*, TabletSharedPtr>* disk_best_tablet,
             std::map<DataDir*, std::unordered_set<TTabletId>>& tablet_submitted_compaction,
     uint32_t* max_score, std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy,
-    bool check_score);
+    const bool check_score);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);

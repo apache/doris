@@ -420,7 +420,6 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
-//    std::random_shuffle(data_dirs.begin(), data_dirs.end());
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when travesing the data dir
@@ -432,7 +431,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         copied_base_map = _tablet_submitted_base_compaction;
     }
 
-    std::unordered_set<DataDir*> disks_need_pick_tablet;
+    std::map<DataDir*, TabletSharedPtr> disk_best_tablet;
     for (auto data_dir : data_dirs) {
         bool need_pick_tablet = true;
         // We need to reserve at least one Slot for cumulative compaction.
@@ -454,15 +453,14 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         }
 
         if (need_pick_tablet) {
-            disks_need_pick_tablet.emplace(data_dir);
+            disk_best_tablet[data_dir] = nullptr;
         }
     }
 
-    std::map<DataDir*, TabletSharedPtr> tablets_picked = _tablet_manager->find_best_tablet_to_compaction(
-            compaction_type, disks_need_pick_tablet,
+    _tablet_manager->find_best_tablet_to_compaction(compaction_type, &disk_best_tablet,
             compaction_type == CompactionType::CUMULATIVE_COMPACTION ? copied_cumu_map : copied_base_map,
             &max_compaction_score, _cumulative_compaction_policy, check_score);
-    for (auto tablet_iter = tablets_picked.begin(); tablet_iter != tablets_picked.end(); ++tablet_iter) {
+    for (auto tablet_iter = disk_best_tablet.begin(); tablet_iter != disk_best_tablet.end(); ++tablet_iter) {
         if (tablet_iter->second != nullptr) {
             tablets_compaction.emplace_back(tablet_iter->second);
         }

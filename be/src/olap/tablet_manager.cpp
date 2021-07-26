@@ -629,23 +629,21 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
     result->__set_tablets_stats(_tablet_stat_cache);
 }
 
-std::map<DataDir*, TabletSharedPtr> TabletManager::find_best_tablet_to_compaction(
-        CompactionType compaction_type, const std::unordered_set<DataDir*>& disks_need_pick_tablet,
+void TabletManager::find_best_tablet_to_compaction(
+        CompactionType compaction_type, std::map<DataDir*, TabletSharedPtr>* disk_best_tablet,
         std::map<DataDir*, std::unordered_set<TTabletId>>& tablet_submitted_compaction,
         uint32_t* max_score, std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy,
-        bool check_score) {
+        const bool check_score) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     std::map<DataDir*, double> highest_score;
     std::map<DataDir*, uint32_t> compaction_score;
     std::map<DataDir*, double> tablet_scan_frequency;
-    std::map<DataDir*, TabletSharedPtr> best_tablet;
-    for (auto disk_iter = disks_need_pick_tablet.begin(); disk_iter != disks_need_pick_tablet.end(); ++disk_iter) {
-        highest_score[*disk_iter] = 0.0;
-        compaction_score[*disk_iter] = 0;
-        tablet_scan_frequency[*disk_iter] = 0.0;
-        best_tablet[*disk_iter] = nullptr;
+    for (auto disk_iter = disk_best_tablet->begin(); disk_iter != disk_best_tablet->end(); ++disk_iter) {
+        highest_score[disk_iter->first] = 0.0;
+        compaction_score[disk_iter->first] = 0;
+        tablet_scan_frequency[disk_iter->first] = 0.0;
     }
 
     for (const auto& tablets_shard : _tablets_shards) {
@@ -653,8 +651,8 @@ std::map<DataDir*, TabletSharedPtr> TabletManager::find_best_tablet_to_compactio
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
                 bool need_pick_tablet = true;
-                auto disk_iter = disks_need_pick_tablet.find(tablet_ptr->data_dir());
-                if (disk_iter == disks_need_pick_tablet.end()) {
+                auto disk_iter = disk_best_tablet->find(tablet_ptr->data_dir());
+                if (disk_iter == disk_best_tablet->end()) {
                     need_pick_tablet = false;
                     if (!check_score) {
                         continue;
@@ -715,7 +713,7 @@ std::map<DataDir*, TabletSharedPtr> TabletManager::find_best_tablet_to_compactio
                     highest_score[tablet_ptr->data_dir()] = tablet_score;
                     compaction_score[tablet_ptr->data_dir()] = current_compaction_score;
                     tablet_scan_frequency[tablet_ptr->data_dir()] = scan_frequency;
-                    best_tablet[tablet_ptr->data_dir()] = tablet_ptr;
+                    (*disk_best_tablet)[tablet_ptr->data_dir()] = tablet_ptr;
                 }
 
                 if (current_compaction_score > *max_score) {
@@ -725,18 +723,17 @@ std::map<DataDir*, TabletSharedPtr> TabletManager::find_best_tablet_to_compactio
         }
     }
 
-    for (auto disk_iter = disks_need_pick_tablet.begin(); disk_iter != disks_need_pick_tablet.end(); ++disk_iter) {
-        if (best_tablet[*disk_iter] != nullptr) {
+    for (auto disk_iter = disk_best_tablet->begin(); disk_iter != disk_best_tablet->end(); ++disk_iter) {
+        if (disk_iter->second != nullptr) {
             VLOG_CRITICAL << "Found the best tablet for compaction. "
                         << "compaction_type=" << compaction_type_str
-                        << ", path=" << (*disk_iter)->path()
-                        << ", tablet_id=" << best_tablet[*disk_iter]->tablet_id()
-                        << ", compaction_score=" << compaction_score[*disk_iter]
-                        << ", tablet_scan_frequency=" << tablet_scan_frequency[*disk_iter]
-                        << ", highest_score=" << highest_score[*disk_iter];
+                        << ", path=" << (disk_iter->first)->path()
+                        << ", tablet_id=" << (disk_iter->second)->tablet_id()
+                        << ", compaction_score=" << compaction_score[disk_iter->first]
+                        << ", tablet_scan_frequency=" << tablet_scan_frequency[disk_iter->first]
+                        << ", highest_score=" << highest_score[disk_iter->first];
         }
     }
-    return best_tablet;
 }
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
