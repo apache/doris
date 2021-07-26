@@ -184,10 +184,15 @@ template <class BloomFilterAdaptor>
 struct StringFindOp {
     ALWAYS_INLINE void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
-        bloom_filter.add_bytes(value->ptr, value->len);
+        if (value) {
+            bloom_filter.add_bytes(value->ptr, value->len);
+        }
     }
     ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         const auto* value = reinterpret_cast<const StringValue*>(data);
+        if (value == nullptr) {
+            return false;
+        }
         return bloom_filter.test_bytes(value->ptr, value->len);
     }
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
@@ -196,6 +201,8 @@ struct StringFindOp {
     }
 };
 
+// We do not need to judge whether data is empty, because null will not appear
+// when filer used by the storage engine
 template <class BloomFilterAdaptor>
 struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
