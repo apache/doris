@@ -242,6 +242,8 @@ public class FileSystemManager {
             }
             if (fileSystem.getDFSFileSystem() == null) {
                 logger.info("could not find file system for path " + path + " create a new one");
+                UserGroupInformation ugi = null;
+
                 // create a new filesystem
                 Configuration conf = new HdfsConfiguration();
 
@@ -279,7 +281,7 @@ public class FileSystemManager {
                                 "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
-                    UserGroupInformation.loginUserFromKeytab(principal, keytab);
+                    ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
                     if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
                         try {
                             File file = new File(tmpFilePath);
@@ -343,21 +345,15 @@ public class FileSystemManager {
                 if (authentication.equals(AUTHENTICATION_SIMPLE) &&
                     properties.containsKey(USER_NAME_KEY) && !Strings.isNullOrEmpty(username)) {
                     // Use the specified 'username' as the login name
-                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(username);
+                    ugi = UserGroupInformation.createRemoteUser(username);
                     // make sure hadoop client know what auth method would be used now,
                     // don't set as default
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_SIMPLE);
                     ugi.setAuthenticationMethod(UserGroupInformation.AuthenticationMethod.SIMPLE);
-
-                    dfsFileSystem = ugi.doAs(new PrivilegedExceptionAction<FileSystem>() {
-                        @Override
-                        public FileSystem run() throws Exception {
-                            return FileSystem.get(pathUri.getUri(), conf);
-                        }
-                    });
-                } else {
-                    dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 }
+                dfsFileSystem = ugi != null ?
+                        ugi.doAs((PrivilegedExceptionAction<FileSystem>) () -> FileSystem.get(pathUri.getUri(), conf)) :
+                        FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }
             return fileSystem;
