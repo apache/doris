@@ -563,7 +563,6 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
     if (tablet_info_vec.empty()) { // This is a high probability event
-        LOG(INFO) << "tablet_info_vec is empty, return directly.";
         return res;
     }
     std::vector<std::set<size_t>> local_tmp_vector(_tablets_shards_size);
