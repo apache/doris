@@ -1081,7 +1081,7 @@ broker scanner 的最大并发数。
 
 是否为 Master FE 节点独有的配置项：true
 
-单个 broker scanner 将读取的最大字节数。
+单个 broker scanner 将读取的最小字节数。
 
 ### catalog_trash_expire_second
 
