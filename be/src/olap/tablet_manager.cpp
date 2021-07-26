@@ -711,6 +711,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
+                if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash() ||
+                    !tablet_ptr->is_used() || !tablet_ptr->init_succeeded() ||
+                    !tablet_ptr->can_do_compaction()) {
+                    continue;
+                }
+
                 auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
                 if (search != tablet_submitted_compaction.end()) {
                     continue;
@@ -730,12 +736,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
                 // A not-ready tablet maybe a newly created tablet under schema-change, skip it
                 if (tablet_ptr->tablet_state() == TABLET_NOTREADY) {
-                    continue;
-                }
-
-                if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash() ||
-                    !tablet_ptr->is_used() || !tablet_ptr->init_succeeded() ||
-                    !tablet_ptr->can_do_compaction()) {
                     continue;
                 }
 
