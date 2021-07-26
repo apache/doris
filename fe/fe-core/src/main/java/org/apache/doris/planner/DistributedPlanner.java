@@ -348,53 +348,7 @@ public class DistributedPlanner {
             return leftChildFragment;
         }
 
-        // broadcast: send the rightChildFragment's output to each node executing
-        // the leftChildFragment; the cost across all nodes is proportional to the
-        // total amount of data sent
-
-        // NOTICE:
-        // for now, only MysqlScanNode and OlapScanNode has Cardinality.
-        // OlapScanNode's cardinality is calculated by row num and data size,
-        // and MysqlScanNode's cardinality is always 0.
-        // Other ScanNode's cardinality is -1.
-        //
-        // So if there are other kind of scan node in join query, it won't be able to calculate the cost of
-        // join normally and result in both "broadcastCost" and "partitionCost" be 0. And this will lead
-        // to a SHUFFLE join.
-        PlanNode rhsTree = rightChildFragment.getPlanRoot();
-        long rhsDataSize = 0;
-        long broadcastCost = 0;
-        if (rhsTree.getCardinality() != -1 && leftChildFragment.getNumNodes() != -1) {
-            rhsDataSize = Math.round((double) rhsTree.getCardinality() * rhsTree.getAvgRowSize());
-            broadcastCost = rhsDataSize * leftChildFragment.getNumNodes();
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
-            LOG.debug("card=" + Long.toString(rhsTree.getCardinality()) + " row_size="
-                    + Float.toString(rhsTree.getAvgRowSize()) + " #nodes="
-                    + Integer.toString(leftChildFragment.getNumNodes()));
-        }
-
-        // repartition: both left- and rightChildFragment are partitioned on the
-        // join exprs
-        // TODO: take existing partition of input fragments into account to avoid
-        // unnecessary repartitioning
-        PlanNode lhsTree = leftChildFragment.getPlanRoot();
-        long partitionCost = 0;
-        if (lhsTree.getCardinality() != -1 && rhsTree.getCardinality() != -1) {
-            partitionCost = Math.round(
-                    (double) lhsTree.getCardinality() * lhsTree.getAvgRowSize() + (double) rhsTree
-                            .getCardinality() * rhsTree.getAvgRowSize());
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("partition: cost=" + Long.toString(partitionCost));
-            LOG.debug("lhs card=" + Long.toString(lhsTree.getCardinality()) + " row_size="
-                    + Float.toString(lhsTree.getAvgRowSize()));
-            LOG.debug("rhs card=" + Long.toString(rhsTree.getCardinality()) + " row_size="
-                    + Float.toString(rhsTree.getAvgRowSize()));
-            LOG.debug(rhsTree.getExplainString());
-        }
-
+        JoinCostEvaluation joinCostEvaluation = new JoinCostEvaluation(node, rightChildFragment, leftChildFragment);
         boolean doBroadcast;
         // we do a broadcast join if
         // - we're explicitly told to do so
@@ -408,9 +362,9 @@ public class DistributedPlanner {
                 // respect user join hint
                 doBroadcast = true;
             } else if (!node.getInnerRef().isPartitionJoin()
-                    && isBroadcastCostSmaller(broadcastCost, partitionCost)
+                    && joinCostEvaluation.isBroadcastCostSmaller()
                     && (perNodeMemLimit == 0
-                    || Math.round((double) rhsDataSize * PlannerContext.HASH_TBL_SPACE_OVERHEAD) <= perNodeMemLimit)) {
+                    || joinCostEvaluation.constructHashTableSpace() <= perNodeMemLimit)) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;
@@ -418,7 +372,6 @@ public class DistributedPlanner {
         } else {
             doBroadcast = false;
         }
-
         if (doBroadcast) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BROADCAST);
             // Doesn't create a new fragment, but modifies leftChildFragment to execute
