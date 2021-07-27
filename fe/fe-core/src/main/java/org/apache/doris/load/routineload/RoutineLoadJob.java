@@ -1353,7 +1353,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
         // remove the last ,
-        if (",".equals(sb.charAt(sb.length() - 2))) {
+        if (sb.charAt(sb.length() - 2) == ',') {
             sb.replace(sb.length() - 2, sb.length() - 1, "");
         }
         // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt

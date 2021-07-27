@@ -125,6 +125,7 @@ public class AlterRoutineLoadStmtTest {
             }
         }
 
+        // alter topic is now supported
         {
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
@@ -138,9 +139,8 @@ public class AlterRoutineLoadStmtTest {
 
             try {
                 stmt.analyze(analyzer);
-                Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("kafka_topic is invalid kafka property"));
+                Assert.fail();
             } catch (UserException e) {
                 e.printStackTrace();
                 Assert.fail();
