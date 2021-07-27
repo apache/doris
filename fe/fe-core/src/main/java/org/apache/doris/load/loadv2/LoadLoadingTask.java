@@ -68,7 +68,6 @@ public class LoadLoadingTask extends LoadTask {
     private LoadingTaskPlanner planner;
 
     private RuntimeProfile jobProfile;
-    private RuntimeProfile profile;
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
@@ -172,17 +171,15 @@ public class LoadLoadingTask extends LoadTask {
         return jobDeadlineMs - System.currentTimeMillis();
     }
 
-    public void createProfile(Coordinator coord) {
+    private void createProfile(Coordinator coord) {
         if (jobProfile == null) {
             // No need to gather profile
             return;
         }
         // Summary profile
-        profile = new RuntimeProfile("LoadTask: " + DebugUtil.printId(loadId));
         coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTime));
         coord.endProfile();
-        profile.addChild(coord.getQueryProfile());
-        jobProfile.addChild(profile);
+        jobProfile.addChild(coord.getQueryProfile());
     }
 
     @Override

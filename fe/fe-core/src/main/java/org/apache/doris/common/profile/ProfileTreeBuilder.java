@@ -23,11 +23,11 @@ import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TUnit;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
-
-import com.clearspring.analytics.util.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.Formatter;
 import java.util.List;
@@ -46,14 +46,13 @@ import java.util.regex.Pattern;
  */
 public class ProfileTreeBuilder {
 
-    private static final String PROFILE_NAME_QUERY = "Query";
-    private static final String PROFILE_NAME_EXECUTION = "Execution Profile";
     private static final String PROFILE_NAME_DATA_STREAM_SENDER = "DataStreamSender";
     private static final String PROFILE_NAME_DATA_BUFFER_SENDER = "DataBufferSender";
+    private static final String PROFILE_NAME_OLAP_TABLE_SINK = "OlapTableSink";
     private static final String PROFILE_NAME_BLOCK_MGR = "BlockMgr";
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
     private static final String PROFILE_NAME_EXCHANGE_NODE = "EXCHANGE_NODE";
-    public static final String DATA_BUFFER_SENDER_ID = "-1";
+    public static final String FINAL_SENDER_ID = "-1";
     public static final String UNKNOWN_ID = "-2";
 
     private RuntimeProfile profileRoot;
@@ -115,7 +114,7 @@ public class ProfileTreeBuilder {
 
     public void build() throws UserException {
         reset();
-        unwrapProfile();
+        checkProfile();
         analyzeAndBuildFragmentTrees();
         assembleFragmentTrees();
     }
@@ -128,25 +127,9 @@ public class ProfileTreeBuilder {
         fragmentTreeRoot = null;
     }
 
-    private void unwrapProfile() throws UserException {
-        while(true) {
-            if (profileRoot.getName().startsWith(PROFILE_NAME_QUERY)) {
-                List<Pair<RuntimeProfile, Boolean>> children = profileRoot.getChildList();
-                boolean find = false;
-                for (Pair<RuntimeProfile, Boolean> pair : children) {
-                    if (pair.first.getName().startsWith(PROFILE_NAME_EXECUTION)) {
-                        this.profileRoot = pair.first;
-                        find = true;
-                        break;
-                    }
-                }
-                if (!find) {
-                    throw new UserException("Invalid profile. Expected " + PROFILE_NAME_EXECUTION
-                            + " in " + PROFILE_NAME_QUERY);
-                }
-            } else {
-                break;
-            }
+    private void checkProfile() throws UserException {
+        if (!profileRoot.getName().startsWith(MultiProfileTreeBuilder.PROFILE_NAME_EXECUTION)) {
+            throw new UserException("Invalid profile. Expected " + MultiProfileTreeBuilder.PROFILE_NAME_EXECUTION);
         }
     }
 
@@ -179,7 +162,7 @@ public class ProfileTreeBuilder {
         RuntimeProfile instanceProfile = fragmentChildren.get(0).first;
         ProfileTreeNode instanceTreeRoot = buildSingleInstanceTree(instanceProfile, fragmentId, null);
         instanceTreeRoot.setMaxInstanceActiveTime(RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS));
-        if (instanceTreeRoot.id.equals(DATA_BUFFER_SENDER_ID)) {
+        if (instanceTreeRoot.id.equals(FINAL_SENDER_ID)) {
             fragmentTreeRoot = instanceTreeRoot;
         }
 
@@ -195,7 +178,7 @@ public class ProfileTreeBuilder {
         this.instanceTreeMap.put(fragmentId, instanceTrees);
     }
 
-    // If instanceId is null, which means this profile tree node is for bulding the entire fragment tree.
+    // If instanceId is null, which means this profile tree node is for building the entire fragment tree.
     // So that we need to add sender and exchange node to the auxiliary structure.
     private ProfileTreeNode buildSingleInstanceTree(RuntimeProfile instanceProfile, String fragmentId,
                                                     String instanceId) throws UserException {
@@ -205,7 +188,8 @@ public class ProfileTreeBuilder {
         for (Pair<RuntimeProfile, Boolean> pair : instanceChildren) {
             RuntimeProfile profile = pair.first;
             if (profile.getName().startsWith(PROFILE_NAME_DATA_STREAM_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)) {
+                    || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
+                    || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
                 senderNode = buildTreeNode(profile, null, fragmentId, instanceId);
                 if (instanceId == null) {
                     senderNodes.add(senderNode);
@@ -238,11 +222,11 @@ public class ProfileTreeBuilder {
             // skip Buffer pool, and buffer pool does not has child
             return null;
         }
-        boolean isDataBufferSender = name.startsWith(PROFILE_NAME_DATA_BUFFER_SENDER);
+        String finalSenderName = checkAndGetFinalSenderName(name);
         Matcher m = EXEC_NODE_NAME_ID_PATTERN.matcher(name);
         String extractName;
         String extractId;
-        if ((!m.find() && !isDataBufferSender) || m.groupCount() != 2) {
+        if ((!m.find() && finalSenderName == null) || m.groupCount() != 2) {
             // DataStreamBuffer name like: "DataBufferSender (dst_fragment_instance_id=d95356f9219b4831-986b4602b41683ca):"
             // So it has no id.
             // Other profile should has id like:
@@ -251,8 +235,8 @@ public class ProfileTreeBuilder {
             extractName = name;
             extractId = UNKNOWN_ID;
         } else {
-            extractName = isDataBufferSender ? PROFILE_NAME_DATA_BUFFER_SENDER : m.group(1);
-            extractId = isDataBufferSender ? DATA_BUFFER_SENDER_ID : m.group(2);
+            extractName = finalSenderName != null ? finalSenderName : m.group(1);
+            extractId = finalSenderName != null ? FINAL_SENDER_ID : m.group(2);
         }
         Counter activeCounter = profile.getCounterTotalTime();
         ExecNodeNode node = new ExecNodeNode(extractName, extractId);
@@ -286,6 +270,18 @@ public class ProfileTreeBuilder {
         return node;
     }
 
+    // Check if the given node name is from final node, like DATA_BUFFER_SENDER or OLAP_TABLE_SINK
+    // If yes, return that name, if not, return null;
+    private String checkAndGetFinalSenderName(String name) {
+        if (name.startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)) {
+            return PROFILE_NAME_DATA_BUFFER_SENDER;
+        } else if (name.startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
+            return PROFILE_NAME_OLAP_TABLE_SINK;
+        } else {
+            return null;
+        }
+    }
+
     private void buildCounterNode(RuntimeProfile profile, String counterName, CounterNode root) {
         Map<String, TreeSet<String>> childCounterMap = profile.getChildCounterMap();
         Set<String> childCounterSet = childCounterMap.get(counterName);
@@ -308,7 +304,7 @@ public class ProfileTreeBuilder {
 
     private void assembleFragmentTrees() throws UserException {
         for (ProfileTreeNode senderNode : senderNodes) {
-            if (senderNode.id.equals(DATA_BUFFER_SENDER_ID)) {
+            if (senderNode.id.equals(FINAL_SENDER_ID)) {
                 // this is result sender, skip it.
                 continue;
             }

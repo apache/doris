@@ -33,6 +33,9 @@ class MemTracker;
 class RuntimeState;
 class ExprContext;
 
+// The counter will be passed to each scanner.
+// Note that this struct is not thread safe.
+// So if we support concurrent scan in the future, we need to modify this struct.
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
 
