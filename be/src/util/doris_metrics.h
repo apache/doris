@@ -191,6 +191,7 @@ public:
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* etl_thread_pool_queue_size;
+    UIntGauge* add_batch_task_queue_size;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
