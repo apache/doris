@@ -382,6 +382,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("user", new Integer(SqlParserSymbols.KW_USER));
         keywordMap.put("using", new Integer(SqlParserSymbols.KW_USING));
         keywordMap.put("uninstall", new Integer(SqlParserSymbols.KW_UNINSTALL));
+        keywordMap.put("update", new Integer(SqlParserSymbols.KW_UPDATE));
         keywordMap.put("value", new Integer(SqlParserSymbols.KW_VALUE));
         keywordMap.put("values", new Integer(SqlParserSymbols.KW_VALUES));
         keywordMap.put("varchar", new Integer(SqlParserSymbols.KW_VARCHAR));

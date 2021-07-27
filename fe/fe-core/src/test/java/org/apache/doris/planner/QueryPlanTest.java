@@ -41,20 +41,20 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
-import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 import java.io.File;
 import java.util.List;
 import java.util.UUID;
+
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
@@ -446,7 +446,7 @@ public class QueryPlanTest {
 
         queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
         String errorMsg = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(errorMsg.contains("bitmap column id2 require the function return type is BITMAP"));
+        Assert.assertTrue(errorMsg.contains("bitmap column require the function return type is BITMAP"));
     }
 
     private static void testBitmapQueryPlan(String sql, String result) throws Exception {

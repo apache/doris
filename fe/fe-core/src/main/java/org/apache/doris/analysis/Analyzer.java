@@ -457,13 +457,40 @@ public class Analyzer {
         result.setAliases(aliases, ref.hasExplicitAlias());
 
         // Register all legal aliases.
-        for (String alias: aliases) {
+        for (String alias : aliases) {
             // TODO(zc)
             // aliasMap_.put(alias, result);
             tupleByAlias.put(alias, result);
         }
         tableRefMap_.put(result.getId(), ref);
 
+        return result;
+    }
+
+    /**
+     * Create an new tuple descriptor for the given table, register all table columns.
+     * Using this method requires external table read locks in advance.
+     */
+    public TupleDescriptor registerOlapTable(Table table, TableName tableName, List<String> partitions) {
+        TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
+        BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
+        TupleDescriptor result = globalState.descTbl.createTupleDescriptor();
+        result.setTable(table);
+        result.setRef(tableRef);
+        result.setAliases(tableRef.getAliases(), ref.hasExplicitAlias());
+        for (Column col : table.getBaseSchema(true)) {
+            SlotDescriptor slot = globalState.descTbl.addSlotDescriptor(result);
+            slot.setIsMaterialized(true);
+            slot.setColumn(col);
+            slot.setIsNullable(col.isAllowNull());
+            String key = tableRef.aliases_[0] + "." + col.getName();
+            slotRefMap.put(key, slot);
+        }
+        globalState.descTbl.computeStatAndMemLayout();
+        tableRefMap_.put(result.getId(), ref);
+        for (String alias : tableRef.getAliases()) {
+            tupleByAlias.put(alias, result);
+        }
         return result;
     }
 

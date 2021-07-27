@@ -56,7 +56,7 @@ public class Planner {
 
     private boolean isBlockQuery = false;
 
-    private ArrayList<PlanFragment> fragments = Lists.newArrayList();
+    protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
     private PlannerContext plannerContext;
     private SingleNodePlanner singleNodePlanner;
