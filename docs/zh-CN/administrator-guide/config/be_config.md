@@ -1120,12 +1120,18 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 ### `storage_root_path`
 
 * 类型：string
-* 描述：BE数据存储的目录,多目录之间用;分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过,隔开。
-eg：storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
 
-	* 1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
-	* 2./home/disk2/doris.SSD，存储限制为1GB，SSD；
-	* 3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
+* 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+
+  **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+
+  示例如下：
+
+  `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+
+  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
 
 * 默认值：${DORIS_HOME}
 
