@@ -39,11 +39,13 @@ import java.util.List;
 
 /*
  * Show trash
- * SHOW PROC /trash
- * SHOW PROC /trash/backendId
+ * SHOW PROC '/trash'
+ * SHOW PROC '/trash/backendId'
  */
 public class TrashProcNode implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
+
+    private boolean isNode;
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
     .add("BackendId").add("Backend").add("TrashUsedCapacity").build();
@@ -51,6 +53,7 @@ public class TrashProcNode implements ProcDirInterface {
     private List<Backend> backends = Lists.newArrayList();
     
     public TrashProcNode() {
+        isNode = false;
         ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
             this.backends.add(backend);
@@ -58,6 +61,7 @@ public class TrashProcNode implements ProcDirInterface {
     }
 
     public TrashProcNode(Backend backend) {
+        isNode = true;
         backends.add(backend);
     }
     
@@ -120,6 +124,10 @@ public class TrashProcNode implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String beIdStr) throws AnalysisException {
+        if (isNode) {
+            throw new AnalysisException("Invalid query format");
+        }
+
         if (Strings.isNullOrEmpty(beIdStr)) {
             throw new AnalysisException("Backend id is null");
         }
