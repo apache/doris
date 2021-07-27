@@ -252,7 +252,7 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private void initProfile() {
-        profile = new RuntimeProfile("Query");
+        profile = new RuntimeProfile("ExportJob");
         RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(job.getId()));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));

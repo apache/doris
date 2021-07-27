@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprId;
@@ -32,6 +31,7 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlan;
 import org.apache.doris.thrift.TPlanNode;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
@@ -658,7 +658,6 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-
     /**
      * Returns the estimated combined selectivity of all conjuncts. Uses heuristics to
      * address the following estimation challenges:
@@ -737,6 +736,14 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         if (cardinality == 0 && preConjunctCardinality > 0) {
             cardinality = 1;
         }
+    }
+
+    public String getPlanTreeExplanStr() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
+        sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");
+        sb.append("\n").append(getNodeExplainString("", TExplainLevel.BRIEF));
+        return sb.toString();
     }
 
     public ScanNode getScanNodeInOneFragmentByTupleId(TupleId tupleId) {

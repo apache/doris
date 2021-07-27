@@ -18,9 +18,8 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.profile.ProfileTreeBuilder;
+import org.apache.doris.common.profile.MultiProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
-import org.apache.doris.common.profile.ProfileTreePrinter;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -68,6 +67,11 @@ public class ProfileManager {
     public static final String SQL_STATEMENT = "Sql Statement";
     public static final String IS_CACHED = "Is Cached";
 
+    public enum ProfileType {
+        QUERY,
+        LOAD,
+    }
+
     public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
             Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE));
@@ -75,7 +79,7 @@ public class ProfileManager {
     private class ProfileElement {
         public Map<String, String> infoStrings = Maps.newHashMap();
         public String profileContent = "";
-        public ProfileTreeBuilder builder = null;
+        public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
     }
     
@@ -113,8 +117,9 @@ public class ProfileManager {
         for (String header : PROFILE_HEADERS) {
             element.infoStrings.put(header, summaryProfile.getInfoString(header));
         }
+        element.profileContent = profile.toString();
 
-        ProfileTreeBuilder builder = new ProfileTreeBuilder(profile);
+        MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
         try {
             builder.build();
         } catch (Exception e) {
@@ -122,9 +127,7 @@ public class ProfileManager {
             LOG.debug("failed to build profile tree", e);
             return element;
         }
-
         element.builder = builder;
-        element.profileContent = profile.toString();
         return element;
     }
     
@@ -158,8 +161,12 @@ public class ProfileManager {
             writeLock.unlock();
         }
     }
-    
+
     public List<List<String>> getAllQueries() {
+        return getQueryWithType(null);
+    }
+
+    public List<List<String>> getQueryWithType(ProfileType type) {
         List<List<String>> result = Lists.newArrayList();
         readLock.lock();
         try {
@@ -171,9 +178,12 @@ public class ProfileManager {
                     continue;
                 }
                 Map<String, String> infoStrings = profileElement.infoStrings;
-                
+                if (type != null && !infoStrings.get(QUERY_TYPE).equalsIgnoreCase(type.name())) {
+                    continue;
+                }
+
                 List<String> row = Lists.newArrayList();
-                for (String str : PROFILE_HEADERS ) {
+                for (String str : PROFILE_HEADERS) {
                     row.add(infoStrings.get(str));
                 }
                 result.add(row);
@@ -183,7 +193,7 @@ public class ProfileManager {
         }
         return result;
     }
-    
+
     public String getProfile(String queryID) {
         readLock.lock();
         try {
@@ -191,32 +201,15 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
-            
+
             return element.profileContent;
         } finally {
             readLock.unlock();
         }
     }
 
-    public String getFragmentProfileTreeString(String queryID) {
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                return null;
-            }
-            ProfileTreeBuilder builder = element.builder;
-            return builder.getFragmentTreeRoot().debugTree(0, ProfileTreePrinter.PrintLevel.INSTANCE);
-        } catch (Exception e) {
-            LOG.warn("failed to get profile tree", e);
-            return null;
-        } finally {
-            readLock.unlock();
-        }
-    }
-
-    public ProfileTreeNode getFragmentProfileTree(String queryID) throws AnalysisException {
-        ProfileTreeNode tree;
+    public ProfileTreeNode getFragmentProfileTree(String queryID, String executionId) throws AnalysisException {
+        MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(queryID);
@@ -224,14 +217,16 @@ public class ProfileManager {
                 throw new AnalysisException("failed to get fragment profile tree. err: "
                         + (element == null ? "not found" : element.errMsg));
             }
-            return element.builder.getFragmentTreeRoot();
+            builder = element.builder;
         } finally {
             readLock.unlock();
         }
+        return builder.getFragmentTreeRoot(executionId);
     }
 
-    public List<Triple<String, String, Long>> getFragmentInstanceList(String queryID, String fragmentId) throws AnalysisException {
-        ProfileTreeBuilder builder;
+    public List<Triple<String, String, Long>> getFragmentInstanceList(String queryID, String executionId, String fragmentId)
+            throws AnalysisException {
+        MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(queryID);
@@ -244,11 +239,12 @@ public class ProfileManager {
             readLock.unlock();
         }
 
-        return builder.getInstanceList(fragmentId);
+        return builder.getInstanceList(executionId, fragmentId);
     }
 
-    public ProfileTreeNode getInstanceProfileTree(String queryID, String fragmentId, String instanceId) throws AnalysisException {
-        ProfileTreeBuilder builder;
+    public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId, String fragmentId, String instanceId)
+            throws AnalysisException {
+        MultiProfileTreeBuilder builder;
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(queryID);
@@ -261,6 +257,25 @@ public class ProfileManager {
             readLock.unlock();
         }
 
-        return builder.getInstanceTreeRoot(fragmentId, instanceId);
+        return builder.getInstanceTreeRoot(executionId, fragmentId, instanceId);
+    }
+
+    // Return the tasks info of the specified load job
+    // Columns: TaskId, ActiveTime
+    public List<List<String>> getLoadJobTaskList(String jobId) throws AnalysisException {
+        MultiProfileTreeBuilder builder;
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(jobId);
+            if (element == null || element.builder == null) {
+                throw new AnalysisException("failed to get task ids. err: "
+                        + (element == null ? "not found" : element.errMsg));
+            }
+            builder = element.builder;
+        } finally {
+            readLock.unlock();
+        }
+
+        return builder.getSubTaskInfo();
     }
 }
