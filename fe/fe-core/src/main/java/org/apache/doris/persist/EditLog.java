@@ -485,6 +485,11 @@ public class EditLog {
                     catalog.getAuth().replaySetPassword(privInfo);
                     break;
                 }
+                case OperationType.OP_SET_LDAP_PASSWORD: {
+                    LdapInfo ldapInfo = (LdapInfo) journal.getData();
+                    catalog.getAuth().replaySetLdapPassword(ldapInfo);
+                    break;
+                }
                 case OperationType.OP_CREATE_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     catalog.getAuth().replayCreateRole(privInfo);
@@ -1126,6 +1131,10 @@ public class EditLog {
 
     public void logSetPassword(PrivInfo info) {
         logEdit(OperationType.OP_SET_PASSWORD, info);
+    }
+
+    public void logSetLdapPassword(LdapInfo info) {
+        logEdit(OperationType.OP_SET_LDAP_PASSWORD, info);
     }
 
     public void logCreateRole(PrivInfo info) {

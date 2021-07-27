@@ -17,12 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -55,10 +55,23 @@ public class ConfigBase {
     private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;
 
-    public void init(String confFile) throws Exception {
-        confClass = this.getClass();
-        this.confFile = confFile;
-        initConf(confFile);
+    private static String ldapConfFile;
+    private static String ldapCustomConfFile;
+    public static Class<? extends ConfigBase> ldapConfClass;
+
+    private boolean isLdapConfig = false;
+
+    public void init(String configFile) throws Exception {
+        this.isLdapConfig = (this instanceof LdapConfig);
+        if (!isLdapConfig) {
+            confClass = this.getClass();
+            confFile = configFile;
+            initConf(confFile);
+        } else {
+            ldapConfClass = this.getClass();
+            ldapConfFile = configFile;
+            initConf(ldapConfFile);
+        }
     }
 
     public void initCustom(String customConfFile) throws Exception {
@@ -75,7 +88,7 @@ public class ConfigBase {
         Properties props = new Properties();
         props.load(new FileReader(confFile));
         replacedByEnv(props);
-        setFields(props);
+        setFields(props, isLdapConfig);
     }
     
     public static HashMap<String, String> dump() throws Exception { 
@@ -137,8 +150,9 @@ public class ConfigBase {
         }
     }
 
-    private static void setFields(Properties props) throws Exception {
-        Field[] fields = confClass.getFields();     
+    private static void setFields(Properties props, boolean isLdapConfig) throws Exception {
+        Class<? extends ConfigBase> theClass = isLdapConfig ? ldapConfClass : confClass;
+        Field[] fields = theClass.getFields();
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
@@ -159,7 +173,7 @@ public class ConfigBase {
             if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
                 Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
             }
-        }       
+        }
     }
 
     public static void setConfigField(Field f, String confVal) throws IllegalAccessException, Exception {

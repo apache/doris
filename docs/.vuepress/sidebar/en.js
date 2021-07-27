@@ -180,6 +180,7 @@ module.exports = [
       "export-manual",
       "outfile",
       "privilege",
+      "ldap"
       "resource-management",
       "running-profile",
       "runtime-filter",
@@ -443,6 +444,7 @@ module.exports = [
               "INSTALL PLUGIN",
               "LINK DATABASE",
               "MIGRATE DATABASE",
+              "SET LDAP_ADMIN_PASSWORD",
               "SHOW BACKENDS",
               "SHOW BROKER",
               "SHOW FILE",

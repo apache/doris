@@ -284,6 +284,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("partition", new Integer(SqlParserSymbols.KW_PARTITION));
         keywordMap.put("partitions", new Integer(SqlParserSymbols.KW_PARTITIONS));
         keywordMap.put("password", new Integer(SqlParserSymbols.KW_PASSWORD));
+        keywordMap.put("ldap_admin_password", new Integer(SqlParserSymbols.KW_LDAP_ADMIN_PASSWORD));
         keywordMap.put("path", new Integer(SqlParserSymbols.KW_PATH));
         keywordMap.put("pause", new Integer(SqlParserSymbols.KW_PAUSE));
         keywordMap.put("plugin", new Integer(SqlParserSymbols.KW_PLUGIN));

@@ -175,6 +175,17 @@ public class UserPrivTable extends PrivTable {
         return false;
     }
 
+    // Check whether the user exists and return the UserIdentity.
+    public UserIdentity getCurrentUserIdentity(UserIdentity userIdent) {
+        for (PrivEntry privEntry : entries) {
+            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
+            if (globalPrivEntry.match(userIdent, false)) {
+                return globalPrivEntry.getDomainUserIdent();
+            }
+        }
+        return null;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         if (!isClassNameWrote) {
