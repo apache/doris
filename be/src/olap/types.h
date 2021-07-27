@@ -327,7 +327,7 @@ public:
     inline uint32_t hash_code(const void* data, uint32_t seed) const override {
         auto value = reinterpret_cast<const CollectionValue*>(data);
         auto len = value->length();
-        uint32_t result = HashUtil::hash(&len, sizeof(size_t), seed);
+        uint32_t result = HashUtil::hash(&len, sizeof(len), seed);
         for (size_t i = 0; i < len; ++i) {
             if (value->is_null_at(i)) {
                 result = seed * result;

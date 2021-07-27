@@ -40,9 +40,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "runtime/stream_load/stream_load_pipe.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -188,8 +188,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
           _timeout_second(-1),
-          _fragments_ctx(std::move(fragments_ctx)),
-          _set_rsc_info(false) {
+          _set_rsc_info(false),
+          _fragments_ctx(std::move(fragments_ctx)) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
@@ -489,11 +489,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_cxt->need_commit_self = true;
         stream_load_cxt->need_rollback = true;
         // total_length == -1 means read one message from pipe in once time, don't care the length.
-        auto pipe = std::make_shared<StreamLoadPipe>(
-                1024 * 1024 /* max_buffered_bytes */,
-                64 * 1024 /* min_chunk_size */,
-                -1 /* total_length */,
-                true /* use_proto */);
+        auto pipe = std::make_shared<StreamLoadPipe>(1024 * 1024 /* max_buffered_bytes */,
+                                                     64 * 1024 /* min_chunk_size */,
+                                                     -1 /* total_length */, true /* use_proto */);
         stream_load_cxt->body_sink = pipe;
         stream_load_cxt->max_filter_ratio = params.txn_conf.max_filter_ratio;
 
@@ -508,7 +506,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     }
 }
 
-void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe) {
+void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
+                           std::shared_ptr<StreamLoadPipe> pipe) {
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
