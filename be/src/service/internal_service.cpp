@@ -35,12 +35,21 @@
 
 namespace doris {
 
-template <typename T>
-PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
-        : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {}
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(add_batch_task_queue_size, MetricUnit::NOUNIT);
 
 template <typename T>
-PInternalServiceImpl<T>::~PInternalServiceImpl() {}
+PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
+        : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
+    REGISTER_HOOK_METRIC(add_batch_task_queue_size, [this]() {
+      return _tablet_worker_pool.get_queue_size();
+    });
+
+}
+
+template <typename T>
+PInternalServiceImpl<T>::~PInternalServiceImpl() {
+    DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
+}
 
 template <typename T>
 void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cntl_base,
@@ -98,7 +107,9 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
                                                       PTabletWriterAddBatchResult* response,
                                                       google::protobuf::Closure* done) {
     VLOG_RPC << "tablet writer add batch, id=" << request->id()
-             << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+             << ", index_id=" << request->index_id()
+             << ", sender_id=" << request->sender_id()
+             << ", current_queued_size=" << _tablet_worker_pool.get_queue_size();
     // add batch maybe cost a lot of time, and this callback thread will be held.
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
