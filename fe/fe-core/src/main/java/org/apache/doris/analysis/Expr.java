@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -1231,6 +1232,43 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             throw new AnalysisException(
               String.format("%s%s requires return type 'BOOLEAN'. " + "Actual type is '%s'.", name,
                 (printExpr) ? " '" + toSql() + "'" : "", type.toString()));
+        }
+    }
+
+    public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
+        if (targetType.getPrimitiveType().equals(type.getPrimitiveType())) {
+            return this;
+        }
+        // bitmap must match exactly
+        if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
+            throw new AnalysisException("bitmap column require the function return type is BITMAP");
+        }
+        // TargetTable's hll column must be hll_hash's result
+        if (targetType.getPrimitiveType() == PrimitiveType.HLL) {
+            checkHllCompatibility();
+            return this;
+        }
+        Expr newExpr = castTo(targetType);
+        newExpr.checkValueValid();
+        return newExpr;
+    }
+
+    private void checkHllCompatibility() throws AnalysisException {
+        final String hllMismatchLog = "Column's type is HLL,"
+                + " SelectList must contains HLL or hll_hash or hll_empty function's result";
+        if (this instanceof SlotRef) {
+            final SlotRef slot = (SlotRef) this;
+            if (!slot.getType().equals(Type.HLL)) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else if (this instanceof FunctionCallExpr) {
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) this;
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
+                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else {
+            throw new AnalysisException(hllMismatchLog);
         }
     }
 
