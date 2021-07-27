@@ -211,7 +211,7 @@ public class StreamLoadPlanner {
     }
 
     // get all specified partition ids.
-    // if no partition specified, return all partitions
+    // if no partition specified, return null
     private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
         List<Long> partitionIds = Lists.newArrayList();
 
@@ -224,46 +224,37 @@ public class StreamLoadPlanner {
                 }
                 partitionIds.add(part.getId());
             }
-        } else {
-            List<Expr> conjuncts = scanNode.getConjuncts();
-            if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
-                PartitionInfo partitionInfo = destTable.getPartitionInfo();
-                Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
-                Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
-                for (Column column : partitionInfo.getPartitionColumns()) {
-                    SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
-                    if (null == slotDesc) {
-                        continue;
-                    }
-                    PartitionColumnFilter keyFilter = SingleNodePlanner.createPartitionFilter(slotDesc, conjuncts);
-                    if (null != keyFilter) {
-                        columnFilters.put(column.getName(), keyFilter);
-                    }
-                }
-                if (columnFilters.isEmpty()) {
-                    partitionIds.addAll(itemById.keySet());
-                } else {
-                    PartitionPruner partitionPruner = null;
-                    if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                        partitionPruner = new RangePartitionPruner(itemById,
-                                partitionInfo.getPartitionColumns(), columnFilters);
-                    } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
-                        partitionPruner = new ListPartitionPruner(itemById,
-                                partitionInfo.getPartitionColumns(), columnFilters);
-                    }
-                    partitionIds.addAll(partitionPruner.prune());
-                }
-            } else {
-                for (Partition partition : destTable.getPartitions()) {
-                    partitionIds.add(partition.getId());
-                }
-            }
-
-            if (partitionIds.isEmpty()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, destTable.getName());
-            }
+            return partitionIds;
         }
-
-        return partitionIds;
+        List<Expr> conjuncts = scanNode.getConjuncts();
+        if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
+            PartitionInfo partitionInfo = destTable.getPartitionInfo();
+            Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
+            Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+            for (Column column : partitionInfo.getPartitionColumns()) {
+                SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
+                if (null == slotDesc) {
+                    continue;
+                }
+                PartitionColumnFilter keyFilter = SingleNodePlanner.createPartitionFilter(slotDesc, conjuncts);
+                if (null != keyFilter) {
+                    columnFilters.put(column.getName(), keyFilter);
+                }
+            }
+            if (columnFilters.isEmpty()) {
+                return null;
+            }
+            PartitionPruner partitionPruner = null;
+            if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                partitionPruner = new RangePartitionPruner(itemById,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
+                partitionPruner = new ListPartitionPruner(itemById,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            }
+            partitionIds.addAll(partitionPruner.prune());
+            return partitionIds;
+        }
+        return null;
     }
 }

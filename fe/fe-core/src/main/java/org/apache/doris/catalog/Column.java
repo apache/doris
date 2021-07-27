@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -271,6 +273,16 @@ public class Column implements Writable {
 
     public String getDefaultValue() {
         return this.defaultValue;
+    }
+
+    public Expr getDefaultValueExpr() throws AnalysisException {
+        StringLiteral defaultValueLiteral = new StringLiteral(defaultValue);
+        if (getDataType() == PrimitiveType.VARCHAR) {
+            return defaultValueLiteral;
+        }
+        Expr result = defaultValueLiteral.castTo(getType());
+        result.checkValueValid();
+        return result;
     }
 
     public void setStats(ColumnStats stats) {

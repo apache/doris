@@ -181,6 +181,10 @@ public class StmtExecutor implements ProfileWriter {
         this.isProxy = false;
     }
 
+    public void setCoord(Coordinator coord) {
+        this.coord = coord;
+    }
+
     // At the end of query execution, we begin to add up profile
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
         long currentTimestamp = System.currentTimeMillis();

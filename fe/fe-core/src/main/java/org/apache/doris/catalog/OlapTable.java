@@ -826,6 +826,10 @@ public class OlapTable extends Table {
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
+    public List<Long> getPartitionIds() {
+        return getPartitions().stream().map(entity -> entity.getId()).collect(Collectors.toList());
+    }
+
     public Set<String> getCopiedBfColumns() {
         if (bfColumns == null) {
             return null;

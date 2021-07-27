@@ -26,7 +26,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
@@ -171,30 +170,19 @@ public class LoadingTaskPlanner {
     }
 
     private List<Long> getAllPartitionIds() throws LoadException, MetaNotFoundException {
-        Set<Long> partitionIds = Sets.newHashSet();
+        Set<Long> specifiedPartitionIds = Sets.newHashSet();
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
             if (brokerFileGroup.getPartitionIds() != null) {
-                partitionIds.addAll(brokerFileGroup.getPartitionIds());
+                specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
             // all file group in fileGroups should have same partitions, so only need to get partition ids
             // from one of these file groups
             break;
         }
-
-        if (partitionIds.isEmpty()) {
-            for (Partition partition : table.getPartitions()) {
-                partitionIds.add(partition.getId());
-            }
+        if (specifiedPartitionIds.isEmpty()) {
+            return null;
         }
-
-        // If this is a dynamic partitioned table, it will take some time to create the partition after the
-        // table is created, a exception needs to be thrown here
-        if (partitionIds.isEmpty()) {
-            throw new LoadException("data cannot be inserted into table with empty partition. " +
-                    "Use `SHOW PARTITIONS FROM " + table.getName() + "` to see the currently partitions of this table. ");
-        }
-
-        return Lists.newArrayList(partitionIds);
+        return Lists.newArrayList(specifiedPartitionIds);
     }
 
     // when retry load by reusing this plan in load process, the load_id should be changed

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -204,7 +203,7 @@ public class LargeIntLiteral extends LiteralExpr {
     }
 
     @Override
-    public void swapSign() throws NotImplementedException {
+    public void swapSign() {
         // swapping sign does not change the type
         value = value.negate();
     }
