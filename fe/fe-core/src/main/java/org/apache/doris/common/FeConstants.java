@@ -51,6 +51,9 @@ public class FeConstants {
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
 
+    // Current meta format. Use this format to read and write image.
+    public static FeMetaFormat meta_format = FeMetaFormat.COR1;
+
     // use \N to indicate NULL
     public static String null_string = "\\N";
 }
