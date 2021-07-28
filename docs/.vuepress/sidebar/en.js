@@ -180,7 +180,7 @@ module.exports = [
       "export-manual",
       "outfile",
       "privilege",
-      "ldap"
+      "ldap",
       "resource-management",
       "running-profile",
       "runtime-filter",
