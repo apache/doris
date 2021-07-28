@@ -319,8 +319,8 @@ public class LoadManager implements Writable{
                     matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
                 }
             } else {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(stmt.getLabel(), CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(stmt.getLabel(), CaseSensibility.LABEL.getCaseSensibility());
                     if (matcher.match(entry.getKey())) {
                         matchLoadJobs.addAll(entry.getValue());
                     }
@@ -542,8 +542,8 @@ public class LoadManager implements Writable{
                     loadJobList.addAll(labelToLoadJobs.get(labelValue));
                 } else {
                     // non-accurate match
+                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                        PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                         if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());
                         }

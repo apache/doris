@@ -1611,8 +1611,8 @@ public class Load {
                     loadJobs.addAll(labelToLoadJobs.get(labelValue));
                 }
             } else {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                     if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
                     }
@@ -1656,8 +1656,8 @@ public class Load {
                     matchLoadJobs.addAll(labelToLoadJobs.get(label));
                 }
             } else {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
                     if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
                     }
@@ -1919,6 +1919,11 @@ public class Load {
 
             long start = System.currentTimeMillis();
             LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            PatternMatcher matcher = null;
+            if (labelValue != null && !accurateMatch) {
+                matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            }
+
             for (LoadJob loadJob : loadJobs) {
                 // filter first
                 String label = loadJob.getLabel();
@@ -1930,7 +1935,6 @@ public class Load {
                             continue;
                         }
                     } else {
-                        PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                         if (!matcher.match(label)) {
                             continue;
                         }
