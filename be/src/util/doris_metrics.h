@@ -64,6 +64,7 @@ public:
     IntCounter* report_all_tablets_requests_failed;
     IntCounter* report_tablet_requests_total;
     IntCounter* report_tablet_requests_failed;
+    IntCounter* report_all_tablets_requests_skip;
     IntCounter* report_disk_requests_total;
     IntCounter* report_disk_requests_failed;
     IntCounter* report_task_requests_total;

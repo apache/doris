@@ -1185,9 +1185,15 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
 
         _is_doing_work = true;
         request.tablets.clear();
+        uint64_t report_version = _s_report_version;
         OLAPStatus build_all_report_tablets_info_status =
                 StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
+        if (report_version < _s_report_version) {
+            LOG(WARNING) << "report version " << report_version << " change to " << _s_report_version;
+            DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+            continue;
+        }
         if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
             LOG(WARNING) << "build all report tablets info failed. status: "
                          << build_all_report_tablets_info_status;
