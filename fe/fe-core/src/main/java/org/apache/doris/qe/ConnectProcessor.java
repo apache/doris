@@ -158,7 +158,6 @@ public class ConnectProcessor {
             }
             sql = origStmt;
         }
-        ctx.getAuditEventBuilder().setSqlHash(DigestUtils.md5Hex(sql));
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         ctx.getAuditEventBuilder().setStmt(sql);
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
@@ -183,10 +182,12 @@ public class ConnectProcessor {
             ctx.getState().setError("Unsupported character set(UTF-8)");
             return;
         }
+        String sqlHash = DigestUtils.md5Hex(originStmt);
+        ctx.setSqlHash(sqlHash);
         try {
-            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, ctx.getQualifiedUser());
+            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
         } catch (AnalysisException e) {
-            LOG.error(e.getMessage());
+            LOG.warn(e.getMessage());
             ctx.getState().setError(e.getMessage());
             return;
         }
@@ -195,7 +196,8 @@ public class ConnectProcessor {
             .setTimestamp(System.currentTimeMillis())
             .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
             .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase());
+            .setDb(ctx.getDatabase())
+            .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;

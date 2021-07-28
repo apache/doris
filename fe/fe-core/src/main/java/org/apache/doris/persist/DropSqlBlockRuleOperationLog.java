@@ -15,33 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import org.apache.parquet.Strings;
+import com.google.gson.annotations.SerializedName;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 
-public class DropSqlBlockRuleStmt extends DdlStmt {
+/**
+ * For user sql_block_rule drop
+ */
+public class DropSqlBlockRuleOperationLog implements Writable {
 
+    @SerializedName(value = "ruleNames")
     private List<String> ruleNames;
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-    }
-
-    public DropSqlBlockRuleStmt(List<String> ruleNames) {
+    public DropSqlBlockRuleOperationLog(List<String> ruleNames) {
         this.ruleNames = ruleNames;
     }
 
@@ -50,9 +45,11 @@ public class DropSqlBlockRuleStmt extends DdlStmt {
     }
 
     @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("DROP SQL_BLOCK_RULE ").append(Strings.join(ruleNames, ","));
-        return sb.toString();
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static DropSqlBlockRuleOperationLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropSqlBlockRuleOperationLog.class);
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -87,5 +88,17 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     public String getSqlHash() {
         return sqlHash;
+    }
+
+    @Override
+    public String toSql() {
+        // ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
+        StringBuilder sb = new StringBuilder();
+        sb.append("ALTER SQL_BLOCK_RULE ")
+                .append(ruleName)
+                .append(" \nPROPERTIES(\n")
+                .append(new PrintableMap<>(properties, " = ", true, true, true))
+                .append(")");
+        return sb.toString();
     }
 }

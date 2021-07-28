@@ -2096,7 +2096,7 @@ public class ShowExecutor {
     public void handleShowSqlBlockRule() throws AnalysisException {
         ShowSqlBlockRuleStmt showStmt = (ShowSqlBlockRuleStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        List<SqlBlockRule> sqlBlockRules = Catalog.getCurrentCatalog().getSqlBlockRuleMgr().get(showStmt);
+        List<SqlBlockRule> sqlBlockRules = Catalog.getCurrentCatalog().getSqlBlockRuleMgr().getSqlBlockRule(showStmt);
         sqlBlockRules.forEach(rule -> rows.add(rule.getShowInfo()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }

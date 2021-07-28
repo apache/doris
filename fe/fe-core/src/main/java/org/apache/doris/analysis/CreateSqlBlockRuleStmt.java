@@ -23,11 +23,14 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 import java.util.Optional;
@@ -59,10 +62,10 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     private String sqlHash;
 
-    // whether effective global
+    // whether effective global, default is false
     private boolean global;
 
-    // whether to use the rule
+    // whether to use the rule, default is true
     private boolean enable;
 
     private final Map<String, String> properties;
@@ -97,6 +100,10 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
     private void setProperties(Map<String, String> properties) throws UserException {
         this.sql = properties.get(SQL_PROPERTY);
         this.sqlHash = properties.get(SQL_HASH_PROPERTY);
+        if ((StringUtils.isNotEmpty(sql) && StringUtils.isNotEmpty(sqlHash)) || (StringUtils.isEmpty(sql) && StringUtils.isEmpty(sqlHash))) {
+            throw new AnalysisException("Only one sql or sqlHash can be configured");
+        }
+
         this.global = Util.getBooleanPropertyOrDefault(properties.get(GLOBAL_PROPERTY), false, GLOBAL_PROPERTY + " should be a boolean");
         this.enable = Util.getBooleanPropertyOrDefault(properties.get(ENABLE_PROPERTY), true, ENABLE_PROPERTY + " should be a boolean");
     }
@@ -130,5 +137,16 @@ public class CreateSqlBlockRuleStmt extends DdlStmt {
 
     public boolean isEnable() {
         return enable;
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE SQL_BLOCK_RULE ")
+                .append(ruleName)
+                .append(" \nPROPERTIES(\n")
+                .append(new PrintableMap<>(properties, " = ", true, true, true))
+                .append(")");
+        return sb.toString();
     }
 }

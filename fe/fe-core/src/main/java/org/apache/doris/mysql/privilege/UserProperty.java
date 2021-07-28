@@ -66,7 +66,7 @@ public class UserProperty implements Writable {
     private static final String PROP_QUOTA = "quota";
     private static final String PROP_DEFAULT_LOAD_CLUSTER = "default_load_cluster";
     private static final String PROP_LOAD_CLUSTER = "load_cluster";
-    private static final String PROP_BIND_SQL_BLOCK_RULES = "bind_sql_block_rules";
+    private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -91,7 +91,7 @@ public class UserProperty implements Writable {
     private WhiteList whiteList = new WhiteList();
 
     // the binding of sql_block_rule name, multiple are separated by ','
-    private String bindSqlBlockRules;
+    private String sqlBlockRules;
 
     @Deprecated
     private byte[] password;
@@ -134,8 +134,8 @@ public class UserProperty implements Writable {
         return commonProperties.getMaxQueryInstances();// maxQueryInstances;
     }
 
-    public String getBindSqlBlockRules() {
-        return bindSqlBlockRules;
+    public String getSqlBlockRules() {
+        return sqlBlockRules;
     }
 
     @Deprecated
@@ -249,12 +249,12 @@ public class UserProperty implements Writable {
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
                 }
-            } else if (keyArr[0].equalsIgnoreCase(PROP_BIND_SQL_BLOCK_RULES)) {
-                // set property "bind_sql_block_rules" = "test_rule1,test_rule2"
+            } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
+                // set property "sql_block_rules" = "test_rule1,test_rule2"
                 if (keyArr.length != 1) {
-                    throw new DdlException(PROP_BIND_SQL_BLOCK_RULES + " format error");
+                    throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
-                bindSqlBlockRules = value;
+                sqlBlockRules = value;
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -410,7 +410,7 @@ public class UserProperty implements Writable {
         }
 
         // bind_sql_block_rules
-        result.add(Lists.newArrayList(PROP_BIND_SQL_BLOCK_RULES, bindSqlBlockRules));
+        result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, sqlBlockRules));
 
         // sort
         Collections.sort(result, new Comparator<List<String>>() {
@@ -458,7 +458,7 @@ public class UserProperty implements Writable {
         // common properties
         commonProperties.write(out);
 
-        Text.writeString(out, bindSqlBlockRules);
+        Text.writeString(out, sqlBlockRules);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -549,7 +549,7 @@ public class UserProperty implements Writable {
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
-            bindSqlBlockRules = Text.readString(in);
+            sqlBlockRules = Text.readString(in);
         }
     }
 }

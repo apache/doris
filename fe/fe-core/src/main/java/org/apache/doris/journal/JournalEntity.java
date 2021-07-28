@@ -67,6 +67,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
@@ -650,7 +651,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_SQL_BLOCK_RULE: {
-                data = SqlBlockRule.read(in);
+                data = DropSqlBlockRuleOperationLog.read(in);
                 isRead = true;
                 break;
             }

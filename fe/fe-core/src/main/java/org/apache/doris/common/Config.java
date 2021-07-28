@@ -1474,16 +1474,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
-<<<<<<< HEAD
-    
+
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
-=======
-
-    /**
-     * Whether to enabel block sql
-     */
-    @ConfField(mutable = true, masterOnly = false)
-    public static boolean enable_sql_block = false;
->>>>>>> 2f8cca53c (ADD: support sql block rule)
 }

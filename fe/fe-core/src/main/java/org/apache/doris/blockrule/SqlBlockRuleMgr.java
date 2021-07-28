@@ -24,19 +24,17 @@ import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,8 +53,10 @@ public class SqlBlockRuleMgr implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
+    @SerializedName(value = "nameToSqlBlockRuleMap")
     private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
 
+    @SerializedName(value = "sqlPatternMap")
     private Map<String, Pattern> sqlPatternMap = Maps.newConcurrentMap();
 
     private void writeLock() {
@@ -71,11 +71,8 @@ public class SqlBlockRuleMgr implements Writable {
         return nameToSqlBlockRuleMap.containsKey(name);
     }
 
-    public List<SqlBlockRule> get(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
+    public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
         String ruleName = stmt.getRuleName();
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -159,75 +156,66 @@ public class SqlBlockRuleMgr implements Writable {
                 if (!existRule(ruleName)) {
                     throw new DdlException("the sql block rule " + ruleName + " not exist");
                 }
-                SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
-                if (sqlBlockRule == null) {
-                    continue;
-                }
-                unprotectedDrop(sqlBlockRule);
-                Catalog.getCurrentCatalog().getEditLog().logDropSqlBlockRule(sqlBlockRule);
             }
+            unprotectedDrop(ruleNames);
+            Catalog.getCurrentCatalog().getEditLog().logDropSqlBlockRule(ruleNames);
         } finally {
             writeUnlock();
         }
     }
 
-    public void replayDrop(SqlBlockRule sqlBlockRule) {
-        unprotectedDrop(sqlBlockRule);
-        LOG.info("replay drop sql block rule: {}", sqlBlockRule);
+    public void replayDrop(List<String> ruleNames) {
+        unprotectedDrop(ruleNames);
+        LOG.info("replay drop sql block ruleNames: {}", ruleNames);
     }
 
-    public void unprotectedDrop(SqlBlockRule sqlBlockRule) {
-        nameToSqlBlockRuleMap.remove(sqlBlockRule.getName());
-        // todo: remove UserProperty
+    public void unprotectedDrop(List<String> ruleNames) {
+        ruleNames.forEach(name -> nameToSqlBlockRuleMap.remove(name));
     }
 
-    public void matchSql(String sql, String user) throws AnalysisException {
+    public void matchSql(String sql, String sqlHash, String user) throws AnalysisException {
         // match global rule
         List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
         for (SqlBlockRule rule : globalRules) {
             Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-            matchSql(rule, sql, sqlPattern);
+            matchSql(rule, sql, sqlHash, sqlPattern);
         }
         // match user rule
-        String binSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getBindSqlBlockRules(user);
-        if (StringUtils.isNotEmpty(binSqlBlockRules)) {
-            String[] split = binSqlBlockRules.split(",");
+        String bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
+        if (StringUtils.isNotEmpty(bindSqlBlockRules)) {
+            String[] split = bindSqlBlockRules.split(",");
             for (String ruleName : split) {
                 SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
                 Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-                matchSql(rule, sql, sqlPattern);
+                matchSql(rule, sql, sqlHash, sqlPattern);
             }
         }
     }
 
     @VisibleForTesting
-    public static void matchSql(SqlBlockRule rule, String sql, Pattern sqlPattern) throws AnalysisException {
-        if (rule.getEnable() != null && rule.getEnable()) {
-            String sqlHash = rule.getSqlHash();
-            if (sqlHash != null && sqlHash.equals(DigestUtils.md5Hex(sql))) {
+    public static void matchSql(SqlBlockRule rule, String sql, String sqlHash, Pattern sqlPattern) throws AnalysisException {
+        if (rule.getEnable()) {
+            if (StringUtils.isNotEmpty(rule.getSql())) {
+                if (sqlPattern != null && sqlPattern.matcher(sql).find()) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                }
+            } else if (StringUtils.isNotEmpty(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            }
-            if (sqlPattern != null && sqlPattern.matcher(sql).find()) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
             }
         }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(nameToSqlBlockRuleMap.size());
-        for (SqlBlockRule sqlBlockRule : nameToSqlBlockRuleMap.values()) {
-            sqlBlockRule.write(out);
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            SqlBlockRule read = SqlBlockRule.read(in);
-            unprotectedAdd(read);
-        }
+        String json = Text.readString(in);
+        SqlBlockRuleMgr mgr = GsonUtils.GSON.fromJson(json, SqlBlockRuleMgr.class);
+        this.nameToSqlBlockRuleMap = mgr.nameToSqlBlockRuleMap;
+        this.sqlPatternMap = mgr.sqlPatternMap;
     }
 }

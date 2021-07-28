@@ -855,8 +855,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_DROP_SQL_BLOCK_RULE: {
-                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
-                    catalog.getSqlBlockRuleMgr().replayDrop(rule);
+                    DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
                 default: {
@@ -1471,7 +1471,7 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_SQL_BLOCK_RULE, rule);
     }
 
-    public void logDropSqlBlockRule(SqlBlockRule rule) {
-        logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, rule);
+    public void logDropSqlBlockRule(List<String> ruleNames) {
+        logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
     }
 }

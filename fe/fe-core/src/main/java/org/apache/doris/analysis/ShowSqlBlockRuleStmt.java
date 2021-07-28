@@ -17,9 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import org.apache.commons.lang3.StringUtils;
 
 /*
  Create sqlBlockRule statement
@@ -49,7 +57,26 @@ public class ShowSqlBlockRuleStmt extends ShowStmt {
     }
 
     @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+    }
+
+    @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW SQL_BLOCK_RULE");
+        if (StringUtils.isNotEmpty(ruleName)) {
+            sb.append(" FOR ").append(ruleName);
+        }
+        return sb.toString();
     }
 }

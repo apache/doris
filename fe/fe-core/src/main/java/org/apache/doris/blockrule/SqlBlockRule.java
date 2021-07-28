@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,17 +38,22 @@ public class SqlBlockRule implements Writable {
     public static final String DEFAULT_USER = "default";
 
     // the rule name, cluster unique
+    @SerializedName(value = "name")
     private String name;
 
+    @SerializedName(value = "sql")
     private String sql;
 
     // sql md5
+    @SerializedName(value = "sqlHash")
     private String sqlHash;
 
     // whether effective global
+    @SerializedName(value = "global")
     private Boolean global;
 
     // whether to use the rule
+    @SerializedName(value = "enable")
     private Boolean enable;
 
     public SqlBlockRule(String name) {
