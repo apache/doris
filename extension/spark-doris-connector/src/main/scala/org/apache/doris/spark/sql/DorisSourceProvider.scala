@@ -17,6 +17,8 @@
 
 package org.apache.doris.spark.sql
 
+import java.util.StringJoiner
+
 import org.apache.commons.collections.CollectionUtils
 import org.apache.doris.spark.DorisStreamLoad
 import org.apache.doris.spark.exception.DorisException
@@ -24,6 +26,7 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
 import org.apache.spark.sql.types.StructType
+import org.json4s.jackson.Json
 
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
@@ -57,20 +60,33 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     val splitHost = beHostPort.split(";")
     val choosedBeHost = splitHost(Random.nextInt(splitHost.length))
     val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dbName, tbName, user, password)
-
+    val fieldDelimiter: String = "\t"
+    val lineDelimiter: String = "\n"
+    val NULL_VALUE: String = "\\N"
     data.foreachPartition(partition => {
 
       val buffer = ListBuffer[String]()
       partition.foreach(row => {
-        val rowString = row.toSeq.mkString("\t")
-        buffer += rowString
+        val value = new StringJoiner(fieldDelimiter)
+        // create one row string
+        for (i <- 0 until row.size) {
+          val field = row.get(i)
+          if (field == null) {
+            value.add(NULL_VALUE)
+          } else {
+            value.add(field.toString)
+          }
+        }
+        // add one row string to buffer
+        buffer += value.toString
         if (buffer.size > maxRowCount) {
-          dorisStreamLoader.load(buffer.mkString("\n"))
+          dorisStreamLoader.load(buffer.mkString(lineDelimiter))
           buffer.clear()
         }
       })
+      // flush buffer
       if (buffer.nonEmpty) {
-        dorisStreamLoader.load(buffer.mkString("\n"))
+        dorisStreamLoader.load(buffer.mkString(lineDelimiter))
         buffer.clear()
       }
     })
