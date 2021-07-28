@@ -305,7 +305,7 @@ void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, Runtim
     } else {
         for (ChildVector::iterator it = _children.begin(); it != _children.end(); ++it) {
             if (it->first == loc) {
-                _children.insert(it++, std::make_pair(child, indent));
+                _children.insert(it, std::make_pair(child, indent));
                 return;
             }
         }
