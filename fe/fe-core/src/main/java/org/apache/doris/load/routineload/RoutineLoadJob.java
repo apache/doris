@@ -1380,6 +1380,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         if (progress instanceof KafkaProgress) {
+            // append partitions and offsets.
+            // the offsets is the next offset to be consumed.
             List<Pair<Integer, String>> pairs = ((KafkaProgress) progress).getPartitionOffsetPairs(false);
             appendProperties(sb, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY,
                     Joiner.on(", ").join(pairs.stream().map(p -> p.first).toArray()), false);

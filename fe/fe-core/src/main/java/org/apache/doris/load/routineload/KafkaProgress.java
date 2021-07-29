@@ -22,8 +22,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
