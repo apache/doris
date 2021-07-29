@@ -203,10 +203,10 @@ public class SyncJobManager implements Writable {
         LinkedList<List<Comparable>> syncJobInfos = new LinkedList<List<Comparable>>();
 
         readLock();
-        if (!dbIdToJobNameToSyncJobs.containsKey(dbId)) {
-            return syncJobInfos;
-        }
         try {
+            if (!dbIdToJobNameToSyncJobs.containsKey(dbId)) {
+                return syncJobInfos;
+            }
             Map<String, List<SyncJob>> jobNameToLoadJobs = dbIdToJobNameToSyncJobs.get(dbId);
             List<SyncJob> syncJobs = Lists.newArrayList();
             syncJobs.addAll(jobNameToLoadJobs.values()
