@@ -133,7 +133,7 @@ public class Config extends ConfigBase {
      * on a single node when the broker load is submitted
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int load_parallelism = 1;
+    public static int default_load_parallelism = 1;
 
     // For some high frequency load job such as
     // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
