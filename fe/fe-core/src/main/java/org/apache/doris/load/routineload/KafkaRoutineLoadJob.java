@@ -61,9 +61,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -75,6 +75,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
+    public static final String PROP_GROUP_ID = "group.id";
 
     private String brokerList;
     private String topic;
@@ -444,6 +445,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         if (!stmt.getCustomKafkaProperties().isEmpty()) {
             setCustomKafkaProperties(stmt.getCustomKafkaProperties());
+        }
+        // set group id if not specified
+        if (!this.customProperties.containsKey(PROP_GROUP_ID)) {
+            this.customProperties.put(PROP_GROUP_ID, name + "_" + UUID.randomUUID().toString());
         }
     }
 
