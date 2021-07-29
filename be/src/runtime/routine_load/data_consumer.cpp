@@ -104,17 +104,17 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
         _custom_properties.emplace(item.first, item.second);
     }
 
-	// if not specified group id, generate a random one.
-	// ATTN: In the new version, we have set a group.id on the FE side for jobs that have not set a groupid,
-	// but in order to ensure compatibility, we still do a check here.
-	if (_custom_properties.find(PROP_GROUP_ID) == _custom_properties.end()) {
-		std::stringstream ss;
-		ss << BackendOptions::get_localhost() << "_";
-		std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
-		RETURN_IF_ERROR(set_conf(PROP_GROUP_ID, group_id));
-		_custom_properties.emplace(PROP_GROUP_ID, group_id);
-	}
-	LOG(INFO) << "init kafka consumer with group id: " << _custom_properties[PROP_GROUP_ID];
+    // if not specified group id, generate a random one.
+    // ATTN: In the new version, we have set a group.id on the FE side for jobs that have not set a groupid,
+    // but in order to ensure compatibility, we still do a check here.
+    if (_custom_properties.find(PROP_GROUP_ID) == _custom_properties.end()) {
+        std::stringstream ss;
+        ss << BackendOptions::get_localhost() << "_";
+        std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
+        RETURN_IF_ERROR(set_conf(PROP_GROUP_ID, group_id));
+        _custom_properties.emplace(PROP_GROUP_ID, group_id);
+    }
+    LOG(INFO) << "init kafka consumer with group id: " << _custom_properties[PROP_GROUP_ID];
 
     if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
         std::stringstream ss;
