@@ -318,12 +318,11 @@ public class FEFunctions {
     }
 
     @FEFunction(name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
-    public static LiteralExpr timestamp(LiteralExpr arg) throws AnalysisException {
+    public static DateLiteral timestamp(LiteralExpr arg) throws AnalysisException {
         if (arg instanceof DateLiteral) {
-            return arg;
-        } else {
-            return new NullLiteral();
+            return (DateLiteral) arg;
         }
+        return null;
     }
 
     /**
