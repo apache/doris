@@ -360,18 +360,21 @@ public class RoutineLoadManager implements Writable {
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             // 1. Find if the given BE id has available slots
-            int idleTaskNum = 0;
-            if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
-                idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
-            } else {
-                idleTaskNum = Config.max_routine_load_task_num_per_be;
-            }
-            if (idleTaskNum > 0) {
-                return previoudBeId;
+            if (previoudBeId != -1L) {
+                int idleTaskNum = 0;
+                if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
+                    idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
+                } else {
+                    idleTaskNum = Config.max_routine_load_task_num_per_be;
+                }
+                if (idleTaskNum > 0) {
+                    return previoudBeId;
+                }
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
             updateBeIdToMaxConcurrentTasks();
+            int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
             for (Long beId : beIdsInCluster) {
