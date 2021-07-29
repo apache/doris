@@ -307,6 +307,7 @@ public class RoutineLoadManager implements Writable {
     // get the BE id with minimum running task on it
     // return -1 if no BE is available.
     // throw exception if unrecoverable errors happen.
+    // ATTN: this is only used for unit test now.
     public long getMinTaskBeId(String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -344,30 +345,51 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
+    public long getAvailableBeForTask(long previoudBeId, String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
 
-        if (!beIdsInCluster.contains(beId)) {
-            return false;
+        if (previoudBeId != -1L && !beIdsInCluster.contains(previoudBeId)) {
+            return -1L;
         }
 
         // check if be has idle slot
         readLock();
         try {
-            int idleTaskNum = 0;
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
-            if (beIdToConcurrentTasks.containsKey(beId)) {
-                idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
+            // 1. Find if the given BE id has available slots
+            int idleTaskNum = 0;
+            if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
+                idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
             } else {
                 idleTaskNum = Config.max_routine_load_task_num_per_be;
             }
             if (idleTaskNum > 0) {
-                return true;
+                return previoudBeId;
             }
-            return false;
+
+            // 2. The given BE id does not have available slots, find a BE with min tasks
+            updateBeIdToMaxConcurrentTasks();
+            long resultBeId = -1L;
+            int maxIdleSlotNum = 0;
+            for (Long beId : beIdsInCluster) {
+                if (beIdToMaxConcurrentTasks.containsKey(beId)) {
+                    if (beIdToConcurrentTasks.containsKey(beId)) {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
+                    } else {
+                        idleTaskNum = Config.max_routine_load_task_num_per_be;
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
+                                beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    }
+                    resultBeId = maxIdleSlotNum < idleTaskNum ? beId : resultBeId;
+                    maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
+                }
+            }
+            return resultBeId;
         } finally {
             readUnlock();
         }
