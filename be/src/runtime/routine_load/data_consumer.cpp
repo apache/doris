@@ -354,7 +354,9 @@ Status KafkaDataConsumer::reset() {
 }
 
 Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) {
-    RdKafka::ErrorCode err = _k_consumer->commitSync(offset);
+    // Use async commit so that it will not block for a long time.
+    // Commit failure has no effect on Doris, subsequent tasks will continue to commit the new offset
+    RdKafka::ErrorCode err = _k_consumer->commitAsync(offset);
     if (err != RdKafka::ERR_NO_ERROR) {
         std::stringstream ss;
         ss << "failed to commit kafka offset : " << RdKafka::err2str(err);

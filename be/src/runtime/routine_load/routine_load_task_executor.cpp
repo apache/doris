@@ -325,9 +325,10 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
-    } break;
+        break;
+    }
     default:
-        return;
+        break;
     }
     cb(ctx);
 }
