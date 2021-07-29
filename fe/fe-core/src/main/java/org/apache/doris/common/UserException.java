@@ -23,6 +23,7 @@ import com.google.common.base.Strings;
  * Thrown for internal server errors.
  */
 public class UserException extends Exception {
+
     private InternalErrorCode errorCode;
     private ErrorCode mysqlErrorCode;
     public UserException(String msg, Throwable cause) {
@@ -53,7 +54,10 @@ public class UserException extends Exception {
         super(Strings.nullToEmpty(msg));
         this.errorCode = errCode;
         mysqlErrorCode = ErrorCode.ERR_UNKNOWN_ERROR;
+    }
 
+    public void setErrorCode(InternalErrorCode errorCode) {
+        this.errorCode = errorCode;
     }
 
     public InternalErrorCode getErrorCode() {

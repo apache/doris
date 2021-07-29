@@ -64,6 +64,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
@@ -416,17 +417,16 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
-            // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}", e.getMessage());
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            LOG.warn("execute Exception.", e);
+            context.getState().setError(e.getMessage());
+            context.getState().setInternalErrorCode(e.getErrorCode());
         } catch (Exception e) {
             LOG.warn("execute Exception", e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
-                context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+                context.getState().setInternalErrorCode(InternalErrorCode.ANALYSIS_ERR);
             }
         } finally {
             // revert Session Value

@@ -120,7 +120,6 @@ public class GlobalTransactionMgr implements Writable {
      * @param coordinator
      * @throws BeginTransactionException
      * @throws DuplicatedRequestException
-     * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
                                  TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)

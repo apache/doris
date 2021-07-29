@@ -24,10 +24,11 @@ public class AnalysisException extends UserException {
 
     public AnalysisException(String msg, Throwable cause) {
         super(msg, cause);
+        setErrorCode(InternalErrorCode.ANALYSIS_ERR);
     }
 
     public AnalysisException(String msg) {
-        super(msg);
+        super(InternalErrorCode.ANALYSIS_ERR, msg);
     }
 
     public AnalysisException(String msg, ErrorCode mysqlErrorCode) {

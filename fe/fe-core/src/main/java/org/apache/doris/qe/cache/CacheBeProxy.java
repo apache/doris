@@ -57,7 +57,7 @@ public class CacheBeProxy extends CacheProxy {
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
             } else {
-                status.setStatus(response.getStatus().toString());
+                status.update(TStatusCode.INTERNAL_ERROR, response.getStatus().toString());
             }
         } catch (Exception e) {
             LOG.warn("update cache exception, sqlKey {}", sqlKey, e);
@@ -84,13 +84,13 @@ public class CacheBeProxy extends CacheProxy {
             SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
         } catch (InterruptedException e) {
             LOG.warn("future get interrupted exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
-            status.setStatus("interrupted exception");
+            status.update(TStatusCode.INTERNAL_ERROR, "interrupted exception");
         } catch (ExecutionException e) {
             LOG.warn("future get execution exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
-            status.setStatus("execution exception");
+            status.update(TStatusCode.INTERNAL_ERROR, "execution exception");
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
-            status.setStatus("query timeout");
+            status.update(TStatusCode.INTERNAL_ERROR, "query timeout");
         }
         return null;
     }
@@ -130,7 +130,7 @@ public class CacheBeProxy extends CacheProxy {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
                 return true;
             } else {
-                status.setStatus(response.getStatus().toString());
+                status.update(TStatusCode.INTERNAL_ERROR, response.getStatus().toString());
                 return false;
             }
         } catch (Exception e) {

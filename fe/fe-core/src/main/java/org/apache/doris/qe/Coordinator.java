@@ -23,6 +23,7 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -580,7 +581,7 @@ public class Coordinator {
                     } catch (TimeoutException e) {
                         LOG.warn("catch a timeout exception", e);
                         exception = e;
-                        code = TStatusCode.TIMEOUT;
+                        code = TStatusCode.THRIFT_RPC_ERROR;
                         BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddress);
                     }
 
@@ -592,21 +593,20 @@ public class Coordinator {
                         if (errMsg == null) {
                             errMsg = "exec rpc error. backend id: " + pair.first.backend.getId();
                         }
-                        queryStatus.setStatus(errMsg);
+                        queryStatus.update(code, errMsg);
                         LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
                                 errMsg, code, fragment.getFragmentId(),
                                 pair.first.address.hostname, pair.first.address.port);
                         cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                        switch (code) {
-                            case TIMEOUT:
-                                throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId());
-                            case THRIFT_RPC_ERROR:
+                        if (queryStatus.isRpcError()) {
+                            if (exception instanceof TimeoutException) {
+                                errMsg = "send fragment timeout. backend id: " + pair.first.backend.getId();
+                            } else {
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
-                            default:
-                                throw new UserException(errMsg);
+                            }
                         }
+                        throw new UserException(InternalErrorCode.fromTStatusCode(code), errMsg);
                     }
 
                     // succeed to send the plan fragment, update the "alreadySentBackendIds"
@@ -738,7 +738,7 @@ public class Coordinator {
         }
         updateStatus(status, null /* no instance id */);
 
-        Status copyStatus = null;
+        Status copyStatus;
         lock();
         try {
             copyStatus = new Status(queryStatus);
@@ -761,7 +761,7 @@ public class Coordinator {
                 if (hostIndex != -1) {
                     errMsg = errMsg.substring(0, hostIndex);
                 }
-                throw new UserException(errMsg);
+                throw new UserException(InternalErrorCode.fromTStatusCode(copyStatus.getErrorCode()), errMsg);
             }
         }
 

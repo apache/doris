@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
@@ -184,12 +185,13 @@ public class DorisAssert {
             stmtExecutor.execute();
             QueryState queryState = connectContext.getState();
             if (queryState.getStateType() == QueryState.MysqlStateType.ERR) {
-                switch (queryState.getErrType()) {
+                switch (queryState.getInternalErrorCode()) {
                     case ANALYSIS_ERR:
                         throw new AnalysisException(queryState.getErrorMessage());
-                    case OTHER_ERR:
-                    default:
+                    case INTERNAL_ERR:
                         throw new Exception(queryState.getErrorMessage());
+                    default:
+                        throw new UserException(queryState.getInternalErrorCode(), queryState.getErrorMessage());
                 }
             }
             Planner planner = stmtExecutor.planner();

@@ -21,10 +21,12 @@ import org.apache.doris.proto.Status.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+/**
+ * PStatus和TStatus的java类
+ */
 public class Status {
     public static final Status OK = new Status();
     public static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "Cancelled");
-    public static final Status THRIFT_RPC_ERROR = new Status(TStatusCode.THRIFT_RPC_ERROR, "Thrift RPC failed");
 
     public TStatusCode getErrorCode() {
         return errorCode;
@@ -34,7 +36,7 @@ public class Status {
         return errorMsg;
     }
 
-    private TStatusCode  errorCode; // anything other than OK
+    private TStatusCode errorCode; // anything other than OK
     private String errorMsg;
     
     public Status() {
@@ -69,18 +71,22 @@ public class Status {
     public boolean isRpcError() {
         return this.errorCode == TStatusCode.THRIFT_RPC_ERROR;
     }
+
+    public boolean isTimeout() {
+        return this.errorCode == TStatusCode.TIMEOUT;
+    }
     
     public void setStatus(Status status) {
         this.errorCode = status.errorCode;
         this.errorMsg = status.getErrorMsg();
     }
     
-    public void setStatus(String msg) {
-        this.errorCode = TStatusCode.INTERNAL_ERROR;
+    public void update(TStatusCode statusCode, String msg) {
+        this.errorCode = statusCode;
         this.errorMsg = msg;
     }
 
-    public void setPstatus(PStatus status) {
+    public void update(PStatus status) {
         this.errorCode = TStatusCode.findByValue(status.getStatusCode());
         if (!status.getErrorMsgsList().isEmpty()) {
             this.errorMsg = status.getErrorMsgs(0);

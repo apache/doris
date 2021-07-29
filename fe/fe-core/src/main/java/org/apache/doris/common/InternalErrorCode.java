@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.thrift.TStatusCode;
+
 public enum InternalErrorCode {
     OK(0),
 
@@ -34,15 +36,47 @@ public enum InternalErrorCode {
     MANUAL_STOP_ERR(101),
     TOO_MANY_FAILURE_ROWS_ERR(102),
     CREATE_TASKS_ERR(103),
-    TASKS_ABORT_ERR(104);
+    TASKS_ABORT_ERR(104),
+
+
+    // for DQL
+    // Caused by user
+    ANALYSIS_ERR(400),
+    RESOURCE_LIMIT_EXCEEDED_ERR(401),
+
+    // Caused by user or system failure
+    TIMEOUT_ERR(410),
+    CANCELLED_ERR(411),
+
+    // Caused by system failure
+    NO_READABLE_REPLICA_ERR(421)
+    ;
 
     private long errCode;
-    private InternalErrorCode(long code) {
+    InternalErrorCode(long code) {
         this.errCode = code;
     }
 
     @Override
     public String toString() {
         return "errCode = " + errCode;
+    }
+
+    public static InternalErrorCode fromTStatusCode(final TStatusCode tStatusCode) {
+        if (null == tStatusCode) {
+            return INTERNAL_ERR;
+        }
+        switch (tStatusCode) {
+            case OK:
+                return OK;
+            case TIMEOUT:
+                return TIMEOUT_ERR;
+            case CANCELLED:
+                return CANCELLED_ERR;
+            case MEM_LIMIT_EXCEEDED:
+                return RESOURCE_LIMIT_EXCEEDED_ERR;
+            default:
+                return INTERNAL_ERR;
+        }
     }
 }

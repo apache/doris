@@ -47,6 +47,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
@@ -491,7 +492,8 @@ public class OlapScanNode extends ScanNode {
                         LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
                     }
                 }
-                throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
+                throw new UserException(InternalErrorCode.NO_READABLE_REPLICA_ERR,
+                        "Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
             Collections.shuffle(replicas);
@@ -532,7 +534,8 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
-                throw new UserException(tabletId + " have no queryable replicas. err: " + Joiner.on(", ").join(errs));
+                throw new UserException(InternalErrorCode.NO_READABLE_REPLICA_ERR,
+                        tabletId + " have no queryable replicas. err: " + Joiner.on(", ").join(errs));
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);

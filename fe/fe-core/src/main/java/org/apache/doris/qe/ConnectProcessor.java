@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -126,10 +127,19 @@ public class ConnectProcessor {
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
-                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                // err query
-                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                InternalErrorCode errorCode = ctx.getState().getInternalErrorCode();
+                switch (errorCode) {
+                    case ANALYSIS_ERR:
+                    case RESOURCE_LIMIT_EXCEEDED_ERR:
+                        break;
+                    case TIMEOUT_ERR:
+                    case CANCELLED_ERR:
+                        MetricRepo.COUNTER_QUERY_TIMEOUT.increase(1L);
+                        // There is no `break` here, because the timeout query is also a failed query
+                    default:
+                        MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                }
             } else {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
@@ -232,7 +242,7 @@ public class ConnectProcessor {
             LOG.warn("Process one query failed because.", e);
             ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
-            ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            ctx.getState().setInternalErrorCode(e.getErrorCode());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
@@ -241,7 +251,7 @@ public class ConnectProcessor {
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
-                ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+                ctx.getState().setInternalErrorCode(InternalErrorCode.ANALYSIS_ERR);
             }
         }
 

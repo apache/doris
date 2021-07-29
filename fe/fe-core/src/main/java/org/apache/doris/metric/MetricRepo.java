@@ -70,6 +70,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_QUERY_BEGIN;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_QUERY_TIMEOUT;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
     public static LongCounterMetric COUNTER_QUERY_OLAP_TABLE;
     public static LongCounterMetric COUNTER_CACHE_MODE_SQL;
@@ -255,6 +256,9 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_BEGIN);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
+        COUNTER_QUERY_TIMEOUT = new LongCounterMetric("query_timeout", MetricUnit.REQUESTS, "total timeout query");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_TIMEOUT);
+
         COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS, "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
 

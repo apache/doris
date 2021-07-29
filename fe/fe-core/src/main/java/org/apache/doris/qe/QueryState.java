@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
@@ -32,16 +33,11 @@ public class QueryState {
         ERR     // send ERROR packet to remote
     }
 
-    public enum ErrType {
-        ANALYSIS_ERR,
-        OTHER_ERR
-    }
-
     private MysqlStateType stateType = MysqlStateType.OK;
     private String errorMessage = "";
     private ErrorCode errorCode;
     private String infoMessage;
-    private ErrType errType = ErrType.OTHER_ERR;
+    private InternalErrorCode internalErrorCode = InternalErrorCode.INTERNAL_ERR;
     private boolean isQuery = false;
     private long affectedRows = 0;
     private int warningRows = 0;
@@ -98,12 +94,12 @@ public class QueryState {
         this.errorMessage = msg;
     }
 
-    public void setErrType(ErrType errType) {
-        this.errType = errType;
+    public void setInternalErrorCode(InternalErrorCode internalErrorCode) {
+        this.internalErrorCode = internalErrorCode;
     }
 
-    public ErrType getErrType() {
-        return errType;
+    public InternalErrorCode getInternalErrorCode() {
+        return internalErrorCode;
     }
 
     public void setIsQuery(boolean isQuery) {

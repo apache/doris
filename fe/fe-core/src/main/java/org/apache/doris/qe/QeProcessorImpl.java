@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -105,7 +106,8 @@ public final class QeProcessorImpl implements QeProcessor {
                 AtomicInteger currentCount = userToInstancesCount.computeIfAbsent(user, __ -> new AtomicInteger(0));
                 // Many query can reach here.
                 if (instancesNum + currentCount.get() > maxQueryInstances) {
-                    throw new UserException("reach max_query_instances " + maxQueryInstances);
+                    throw new UserException(InternalErrorCode.RESOURCE_LIMIT_EXCEEDED_ERR,
+                            "reach max_query_instances " + maxQueryInstances);
                 }
             }
             queryToInstancesNum.put(queryId, instancesNum);
