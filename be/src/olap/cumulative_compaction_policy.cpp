@@ -68,40 +68,54 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
-    // check base rowset first version must be zero
-    CHECK((*base_rowset_meta)->start_version() == 0);
 
-    int64_t promotion_size = 0;
-    _calc_promotion_size(*base_rowset_meta, &promotion_size);
-
-    int64_t prev_version = -1;
-    for (const RowsetMetaSharedPtr& rs : existing_rss) {
-        if (rs->version().first > prev_version + 1) {
-            // There is a hole, do not continue
-            break;
-        }
-
-        bool is_delete = tablet->version_for_delete_predicate(rs->version());
-
-        // break the loop if segments in this rowset is overlapping.
-        if (!is_delete && rs->is_segments_overlapping()) {
-            *ret_cumulative_point = rs->version().first;
-            break;
-        }
-
-        // check the rowset is whether less than promotion size
-        if (!is_delete && rs->version().first != 0 && rs->total_disk_size() < promotion_size) {
-            *ret_cumulative_point = rs->version().first;
-            break;
-        }
-
-        // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
-        prev_version = rs->version().second;
-        *ret_cumulative_point = prev_version + 1;
+    if (tablet->tablet_state() == TABLET_RUNNING) {
+        // check base rowset first version must be zero
+        CHECK((*base_rowset_meta)->start_version() == 0);
     }
-    VLOG_NOTICE << "cumulative compaction size_based policy, calculate cumulative point value = "
+
+    if (tablet->tablet_state() == TABLET_RUNNING) {
+        int64_t promotion_size = 0;
+        _calc_promotion_size(*base_rowset_meta, &promotion_size);
+
+        int64_t prev_version = -1;
+        for (const RowsetMetaSharedPtr& rs : existing_rss) {
+            if (rs->version().first > prev_version + 1) {
+                // There is a hole, do not continue
+                break;
+            }
+
+            bool is_delete = tablet->version_for_delete_predicate(rs->version());
+
+            // break the loop if segments in this rowset is overlapping.
+            if (!is_delete && rs->is_segments_overlapping()) {
+                *ret_cumulative_point = rs->version().first;
+                break;
+            }
+
+            // check the rowset is whether less than promotion size
+            if (!is_delete && rs->version().first != 0 && rs->total_disk_size() < promotion_size) {
+                *ret_cumulative_point = rs->version().first;
+                break;
+            }
+
+            // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
+            prev_version = rs->version().second;
+            *ret_cumulative_point = prev_version + 1;
+        }
+        VLOG_NOTICE << "cumulative compaction size_based policy, calculate cumulative point value = "
             << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
             << " tablet = " << tablet->full_name();
+    } else if (tablet->tablet_state() == TABLET_NOTREADY) {
+        // tablet under alter process
+        // we choose version next to the base version as cumulative point
+        for (const RowsetMetaSharedPtr& rs : existing_rss) {
+            if (rs->version().first > 0) {
+                *ret_cumulative_point = rs->version().first;
+                break;
+            }
+        }
+    }
 }
 
 void SizeBasedCumulativeCompactionPolicy::_calc_promotion_size(RowsetMetaSharedPtr base_rowset_meta,
@@ -126,11 +140,15 @@ void SizeBasedCumulativeCompactionPolicy::_refresh_tablet_size_based_promotion_s
 void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
+    if (tablet->tablet_state() != TABLET_RUNNING) {
+        // if tablet under alter process, do not update cumulative point
+        return;
+    }
     // if rowsets have delete version, move to the last directly
     if (last_delete_version.first != -1) {
         tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
     } else {
-        // if rowsets have not delete version, check output_rowset total disk size
+        // if rowsets have no delete version, check output_rowset total disk size
         // satisfies promotion size.
         size_t total_size = output_rowset->rowset_meta()->total_disk_size();
         if (total_size >= _tablet_size_based_promotion_size) {
@@ -139,7 +157,7 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
     }
 }
 
-void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
+void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(TabletState state,
         const std::vector<RowsetMetaSharedPtr>& all_metas, int64_t current_cumulative_point,
         uint32_t* score) {
     bool base_rowset_exist = false;
@@ -154,7 +172,7 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     for (; rs_meta_iter != all_metas.end(); rs_meta_iter++) {
         auto rs_meta = *rs_meta_iter;
         // check base rowset
-        if (rs_meta->start_version() == 0) {
+        if (rs_meta->start_version() == 0 && state == TABLET_RUNNING) {
             base_rowset_exist = true;
             _calc_promotion_size(rs_meta, &promotion_size);
         }
@@ -171,7 +189,7 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 
     // If base version does not exist, it may be that tablet is doing alter table.
     // Do not select it and set *score = 0
-    if (!base_rowset_exist) {
+    if (!base_rowset_exist && state == TABLET_RUNNING) {
         *score = 0;
         return;
     }
@@ -185,6 +203,9 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     std::sort(rowset_to_compact.begin(), rowset_to_compact.end(), RowsetMeta::comparator);
 
     // calculate the rowsets to do cumulative compaction
+    // eg: size of rowset_to_compact are:
+    // 128, 16, 16, 16
+    // we will choose [16,16,16] to compact.
     for (auto& rs_meta : rowset_to_compact) {
         int current_level = _level_size(rs_meta->total_disk_size());
         int remain_level = _level_size(total_size - rs_meta->total_disk_size());
@@ -360,7 +381,7 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
+void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(TabletState state,
         const std::vector<RowsetMetaSharedPtr>& all_rowsets, const int64_t current_cumulative_point,
         uint32_t* score) {
     bool base_rowset_exist = false;
@@ -378,7 +399,7 @@ void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 
     // If base version does not exist, it may be that tablet is doing alter table.
     // Do not select it and set *score = 0
-    if (!base_rowset_exist) {
+    if (!base_rowset_exist && state == TABLET_RUNNING) {
         *score = 0;
     }
 }
@@ -404,20 +425,31 @@ void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         return a->version().first < b->version().first;
     });
 
-    int64_t prev_version = -1;
-    for (const RowsetMetaSharedPtr& rs : existing_rss) {
-        if (rs->version().first > prev_version + 1) {
-            // There is a hole, do not continue
-            break;
-        }
-        // break the loop if segments in this rowset is overlapping, or is a singleton.
-        if (rs->is_segments_overlapping() || rs->is_singleton_delta()) {
-            *ret_cumulative_point = rs->version().first;
-            break;
-        }
+    if (tablet->tablet_state() == TABLET_RUNNING) {
+        int64_t prev_version = -1;
+        for (const RowsetMetaSharedPtr& rs : existing_rss) {
+            if (rs->version().first > prev_version + 1) {
+                // There is a hole, do not continue
+                break;
+            }
+            // break the loop if segments in this rowset is overlapping, or is a singleton.
+            if (rs->is_segments_overlapping() || rs->is_singleton_delta()) {
+                *ret_cumulative_point = rs->version().first;
+                break;
+            }
 
-        prev_version = rs->version().second;
-        *ret_cumulative_point = prev_version + 1;
+            prev_version = rs->version().second;
+            *ret_cumulative_point = prev_version + 1;
+        }
+    } else if (tablet->tablet_state() == TABLET_NOTREADY) {
+        // tablet under alter process
+        // we choose version next to the base version as cumulative point
+        for (const RowsetMetaSharedPtr& rs : existing_rss) {
+            if (rs->version().first > 0) {
+                *ret_cumulative_point = rs->version().first;
+                break;
+            }
+        }
     }
 }
 

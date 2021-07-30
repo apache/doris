@@ -255,20 +255,6 @@ OLAPStatus OlapSnapshotConverter::to_column_msg(const ColumnPB& column_pb,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(
-        const SchemaChangeStatusMessage& schema_change_msg, AlterTabletPB* alter_tablet_pb) {
-    alter_tablet_pb->set_related_tablet_id(schema_change_msg.related_tablet_id());
-    alter_tablet_pb->set_related_schema_hash(schema_change_msg.related_schema_hash());
-    alter_tablet_pb->set_alter_type(
-            static_cast<AlterTabletType>(schema_change_msg.schema_change_type()));
-    if (schema_change_msg.versions_to_changed().size() == 0) {
-        alter_tablet_pb->set_alter_state(AlterTabletState::ALTER_FINISHED);
-    } else {
-        alter_tablet_pb->set_alter_state(AlterTabletState::ALTER_FAILED);
-    }
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus OlapSnapshotConverter::save(const string& file_path,
                                        const OLAPHeaderMessage& olap_header) {
     DCHECK(!file_path.empty());

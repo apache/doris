@@ -441,9 +441,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
             break;
         }
 
-        // clear alter task info in snapshot files
-        new_tablet_meta->delete_alter_task();
-
         // The inc_rs_metas is deprecated since Doris version 0.13.
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
