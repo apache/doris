@@ -148,28 +148,24 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    struct CommaMoneypunct : std::moneypunct<char> {
-        pattern do_pos_format() const override { return {{none, sign, none, value}}; }
-        pattern do_neg_format() const override { return {{none, sign, none, value}}; }
-        int do_frac_digits() const override { return 2; }
-        char_type do_thousands_sep() const override { return ','; }
-        string_type do_grouping() const override { return "\003"; }
-        string_type do_negative_sign() const override { return "-"; }
-    };
-
-    static StringVal do_money_format(FunctionContext* context, const std::string& v) {
-        static std::locale comma_locale(std::locale(), new CommaMoneypunct());
-        static std::stringstream ss;
-        static bool ss_init = false;
-        if (UNLIKELY(!ss_init)) {
-            ss.imbue(comma_locale);
-            ss_init = true;
+    static StringVal do_money_format(FunctionContext* context, bool negative, const std::string_view& int_value, const std::string_view& frac_value = "00") {
+        int32_t result_len = int_value.size() + 3 + (int_value.size() - (negative ? 2 : 1)) / 3;
+        StringVal result = StringVal::create_temp_string_val(context, result_len);
+        for (int i = int_value.size() - 1, c = 0, j = result_len - 4; i >= 0; i--) {
+            *(result.ptr + j) = *(int_value.data() + i);
+            j--;
+            c++;
+            if (c == 3) {
+                if (j > 0) {
+                    *(result.ptr + j) = ',';
+                    j--;
+                    c = 0;
+                }
+            }
         }
-        static std::string empty_string;
-        ss.str(empty_string);
-
-        ss << std::put_money(v);
-        return AnyValUtil::from_string_temp(context, ss.str());
+        *(result.ptr + result_len - 3) = '.';
+        memcpy(result.ptr + int_value.size() + 1, frac_value.data(), 2);
+        return result;
     };
 
     static StringVal split_part(FunctionContext* context, const StringVal& content,

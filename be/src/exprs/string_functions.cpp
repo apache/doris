@@ -886,8 +886,13 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
         return StringVal::null();
     }
 
-    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false) * 100;
-    return do_money_format(context, std::to_string(v_cent));
+    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
+    bool negative = v_cent < 0;
+    int64_t int_value = (int64_t) v_cent;
+    int32_t frac_value = negative ? ((int64_t) (-v_cent * 100)) % 100 : (int64_t)(v_cent * 100) % 100;
+    auto f_int = fmt::format_int(int_value);
+    return do_money_format(context, negative, std::string_view(f_int.data(), f_int.size()),
+                           fmt::format_int(frac_value).data());
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -897,17 +902,18 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalV2Value tmp(std::string_view("100"));
-    DecimalV2Value result = rounded * tmp;
-    return do_money_format(context, result.to_string());
+    bool negative = rounded.int_value() < 0;
+    auto frac_format = negative ? fmt::format_int(-rounded.frac_value()) : fmt::format_int(rounded.frac_value());
+    auto f_int = fmt::format_int(rounded.int_value());
+    return do_money_format(context, negative, std::string_view(f_int.data(), f_int.size()), frac_format.data());
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    auto f = fmt::format_int(v.val);
+    return do_money_format(context, v.val < 0, std::string_view(f.data(), f.size()));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
@@ -915,7 +921,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const LargeInt
         return StringVal::null();
     }
 
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    return do_money_format(context, v.val < 0, fmt::format("{}", v.val));
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,

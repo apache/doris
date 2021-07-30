@@ -18,7 +18,6 @@
 #include "exprs/string_functions.h"
 
 #include <gtest/gtest.h>
-
 #include <iostream>
 #include <string>
 
@@ -50,7 +49,7 @@ TEST_F(StringFunctionsTest, do_money_format_bench) {
             AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
     for (int i = 0; i < LOOP_LESS_OR_MORE(10, 10000000); i++) {
         StringVal result =
-                StringFunctions::do_money_format(context, "922337203685477580700"); // cent
+                StringFunctions::do_money_format(context, false,"9223372036854775807"); // cent
         ASSERT_EQ(expected, result);
     }
     delete context;
