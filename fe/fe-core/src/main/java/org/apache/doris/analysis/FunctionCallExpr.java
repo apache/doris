@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAggregateExpr;
@@ -49,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
@@ -563,7 +565,11 @@ public class FunctionCallExpr extends Expr {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
             }
-            Type type = getChild(0).type.getMaxResolutionType();
+            // Prevent the cast type in vector exec engine
+            Type type = getChild(0).type;
+            if (!VectorizedUtil.isVectorized()) {
+                type = getChild(0).type.getMaxResolutionType();
+            }
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
@@ -604,7 +610,7 @@ public class FunctionCallExpr extends Expr {
                     Database db = Catalog.getCurrentCatalog().getDb(dbName);
                     if (db != null) {
                         Function searchDesc = new Function(
-                                fnName, collectChildReturnTypes(), Type.INVALID, false);
+                                fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
                         fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                     }
                 }

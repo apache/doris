@@ -194,5 +194,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
         return this.compareLiteral(((LiteralExpr) obj)) == 0;
     }
+
+    @Override
+    public boolean isNullable() {
+        return this instanceof NullLiteral;
+    }
 }
 

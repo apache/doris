@@ -736,6 +736,20 @@ build_parallel_hashmap() {
     cp -r parallel_hashmap $TP_INSTALL_DIR/include/
 }
 
+# pdqsort
+build_pdqsort() {
+    check_if_source_exist $PDQSORT_SOURCE
+    cd $TP_SOURCE_DIR/$PDQSORT_SOURCE
+    cp -r pdqsort.h $TP_INSTALL_DIR/include/
+}
+
+# libdivide
+build_libdivide() {
+    check_if_source_exist $LIBDIVIDE_SOURCE
+    cd $TP_SOURCE_DIR/$LIBDIVIDE_SOURCE
+    cp -r libdivide.h $TP_INSTALL_DIR/include/
+}
+
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
@@ -936,6 +950,8 @@ build_bitshuffle
 build_croaringbitmap
 build_fmt
 build_parallel_hashmap
+build_pdqosrt
+build_libdivide
 build_orc
 build_cctz
 build_tsan_header

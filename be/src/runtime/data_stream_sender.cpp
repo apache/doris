@@ -417,6 +417,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
 
 // We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
 // class becaurce there are some other member in it.
+// TODO: move this to dpp_sink
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();
 }
@@ -469,8 +470,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamSender",
-                                             state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(
+            _profile, -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
+            state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.

@@ -32,7 +32,9 @@ enum TDataSinkType {
     EXPORT_SINK,
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK,
-    ODBC_TABLE_SINK
+    ODBC_TABLE_SINK,
+    VRESULT_SINK,
+    VDATA_STREAM_SINK,
 }
 
 enum TResultSinkType {

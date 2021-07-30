@@ -452,6 +452,7 @@ public class Coordinator {
         } else {
             // This is a load process.
             this.queryOptions.setIsReportSuccess(true);
+            this.queryOptions.setEnableVectorizedEngine(false);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());

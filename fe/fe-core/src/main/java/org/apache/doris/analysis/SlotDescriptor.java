@@ -222,6 +222,7 @@ public class SlotDescriptor {
      * Initializes a slot by setting its source expression information
      */
     public void initFromExpr(Expr expr) {
+        setIsNullable(expr.isNullable());
         setLabel(expr.toSql());
         Preconditions.checkState(sourceExprs_.isEmpty());
         setSourceExpr(expr);

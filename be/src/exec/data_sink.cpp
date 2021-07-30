@@ -42,6 +42,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                                   const std::vector<TExpr>& output_exprs,
                                   const TPlanFragmentExecParams& params,
                                   const RowDescriptor& row_desc,
+                                  bool is_vec,
                                   boost::scoped_ptr<DataSink>* sink) {
     DataSink* tmp_sink = NULL;
 
@@ -55,9 +56,12 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         ? params.send_query_statistics_with_every_batch
                         : false;
         // TODO: figure out good buffer size based on size of output row
-        tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc, thrift_sink.stream_sink,
-                                        params.destinations, 16 * 1024,
-                                        send_query_statistics_with_every_batch);
+        if (is_vec) {
+        } else {
+            tmp_sink = new DataStreamSender(pool, params.sender_id, row_desc, thrift_sink.stream_sink,
+                                 params.destinations, 16 * 1024,
+                                 send_query_statistics_with_every_batch);
+        }
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         sink->reset(tmp_sink);
         break;
@@ -68,7 +72,10 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
 
         // TODO: figure out good buffer size based on size of output row
-        tmp_sink = new ResultSink(row_desc, output_exprs, thrift_sink.result_sink, 1024);
+        if (is_vec) {
+        } else {
+            tmp_sink = new ResultSink(row_desc, output_exprs, thrift_sink.result_sink, 1024);
+        }
         sink->reset(tmp_sink);
         break;
     case TDataSinkType::MEMORY_SCRATCH_SINK:
@@ -98,8 +105,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.odbc_table_sink) {
             return Status::InternalError("Missing data odbc sink.");
         }
-        OdbcTableSink* odbc_tbl_sink = new OdbcTableSink(pool,
-                                                         row_desc, output_exprs);
+        OdbcTableSink* odbc_tbl_sink = new OdbcTableSink(pool, row_desc, output_exprs);
         sink->reset(odbc_tbl_sink);
         break;
     }
@@ -158,9 +164,9 @@ Status DataSink::init(const TDataSink& thrift_sink) {
 }
 
 Status DataSink::prepare(RuntimeState* state) {
-    _expr_mem_tracker = MemTracker::CreateTracker(
-            -1, _name + ":Expr:" + std::to_string(state->load_job_id()),
-            state->instance_mem_tracker());
+    _expr_mem_tracker =
+            MemTracker::CreateTracker(-1, _name + ":Expr:" + std::to_string(state->load_job_id()),
+                                      state->instance_mem_tracker());
     return Status::OK();
 }
 
