@@ -108,10 +108,12 @@ public class ShowLoadStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
 
+        StringLiteral stringLiteralLike = new StringLiteral("ab%");
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
-                                                        slotRef, stringLiteral);
+                                                        slotRef, stringLiteralLike);
+
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'abc\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
     }
 }
