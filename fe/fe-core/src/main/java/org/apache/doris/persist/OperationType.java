@@ -202,6 +202,8 @@ public class OperationType {
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
 
+    public static final short OP_SET_LDAP_PASSWORD = 290;
+
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {
         try {
