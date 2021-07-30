@@ -219,6 +219,9 @@ public class ShowLoadStmt extends ShowStmt {
                 break CHECK;
             }
 
+            if (!isAccurateMatch && !value.contains("%")) {
+                value = "%" + value + "%";
+            }
             if (hasLabel) {
                 labelValue = value;
             } else if (hasState) {
