@@ -29,20 +29,20 @@ For specific table structure and sample data, please refer to the documentation 
 
 包说明：
 
-1. config : 数据源配置类，及Application配置
-2. controller：rest接口类
-3. datasource ： 数据源配置，主要是多数据源动态切换
-4. domain：实体java bean
-5. mapper：mybatis数据访问接口定义
-6. service：业务服务接口
-7. util：工具类
-8. DorisApplication ： SpringBoot启动类
+1. config : Data source configuration class, and Application configuration
+2. controller：rest interface class
+3. datasource ： Data source configuration, mainly dynamic switching of multiple data sources
+4. domain：Entity java bean
+5. mapper：mybatis data access interface definition
+6. service：Business service interface
+7. util：Tools
+8. DorisApplication ： SpringBoot startup class
 
 配置文件说明：
 
-1. application.yml  ：Spring启动配置参数
-2. application-druid.yml ：数据库练级配置参数
-3. mybatis ： mybatis配置的相关参数，及mybatis数据访问的mapper.xml配置文件
+1. application.yml  ：SpringBoot startup class
+2. application-druid.yml ：Database connection configuration parameters
+3. mybatis ： Related parameters of mybatis configuration, and mapper.xml configuration file for mybatis data access
 
 ## Interface call
 
