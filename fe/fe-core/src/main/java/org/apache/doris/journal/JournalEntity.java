@@ -73,6 +73,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
+import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.RefreshExternalTableInfo;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
@@ -345,6 +346,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_ROLE:
             case OperationType.OP_DROP_ROLE: {
                 data = PrivInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_SET_LDAP_PASSWORD: {
+                data = LdapInfo.read(in);
                 isRead = true;
                 break;
             }

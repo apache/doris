@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -103,7 +104,11 @@ public class ConnectScheduler {
             connByUser.put(ctx.getQualifiedUser(), new AtomicInteger(0));
         }
         int conns = connByUser.get(ctx.getQualifiedUser()).get();
-        if (conns >= ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
+        if (ctx.getIsTempUser()) {
+            if (conns >= LdapAuthenticate.getMaxConn()) {
+                return false;
+            }
+        } else if (conns >= ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             return false;
         }
         numberConnection++;
