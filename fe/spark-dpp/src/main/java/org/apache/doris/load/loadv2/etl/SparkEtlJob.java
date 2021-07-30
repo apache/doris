@@ -27,6 +27,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import org.apache.commons.collections.map.MultiValueMap;
+import org.apache.parquet.io.api.Binary;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.SparkSession;
@@ -38,9 +39,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+
+import java.util.*;
 
 /**
  * SparkEtlJob is responsible for global dict building, data partition, data sort and data aggregation.
@@ -55,11 +55,13 @@ public class SparkEtlJob {
     private static final String BITMAP_DICT_FUNC = "bitmap_dict";
     private static final String TO_BITMAP_FUNC = "to_bitmap";
     private static final String BITMAP_HASH = "bitmap_hash";
+    private static final String BITMAP_UNION = "bitmap_union";
 
     private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
     private Set<Long> hiveSourceTables;
     private Map<Long, Set<String>> tableToBitmapDictColumns;
+    private Map<Long, Set<String>> tableToBitmapUnionColumns;
     private SparkSession spark;
 
     private SparkEtlJob(String jobConfigFilePath) {
@@ -67,6 +69,7 @@ public class SparkEtlJob {
         this.etlJobConfig = null;
         this.hiveSourceTables = Sets.newHashSet();
         this.tableToBitmapDictColumns = Maps.newHashMap();
+        this.tableToBitmapUnionColumns = Maps.newHashMap();
     }
 
     private void initSparkEnvironment() {
@@ -75,6 +78,8 @@ public class SparkEtlJob {
         conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer");
         conf.set("spark.kryo.registrator", "org.apache.doris.load.loadv2.dpp.DorisKryoRegistrator");
         conf.set("spark.kryo.registrationRequired", "false");
+        conf.setAppName("test");
+        conf.setMaster("local");
         spark = SparkSession.builder().enableHiveSupport().config(conf).getOrCreate();
     }
 
@@ -105,6 +110,8 @@ public class SparkEtlJob {
         for (Map.Entry<Long, EtlTable> entry : etlJobConfig.tables.entrySet()) {
             boolean isHiveSource = false;
             Set<String> bitmapDictColumns = Sets.newHashSet();
+            Set<String> bitmapUnionColumns = Sets.newHashSet();
+
             for (EtlFileGroup fileGroup : entry.getValue().fileGroups) {
                 if (fileGroup.sourceType == EtlJobConfig.SourceType.HIVE) {
                     isHiveSource = true;
@@ -117,7 +124,9 @@ public class SparkEtlJob {
                     if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
                         throw new SparkDppException("spark load not support bitmap_hash now");
                     }
-                    if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
+                    if(funcName.equalsIgnoreCase(BITMAP_UNION)){
+                        bitmapUnionColumns.add(columnName.toLowerCase());
+                    }else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
                         bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
@@ -132,6 +141,9 @@ public class SparkEtlJob {
             if (!bitmapDictColumns.isEmpty()) {
                 tableToBitmapDictColumns.put(entry.getKey(), bitmapDictColumns);
             }
+            if(!bitmapUnionColumns.isEmpty()){
+                tableToBitmapUnionColumns.put(entry.getKey(),bitmapUnionColumns);
+            }
         }
         LOG.info("init hiveSourceTables: " + hiveSourceTables + ", tableToBitmapDictColumns: " + tableToBitmapDictColumns);
 
@@ -142,7 +154,7 @@ public class SparkEtlJob {
     }
 
     private void processDpp() throws Exception {
-        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns);
+        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns,tableToBitmapUnionColumns);
         sparkDpp.init();
         sparkDpp.doDpp();
     }
@@ -172,6 +184,8 @@ public class SparkEtlJob {
         String globalDictTableName = String.format(EtlJobConfig.GLOBAL_DICT_TABLE_NAME, tableId);
         String distinctKeyTableName = String.format(EtlJobConfig.DISTINCT_KEY_TABLE_NAME, tableId, taskId);
         String dorisIntermediateHiveTable = String.format(EtlJobConfig.DORIS_INTERMEDIATE_HIVE_TABLE_NAME, tableId, taskId);
+        String customTableName = String.format(EtlJobConfig.CUSTOM_TABLE_NAME,tableId);
+
         String sourceHiveFilter = fileGroup.where;
 
         // others
@@ -199,7 +213,6 @@ public class SparkEtlJob {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-
         return String.format("%s.%s", dorisHiveDB, dorisIntermediateHiveTable);
     }
 
@@ -225,11 +238,13 @@ public class SparkEtlJob {
                 // set with dorisIntermediateHiveDbTable
                 fileGroup.dppHiveDbTableName = dorisIntermediateHiveDbTableName;
             }
-        }
 
+        }
         // data partition sort and aggregation
         processDpp();
     }
+
+
 
     private void run() throws Exception {
         initSparkEnvironment();
@@ -239,11 +254,11 @@ public class SparkEtlJob {
     }
 
     public static void main(String[] args) {
+
         if (args.length < 1) {
             System.err.println("missing job config file path arg");
             System.exit(-1);
         }
-
         try {
             new SparkEtlJob(args[0]).run();
         } catch (Exception e) {

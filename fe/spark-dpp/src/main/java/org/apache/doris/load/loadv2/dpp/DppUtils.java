@@ -28,6 +28,7 @@ import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.Row;
 
 import com.google.common.collect.Lists;
+import sun.jvm.hotspot.utilities.BitMap;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -90,6 +91,8 @@ public class DppUtils {
                 return Double.class;
             case "DATE":
                 return Date.class;
+            case "BINARY":
+                return BitMap.class;
             case "HLL":
             case "CHAR":
             case "VARCHAR":
@@ -142,6 +145,8 @@ public class DppUtils {
                 dataType = DataTypes.StringType;
                 break;
             case "HLL":
+            case "BINARY":
+                dataType = DataTypes.BinaryType;
             case "BITMAP":
                 dataType = regardDistinctColumnAsBinary ? DataTypes.BinaryType : DataTypes.StringType;
                 break;

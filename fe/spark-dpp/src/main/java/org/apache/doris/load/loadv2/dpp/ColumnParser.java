@@ -71,14 +71,25 @@ public abstract class ColumnParser implements Serializable {
         }
     }
 
-    public abstract boolean parse(String value);
+    public abstract boolean parse(Object value);
+}
+
+class BinaryParser extends ColumnParser{
+    @Override
+    public boolean parse(Object value) {
+        try{
+            return value instanceof byte[];
+        }catch (NumberFormatException e) {
+            return false;
+        }
+    }
 }
 
 class TinyIntParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Byte.parseByte(value);
+            Byte.parseByte(value.toString());
         } catch (NumberFormatException e) {
             return false;
         }
@@ -88,9 +99,9 @@ class TinyIntParser extends ColumnParser {
 
 class SmallIntParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Short.parseShort(value);
+            Short.parseShort(value.toString());
         } catch (NumberFormatException e) {
             return false;
         }
@@ -100,9 +111,9 @@ class SmallIntParser extends ColumnParser {
 
 class IntParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Integer.parseInt(value);
+            Integer.parseInt(value.toString());
         } catch (NumberFormatException e) {
             return false;
         }
@@ -112,9 +123,9 @@ class IntParser extends ColumnParser {
 
 class BigIntParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Long.parseLong(value);
+            Long.parseLong(value.toString());
         } catch (NumberFormatException e) {
             return false;
         }
@@ -124,9 +135,9 @@ class BigIntParser extends ColumnParser {
 
 class FloatParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Float ret = Float.parseFloat(value);
+            Float ret = Float.parseFloat(value.toString());
             return !ret.isNaN() && !ret.isInfinite();
         } catch (NumberFormatException e) {
             return false;
@@ -136,9 +147,9 @@ class FloatParser extends ColumnParser {
 
 class DoubleParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            Double ret = Double.parseDouble(value);
+            Double ret = Double.parseDouble(value.toString());
             return !ret.isInfinite() && !ret.isNaN();
         } catch (NumberFormatException e) {
             return false;
@@ -148,10 +159,10 @@ class DoubleParser extends ColumnParser {
 
 class BooleanParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
-        if (value.equalsIgnoreCase("true")
-                || value.equalsIgnoreCase("false")
-                || value.equals("0") || value.equals("1")) {
+    public boolean parse(Object value) {
+        if ((value.toString()).equalsIgnoreCase("true")
+                || (value.toString()).equalsIgnoreCase("false")
+                || (value.toString()).equals("0") || value.equals("1")) {
             return true;
         }
         return false;
@@ -160,9 +171,9 @@ class BooleanParser extends ColumnParser {
 
 class DateParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            DATE_FORMATTER.parseDateTime(value);
+            DATE_FORMATTER.parseDateTime(value.toString());
         } catch (IllegalArgumentException e) {
             return false;
         }
@@ -172,9 +183,9 @@ class DateParser extends ColumnParser {
 
 class DatetimeParser extends ColumnParser {
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            DATE_TIME_FORMATTER.parseDateTime(value);
+            DATE_TIME_FORMATTER.parseDateTime(value.toString());
         } catch (IllegalArgumentException e) {
             return false;
         }
@@ -191,9 +202,9 @@ class StringParser extends ColumnParser {
     }
 
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            return value.getBytes("UTF-8").length <= etlColumn.stringLength;
+            return (value.toString()).getBytes("UTF-8").length <= etlColumn.stringLength;
         } catch (Exception e) {
             throw new RuntimeException("string check failed ", e);
         }
@@ -222,9 +233,9 @@ class DecimalParser extends ColumnParser {
     }
 
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            BigDecimal bigDecimal = new BigDecimal(value);
+            BigDecimal bigDecimal = new BigDecimal(value.toString());
             return bigDecimal.precision() - bigDecimal.scale() <= PRECISION - SCALE && bigDecimal.scale() <= SCALE;
         } catch (NumberFormatException e) {
             return false;
@@ -248,9 +259,9 @@ class LargeIntParser extends ColumnParser {
     private BigInteger minValue = new BigInteger("-170141183460469231731687303715884105728");
 
     @Override
-    public boolean parse(String value) {
+    public boolean parse(Object value) {
         try {
-            BigInteger inputValue = new BigInteger(value);
+            BigInteger inputValue = new BigInteger(value.toString());
             return inputValue.compareTo(maxValue) < 0 && inputValue.compareTo(minValue) > 0;
         } catch (NumberFormatException e) {
             return false;
