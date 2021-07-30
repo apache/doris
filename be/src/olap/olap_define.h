@@ -62,6 +62,8 @@ static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
 // the max bytes for stored array length
 static const uint16_t OLAP_ARRAY_MAX_BYTES = OLAP_ARRAY_MAX_LENGTH;
 
+static constexpr uint16_t MAX_ZONE_MAP_INDEX_SIZE = 512;
+
 enum OLAPDataVersion {
     OLAP_V1 = 0,
     DORIS_V1 = 1,
