@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/config.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
 #include <gtest/gtest.h>
@@ -99,6 +100,47 @@ public:
         ASSERT_EQ(true, zone_maps[2].has_null());
         ASSERT_EQ(false, zone_maps[2].has_not_null());
     }
+
+    void test_cut_zone_map(std::string testname, Field* field) {
+        std::string filename = kTestDir + "/" + testname;
+
+        ZoneMapIndexWriter builder(field);
+        char ch = 'a';
+        char buf[1024];
+        for (int i = 0; i < 5; i++) {
+            memset(buf, ch + i, 1024);
+            Slice slice(buf, 1024);
+            builder.add_values((const uint8_t*)&slice, 1);
+        }
+        builder.flush();
+
+        // write out zone map index
+        ColumnIndexMetaPB index_meta;
+        {
+            std::unique_ptr<fs::WritableBlock> wblock;
+            fs::CreateBlockOptions opts({filename});
+            ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
+            ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
+            ASSERT_EQ(ZONE_MAP_INDEX, index_meta.type());
+            ASSERT_TRUE(wblock->close().ok());
+        }
+
+        ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+        Status status = column_zone_map.load(true, false);
+        ASSERT_TRUE(status.ok());
+        ASSERT_EQ(1, column_zone_map.num_pages());
+        const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
+        ASSERT_EQ(1, zone_maps.size());
+
+        char value[512];
+        memset(value, 'a', 512);
+        ASSERT_EQ(value, zone_maps[0].min());
+        memset(value, 'f', 512);
+        value[511] += 1;
+        ASSERT_EQ(value, zone_maps[0].max());
+        ASSERT_EQ(false, zone_maps[0].has_null());
+        ASSERT_EQ(true, zone_maps[0].has_not_null());
+    }
 };
 
 // Test for int
@@ -168,6 +210,15 @@ TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumn char_column = create_char_key(0);
     Field* field = FieldFactory::create(char_column);
     test_string("NormalTestCharPage", field);
+    delete field;
+}
+
+// Test for zone map limit
+TEST_F(ColumnZoneMapTest, ZoneMapCut) {
+    TabletColumn varchar_column = create_varchar_key(0);
+    varchar_column.set_index_length(1024);
+    Field* field = FieldFactory::create(varchar_column);
+    test_string("ZoneMapCut", field);
     delete field;
 }
 
