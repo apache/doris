@@ -377,8 +377,6 @@ message PConstantExprResult {
     map<string, PExprResultMap> expr_result_map = 2;
 };
 
-// NOTE(zc): If you want to add new method here,
-// you MUST add same method to palo_internal_service.proto
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
