@@ -113,7 +113,7 @@ public class ColumnDefTest {
         try {
             column3.analyze(true);
         } catch (AnalysisException e) {
-            Assert.assertEquals("errCode = 2, detailMessage = Invalid BOOLEAN literal: 10", e.getMessage());
+            Assert.assertEquals("errCode = 400, detailMessage = Invalid BOOLEAN literal: 10", e.getMessage());
         }
     }
 

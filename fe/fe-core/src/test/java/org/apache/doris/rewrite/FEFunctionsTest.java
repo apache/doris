@@ -223,7 +223,7 @@ public class FEFunctionsTest {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%W"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = '' is invalid");
+            Assert.assertEquals(e.getMessage(), "errCode = 400, detailMessage = '' is invalid");
         }
     }
 

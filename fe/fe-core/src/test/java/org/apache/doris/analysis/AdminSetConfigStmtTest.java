@@ -66,7 +66,7 @@ public class AdminSetConfigStmtTest {
     public void testEmptyConfig() throws Exception {
         String stmt = "admin set frontend config;";
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = config parameter size is not equal to 1");
+        expectedEx.expectMessage("errCode = 400, detailMessage = config parameter size is not equal to 1");
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) UtFrameUtils.parseAndAnalyzeStmt(stmt, connectContext);
     }
 }
