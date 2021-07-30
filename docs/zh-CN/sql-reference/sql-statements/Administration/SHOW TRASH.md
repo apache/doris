@@ -28,12 +28,11 @@ under the License.
 ## description
     该语句用于查看 backend 内的垃圾数据占用空间。
     语法：
-        SHOW TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
+        SHOW TRASH [ON BackendHost:BackendHeartBeatPort];
 
     说明：
-        1. BackendId 表示该be节点的ID。
-        2. Backend 格式为该节点的BackendHost:BackendHeartBeatPort。
-        3. TrashUsedCapacity 表示该节点垃圾数据占用空间。
+        1. Backend 格式为该节点的BackendHost:BackendHeartBeatPort。
+        2. TrashUsedCapacity 表示该节点垃圾数据占用空间。
 
 ## example
 
@@ -41,9 +40,9 @@ under the License.
 
         SHOW TRASH;
 
-    2. 查看'192.168.0.1:9050'和'192.168.0.2:9050'的垃圾数据占用空间。
+    2. 查看'192.168.0.1:9050'的垃圾数据占用空间(会显示具体磁盘信息)。
 
-        SHOW TRASH ON ("192.168.0.1:9050","192.168.0.2:9050");
+        SHOW TRASH ON "192.168.0.1:9050";
 
 ## keyword
     SHOW, TRASH

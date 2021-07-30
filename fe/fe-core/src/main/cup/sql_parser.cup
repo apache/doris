@@ -2554,13 +2554,13 @@ show_param ::=
     {:
         RESULT = new ShowBackendsStmt();
     :}
-    | KW_TRASH KW_ON LPAREN string_list:backends RPAREN
+    | KW_TRASH KW_ON STRING_LITERAL:backend
     {:
-        RESULT = new ShowTrashStmt(backends);
+        RESULT = new ShowTrashDiskStmt(backend);
     :}
     | KW_TRASH 
     {:
-        RESULT = new ShowTrashStmt(null);
+        RESULT = new ShowTrashStmt();
     :}
     | KW_FRONTENDS
     {:

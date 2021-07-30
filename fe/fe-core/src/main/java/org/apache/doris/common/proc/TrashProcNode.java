@@ -18,17 +18,15 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.system.Backend;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.util.DebugUtil;
 
-import com.google.common.base.Strings;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
@@ -37,42 +35,28 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 
-/*
- * Show trash
- * SHOW PROC '/trash'
- * SHOW PROC '/trash/backendId'
- */
-public class TrashProcNode implements ProcDirInterface {
+public class TrashProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
-    private boolean isNode;
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("RootPath")
+            .add("State").add("TrashUsedCapacity").build();
 
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-    .add("BackendId").add("Backend").add("TrashUsedCapacity").build();
-    
-    private List<Backend> backends = Lists.newArrayList();
-    
-    public TrashProcNode() {
-        isNode = false;
-        ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
-        for (Backend backend : backendsInfo.values()) {
-            this.backends.add(backend);
-        }
-    }
+    private Backend backend;
 
     public TrashProcNode(Backend backend) {
-        isNode = true;
-        backends.add(backend);
+        this.backend = backend;
     }
-    
+
     @Override
     public ProcResult fetchResult() {
+        Preconditions.checkNotNull(backend);
+
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        
+
         List<List<String>> infos = Lists.newArrayList();
 
-        getTrashInfo(backends, infos);
+        getTrashDiskInfo(backend, infos);
 
         for (List<String> info : infos) {
             result.addRow(info);
@@ -81,70 +65,43 @@ public class TrashProcNode implements ProcDirInterface {
         return result;
     }
 
-    public static void getTrashInfo(List<Backend> backends, List<List<String>> infos) {
-        
-        for (Backend backend : backends) {
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            Long trashUsedCapacityB = null;
-            boolean ok = false;
-            try {
-                long start = System.currentTimeMillis();
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
-                client = ClientPool.backendPool.borrowObject(address);
-                trashUsedCapacityB = client.getTrashUsedCapacity();
-                ok = true;
-            } catch (Exception e) {
-                LOG.warn("task exec error. backend[{}]", backend.getId(), e);
-            } finally {
-                if (ok) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
-            }
+    public static void getTrashDiskInfo(Backend backend, List<List<String>> infos) {
 
-            List<String> backendInfo = new ArrayList<String>();
-            backendInfo.add(String.valueOf(backend.getId()));
-            backendInfo.add(backend.getHost() + ":" + String.valueOf(backend.getHeartbeatPort()));
-            if (trashUsedCapacityB != null) {
-                Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
-                backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
-            } else {
-                backendInfo.add("");
-            }
-            infos.add(backendInfo);
-        }
-    }
-
-    @Override
-    public boolean register(String name, ProcNodeInterface node) {
-        return false;
-    }
-
-    @Override
-    public ProcNodeInterface lookup(String beIdStr) throws AnalysisException {
-        if (isNode) {
-            throw new AnalysisException("Invalid query format");
-        }
-
-        if (Strings.isNullOrEmpty(beIdStr)) {
-            throw new AnalysisException("Backend id is null");
-        }
-
-        long backendId = -1L;
+        BackendService.Client client = null;
+        TNetworkAddress address = null;
+        boolean ok = false;
+        List<TDiskTrashInfo> diskTrashInfos = null;
         try {
-            backendId = Long.parseLong(beIdStr);
-        } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid backend id format: " + beIdStr);
+            address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            client = ClientPool.backendPool.borrowObject(address);
+            diskTrashInfos = client.getDiskTrashUsedCapacity();
+            ok = true;
+        } catch (Exception e) {
+            LOG.warn("task exec error. backend[{}]", backend.getId(), e);
+        } finally {
+            if (ok) {
+                ClientPool.backendPool.returnObject(address, client);
+            } else {
+                ClientPool.backendPool.invalidateObject(address, client);
+            }
         }
 
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-        if (backend == null) {
-            throw new AnalysisException("Backend[" + backendId + "] does not exist.");
+        if (diskTrashInfos == null) {
+            return;
         }
+        for (TDiskTrashInfo diskTrashInfo : diskTrashInfos) {
+            List<String> diskInfo = new ArrayList<String>();
 
-        return new TrashProcNode(backend);
+            diskInfo.add(diskTrashInfo.getRootPath());
+
+            diskInfo.add(diskTrashInfo.getState());
+
+            long trashUsedCapacityB = diskTrashInfo.getTrashUsedCapacity();
+            Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
+            diskInfo.add(
+                    DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
+
+            infos.add(diskInfo);
+        }
     }
 }
-

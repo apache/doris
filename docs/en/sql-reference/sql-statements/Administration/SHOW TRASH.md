@@ -31,23 +31,22 @@ This statement is used to view trash used capacity on some backends.
 
     Syntax:
 
-        SHOW TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
+        SHOW TRASH [ON "BackendHost:BackendHeartBeatPort"];
 
     Explain:
 
-        1. BackendId Indicates the ID of the backend node.
-        2. Backend The format is BackendHost:BackendHeartBeatPort of the node. 
-        3. TrashUsedCapacity Indicates that the garbage data of the node occupies space. 
+        1. Backend The format is BackendHost:BackendHeartBeatPort of the node. 
+        2. TrashUsedCapacity Indicates that the trash data of the node occupies space. 
 
 ## example
 
-    1. View the space occupied by garbage data of all be nodes. 
+    1. View the space occupied by trash data of all be nodes. 
 
         SHOW TRASH;
 
-    2. Check the space occupied by garbage data of '192.168.0.1:9050' and '192.168.0.2:9050'. 
+    2. Check the space occupied by trash data of '192.168.0.1:9050'(The specific disk information will be displayed). 
 
-        SHOW TRASH ON ("192.168.0.1:9050","192.168.0.2:9050");
+        SHOW TRASH ON "192.168.0.1:9050";
 
 ## keyword
     SHOW, TRASH

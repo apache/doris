@@ -30,22 +30,24 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 
-import java.util.List;
+public class ShowTrashDiskStmt extends ShowStmt {
 
-public class ShowTrashStmt extends ShowStmt {
-    private List<Backend> backends = Lists.newArrayList();
+    private Backend backend;
 
-    public ShowTrashStmt() {
+    public ShowTrashDiskStmt(String backendQuery) {
         ImmutableMap<Long, Backend> backendsInfo = Catalog.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
-            this.backends.add(backend);
+            String backendStr = String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort());
+            if (backendQuery.equals(backendStr)) {
+                this.backend = backend;
+                break;
+            }
         }
     }
 
-    public List<Backend> getBackends() {
-        return backends;
+    public Backend getBackend() {
+        return backend;
     }
 
     @Override
