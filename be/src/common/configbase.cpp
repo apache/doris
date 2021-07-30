@@ -22,7 +22,6 @@
 #include <iostream>
 #include <list>
 #include <map>
-#include <sstream>
 
 #define __IN_CONFIGBASE_CPP__
 #include "common/config.h"
