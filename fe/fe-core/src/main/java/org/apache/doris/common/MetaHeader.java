@@ -61,9 +61,10 @@ public class MetaHeader {
             }
             MetaJsonHeader metaJsonHeader = MetaJsonHeader.read(raf);
             if (!MetaJsonHeader.IMAGE_VERSION.equalsIgnoreCase(metaJsonHeader.imageVersion)) {
-                LOG.warn("Image file {} format mismatch. Expected version is {}, actual is {}",
-                        imageFile.getPath(), MetaJsonHeader.IMAGE_VERSION, metaJsonHeader.imageVersion);
-                return EMPTY_HEADER;
+                String errMsg = "Image file " + imageFile.getPath() + " format version mismatch. " +
+                        "Expected version is "+ MetaJsonHeader.IMAGE_VERSION +", actual is" + metaJsonHeader.imageVersion;
+                // different versions are incompatible
+                throw new IOException(errMsg);
             }
 
             long length = raf.getFilePointer() - MetaMagicNumber.MAGIC_STR.length() - HEADER_LENGTH_SIZE;
