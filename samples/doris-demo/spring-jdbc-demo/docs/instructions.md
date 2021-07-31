@@ -27,7 +27,7 @@ For specific table structure and sample data, please refer to the documentation 
 
 ![](/images/20210730144136.png)
 
-包说明：
+Package instruction:
 
 1. config : Data source configuration class, and Application configuration
 2. controller：rest interface class
@@ -38,7 +38,7 @@ For specific table structure and sample data, please refer to the documentation 
 7. util：Tools
 8. DorisApplication ： SpringBoot startup class
 
-配置文件说明：
+Configuration instruction:
 
 1. application.yml  ：SpringBoot startup class
 2. application-druid.yml ：Database connection configuration parameters
