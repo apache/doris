@@ -1,0 +1,21 @@
+[Unit]
+Description=Doris BE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+User=doris
+Group=doris
+LimitCORE=infinity
+LimitNOFILE=200000
+Restart=on-failure
+RestartSec=30
+StartLimitInterval=120
+StartLimitBurst=3
+KillMode=none
+ExecStart=/home/doris/be/bin/start_be.sh --daemon
+ExecStop=/home/doris/be/bin/stop_be.sh
+
+[Install]
+WantedBy=multi-user.target
