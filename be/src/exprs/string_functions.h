@@ -148,7 +148,7 @@ public:
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
-    
+
     template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
             const int32_t frac_value = 0) {
         char local[N];
