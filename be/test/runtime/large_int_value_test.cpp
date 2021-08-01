@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -86,6 +87,14 @@ TEST_F(LargeIntValueTest, largeint_to_string) {
         std::stringstream ss;
         ss << v2;
         EXPECT_EQ(ss.str(), "-170141183460469231731687303715884105728");
+    }
+}
+
+TEST_F(LargeIntValueTest, largeint_to_string_benchmark) {
+    for (int i = 0; i < 10000000; i++) {
+        __int128 v2 = MAX_INT128;
+       EXPECT_EQ(LargeIntValue::to_string(v2), "170141183460469231731687303715884105727");
+       LargeIntValue::to_string(v2);
     }
 }
 

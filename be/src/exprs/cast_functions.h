@@ -115,7 +115,6 @@ public:
     static StringVal cast_to_string_val(FunctionContext* context, const FloatVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const DoubleVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const DateTimeVal& val);
-    static StringVal cast_to_string_val(FunctionContext* context, const StringVal& val);
 #if 0
     static StringVal CastToChar(FunctionContext* context, const StringVal& val);
 #endif
