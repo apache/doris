@@ -691,21 +691,22 @@ bool Tablet::version_for_load_deletion(const Version& version) {
 }
 
 bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
-    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() == TABLET_NOTREADY) {
-        LOG(INFO) << "cmy1 " << (compaction_type == CompactionType::BASE_COMPACTION) << " " << (tablet_state() == TABLET_NOTREADY);
+    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
+        // base compaction can only be done for tablet in TABLET_RUNNING state.
+        // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
     }
 
     if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
-        LOG(INFO) << "cmy2 " << (data_dir()->path_hash() != path_hash) << ", " << !is_used() << ", " << !init_succeeded();
         return false;
     }
 
-    if (compaction_type == CompactionType::BASE_COMPACTION) {
+    if (tablet_state() == TABLET_RUNNING) {
+        // if tablet state is running, we need to check if it has consistent versions.
+        // tablet in other state such as TABLET_NOTREADY may not have complete versions.
         ReadLock rdlock(&_meta_lock);
         const RowsetSharedPtr lastest_delta = rowset_with_max_version();
         if (lastest_delta == nullptr) {
-            LOG(INFO) << "cmy can not do compaction because lastest_delta == nullptr";
             return false;
         }
 
@@ -1323,7 +1324,6 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         OLAPStatus res = _cumulative_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
-            LOG(INFO) << "cmy failed to prepare: " << tablet_id() << " " << res;
             return 0;
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();

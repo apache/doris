@@ -636,16 +636,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
-                if (tablet_ptr->tablet_id() == 10115) {
-                    LOG(INFO) << "cmy begin 10115: " << (compaction_type == CompactionType::BASE_COMPACTION);
-                }
-                auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
-                if (search != tablet_submitted_compaction.end()) {
+                if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
                     continue;
                 }
 
-                if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
-                    LOG(INFO) << "cmy can not do compaction " << tablet_ptr->tablet_id();
+                auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
+                if (search != tablet_submitted_compaction.end()) {
                     continue;
                 }
 
@@ -688,7 +684,6 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                         config::compaction_tablet_scan_frequency_factor * scan_frequency +
                         config::compaction_tablet_compaction_score_factor *
                                 current_compaction_score;
-                LOG(INFO) << "cmy tablet score: " << tablet_score << ", high: " << highest_score << ", " <<  tablet_ptr->tablet_id();
                 if (tablet_score > highest_score) {
                     highest_score = tablet_score;
                     compaction_score = current_compaction_score;

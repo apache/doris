@@ -71,6 +71,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 
     if (tablet->tablet_state() == TABLET_RUNNING) {
         // check base rowset first version must be zero
+        // for tablet which state is not TABLET_RUNNING, there may not have base version.
         CHECK((*base_rowset_meta)->start_version() == 0);
     }
 
@@ -169,12 +170,18 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
 
     // check the base rowset and collect the rowsets of cumulative part
     auto rs_meta_iter = all_metas.begin();
+    RowsetMetaSharedPtr first_meta;
+    int64_t first_version = INT64_MAX;
     for (; rs_meta_iter != all_metas.end(); rs_meta_iter++) {
         auto rs_meta = *rs_meta_iter;
+        if (rs_meta->start_version() < first_version) {
+            first_version = rs_meta->start_version();
+            first_meta = rs_meta;
+        }
         // check base rowset
-        if (rs_meta->start_version() == 0 && state == TABLET_RUNNING) {
+        if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
-            _calc_promotion_size(rs_meta, &promotion_size);
+            // _calc_promotion_size(rs_meta, &promotion_size);
         }
         if (rs_meta->end_version() < point) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
@@ -187,9 +194,19 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
         }
     }
 
-    // If base version does not exist, it may be that tablet is doing alter table.
-    // Do not select it and set *score = 0
+    if (first_meta == nullptr) {
+        *score = 0;
+        return;
+    }
+
+    // Use "first"(not base) version to calc promotion size
+    // because some tablet do not have base version(under alter operation)
+    _calc_promotion_size(first_meta, &promotion_size);
+
+    // If base version does not exist, but its state is RUNNING.
+    // It is abnormal, do not select it and set *score = 0
     if (!base_rowset_exist && state == TABLET_RUNNING) {
+        LOG(WARNING) << "tablet state is running but have no base version";
         *score = 0;
         return;
     }
@@ -384,23 +401,13 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
 void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(TabletState state,
         const std::vector<RowsetMetaSharedPtr>& all_rowsets, const int64_t current_cumulative_point,
         uint32_t* score) {
-    bool base_rowset_exist = false;
     const int64_t point = current_cumulative_point;
     for (auto& rs_meta : all_rowsets) {
-        if (rs_meta->start_version() == 0) {
-            base_rowset_exist = true;
-        }
         if (rs_meta->start_version() < point) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         }
         *score += rs_meta->get_compaction_score();
-    }
-
-    // If base version does not exist, it may be that tablet is doing alter table.
-    // Do not select it and set *score = 0
-    if (!base_rowset_exist && state == TABLET_RUNNING) {
-        *score = 0;
     }
 }
 
