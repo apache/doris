@@ -888,11 +888,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
 
     double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
     bool negative = v_cent < 0;
-    int64_t int_value = (int64_t) v_cent;
-    int32_t frac_value = negative ? ((int64_t) (-v_cent * 100)) % 100 : (int64_t)(v_cent * 100) % 100;
-    auto f_int = fmt::format_int(int_value);
-    return do_money_format(context, negative, std::string_view(f_int.data(), f_int.size()),
-                           fmt::format_int(frac_value).data());
+    int32_t frac_value = negative ? ((int64_t) (-v_cent * 100)) % 100 : ((int64_t)(v_cent * 100)) % 100;
+    return do_money_format<int64_t, 26>(context, (int64_t) v_cent , frac_value);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -902,26 +899,21 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    bool negative = rounded.int_value() < 0;
-    auto frac_format = negative ? fmt::format_int(-rounded.frac_value()) : fmt::format_int(rounded.frac_value());
-    auto f_int = fmt::format_int(rounded.int_value());
-    return do_money_format(context, negative, std::string_view(f_int.data(), f_int.size()), frac_format.data());
+    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value()));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-    auto f = fmt::format_int(v.val);
-    return do_money_format(context, v.val < 0, std::string_view(f.data(), f.size()));
+    return do_money_format<__int64_t, 26>(context, v.val);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, v.val < 0, fmt::format("{}", v.val));
+    return do_money_format<__int128_t, 52>(context, v.val);
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,

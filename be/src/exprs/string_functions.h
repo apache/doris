@@ -26,6 +26,7 @@
 #include <string_view>
 
 #include "anyval_util.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 
@@ -147,24 +148,16 @@ public:
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
-
-    static StringVal do_money_format(FunctionContext* context, bool negative, const std::string_view& int_value, const std::string_view& frac_value = "00") {
-        int32_t result_len = int_value.size() + 3 + (int_value.size() - (negative ? 2 : 1)) / 3;
-        StringVal result = StringVal::create_temp_string_val(context, result_len);
-        for (int i = int_value.size() - 1, c = 0, j = result_len - 4; i >= 0; i--) {
-            *(result.ptr + j) = *(int_value.data() + i);
-            j--;
-            c++;
-            if (c == 3) {
-                if (j > 0) {
-                    *(result.ptr + j) = ',';
-                    j--;
-                    c = 0;
-                }
-            }
-        }
-        *(result.ptr + result_len - 3) = '.';
-        memcpy(result.ptr + int_value.size() + 1, frac_value.data(), 2);
+    
+    template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
+            const int32_t frac_value = 0) {
+        char local[N];
+        char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+        int32_t string_val_len = local + sizeof(local) - p + 3;
+        StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+        *(result.ptr + string_val_len - 3) = '.';
+        *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+        *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
         return result;
     };
 
