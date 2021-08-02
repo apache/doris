@@ -145,13 +145,13 @@ Status ParquetScanner::open_next_reader() {
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
             break;
         }
         case TFileType::FILE_S3: {
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }

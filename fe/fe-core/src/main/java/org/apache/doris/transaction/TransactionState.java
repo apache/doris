@@ -45,6 +45,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -64,7 +65,7 @@ public class TransactionState implements Writable {
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
-        INSERT_STREAMING(3), // insert stmt (streaming type) use this type
+        INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
         
@@ -205,6 +206,7 @@ public class TransactionState implements Writable {
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+    private String authCode = "";
 
     // is set to true, we will double the publish timeout
     private boolean prolongPublishTimeout = false;
@@ -241,6 +243,7 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
+        this.authCode = UUID.randomUUID().toString();
     }
     
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
@@ -264,8 +267,16 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
+        this.authCode = UUID.randomUUID().toString();
     }
-    
+
+    public void setAuthCode(String authCode) {
+        this.authCode = authCode;
+    }
+    public String getAuthCode() {
+        return authCode;
+    }
+
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }

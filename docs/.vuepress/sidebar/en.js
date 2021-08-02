@@ -180,6 +180,7 @@ module.exports = [
       "export-manual",
       "outfile",
       "privilege",
+      "ldap",
       "resource-management",
       "running-profile",
       "runtime-filter",
@@ -187,8 +188,16 @@ module.exports = [
       "sql-mode",
       "time-zone",
       "variables",
+      "update",
     ],
     sidebarDepth: 1,
+  },
+  {
+    title: "Bast Practices",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
   },
   {
     title: "Extending Ability",
@@ -435,6 +444,7 @@ module.exports = [
               "INSTALL PLUGIN",
               "LINK DATABASE",
               "MIGRATE DATABASE",
+              "SET LDAP_ADMIN_PASSWORD",
               "SHOW BACKENDS",
               "SHOW BROKER",
               "SHOW FILE",
@@ -527,6 +537,7 @@ module.exports = [
               "STREAM LOAD",
               "alter-routine-load",
               "insert",
+              "UPDATE",
             ],
           },
           {

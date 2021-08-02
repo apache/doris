@@ -282,6 +282,16 @@ public class PartitionInfo implements Writable {
         }
     }
 
+    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId, short restoreReplicationNum, boolean isSinglePartitioned) {
+        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
+        idToReplicationNum.remove(oldPartitionId);
+        idToReplicationNum.put(newPartitionId, restoreReplicationNum);
+        if (!isSinglePartitioned) {
+            idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        }
+        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, type.name());

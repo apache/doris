@@ -181,6 +181,7 @@ module.exports = [
       "outfile",
       "partition_cache",
       "privilege",
+      "ldap",
       "resource-management",
       "running-profile",
       "runtime-filter",
@@ -189,8 +190,16 @@ module.exports = [
       "sql-mode",
       "time-zone",
       "variables",
+      "update",
     ],
     sidebarDepth: 1,
+  },
+  {
+    title: "最佳实践",
+    directoryPath: "best-practices/",
+    children: [
+      "fe-load-balance"
+    ],
   },
   {
     title: "扩展功能",
@@ -440,6 +449,7 @@ module.exports = [
               "INSTALL PLUGIN",
               "LINK DATABASE",
               "MIGRATE DATABASE",
+              "SET LDAP_ADMIN_PASSWORD",
               "SHOW BACKENDS",
               "SHOW BROKER",
               "SHOW FILE",
@@ -531,6 +541,7 @@ module.exports = [
               "STREAM LOAD",
               "alter-routine-load",
               "insert",
+              "UPDATE",
             ],
           },
           {

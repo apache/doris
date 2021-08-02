@@ -212,15 +212,32 @@ There are different data types among different databases. Here, the types in eac
 |   DATETIME  | DATETIME |  |
 |   NUMBER  | DECIMAL |  |
 
+### SQLServer
+
+|  SQLServer  | Doris  |             Alternation rules              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported            |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported      |
+|   DATE/   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   TINYINT   | TINYINT |  |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   FLOAT  | DOUBLE |  |
+|   DATETIME/DATETIME2  | DATETIME |  |
+|   DECIMAL/NUMERIC | DECIMAL |  |
+
 ## Q&A
 
 1. Relationship with the original external table of MySQL?
 
 After accessing the ODBC external table, the original way to access the MySQL external table will be gradually abandoned. If you have not used the MySQL external table before, it is recommended that the newly accessed MySQL tables use ODBC external table directly.
     
-2. Besides MySQL and Oracle, can doris support more databases?
+2. Besides MySQL, Oracle, SQLServer, PostgreSQL, can doris support more databases?
 
-Currently, Doris only adapts to MySQL and Oracle. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other databases, you are welcome to modify the code and contribute to Doris.
+Currently, Doris only adapts to MySQL, Oracle, SQLServer, PostgreSQL. The adaptation of other databases is under planning. In principle, any database that supports ODBC access can be accessed through the ODBC external table. If you need to access other databases, you are welcome to modify the code and contribute to Doris.
 
 3. When is it appropriate to use ODBC external tables?
 

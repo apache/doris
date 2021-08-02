@@ -184,6 +184,8 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
         test_read_write_array_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, num_array,
                                                                      array_val);
 
+        // Test hash_code in CollectionValue
+        type_info->hash_code(array_val, 0);
         delete[] array_val;
         delete[] item_val;
     }

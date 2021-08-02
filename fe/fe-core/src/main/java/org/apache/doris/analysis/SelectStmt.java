@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
@@ -508,7 +509,12 @@ public class SelectStmt extends QueryStmt {
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
-                groupingInfo.substituteGroupingFn(sortInfo.getOrderingExprs(), analyzer);
+                // List of executable exprs in select clause has been substituted, only the unique expr in Ordering
+                // exprs needs to be substituted.
+                // Otherwise, if substitute twice for `Grouping Func Expr`, a null pointer will be reported.
+                List<Expr> orderingExprNotInSelect = sortInfo.getOrderingExprs().stream()
+                        .filter(item -> !resultExprs.contains(item)).collect(Collectors.toList());
+                groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
         analyzeAggregation(analyzer);

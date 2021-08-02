@@ -56,7 +56,7 @@ public class Planner {
 
     private boolean isBlockQuery = false;
 
-    private ArrayList<PlanFragment> fragments = Lists.newArrayList();
+    protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
     private PlannerContext plannerContext;
     private SingleNodePlanner singleNodePlanner;
@@ -225,7 +225,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	if (statement instanceof InsertStmt) {
+	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

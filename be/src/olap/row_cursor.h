@@ -55,6 +55,10 @@ public:
     // 目前仅用在拆分key区间的时候
     OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
+    OLAPStatus init_scan_key(const TabletSchema& schema,
+                             const std::vector<std::string>& keys,
+                             const std::shared_ptr<Schema>& shared_schema);
+
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
 
@@ -143,10 +147,15 @@ public:
     char* row_ptr() const { return _fixed_buf; }
 
 private:
+    OLAPStatus _init(const std::vector<uint32_t>& columns);
+    OLAPStatus _init(const std::shared_ptr<Schema>& shared_schema,
+                     const std::vector<uint32_t>& columns);
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
 
-    std::unique_ptr<Schema> _schema;
+    OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+
+    std::shared_ptr<Schema> _schema;
 
     char* _fixed_buf = nullptr; // point to fixed buf
     size_t _fixed_len;

@@ -1228,7 +1228,6 @@ public class SingleNodePlanner {
                         || !(slotBinding instanceof LiteralExpr)) {
                     continue;
                 }
-
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
@@ -1696,65 +1695,8 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
-            Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
-            List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
-
-            // push down join predicate
-            List<Expr> pushDownConjuncts = Lists.newArrayList();
-            TupleId tupleId = tblRef.getId();
-            List<Expr> eqJoinPredicates = analyzer.getEqJoinConjuncts(tupleId);
-            if (eqJoinPredicates != null) {
-                // only inner and left outer join
-                if ((tblRef.getJoinOp().isInnerJoin() || tblRef.getJoinOp().isLeftOuterJoin())) {
-                    List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());
-                    allConjuncts.removeAll(conjuncts);
-                    for (Expr conjunct : allConjuncts) {
-                        if (org.apache.doris.analysis.Predicate.canPushDownPredicate(conjunct)) {
-                            for (Expr eqJoinPredicate : eqJoinPredicates) {
-                                // we can ensure slot is left node, because NormalizeBinaryPredicatesRule
-                                SlotRef otherSlot = conjunct.getChild(0).unwrapSlotRef();
-
-                                // ensure the children for eqJoinPredicate both be SlotRef
-                                if (eqJoinPredicate.getChild(0).unwrapSlotRef() == null || eqJoinPredicate.getChild(1).unwrapSlotRef() == null) {
-                                    continue;
-                                }
-
-                                SlotRef leftSlot = eqJoinPredicate.getChild(0).unwrapSlotRef();
-                                SlotRef rightSlot = eqJoinPredicate.getChild(1).unwrapSlotRef();
-
-                                // ensure the type is match
-                                if (!leftSlot.getDesc().getType().matchesType(rightSlot.getDesc().getType())) {
-                                    continue;
-                                }
-
-                                // example: t1.id = t2.id and t1.id = 1  => t2.id =1
-                                if (otherSlot.isBound(leftSlot.getSlotId()) && rightSlot.isBound(tupleId)) {
-                                    pushDownConjuncts.add(rewritePredicate(analyzer, conjunct, rightSlot));
-                                } else if (otherSlot.isBound(rightSlot.getSlotId()) && leftSlot.isBound(tupleId)) {
-                                    pushDownConjuncts.add(rewritePredicate(analyzer, conjunct, leftSlot));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                LOG.debug("pushDownConjuncts: {}", pushDownConjuncts);
-                conjuncts.addAll(pushDownConjuncts);
-            }
-
-            for (Column column : tblRef.getTable().getBaseSchema()) {
-                SlotDescriptor slotDesc = tblRef.getDesc().getColumnSlot(column.getName());
-                if (null == slotDesc) {
-                    continue;
-                }
-                PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts);
-                if (null != keyFilter) {
-                    columnFilters.put(column.getName(), keyFilter);
-                }
-            }
-            scanNode.setColumnFilters(columnFilters);
+            PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             scanNode.setSortColumn(tblRef.getSortColumn());
-            scanNode.addConjuncts(pushDownConjuncts);
         }
 
         scanNodes.add(scanNode);
@@ -1765,26 +1707,6 @@ public class SingleNodePlanner {
         scanNode.init(analyzer);
 
         return scanNode;
-    }
-
-    // Rewrite the oldPredicate with new leftChild
-    // For example: oldPredicate is t1.id = 1, leftChild is t2.id, will return t2.id = 1
-    private Expr rewritePredicate(Analyzer analyzer, Expr oldPredicate, Expr leftChild) {
-        if (oldPredicate instanceof BinaryPredicate) {
-            BinaryPredicate oldBP = (BinaryPredicate) oldPredicate;
-            BinaryPredicate bp = new BinaryPredicate(oldBP.getOp(), leftChild, oldBP.getChild(1));
-            bp.analyzeNoThrow(analyzer);
-            return bp;
-        }
-
-        if (oldPredicate instanceof InPredicate) {
-            InPredicate oldIP = (InPredicate) oldPredicate;
-            InPredicate ip = new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
-            ip.analyzeNoThrow(analyzer);
-            return ip;
-        }
-
-        return oldPredicate;
     }
 
     /**

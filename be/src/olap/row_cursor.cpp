@@ -35,9 +35,7 @@ RowCursor::~RowCursor() {
     delete[] _variable_buf;
 }
 
-OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
-                            const std::vector<uint32_t>& columns) {
-    _schema.reset(new Schema(schema, columns));
+OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     _variable_len = 0;
     for (auto cid : columns) {
         if (_schema->column(cid) == nullptr) {
@@ -55,6 +53,61 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     }
     _owned_fixed_buf = _fixed_buf;
     memset(_fixed_buf, 0, _fixed_len);
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
+                            const std::vector<uint32_t>& columns) {
+    _schema = shared_schema;
+    return _init(columns);
+}
+
+OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
+                            const std::vector<uint32_t>& columns) {
+    _schema.reset(new Schema(schema, columns));
+    return _init(columns);
+}
+
+OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys) {
+    // NOTE: cid equal with column index
+    // Hyperloglog cannot be key, no need to handle it
+    _variable_len = 0;
+    for (auto cid : _schema->column_ids()) {
+        const TabletColumn& column = schema.column(cid);
+        FieldType type = column.type();
+        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+            _variable_len += scan_keys[cid].length();
+        } else if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_ARRAY) {
+            _variable_len += std::max(scan_keys[cid].length(), column.length());
+        }
+    }
+
+    // variable_len for null bytes
+    _variable_buf = new (nothrow) char[_variable_len];
+    if (_variable_buf == nullptr) {
+        OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
+        return OLAP_ERR_MALLOC_ERROR;
+    }
+    memset(_variable_buf, 0, _variable_len);
+    char* fixed_ptr = _fixed_buf;
+    char* variable_ptr = _variable_buf;
+    for (auto cid : _schema->column_ids()) {
+        const TabletColumn& column = schema.column(cid);
+        fixed_ptr = _fixed_buf + _schema->column_offset(cid);
+        FieldType type = column.type();
+        if (type == OLAP_FIELD_TYPE_VARCHAR) {
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
+            slice->data = variable_ptr;
+            slice->size = scan_keys[cid].length();
+            variable_ptr += scan_keys[cid].length();
+        } else if (type == OLAP_FIELD_TYPE_CHAR) {
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
+            slice->data = variable_ptr;
+            slice->size = std::max(scan_keys[cid].length(), column.length());
+            variable_ptr += slice->size;
+        }
+    }
 
     return OLAP_SUCCESS;
 }
@@ -116,53 +169,27 @@ OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
+    std::vector<uint32_t> columns(scan_key_size);
+    std::iota(columns.begin(), columns.end(), 0);
+
+    RETURN_NOT_OK(_init(schema.columns(), columns));
+
+    return _init_scan_key(schema, scan_keys);
+}
+
+OLAPStatus RowCursor::init_scan_key(const TabletSchema& schema,
+                                    const std::vector<std::string>& scan_keys,
+                                    const std::shared_ptr<Schema>& shared_schema) {
+    size_t scan_key_size = scan_keys.size();
+
     std::vector<uint32_t> columns;
     for (size_t i = 0; i < scan_key_size; ++i) {
         columns.push_back(i);
     }
 
-    RETURN_NOT_OK(_init(schema.columns(), columns));
+    RETURN_NOT_OK(_init(shared_schema, columns));
 
-    // NOTE: cid equal with column index
-    // Hyperloglog cannot be key, no need to handle it
-    _variable_len = 0;
-    for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
-        FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            _variable_len += scan_keys[cid].length();
-        } else if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_ARRAY) {
-            _variable_len += std::max(scan_keys[cid].length(), column.length());
-        }
-    }
-
-    // variable_len for null bytes
-    _variable_buf = new (nothrow) char[_variable_len];
-    if (_variable_buf == nullptr) {
-        OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    memset(_variable_buf, 0, _variable_len);
-    char* fixed_ptr = _fixed_buf;
-    char* variable_ptr = _variable_buf;
-    for (auto cid : _schema->column_ids()) {
-        const TabletColumn& column = schema.column(cid);
-        fixed_ptr = _fixed_buf + _schema->column_offset(cid);
-        FieldType type = column.type();
-        if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = scan_keys[cid].length();
-            variable_ptr += scan_keys[cid].length();
-        } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
-            slice->data = variable_ptr;
-            slice->size = std::max(scan_keys[cid].length(), column.length());
-            variable_ptr += slice->size;
-        }
-    }
-
-    return OLAP_SUCCESS;
+    return _init_scan_key(schema, scan_keys);
 }
 
 // TODO(yingchun): parameter 'const TabletSchema& schema' is not used
