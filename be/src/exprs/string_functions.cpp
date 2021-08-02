@@ -906,7 +906,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVa
     if (v.is_null) {
         return StringVal::null();
     }
-    return do_money_format<__int64_t, 26>(context, v.val);
+    return do_money_format<int64_t, 26>(context, v.val);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {

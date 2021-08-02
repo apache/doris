@@ -155,6 +155,7 @@ public:
         char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
         int32_t string_val_len = local + sizeof(local) - p + 3;
         StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+        memcpy(result.ptr, p, string_val_len - 3);
         *(result.ptr + string_val_len - 3) = '.';
         *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
         *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
