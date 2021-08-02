@@ -50,7 +50,7 @@ TEST_F(StringFunctionsTest, do_money_format_for_bigint_bench) {
             AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
     BigIntVal bigIntVal(9223372036854775807);
     for (int i = 0; i < LOOP_LESS_OR_MORE(10, 10000000); i++) {
-        StringVal result = StringFunctions::money_format(context, bigIntVal); // cent
+        StringVal result = StringFunctions::money_format(context, bigIntVal);
         ASSERT_EQ(expected, result);
     }
     delete context;
@@ -63,7 +63,7 @@ TEST_F(StringFunctionsTest, do_money_format_for_decimalv2_bench) {
     DecimalV2Val decimalV2Val;
     dv1.to_decimal_val(&decimalV2Val);
     for (int i = 0; i < LOOP_LESS_OR_MORE(10, 10000000); i++) {
-        StringVal result = StringFunctions::money_format(context, decimalV2Val); // cent
+        StringVal result = StringFunctions::money_format(context, decimalV2Val);
         ASSERT_EQ(expected, result);
     }
     delete context;
