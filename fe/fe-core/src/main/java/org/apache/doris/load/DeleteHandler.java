@@ -146,7 +146,7 @@ public class DeleteHandler implements Writable {
                 OlapTable olapTable = (OlapTable) table;
 
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
-                    throw new DdlException("Table's state is not normal: " + tableName);
+                    // throw new DdlException("Table's state is not normal: " + tableName);
                 }
 
                 if (noPartitionSpecified) {
@@ -204,7 +204,7 @@ public class DeleteHandler implements Writable {
                 // count total replica num
                 int totalReplicaNum = 0;
                 for (Partition partition : partitions) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         for (Tablet tablet : index.getTablets()) {
                             totalReplicaNum += tablet.getReplicas().size();
                         }
@@ -570,7 +570,7 @@ public class DeleteHandler implements Writable {
         // only need to check the first partition, because each partition has same materialized views
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
         Partition partition = partitions.get(0);
-        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
             if (table.getBaseIndexId() == index.getId()) {
                 continue;
             }
