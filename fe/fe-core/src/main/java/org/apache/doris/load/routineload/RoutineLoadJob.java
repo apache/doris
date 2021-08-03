@@ -39,6 +39,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -1325,10 +1326,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         // 4.load_properties
         // 4.1.column_separator
         if (columnSeparator != null) {
-            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getSeparator()).append("\",\n");
+            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getOriSeparator()).append("\",\n");
         }
         // 4.2.columns_mapping
-        if (columnDescs != null) {
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
             sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs.descs)).append("),\n");
         }
         // 4.3.where_predicates
@@ -1352,22 +1353,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
         // remove the last ,
-        if (",".equals(sb.charAt(sb.length() - 2))) {
+        if (sb.charAt(sb.length() - 2) == ',') {
             sb.replace(sb.length() - 2, sb.length() - 1, "");
         }
-        // 5.job_properties
+        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
-        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
-        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, PROPS_FORMAT, getFormat(), false);
         appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
         appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
+        appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
+        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
@@ -1375,13 +1379,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("(\n");
         getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
-        // remove the last ,
+        if (progress instanceof KafkaProgress) {
+            // append partitions and offsets.
+            // the offsets is the next offset to be consumed.
+            List<Pair<Integer, String>> pairs = ((KafkaProgress) progress).getPartitionOffsetPairs(false);
+            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY,
+                    Joiner.on(", ").join(pairs.stream().map(p -> p.first).toArray()), false);
+            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY,
+                    Joiner.on(", ").join(pairs.stream().map(p -> p.second).toArray()), false);
+        }
+        // remove the last ","
         sb.replace(sb.length() - 2, sb.length() - 1, "");
         sb.append(");");
         return sb.toString();
     }
 
     private static void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
+        if (value == null || Strings.isNullOrEmpty(value.toString())) {
+            return;
+        }
         sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
         if (!end) {
             sb.append(",\n");

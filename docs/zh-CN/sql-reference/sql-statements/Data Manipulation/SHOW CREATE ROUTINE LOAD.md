@@ -26,7 +26,9 @@ under the License.
 
 # SHOW CREATE ROUTINE LOAD
 ## description
-    该语句用于展示例行导入作业的创建语句
+    该语句用于展示例行导入作业的创建语句。
+	结果中的 kafka partition 和 offset 展示的当前消费的 partition，以及对应的待消费的 offset。
+
     语法：
         SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         
