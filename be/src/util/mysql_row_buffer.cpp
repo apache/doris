@@ -165,7 +165,7 @@ static char* add_time(double data, char* pos, bool dynamic_mode) {
 }
 
 static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mode) {
-    int length = data.to_string(pos) - pos;
+    int length = data.to_buffer(pos);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
