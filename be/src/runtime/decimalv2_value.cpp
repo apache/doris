@@ -356,47 +356,24 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
 
 std::string DecimalV2Value::to_string(int round_scale) const {
     if (_value == 0) return std::string(1, '0');
-
-    int last_char_idx = PRECISION + 2 + (_value < 0);
-    std::string str = std::string(last_char_idx, '0');
-
-    int128_t remaining_value = _value;
-    int first_digit_idx = 0;
-    if (_value < 0) {
-        remaining_value = -_value;
-        first_digit_idx = 1;
+    if (round_scale < 0 || round_scale > SCALE) {
+        round_scale = SCALE;
     }
-
-    int remaining_scale = SCALE;
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-    } while (--remaining_scale > 0);
-    str[--last_char_idx] = '.';
-
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-        if (remaining_value == 0) {
-            if (last_char_idx > first_digit_idx) str.erase(0, last_char_idx - first_digit_idx);
-            break;
-        }
-    } while (last_char_idx > first_digit_idx);
-
-    if (_value < 0) str[0] = '-';
-
-    // right trim and round
-    int scale = 0;
-    int len = str.size();
-    for (scale = 0; scale < SCALE && scale < len; scale++) {
-        if (str[len - scale - 1] != '0') break;
+    int32_t frac_val = frac_value();
+    frac_val = frac_val / SCALE_TRIM_ARRAY[round_scale];
+    if (frac_val == 0) {
+        return fmt::format_int(int_value()).str();
     }
-    if (scale == SCALE) scale++; //integer, trim .
-    if (round_scale >= 0 && round_scale <= SCALE) {
-        scale = std::max(scale, SCALE - round_scale);
+    while (frac_val % 10 == 0) {
+        frac_val = frac_val / 10;
     }
-    if (scale > 1 && scale <= len) str.erase(len - scale, len - 1);
-
+    auto f_int = fmt::format_int(int_value());
+    auto f_frac = fmt::format_int(frac_val);
+    std::string str;
+    str.reserve(f_int.size() + f_frac.size() + 1);
+    str.append(f_int.data(), f_int.size());
+    str.push_back('.');
+    str.append(f_frac.data(), f_frac.size());
     return str;
 }
 

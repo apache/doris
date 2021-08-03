@@ -143,7 +143,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         std::string decimal_str;
         int output_scale = _output_expr_ctxs[index]->root()->output_scale();
 
-        if (output_scale > 0 && output_scale <= 30) {
+        if (output_scale >= 0 && output_scale <= DecimalV2Value::SCALE) {
             decimal_str = decimal_val.to_string(output_scale);
         } else {
             decimal_str = decimal_val.to_string();
