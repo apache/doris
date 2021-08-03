@@ -26,7 +26,9 @@
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/predicate.h"
 #include "olap/bloom_filter.hpp"
+#include "olap/decimal12.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/uint24.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 
@@ -223,30 +225,38 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
     }
 };
 
+// avoid violating C/C++ aliasing rules.
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=101684
+
 template <class BloomFilterAdaptor>
 struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        uint64_t value = 0;
-        value = *(unsigned char*)((char*)data + 2);
-        value <<= 8;
-        value |= *(unsigned char*)((char*)data + 1);
-        value <<= 8;
-        value |= *(unsigned char*)((char*)data);
+        uint24_t date = *static_cast<const uint24_t*>(data);
+        uint64_t value = uint32_t(date);
+
         DateTimeValue date_value;
         date_value.from_olap_date(value);
         date_value.to_datetime();
-        return bloom_filter.test_bytes((char*)&date_value, sizeof(DateTimeValue));
+
+        char data_bytes[sizeof(date_value)];
+        memcpy(&data_bytes, &date_value, sizeof(date_value));
+        return bloom_filter.test_bytes(data_bytes, sizeof(DateTimeValue));
     }
 };
 
 template <class BloomFilterAdaptor>
-struct DecimalV2FindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
+struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        auto packed_decimal = *static_cast<const decimal12_t*>(data);
         DecimalV2Value value;
-        int64_t int_value = *(int64_t*)(data);
-        int32_t frac_value = *(int32_t*)((char*)data + sizeof(int64_t));
+        int64_t int_value = packed_decimal.integer;
+        int32_t frac_value = packed_decimal.fraction;
         value.from_olap_decimal(int_value, frac_value);
-        return bloom_filter.test_bytes((char*)&value, sizeof(DecimalV2Value));
+
+        constexpr int decimal_value_sz = sizeof(DecimalV2Value);
+        char data_bytes[decimal_value_sz];
+        memcpy(&data_bytes, &value, decimal_value_sz);
+        return bloom_filter.test_bytes(data_bytes, decimal_value_sz);
     }
 };
 
