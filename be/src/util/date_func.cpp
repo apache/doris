@@ -62,4 +62,14 @@ std::string time_str_from_double(double time) {
     return fmt::format("{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
 }
 
+int32_t time_to_buffer_from_double(double time, char* buffer) {
+    if (time < 0) {
+        time = -time;
+        return fmt::format_to(buffer, "-{:02d}:{:02d}:{:02d}", (int64_t)(time / 3600),
+                              ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60) - buffer;
+    }
+    return fmt::format_to(buffer, "{:02d}:{:02d}:{:02d}", (int64_t)(time / 3600),
+                          ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60) - buffer;
+}
+
 } // namespace doris
