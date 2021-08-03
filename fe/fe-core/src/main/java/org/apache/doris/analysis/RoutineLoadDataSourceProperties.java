@@ -51,6 +51,8 @@ public class RoutineLoadDataSourceProperties {
             .build();
 
     private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY)
+            .add(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)
