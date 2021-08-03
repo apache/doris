@@ -26,7 +26,10 @@ under the License.
 
 # SHOW CREATE ROUTINE LOAD
 ## description
-    The statement is used to show the routine load job creation statement of user-defined
+    The statement is used to show the routine load job creation statement of user-defined.
+
+	The kafka partition and offset in the result show the currently consumed partition and the corresponding offset to be consumed.
+
     grammar：
         SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         

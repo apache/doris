@@ -22,12 +22,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -126,6 +127,26 @@ public class KafkaProgress extends RoutineLoadProgress {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             partitionIdToOffset.put(pair.first, pair.second);
         }
+    }
+
+    public List<Pair<Integer, String>> getPartitionOffsetPairs(boolean alreadyConsumed) {
+        List<Pair<Integer, String>> pairs = Lists.newArrayList();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (entry.getValue() == 0) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_ZERO));
+            } else if (entry.getValue() == -1) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_END));
+            } else if (entry.getValue() == -2) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_BEGINNING));
+            } else {
+                long offset = entry.getValue();
+                if (alreadyConsumed) {
+                    offset -= 1;
+                }
+                pairs.add(Pair.create(entry.getKey(), "" + offset));
+            }
+        }
+        return pairs;
     }
 
     @Override
