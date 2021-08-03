@@ -36,6 +36,10 @@ The emergence of materialized views is mainly to satisfy users. It can analyze a
 + The query contains some time-consuming processing operations, such as long-time aggregation operations.
 + The query needs to match different prefix indexes.
 
+## Materialized View VS Unique Key Model
+
+For the Unique Key data model, the materialized view can only change the column order and cannot play the role of aggregation. Therefore, in the Unique Key model, it is not possible to perform coarse-grained aggregation operations on the data by creating a materialized view.
+
 ## Advantage
 
 + For those queries that frequently use the same sub-query results repeatedly, the performance is greatly improved
