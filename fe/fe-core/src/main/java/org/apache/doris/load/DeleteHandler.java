@@ -146,7 +146,8 @@ public class DeleteHandler implements Writable {
                 OlapTable olapTable = (OlapTable) table;
 
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
-                    // throw new DdlException("Table's state is not normal: " + tableName);
+                    // table under alter operation can also do delete.
+                    // just add a comment here to notice.
                 }
 
                 if (noPartitionSpecified) {
@@ -202,6 +203,7 @@ public class DeleteHandler implements Writable {
                 // task sent to be
                 AgentBatchTask batchTask = new AgentBatchTask();
                 // count total replica num
+                // Get ALL materialized indexes, because delete condition will be applied to all indexes
                 int totalReplicaNum = 0;
                 for (Partition partition : partitions) {
                     for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -213,7 +215,7 @@ public class DeleteHandler implements Writable {
                 countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
 
                 for (Partition partition : partitions) {
-                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = index.getId();
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
 
@@ -570,6 +572,9 @@ public class DeleteHandler implements Writable {
         // only need to check the first partition, because each partition has same materialized views
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
         Partition partition = partitions.get(0);
+        // Here we check ALL materialized views instead of just VISIBLE ones.
+        // For example, when a table is doing rollup or schema change. there will be some SHADOW indexes.
+        // And we also need to check these SHADOW indexes to see if the delete condition can be applied to them.
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
             if (table.getBaseIndexId() == index.getId()) {
                 continue;
