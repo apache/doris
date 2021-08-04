@@ -55,21 +55,55 @@ uint24_t timestamp_from_date(const std::string& date_str) {
 }
 
 std::string time_str_from_double(double time) {
+    std::string result;
+    result.reserve(MAX_TIME_WIDTH);
     if (time < 0) {
         time = -time;
-        return fmt::format("-{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
+        result.push_back('-');
     }
-    return fmt::format("{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
+    int64_t hour = (int64_t)(time / 3600);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        result.append(f.data(), f.size());
+    } else {
+        result.push_back((char)('0' + (hour / 10)));
+        result.push_back((char)('0' + (hour % 10)));
+    }
+    result.push_back(':');
+    int32_t minute = ((int32_t)(time / 60)) % 60;
+    result.push_back((char)('0' + (minute / 10)));
+    result.push_back((char)('0' + (minute % 10)));
+    result.push_back(':');
+    int32_t second = ((int32_t)time) % 60;
+    result.push_back((char)('0' + (second / 10)));
+    result.push_back((char)('0' + (second % 10)));
+    return result;
 }
 
 int32_t time_to_buffer_from_double(double time, char* buffer) {
+    char *begin = buffer;
     if (time < 0) {
         time = -time;
-        return fmt::format_to(buffer, "-{:02d}:{:02d}:{:02d}", (int64_t)(time / 3600),
-                              ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60) - buffer;
+        *buffer++ = '-';
     }
-    return fmt::format_to(buffer, "{:02d}:{:02d}:{:02d}", (int64_t)(time / 3600),
-                          ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60) - buffer;
+    int64_t hour = (int64_t)(time / 3600);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        memcpy(buffer, f.data(), f.size());
+        buffer = buffer + f.size();
+    } else {
+        *buffer++ = (char)('0' + (hour / 10));
+        *buffer++ = (char)('0' + (hour % 10));
+    }
+    *buffer++ = ':';
+    int32_t minute = ((int32_t)(time / 60)) % 60;
+    *buffer++ = (char)('0' + (minute / 10));
+    *buffer++ = (char)('0' + (minute % 10));
+    *buffer++ = ':';
+    int32_t second = ((int32_t)time) % 60;
+    *buffer++ = (char)('0' + (second / 10));
+    *buffer++ = (char)('0' + (second % 10));
+    return buffer - begin;
 }
 
 } // namespace doris

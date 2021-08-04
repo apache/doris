@@ -395,19 +395,17 @@ char* DateTimeValue::append_time_buffer(char* to) const {
 char* DateTimeValue::to_datetime_buffer(char* to) const {
     to = append_date_buffer(to);
     *to++ = ' ';
-    to = append_time_buffer(to);
-    return to;
+    return append_time_buffer(to);
 }
 
 char* DateTimeValue::to_date_buffer(char* to) const {
-    to = append_date_buffer(to);
-    return to;
+    return append_date_buffer(to);
 }
 
 char* DateTimeValue::to_time_buffer(char* to) const {
-    to = append_time_buffer(to);
-    return to;
+    return append_time_buffer(to);
 }
+
 int32_t DateTimeValue::to_buffer(char* buffer) const {
     switch (_type) {
         case TIME_TIME:

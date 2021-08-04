@@ -442,6 +442,8 @@ int FloatToBuffer(float i, int width, char* buffer);
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 
+int FastDoubleToBuffer(double i, char* buffer);
+int FastFloatToBuffer(float i, char* buffer);
 // In practice, doubles should never need more than 24 bytes and floats
 // should never need more than 14 (including null terminators), but we
 // overestimate to be safe.

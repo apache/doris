@@ -21,6 +21,7 @@ using std::numeric_limits;
 using std::string;
 
 #include <common/logging.h>
+#include <fmt/format.h>
 
 #include "gutil/gscoped_ptr.h"
 #include "gutil/int128.h"
@@ -1267,6 +1268,13 @@ int FloatToBuffer(float value, int width, char* buffer) {
     }
 
     return snprintf_result;
+}
+
+int FastDoubleToBuffer(double i, char* buffer) {
+    return fmt::format_to(buffer, "{:.15g}", i) - buffer;
+}
+int FastFloatToBuffer(float i, char* buffer) {
+    return fmt::format_to(buffer, "{:.6g}", i) - buffer;
 }
 
 // ----------------------------------------------------------------------
