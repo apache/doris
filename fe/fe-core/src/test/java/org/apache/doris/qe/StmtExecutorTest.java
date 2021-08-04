@@ -17,6 +17,12 @@
 
 package org.apache.doris.qe;
 
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DdlStmt;
@@ -32,6 +38,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.InternalErrorCode;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.metric.MetricRepo;
@@ -39,6 +47,7 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -58,10 +67,7 @@ import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Mocked;
+import java.util.function.Supplier;
 
 public class StmtExecutorTest {
     private ConnectContext ctx;
@@ -245,6 +251,144 @@ public class StmtExecutorTest {
         stmtExecutor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
+    }
+
+    private void testFailBase(QueryStmt queryStmt,
+                              SqlParser parser,
+                              Planner planner,
+                              Coordinator coordinator,
+                              Supplier<MockUp<Coordinator>> coordinatorSupplier,
+                              InternalErrorCode internalErrorCode) throws Exception {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
+
+        coordinatorSupplier.get();
+
+        new Expectations() {
+            {
+                queryStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                queryStmt.getColLabels();
+                minTimes = 0;
+                result = Lists.<String>newArrayList();
+
+                queryStmt.getResultExprs();
+                minTimes = 0;
+                result = Lists.<Expr>newArrayList();
+
+                queryStmt.isExplain();
+                minTimes = 0;
+                result = false;
+
+                queryStmt.getTables((Analyzer) any, (SortedMap) any, Sets.newHashSet());
+                minTimes = 0;
+
+                queryStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                queryStmt.rewriteExprs((ExprRewriter) any);
+                minTimes = 0;
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(queryStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                planner.plan((QueryStmt) any, (Analyzer) any, (TQueryOptions) any);
+                minTimes = 0;
+
+                // mock coordinator
+                coordinator.getJobId();
+                minTimes = 0;
+                result = -1L;
+
+                // exec();
+
+                coordinator.getQueryProfile();
+                minTimes = 0;
+                result = new RuntimeProfile();
+
+                // getNext()
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
+
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+        stmtExecutor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assert.assertEquals(internalErrorCode, state.getInternalErrorCode());
+    }
+
+    @Test
+    public void testExecInstanceExhaust(@Mocked QueryStmt queryStmt,
+                                    @Mocked SqlParser parser,
+                                    @Mocked Planner planner,
+                                    @Mocked Coordinator coordinator) throws Exception {
+        testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
+            @Mock
+            public void exec() throws Exception {
+                throw new UserException(InternalErrorCode.INSTANCE_EXHAUST_ERR,
+                        "reach max_query_instances " + 1);
+            }
+        }, InternalErrorCode.INSTANCE_EXHAUST_ERR);
+    }
+
+    @Test
+    public void testExecRpcFail(@Mocked QueryStmt queryStmt,
+                                @Mocked SqlParser parser,
+                                @Mocked Planner planner,
+                                @Mocked Coordinator coordinator) throws Exception {
+        testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
+            @Mock
+            public void exec() throws Exception {
+                throw new RpcException("be host", "rpc fail");
+            }
+        }, InternalErrorCode.INTERNAL_ERR);
+    }
+
+    @Test
+    public void testGetNextRpcFail(@Mocked QueryStmt queryStmt,
+                                    @Mocked SqlParser parser,
+                                    @Mocked Planner planner,
+                                    @Mocked Coordinator coordinator) throws Exception {
+        testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
+            @Mock
+            public RowBatch getNext() throws Exception {
+                throw new RpcException(null, "rpc failed");
+            }
+        }, InternalErrorCode.INTERNAL_ERR);
+    }
+
+    @Test
+    public void testGetNextTimeout(@Mocked QueryStmt queryStmt,
+                                @Mocked SqlParser parser,
+                                @Mocked Planner planner,
+                                @Mocked Coordinator coordinator) throws Exception {
+        testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
+            @Mock
+            public RowBatch getNext() throws Exception {
+                throw new UserException(InternalErrorCode.TIMEOUT_ERR, "query timeout");
+            }
+        }, InternalErrorCode.TIMEOUT_ERR);
+    }
+
+    @Test
+    public void testGetNextCanceled(@Mocked QueryStmt queryStmt,
+                                   @Mocked SqlParser parser,
+                                   @Mocked Planner planner,
+                                   @Mocked Coordinator coordinator) throws Exception {
+        testFailBase(queryStmt, parser, planner, coordinator, () -> new MockUp<Coordinator>(Coordinator.class) {
+            @Mock
+            public RowBatch getNext() throws Exception {
+                throw new UserException(InternalErrorCode.CANCELLED_ERR, "Canceled");
+            }
+        }, InternalErrorCode.CANCELLED_ERR);
     }
 
     @Test
@@ -733,4 +877,3 @@ public class StmtExecutorTest {
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
     }
 }
-
