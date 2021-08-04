@@ -31,12 +31,12 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -435,6 +435,17 @@ public class Column implements Writable {
             return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
         }
         return colName;
+    }
+
+    public static String getShadowName(String colName) {
+        if (isShadowColumn(colName)) {
+            return colName;
+        }
+        return SchemaChangeHandler.SHADOW_NAME_PRFIX + colName;
+    }
+
+    public static boolean isShadowColumn(String colName) {
+        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX);
     }
 
     public Expr getDefineExpr() {

@@ -75,14 +75,14 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -490,25 +490,30 @@ public class DeleteHandler implements Writable {
     private void checkDeleteV2(OlapTable table, List<Partition> partitions, List<Predicate> conditions, List<String> deleteConditions)
             throws DdlException {
 
-        // check partition state
-        for (Partition partition : partitions) {
-            Partition.PartitionState state = partition.getState();
-            if (state != Partition.PartitionState.NORMAL) {
-                // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-                throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
-            }
-        }
-
         // check condition column is key column and condition value
+        // Here we use "getFullSchema()" to get all columns including VISIBLE and SHADOW columns
         Map<String, Column> nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : table.getFullSchema()) {
             nameToColumn.put(column.getName(), column);
         }
+
         for (Predicate condition : conditions) {
             SlotRef slotRef = getSlotRef(condition);
             String columnName = slotRef.getColumnName();
             if (!nameToColumn.containsKey(columnName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
+            }
+
+            if (Column.isShadowColumn(columnName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Can not apply delete condition to shadow column");
+            }
+
+            // Check if this column is under schema change, if yes, there will be a shadow column related to it.
+            // And we don't allow doing delete operation when a condition column is under schema change.
+            String shadowColName = Column.getShadowName(columnName);
+            if (nameToColumn.containsKey(shadowColName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Column " + columnName + " is under" +
+                        " schema change operation. Do not allow delete operation");
             }
 
             Column column = nameToColumn.get(columnName);
