@@ -110,6 +110,7 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `DataStreamSender`
  - BytesSent: Total bytes data sent
  - IgnoreRows: Rows filtered
+ - LocalBytesSent: The send bytes of local exchange
  - OverallThroughput: Total throughput = BytesSent / Time
  - SerializeBatchTime: Sending data serialization time
  - UncompressedRowBatchSize: Size of rowbatch before sending data compression
