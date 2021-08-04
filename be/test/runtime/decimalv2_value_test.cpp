@@ -37,13 +37,13 @@ protected:
 
 TEST_F(DecimalV2ValueTest, string_to_decimal) {
     DecimalV2Value value(std::string("1.23"));
-    ASSERT_EQ("1.23", value.to_string(3));
+    ASSERT_EQ("1.230", value.to_string(3));
 
     DecimalV2Value value1(std::string("0.23"));
-    ASSERT_EQ("0.23", value1.to_string(3));
+    ASSERT_EQ("0.230", value1.to_string(3));
 
     DecimalV2Value value2(std::string("1234567890123456789.0"));
-    ASSERT_EQ("1234567890123456789", value2.to_string(3));
+    ASSERT_EQ("1234567890123456789.000", value2.to_string(3));
 }
 
 TEST_F(DecimalV2ValueTest, negative_zero) {
@@ -113,11 +113,11 @@ TEST_F(DecimalV2ValueTest, negative_zero) {
 
 TEST_F(DecimalV2ValueTest, int_to_decimal) {
     DecimalV2Value value1(0);
-    ASSERT_EQ("0", value1.to_string(3));
+    ASSERT_EQ("0.000", value1.to_string(3));
 
     DecimalV2Value value2(111111111, 0); // 9 digits
     std::cout << "value2: " << value2.get_debug_info() << std::endl;
-    ASSERT_EQ("111111111", value2.to_string(3));
+    ASSERT_EQ("111111111.000", value2.to_string(3));
 
     DecimalV2Value value3(111111111, 222222222); // 9 digits
     std::cout << "value3: " << value3.get_debug_info() << std::endl;
@@ -129,11 +129,11 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 
     DecimalV2Value value5(111111111, 0); // 9 digits
     std::cout << "value5: " << value5.get_debug_info() << std::endl;
-    ASSERT_EQ("111111111", value5.to_string(3));
+    ASSERT_EQ("111111111.000", value5.to_string(3));
 
     DecimalV2Value value6(0, 0); // 9 digits
     std::cout << "value6: " << value6.get_debug_info() << std::endl;
-    ASSERT_EQ("0", value6.to_string(3));
+    ASSERT_EQ("0.000", value6.to_string(3));
 
     DecimalV2Value value7(0, 12345); // 9 digits
     std::cout << "value7: " << value7.get_debug_info() << std::endl;
@@ -141,7 +141,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 
     DecimalV2Value value8(11, 0);
     std::cout << "value8: " << value8.get_debug_info() << std::endl;
-    ASSERT_EQ("11", value8.to_string(3));
+    ASSERT_EQ("11.000", value8.to_string(3));
 
     // more than 9digit, fraction will be truncated to 999999999
     DecimalV2Value value9(1230123456789, 1230123456789);
@@ -152,7 +152,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
     {
         DecimalV2Value value2(-111111111, 0); // 9 digits
         std::cout << "value2: " << value2.get_debug_info() << std::endl;
-        ASSERT_EQ("-111111111", value2.to_string(3));
+        ASSERT_EQ("-111111111.000", value2.to_string(3));
 
         DecimalV2Value value3(-111111111, 222222222); // 9 digits
         std::cout << "value3: " << value3.get_debug_info() << std::endl;
@@ -164,7 +164,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 
         DecimalV2Value value5(-111111111, 0); // 9 digits
         std::cout << "value5: " << value5.get_debug_info() << std::endl;
-        ASSERT_EQ("-111111111", value5.to_string(3));
+        ASSERT_EQ("-111111111.000", value5.to_string(3));
 
         DecimalV2Value value7(0, -12345); // 9 digits
         std::cout << "value7: " << value7.get_debug_info() << std::endl;
@@ -172,7 +172,7 @@ TEST_F(DecimalV2ValueTest, int_to_decimal) {
 
         DecimalV2Value value8(-11, 0);
         std::cout << "value8: " << value8.get_debug_info() << std::endl;
-        ASSERT_EQ("-11", value8.to_string(3));
+        ASSERT_EQ("-11.00", value8.to_string(2));
     }
 }
 
@@ -253,7 +253,7 @@ TEST_F(DecimalV2ValueTest, div) {
     DecimalV2Value div_result1 = value11 / value12;
     std::cout << "div_result1: " << div_result1.get_debug_info() << std::endl;
     ASSERT_EQ(DecimalV2Value(std::string("333333333.2222")), div_result1);
-    ASSERT_EQ("333333333.2222", div_result1.to_string());
+    ASSERT_EQ("333333333.2222", div_result1.to_string(4));
     {
         DecimalV2Value value11(std::string("32766.999943536"));
         DecimalV2Value value12(std::string("604587"));
@@ -310,90 +310,90 @@ TEST_F(DecimalV2ValueTest, round_ops) {
     {
         DecimalV2Value dst(0);
         value.round(&dst, -1, HALF_UP);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
 
         value.round(&dst, -1, CEILING);
-        ASSERT_EQ("10", dst.to_string());
+        ASSERT_EQ("10", dst.to_string(0));
 
         value.round(&dst, -1, FLOOR);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
 
         value.round(&dst, -1, TRUNCATE);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
     }
     {
         DecimalV2Value dst(0);
         value.round(&dst, 0, HALF_UP);
-        ASSERT_EQ("1", dst.to_string());
+        ASSERT_EQ("1", dst.to_string(0));
 
         value.round(&dst, 0, CEILING);
-        ASSERT_EQ("2", dst.to_string());
+        ASSERT_EQ("2", dst.to_string(0));
 
         value.round(&dst, 0, FLOOR);
-        ASSERT_EQ("1", dst.to_string());
+        ASSERT_EQ("1", dst.to_string(0));
 
         value.round(&dst, 0, TRUNCATE);
-        ASSERT_EQ("1", dst.to_string());
+        ASSERT_EQ("1", dst.to_string(0));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 1, HALF_UP);
-        ASSERT_EQ("1.2", dst.to_string());
+        ASSERT_EQ("1.2", dst.to_string(1));
 
         value.round(&dst, 1, CEILING);
-        ASSERT_EQ("1.3", dst.to_string());
+        ASSERT_EQ("1.3", dst.to_string(1));
 
         value.round(&dst, 1, FLOOR);
-        ASSERT_EQ("1.2", dst.to_string());
+        ASSERT_EQ("1.2", dst.to_string(1));
 
         value.round(&dst, 1, TRUNCATE);
-        ASSERT_EQ("1.2", dst.to_string());
+        ASSERT_EQ("1.2", dst.to_string(1));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 2, HALF_UP);
-        ASSERT_EQ("1.25", dst.to_string());
+        ASSERT_EQ("1.25", dst.to_string(2));
 
         value.round(&dst, 2, CEILING);
-        ASSERT_EQ("1.25", dst.to_string());
+        ASSERT_EQ("1.25", dst.to_string(2));
 
         value.round(&dst, 2, FLOOR);
-        ASSERT_EQ("1.24", dst.to_string());
+        ASSERT_EQ("1.24", dst.to_string(2));
 
         value.round(&dst, 2, TRUNCATE);
-        ASSERT_EQ("1.24", dst.to_string());
+        ASSERT_EQ("1.24", dst.to_string(2));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 3, HALF_UP);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.249", dst.to_string(3));
 
         value.round(&dst, 3, CEILING);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.249", dst.to_string(3));
 
         value.round(&dst, 3, FLOOR);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.249", dst.to_string(3));
 
         value.round(&dst, 3, TRUNCATE);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.249", dst.to_string(3));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 4, HALF_UP);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.2490", dst.to_string(4));
 
         value.round(&dst, 4, CEILING);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.2490", dst.to_string(4));
 
         value.round(&dst, 4, FLOOR);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.2490", dst.to_string(4));
 
         value.round(&dst, 4, TRUNCATE);
-        ASSERT_EQ("1.249", dst.to_string());
+        ASSERT_EQ("1.2490", dst.to_string(4));
     }
 }
 
@@ -404,90 +404,90 @@ TEST_F(DecimalV2ValueTest, round_minus) {
     {
         DecimalV2Value dst(0);
         value.round(&dst, -1, HALF_UP);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
 
         value.round(&dst, -1, CEILING);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
 
         value.round(&dst, -1, FLOOR);
-        ASSERT_EQ("-10", dst.to_string());
+        ASSERT_EQ("-10", dst.to_string(0));
 
         value.round(&dst, -1, TRUNCATE);
-        ASSERT_EQ("0", dst.to_string());
+        ASSERT_EQ("0", dst.to_string(0));
     }
     {
         DecimalV2Value dst(0);
         value.round(&dst, 0, HALF_UP);
-        ASSERT_EQ("-1", dst.to_string());
+        ASSERT_EQ("-1", dst.to_string(0));
 
         value.round(&dst, 0, CEILING);
-        ASSERT_EQ("-1", dst.to_string());
+        ASSERT_EQ("-1", dst.to_string(0));
 
         value.round(&dst, 0, FLOOR);
-        ASSERT_EQ("-2", dst.to_string());
+        ASSERT_EQ("-2", dst.to_string(0));
 
         value.round(&dst, 0, TRUNCATE);
-        ASSERT_EQ("-1", dst.to_string());
+        ASSERT_EQ("-1", dst.to_string(0));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 1, HALF_UP);
-        ASSERT_EQ("-1.2", dst.to_string());
+        ASSERT_EQ("-1.2", dst.to_string(1));
 
         value.round(&dst, 1, CEILING);
-        ASSERT_EQ("-1.2", dst.to_string());
+        ASSERT_EQ("-1.2", dst.to_string(1));
 
         value.round(&dst, 1, FLOOR);
-        ASSERT_EQ("-1.3", dst.to_string());
+        ASSERT_EQ("-1.3", dst.to_string(1));
 
         value.round(&dst, 1, TRUNCATE);
-        ASSERT_EQ("-1.2", dst.to_string());
+        ASSERT_EQ("-1.2", dst.to_string(1));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 2, HALF_UP);
-        ASSERT_EQ("-1.25", dst.to_string());
+        ASSERT_EQ("-1.25", dst.to_string(2));
 
         value.round(&dst, 2, CEILING);
-        ASSERT_EQ("-1.24", dst.to_string());
+        ASSERT_EQ("-1.24", dst.to_string(2));
 
         value.round(&dst, 2, FLOOR);
-        ASSERT_EQ("-1.25", dst.to_string());
+        ASSERT_EQ("-1.25", dst.to_string(2));
 
         value.round(&dst, 2, TRUNCATE);
-        ASSERT_EQ("-1.24", dst.to_string());
+        ASSERT_EQ("-1.24", dst.to_string(2));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 3, HALF_UP);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.249", dst.to_string(3));
 
         value.round(&dst, 3, CEILING);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.249", dst.to_string(3));
 
         value.round(&dst, 3, FLOOR);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.249", dst.to_string(3));
 
         value.round(&dst, 3, TRUNCATE);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.249", dst.to_string(3));
     }
 
     {
         DecimalV2Value dst(0);
         value.round(&dst, 4, HALF_UP);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.2490", dst.to_string(4));
 
         value.round(&dst, 4, CEILING);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.2490", dst.to_string(4));
 
         value.round(&dst, 4, FLOOR);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.2490", dst.to_string(4));
 
         value.round(&dst, 4, TRUNCATE);
-        ASSERT_EQ("-1.249", dst.to_string());
+        ASSERT_EQ("-1.2490", dst.to_string(4));
     }
 }
 
@@ -498,7 +498,7 @@ TEST_F(DecimalV2ValueTest, round_to_int) {
         {
             DecimalV2Value dst;
             value.round(&dst, 1, HALF_UP);
-            ASSERT_EQ("100", dst.to_string());
+            ASSERT_EQ("100.00", dst.to_string(2));
         }
     }
     {
@@ -506,7 +506,7 @@ TEST_F(DecimalV2ValueTest, round_to_int) {
         {
             DecimalV2Value dst;
             value.round(&dst, 4, HALF_UP);
-            ASSERT_EQ("123.124", dst.to_string());
+            ASSERT_EQ("123.1240", dst.to_string(4));
         }
     }
 }
@@ -515,7 +515,7 @@ TEST_F(DecimalV2ValueTest, double_to_decimal) {
     double i = 1.2;
     DecimalV2Value* value = new DecimalV2Value(100, 9876);
     value->assign_from_double(i);
-    ASSERT_STREQ("1.2", value->to_string().c_str());
+    ASSERT_STREQ("1.2000", value->to_string(4).c_str());
     delete value;
 }
 
@@ -523,17 +523,12 @@ TEST_F(DecimalV2ValueTest, float_to_decimal) {
     float i = 1.2;
     DecimalV2Value* value = new DecimalV2Value(100, 9876);
     value->assign_from_float(i);
-    ASSERT_STREQ("1.2", value->to_string().c_str());
+    ASSERT_STREQ("1.200000000", value->to_string().c_str());
     delete value;
 }
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

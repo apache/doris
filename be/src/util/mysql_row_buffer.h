@@ -50,6 +50,7 @@ namespace doris {
  */
 using int128_t = __int128;
 class DateTimeValue;
+class DecimalV2Value;
 
 class MysqlRowBuffer {
 public:
@@ -69,6 +70,7 @@ public:
     int push_double(double data);
     int push_time(double data);
     int push_datetime(const DateTimeValue& data);
+    int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int length);
     int push_null();
 

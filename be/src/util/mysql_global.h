@@ -45,9 +45,10 @@ typedef unsigned char uchar;
 #define MAX_LARGEINT_WIDTH 39  /* Max width for a LARGEINT */
 #define MAX_CHAR_WIDTH 255 /* Max length for a CHAR column */
 #define MAX_BLOB_WIDTH 16777216 /* Default width for blob */
-#define MAX_TIME_WIDTH 22  /* HH:MM:SS */
+#define MAX_TIME_WIDTH 22  /* Max width for a TIME */
 #define MAX_DECPT_FOR_F_FORMAT DBL_DIG
 #define MAX_DATETIME_WIDTH 19 /* YYYY-MM-DD HH:MM:SS */
+#define MAX_DECIMAL_WIDTH 28 /* Max width for a DECIMAL */
 
 /* -[digits].E+## */
 #define MAX_FLOAT_STR_LENGTH 24 // see gutil/strings/numbers.h kFloatToBufferSize

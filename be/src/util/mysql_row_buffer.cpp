@@ -172,6 +172,14 @@ static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mod
     return pos + length;
 }
 
+static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos, bool dynamic_mode) {
+    int length = data.to_buffer(pos, round_scale);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
 int MysqlRowBuffer::push_tinyint(int8_t data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     int ret = reserve(3 + MAX_TINYINT_WIDTH);
@@ -302,6 +310,18 @@ int MysqlRowBuffer::push_datetime(const DateTimeValue& data) {
     return 0;
 }
 
+int MysqlRowBuffer::push_decimal(const DecimalV2Value& data, int round_scale) {
+    // 1 for string trail, 1 for length, other for decimal str
+    int ret = reserve(2 + MAX_DECIMAL_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_decimal(data, round_scale, _pos, _dynamic_mode);
+    return 0;
+}
 
 int MysqlRowBuffer::push_string(const char* str, int length) {
     // 9 for length pack max, 1 for sign, other for digits

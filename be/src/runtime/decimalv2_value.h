@@ -196,6 +196,9 @@ public:
     // The maximum of fraction part is "scale".
     // If the length of fraction part is less than "scale", '0' will be filled.
     std::string to_string(int scale) const;
+
+    int32_t to_buffer(char* buffer, int scale) const;
+
     // Output actual "scale", remove ending zeroes.
     std::string to_string() const;
 
