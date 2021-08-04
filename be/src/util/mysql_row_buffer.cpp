@@ -165,7 +165,7 @@ static char* add_time(double data, char* pos, bool dynamic_mode) {
 }
 
 static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mode) {
-    int length = data.to_buffer(pos);
+    int length = data.to_buffer(pos + !dynamic_mode);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -173,7 +173,7 @@ static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mod
 }
 
 static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos, bool dynamic_mode) {
-    int length = data.to_buffer(pos, round_scale);
+    int length = data.to_buffer(pos + !dynamic_mode, round_scale);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }

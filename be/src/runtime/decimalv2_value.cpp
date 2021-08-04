@@ -390,13 +390,12 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
     if (scale < 0 || scale > SCALE) {
         scale = SCALE;
     }
+    int64_t int_val = int_value();
     int32_t frac_val = abs(frac_value());
     frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
-    int64_t int_val = int_value();
     int extra_sign_size = 0;
     if (_value < 0 && int_val == 0 && frac_val != 0) {
-        *buffer = '-';
-        buffer++;
+        *buffer++ = '-';
         extra_sign_size = 1;
     }
     auto f_int = fmt::format_int(int_val);
@@ -412,8 +411,9 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
         auto f_frac = fmt::format_int(frac_val);
         if (f_frac.size() < scale) {
             memset(buffer, scale - f_frac.size(), '0');
+            buffer = buffer + scale - f_frac.size();
         }
-        memcpy(buffer + scale - f_frac.size(), f_frac.data(), f_frac.size());
+        memcpy(buffer, f_frac.data(), f_frac.size());
     }
     return f_int.size() + scale + 1 + extra_sign_size;
 }
