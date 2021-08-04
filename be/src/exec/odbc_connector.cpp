@@ -284,11 +284,8 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                     break;
                 }
                 case TYPE_LARGEINT: {
-                    char buf[48];
-                    int len = 48;
-                    char* v = LargeIntValue::to_string(
-                            reinterpret_cast<const PackedInt128*>(item)->value, buf, &len);
-                    fmt::format_to(_insert_stmt_buffer, "{}", std::string(v, len));
+                    fmt::format_to(_insert_stmt_buffer, "{}",
+                            reinterpret_cast<const PackedInt128*>(item)->value);
                     break;
                 }
                 default: {

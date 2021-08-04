@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <fmt/format.h>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -36,28 +37,9 @@ const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
-    static char* to_string(__int128 value, char* buffer, int* len) {
-        DCHECK(*len >= 40);
-        unsigned __int128 tmp = value < 0 ? -value : value;
-        char* d = buffer + *len;
-        do {
-            --d;
-            *d = "0123456789"[tmp % 10];
-            tmp /= 10;
-        } while (tmp != 0);
-        if (value < 0) {
-            --d;
-            *d = '-';
-        }
-        *len = (buffer + *len) - d;
-        return d;
-    }
 
     static std::string to_string(__int128 value) {
-        char buf[64] = {0};
-        int len = 64;
-        char* str = to_string(value, buf, &len);
-        return std::string(str, len);
+        return fmt::format("{}", value);
     }
 };
 
