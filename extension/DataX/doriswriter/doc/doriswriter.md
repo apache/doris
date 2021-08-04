@@ -163,6 +163,18 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 描述：每批次数据包含多行，每行为 Json 格式，每行的的分隔符即为 lineDelimiter。
   - 必选：否
   - 默认值：`\n`
+  
+* **format**
+
+  - 描述：导入数据的格式, 可以使是json或者csv。
+  - 必选：否
+  - 默认值：`json`
+  
+* **columnSeparator**
+
+  - 描述：当导入的格式是csv时, 字段之间的分隔符。
+  - 必选：否
+  - 默认值：`\t`
 
 * **loadProps**
 
