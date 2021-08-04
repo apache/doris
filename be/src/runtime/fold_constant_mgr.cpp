@@ -88,7 +88,7 @@ Status FoldConstantMgr::fold_constant_expr(
                 result = get_result(src, ctx->root()->type().type);
             }
 
-            expr_result.set_content(result);
+            expr_result.set_content(std::move(result));
             expr_result.mutable_type()->set_type(t_type);
             
             pexpr_result_map.mutable_map()->insert({n.first, expr_result});
@@ -154,42 +154,37 @@ string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type){
     }
     case TYPE_TINYINT: {
         int8_t val = *reinterpret_cast<const int8_t*>(src);
-        string s;
-        s.push_back(val);
-        return s;
+        return fmt::format_int(val).str();
     }
     case TYPE_SMALLINT: {
         int16_t val = *reinterpret_cast<const int16_t*>(src);
-        return std::to_string(val);
+        return fmt::format_int(val).str();
     }
     case TYPE_INT: {
         int32_t val = *reinterpret_cast<const int32_t*>(src);
-        return std::to_string(val);
+        return fmt::format_int(val).str();
     }
     case TYPE_BIGINT: {
         int64_t val = *reinterpret_cast<const int64_t*>(src);
-        return std::to_string(val);
+        return fmt::format_int(val).str();
     }
     case TYPE_LARGEINT: {
-        char buf[48];
-        int len = 48;
-        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(src), buf, &len);
-        return std::string(v, len);
+        return LargeIntValue::to_string(*reinterpret_cast<__int128*>(src));
     }
     case TYPE_FLOAT: {
         float val = *reinterpret_cast<const float*>(src);
-        return std::to_string(val);
+        return fmt::format("{:.9g}", val);
     }
     case TYPE_TIME:
     case TYPE_DOUBLE: {
         double val = *reinterpret_cast<double*>(src);
-        return std::to_string(val);
+        return fmt::format("{:.17g}", val);
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT: {
-        return (reinterpret_cast<StringValue*>(src))->debug_string();
+        return (reinterpret_cast<StringValue*>(src))->to_string();
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
@@ -205,7 +200,6 @@ string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type){
         DCHECK(false) << "Type not implemented: " << slot_type;
         return NULL;
     }
-    return NULL;
 }
 
 
