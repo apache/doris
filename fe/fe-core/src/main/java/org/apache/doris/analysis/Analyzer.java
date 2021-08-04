@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -553,7 +552,7 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
         }
 
-        TableName tblName = new TableName(database.getFullName(), table.getName());
+        TableName tblName = new TableName(dbName, tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {
@@ -618,10 +617,6 @@ public class Analyzer {
         if (newTblName == null) {
             d = resolveColumnRef(colName);
         } else {
-            if (InfoSchemaDb.isInfoSchemaDb(newTblName.getDb())
-                    || (newTblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
-                newTblName = new TableName(newTblName.getDb(), newTblName.getTbl().toLowerCase());
-            }
             d = resolveColumnRef(newTblName, colName);
         }
         /*
