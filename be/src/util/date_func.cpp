@@ -55,18 +55,11 @@ uint24_t timestamp_from_date(const std::string& date_str) {
 }
 
 std::string time_str_from_double(double time) {
-    std::stringstream time_ss;
     if (time < 0) {
-        time_ss << "-";
         time = -time;
+        return fmt::format("-{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
     }
-    int64_t hour = time / 60 / 60;
-    int minute = ((int64_t)(time / 60)) % 60;
-    int second = ((int64_t)time) % 60;
-
-    time_ss << std::setw(2) << std::setfill('0') << hour << ":" << std::setw(2) << std::setfill('0')
-            << minute << ":" << std::setw(2) << std::setfill('0') << second;
-    return time_ss.str();
+    return fmt::format("{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
 }
 
 } // namespace doris

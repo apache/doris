@@ -90,11 +90,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_LARGEINT: {
-        char buf[48];
-        int len = 48;
-        char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value, buf,
-                                           &len);
-        buf_ret = _row_buffer->push_string(v, len);
+        auto string_value = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value);
+        buf_ret = _row_buffer->push_string(string_value.data(), string_value.size());
         break;
     }
 
