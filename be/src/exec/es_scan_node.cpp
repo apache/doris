@@ -611,11 +611,8 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
 
     case TYPE_LARGEINT: {
         node_type = (TExprNodeType::LARGE_INT_LITERAL);
-        char buf[48];
-        int len = 48;
-        char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
         TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(v);
+        large_int_literal.__set_value(LargeIntValue::to_string(*reinterpret_cast<__int128*>(value)));
         literal->__set_large_int_literal(large_int_literal);
         break;
     }
