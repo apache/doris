@@ -427,6 +427,8 @@ public class StmtExecutor implements ProfileWriter {
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setInternalErrorCode(InternalErrorCode.ANALYSIS_ERR);
+            } else {
+                context.getState().setInternalErrorCode(InternalErrorCode.INTERNAL_ERR);
             }
         } finally {
             // revert Session Value

@@ -252,6 +252,8 @@ public class ConnectProcessor {
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setInternalErrorCode(InternalErrorCode.ANALYSIS_ERR);
+            } else {
+                ctx.getState().setInternalErrorCode(InternalErrorCode.INTERNAL_ERR);
             }
         }
 

@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -118,11 +119,11 @@ public class ResultReceiver {
                 }
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception, finstId={}", finstId, e);
+            LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(finstId), e);
             status.setRpcStatus(e.getMessage());
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception, finstId={}", finstId, e);
+            LOG.warn("fetch result execution exception, finstId={}", DebugUtil.printId(finstId), e);
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
@@ -131,7 +132,7 @@ public class ResultReceiver {
                 SimpleScheduler.addToBlacklist(backendId, e.getMessage());
             }
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout, finstId={}", finstId, e);
+            LOG.warn("fetch result timeout, finstId={}", DebugUtil.printId(finstId), e);
             status.setStatus(new Status(TStatusCode.TIMEOUT, "query timeout"));
         } finally {
             synchronized (this) {
