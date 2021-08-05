@@ -19,17 +19,12 @@
  */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
-import com.alibaba.datax.common.element.Column;
-import com.alibaba.datax.common.element.DateColumn;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.fastjson.JSON;
-
-import org.apache.commons.lang3.time.DateFormatUtils;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
 
 // Convert DataX data to json
 public class DorisJsonCodec extends DorisCodec {

@@ -21,13 +21,13 @@ package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.element.Record;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 // Convert DataX data to csv
 public class DorisCsvCodec extends DorisCodec {
-    private static TimeZone timeZoner = TimeZone.getTimeZone(timeZone);
 
-    private String columnSeparator;
+    private final String columnSeparator;
 
     public DorisCsvCodec(final List<String> fieldNames, String columnSeparator) {
         super(fieldNames);
@@ -43,7 +43,7 @@ public class DorisCsvCodec extends DorisCodec {
 
         for (int i = 0; i < this.fieldNames.size(); i++) {
             Object value = this.convertColumn(row.getColumn(i));
-            list.add(value != null ? value.toString() : "");
+            list.add(value != null ? value.toString() : "\\N");
         }
 
         return String.join(columnSeparator, list);
