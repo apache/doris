@@ -103,7 +103,9 @@ public:
 
     inline void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
 
-    inline void direct_copy_may_cut(void* dest, const void* src) const override { _direct_copy_may_cut(dest, src); }
+    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+        _direct_copy_may_cut(dest, src);
+    }
 
     //convert and deep copy value from other type's source
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
@@ -502,9 +504,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         *reinterpret_cast<CppType*>(dest) = *reinterpret_cast<const CppType*>(src);
     }
 
-    static inline void direct_copy_may_cut(void* dest, const void* src) {
-        direct_copy(dest, src);
-    }
+    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
@@ -540,7 +540,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 static void prepare_char_before_convert(const void* src) {
     Slice* slice = const_cast<Slice*>(reinterpret_cast<const Slice*>(src));
     char* buf = slice->data;
-    auto p = slice->size - 1;
+    int64_t p = slice->size - 1;
     while (p >= 0 && buf[p] == '\0') {
         p--;
     }
@@ -717,9 +717,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
 
-    static inline void direct_copy_may_cut(void* dest, const void* src) {
-        direct_copy(dest, src);
-    }
+    static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static void set_to_max(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
@@ -1028,8 +1026,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
 
-        auto min_size = MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size :
-                MAX_ZONE_MAP_INDEX_SIZE;
+        auto min_size =
+                MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
         memory_copy(l_slice->data, r_slice->data, min_size);
         l_slice->size = min_size;
     }
