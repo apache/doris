@@ -29,7 +29,7 @@ import java.io.IOException;
 import java.util.Map;
 
 // Persist the info when removing batch of expired txns
-public class ModifyCommentOperation implements Writable {
+public class ModifyCommentOperationLog implements Writable {
 
     public enum Type {
         COLUMN, TABLE
@@ -47,7 +47,7 @@ public class ModifyCommentOperation implements Writable {
     @SerializedName(value = "tblComment")
     private String tblComment;
 
-    private ModifyCommentOperation(Type type, long dbId, long tblId, Map<String, String> colToComment, String tblComment) {
+    private ModifyCommentOperationLog(Type type, long dbId, long tblId, Map<String, String> colToComment, String tblComment) {
         this.type = type;
         this.dbId = dbId;
         this.tblId = tblId;
@@ -55,12 +55,12 @@ public class ModifyCommentOperation implements Writable {
         this.tblComment = tblComment;
     }
 
-    public static ModifyCommentOperation forColumn(long dbId, long tblId, Map<String, String> colToComment) {
-        return new ModifyCommentOperation(Type.COLUMN, dbId, tblId, colToComment, null);
+    public static ModifyCommentOperationLog forColumn(long dbId, long tblId, Map<String, String> colToComment) {
+        return new ModifyCommentOperationLog(Type.COLUMN, dbId, tblId, colToComment, null);
     }
 
-    public static ModifyCommentOperation forTable(long dbId, long tblId, String comment) {
-        return new ModifyCommentOperation(Type.TABLE, dbId, tblId, null, comment);
+    public static ModifyCommentOperationLog forTable(long dbId, long tblId, String comment) {
+        return new ModifyCommentOperationLog(Type.TABLE, dbId, tblId, null, comment);
     }
 
     public Type getType() {
@@ -89,8 +89,8 @@ public class ModifyCommentOperation implements Writable {
         Text.writeString(out, json);
     }
 
-    public static ModifyCommentOperation read(DataInput in) throws IOException {
+    public static ModifyCommentOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, ModifyCommentOperation.class);
+        return GsonUtils.GSON.fromJson(json, ModifyCommentOperationLog.class);
     }
 }

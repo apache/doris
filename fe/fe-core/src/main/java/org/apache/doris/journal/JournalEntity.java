@@ -69,7 +69,7 @@ import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
-import org.apache.doris.persist.ModifyCommentOperation;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
@@ -619,7 +619,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_COMMENT: {
-                data = ModifyCommentOperation.read(in);
+                data = ModifyCommentOperationLog.read(in);
                 isRead = true;
                 break;
             }

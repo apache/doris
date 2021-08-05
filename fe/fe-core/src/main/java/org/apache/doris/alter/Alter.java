@@ -58,7 +58,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
-import org.apache.doris.persist.ModifyCommentOperation;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.qe.ConnectContext;
@@ -220,7 +220,7 @@ public class Alter {
             ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
             tbl.setComment(clause.getComment());
             // log
-            ModifyCommentOperation op = ModifyCommentOperation.forTable(db.getId(), tbl.getId(), clause.getComment());
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forTable(db.getId(), tbl.getId(), clause.getComment());
             Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
         } finally {
             tbl.writeUnlock();
@@ -253,14 +253,14 @@ public class Alter {
             }
 
             // log
-            ModifyCommentOperation op = ModifyCommentOperation.forColumn(db.getId(), tbl.getId(), colToComment);
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forColumn(db.getId(), tbl.getId(), colToComment);
             Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
         } finally {
             tbl.writeUnlock();
         }
     }
 
-    public void replayModifyComment(ModifyCommentOperation operation) {
+    public void replayModifyComment(ModifyCommentOperationLog operation) {
         long dbId = operation.getDbId();
         long tblId = operation.getTblId();
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
@@ -273,7 +273,7 @@ public class Alter {
         }
         tbl.writeLock();
         try {
-            ModifyCommentOperation.Type type = operation.getType();
+            ModifyCommentOperationLog.Type type = operation.getType();
             switch (type) {
                 case TABLE:
                     tbl.setComment(operation.getTblComment());

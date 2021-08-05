@@ -1,5 +1,3 @@
-package org.apache.doris.persist;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +14,7 @@ package org.apache.doris.persist;
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+package org.apache.doris.persist;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -40,7 +39,7 @@ public class ModifyCommentOperationLogTest {
         Map<String, String> colToComment = Maps.newHashMap();
         colToComment.put("k1", "comment1");
         colToComment.put("k2", "comment2");
-        ModifyCommentOperation log = ModifyCommentOperation.forColumn(1L, 2L, colToComment);
+        ModifyCommentOperationLog log = ModifyCommentOperationLog.forColumn(1L, 2L, colToComment);
         log.write(dos);
 
         dos.flush();
@@ -49,8 +48,8 @@ public class ModifyCommentOperationLogTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        ModifyCommentOperation readLog = ModifyCommentOperation.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperation.Type.COLUMN);
+        ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
+        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.COLUMN);
         Assert.assertTrue(readLog.getDbId() == log.getDbId());
         Assert.assertTrue(readLog.getTblId() == log.getTblId());
         Assert.assertTrue(readLog.getTblComment() == null);
@@ -68,7 +67,7 @@ public class ModifyCommentOperationLogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ModifyCommentOperation log = ModifyCommentOperation.forTable(1L, 2L, "comment");
+        ModifyCommentOperationLog log = ModifyCommentOperationLog.forTable(1L, 2L, "comment");
         log.write(dos);
 
         dos.flush();
@@ -77,8 +76,8 @@ public class ModifyCommentOperationLogTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        ModifyCommentOperation readLog = ModifyCommentOperation.read(dis);
-        Assert.assertTrue(readLog.getType() == ModifyCommentOperation.Type.TABLE);
+        ModifyCommentOperationLog readLog = ModifyCommentOperationLog.read(dis);
+        Assert.assertTrue(readLog.getType() == ModifyCommentOperationLog.Type.TABLE);
         Assert.assertTrue(readLog.getDbId() == log.getDbId());
         Assert.assertTrue(readLog.getTblId() == log.getTblId());
         Assert.assertEquals("comment", readLog.getTblComment());

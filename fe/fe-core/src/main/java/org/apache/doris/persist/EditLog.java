@@ -824,7 +824,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_MODIFY_COMMENT: {
-                    ModifyCommentOperation operation = (ModifyCommentOperation) journal.getData();
+                    ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     catalog.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
@@ -1443,7 +1443,7 @@ public class EditLog {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
     }
 
-    public void logModifyComment(ModifyCommentOperation op) {
+    public void logModifyComment(ModifyCommentOperationLog op) {
         logEdit(OperationType.OP_MODIFY_COMMENT, op);
     }
 }
