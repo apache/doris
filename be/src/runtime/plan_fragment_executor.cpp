@@ -135,8 +135,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                              _exec_env->process_mem_tracker(), true, false, MemTrackerLevel::TASK);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
-    LOG(INFO) << "Using query memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
-
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
     // set up desc tbl
@@ -235,7 +233,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
 Status PlanFragmentExecutor::open() {
     LOG(INFO) << "Open(): fragment_instance_id="
-              << print_id(_runtime_state->fragment_instance_id());
+              << print_id(_runtime_state->fragment_instance_id())
+              << ", Using query memory limit: "
+              << PrettyPrinter::print(_runtime_state->fragment_mem_tracker()->limit(), TUnit::BYTES);
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -580,6 +580,7 @@ void PlanFragmentExecutor::close() {
             _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();
         }
+		LOG(INFO) << "Close() fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
     }
 
     // _mem_tracker init failed
