@@ -552,6 +552,12 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
         }
 
+        // tableName.getTbl() stores the table name specified by the user in the from statement.
+        // In the case of case-sensitive table names, the value of tableName.getTbl() is the same as table.getName().
+        // However, since the system view is not case-sensitive, table.getName() gets the lowercase view name,
+        // which may not be the same as the user's reference to the table name, causing the table name not to be found
+        // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
+        // instead of table.getName().
         TableName tblName = new TableName(dbName, tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
