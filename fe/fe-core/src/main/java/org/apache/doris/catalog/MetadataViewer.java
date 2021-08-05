@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AdminShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
@@ -169,7 +170,7 @@ public class MetadataViewer {
 
     private static List<List<String>> getTabletDistribution(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
-        DecimalFormat df = new DecimalFormat("##.00 %");
+        DecimalFormat df = new DecimalFormat("00.00 %");
         
         List<List<String>> result = Lists.newArrayList();
 
@@ -188,9 +189,7 @@ public class MetadataViewer {
 
         tbl.readLock();
         try {
-
             OlapTable olapTable = (OlapTable) tbl;
-
             List<Long> partitionIds = Lists.newArrayList();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -206,16 +205,20 @@ public class MetadataViewer {
                     partitionIds.add(partition.getId());
                 }
             }
-            
+
             // backend id -> replica count
             Map<Long, Integer> countMap = Maps.newHashMap();
+            // backend id -> replica size
+            Map<Long, Long> sizeMap = Maps.newHashMap();
             // init map
             List<Long> beIds = infoService.getBackendIds(false);
             for (long beId : beIds) {
                 countMap.put(beId, 0);
+                sizeMap.put(beId, 0L);
             }
 
             int totalReplicaNum = 0;
+            long totalReplicaSize = 0;
             for (long partId : partitionIds) {
                 Partition partition = olapTable.getPartition(partId);
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -225,7 +228,9 @@ public class MetadataViewer {
                                 continue;
                             }
                             countMap.put(replica.getBackendId(), countMap.get(replica.getBackendId()) + 1);
+                            sizeMap.put(replica.getBackendId(), sizeMap.get(replica.getBackendId()) + replica.getDataSize());
                             totalReplicaNum++;
+                            totalReplicaSize += replica.getDataSize();
                         }
                     }
                 }
@@ -237,8 +242,11 @@ public class MetadataViewer {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(beId));
                 row.add(String.valueOf(countMap.get(beId)));
+                row.add(String.valueOf(sizeMap.get(beId)));
                 row.add(graph(countMap.get(beId), totalReplicaNum, beIds.size()));
-                row.add(df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(totalReplicaNum == countMap.get(beId) ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(graph(sizeMap.get(beId), totalReplicaSize, beIds.size()));
+                row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
             
@@ -249,12 +257,96 @@ public class MetadataViewer {
         return result;
     }
 
-    private static String graph(int num, int totalNum, int mod) {
+    private static String graph(long num, long totalNum, int mod) {
         StringBuilder sb = new StringBuilder();
-        int normalized = (int) Math.ceil(num * mod / totalNum);
+        long normalized = num == totalNum ? totalNum : (int) Math.ceil(num * mod / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
         return sb.toString();
+    }
+
+    public static List<List<String>> getDataSkew(AdminShowDataSkewStmt stmt) throws DdlException {
+        return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
+    }
+
+    private static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
+            throws DdlException {
+        DecimalFormat df = new DecimalFormat("00.00 %");
+
+        List<List<String>> result = Lists.newArrayList();
+        Catalog catalog = Catalog.getCurrentCatalog();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+
+        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
+            throw new DdlException("Should specify one and only one partitions");
+        }
+
+        Database db = catalog.getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist");
+        }
+
+        Table tbl = db.getTable(tblName);
+        if (tbl == null || tbl.getType() != TableType.OLAP) {
+            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+        }
+
+        tbl.readLock();
+        try {
+            OlapTable olapTable = (OlapTable) tbl;
+            long partitionId = -1;
+            // check partition
+            for (String partName : partitionNames.getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (partition == null) {
+                    throw new DdlException("Partition does not exist: " + partName);
+                }
+                partitionId = partition.getId();
+                break;
+            }
+
+            // backend id -> replica count
+            Map<Long, Integer> countMap = Maps.newHashMap();
+            // backend id -> replica size
+            Map<Long, Long> sizeMap = Maps.newHashMap();
+            // init map
+            List<Long> beIds = infoService.getBackendIds(false);
+            for (long beId : beIds) {
+                countMap.put(beId, 0);
+            }
+
+            Partition partition = olapTable.getPartition(partitionId);
+            DistributionInfo distributionInfo = partition.getDistributionInfo();
+            List<Long> tabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+            for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
+                tabletInfos.add(0L);
+            }
+
+            long totalSize = 0;
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                List<Long> tabletIds = mIndex.getTabletIdsInOrder();
+                for (int i = 0; i < tabletIds.size(); i++) {
+                    Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                    long dataSize = tablet.getDataSize(false);
+                    tabletInfos.set(i, tabletInfos.get(i) + dataSize);
+                    totalSize += dataSize;
+                }
+            }
+
+            // graph
+            for (int i = 0; i < tabletInfos.size(); i++) {
+                List<String> row = Lists.newArrayList();
+                row.add(String.valueOf(i));
+                row.add(tabletInfos.get(i).toString());
+                row.add(graph(tabletInfos.get(i), totalSize, tabletInfos.size()));
+                row.add(totalSize == tabletInfos.get(i) ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
+                result.add(row);
+            }
+        } finally {
+            tbl.readUnlock();
+        }
+
+        return result;
     }
 }
