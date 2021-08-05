@@ -1372,6 +1372,16 @@ public class FunctionSet {
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, false, true));
 
+        //Percentile
+        addBuiltin(AggregateFunction.createBuiltin("percentile",
+                Lists.newArrayList(Type.BIGINT, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
+                prefix + "15percentile_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "17percentile_updateIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_RKNS2_9DoubleValEPNS2_9StringValE",
+                prefix + "16percentile_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "20percentile_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                prefix + "19percentile_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                false, false, false));
+
         //PercentileApprox
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.VARCHAR,
