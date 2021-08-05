@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,25 +28,23 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-// admin show replica distribution from tbl [partition(p1, p2, ...)]
-public class AdminShowReplicaDistributionStmt extends ShowStmt {
+// admin show data skew from tbl [partition(p1, p2, ...)]
+public class AdminShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("ReplicaNum").add("ReplicaSize")
-            .add("NumGraph").add("NumPercent")
-            .add("SizeGraph").add("SizePercent")
+            .add("BucketIdx").add("AvgDataSize")
+            .add("Graph").add("Percent")
             .build();
 
     private TableRef tblRef;
 
-    public AdminShowReplicaDistributionStmt(TableRef tblRef) {
+    public AdminShowDataSkewStmt(TableRef tblRef) {
         this.tblRef = tblRef;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // check auth
@@ -55,17 +52,12 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        String dbName = null;
-        if (Strings.isNullOrEmpty(tblRef.getName().getDb())) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), tblRef.getName().getDb());
-        }
+        tblRef.getName().analyze(analyzer);
 
-        tblRef.getName().setDb(dbName);
+        PartitionNames partitionNames = tblRef.getPartitionNames();
+        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
+            throw new AnalysisException("Should specify one and only one partition");
+        }
     }
 
     public String getDbName() {
