@@ -66,3 +66,4 @@ rpc_data/
 
 #ignore vscode project file
 .vscode
+samples/doris-demo/stream-load-demo/target
