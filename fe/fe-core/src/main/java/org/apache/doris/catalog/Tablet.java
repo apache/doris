@@ -43,13 +43,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 /**
  * This class represents the olap tablet related metadata.
  */
 public class Tablet extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
-    
+
     public enum TabletStatus {
         HEALTHY,
         REPLICA_MISSING, // not enough alive replica num.
@@ -376,25 +377,15 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public long getDataSize(boolean singleReplica) {
-        long dataSize = 0;
-        int count = 0;
-        for (Replica replica : getReplicas()) {
-            if (replica.getState() == ReplicaState.NORMAL
-                    || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                dataSize += replica.getDataSize();
-                count++;
-            }
-        }
-        if (count == 0) {
-            return 0;
-        }
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getDataSize);
+        return singleReplica ? Double.valueOf(s.average().getAsDouble()).longValue() : s.sum();
+    }
 
-        if (singleReplica) {
-            // get the avg replica size
-            dataSize /= count;
-        }
-
-        return dataSize;
+    public long getRowNum(boolean singleReplica) {
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().getAsDouble()).longValue() : s.sum();
     }
 
     /**
