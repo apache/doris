@@ -696,4 +696,11 @@ public class SelectStmtTest {
             Assert.fail(e.getMessage());
         }
     }
+
+    @Test
+    public void testSystemViewCaseInsensitive() throws Exception {
+        String sql = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
+        dorisAssert.query(sql).explainQuery();
+    }
 }
