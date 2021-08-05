@@ -153,9 +153,9 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         if (!metricNames.contains(fullName)) {
             sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
             sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
-            sb.append(fullName);
             metricNames.add(fullName);
         }
+        sb.append(fullName);
 
         // name
         @SuppressWarnings("unchecked")
