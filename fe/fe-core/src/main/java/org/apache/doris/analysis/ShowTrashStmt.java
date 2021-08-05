@@ -68,10 +68,6 @@ public class ShowTrashStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        return RedirectStatus.NO_FORWARD;
     }
 }
