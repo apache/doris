@@ -17,6 +17,8 @@
 
 package org.apache.doris.metric;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
@@ -492,7 +494,9 @@ public final class MetricRepo {
 
         visitor.setMetricNumber(PALO_METRIC_REGISTER.getPaloMetrics().size());
         // doris metrics
-        for (Metric metric : PALO_METRIC_REGISTER.getPaloMetrics()) {
+        List<Metric> paloMetrics = new ArrayList<>(PALO_METRIC_REGISTER.getPaloMetrics());
+        paloMetrics.sort(Comparator.comparing(Metric::getName));
+        for (Metric metric : paloMetrics) {
             visitor.visit(sb, metric);
         }
 
