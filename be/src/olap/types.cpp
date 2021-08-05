@@ -29,6 +29,7 @@ ScalarTypeInfo::ScalarTypeInfo(TypeTraitsClass t)
           _deep_copy(TypeTraitsClass::deep_copy),
           _copy_object(TypeTraitsClass::copy_object),
           _direct_copy(TypeTraitsClass::direct_copy),
+          _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
           _convert_from(TypeTraitsClass::convert_from),
           _from_string(TypeTraitsClass::from_string),
           _to_string(TypeTraitsClass::to_string),

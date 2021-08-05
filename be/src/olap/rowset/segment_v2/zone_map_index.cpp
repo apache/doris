@@ -33,11 +33,11 @@ namespace segment_v2 {
 
 ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field)
         : _field(field), _tracker(new MemTracker(-1, "ZoneMapIndexWriter")), _pool(_tracker.get()) {
-    _page_zone_map.min_value = _field->allocate_value(&_pool);
-    _page_zone_map.max_value = _field->allocate_value(&_pool);
+    _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_value(&_pool);
-    _segment_zone_map.max_value = _field->allocate_value(&_pool);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -48,13 +48,17 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
     const char* vals = reinterpret_cast<const char*>(values);
     for (int i = 0; i < count; ++i) {
         if (_field->compare(_page_zone_map.min_value, vals) > 0) {
-            _field->type_info()->direct_copy(_page_zone_map.min_value, vals);
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value, vals);
         }
         if (_field->compare(_page_zone_map.max_value, vals) < 0) {
-            _field->type_info()->direct_copy(_page_zone_map.max_value, vals);
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value, vals);
         }
         vals += _field->size();
     }
+}
+
+void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap & zone_map) {
+    _field->modify_zone_map_index(zone_map.max_value);
 }
 
 void ZoneMapIndexWriter::reset_page_zone_map() {
@@ -81,6 +85,7 @@ Status ZoneMapIndexWriter::flush() {
     }
 
     ZoneMapPB zone_map_pb;
+    moidfy_index_before_flush(_page_zone_map);
     _page_zone_map.to_proto(&zone_map_pb, _field);
     _reset_zone_map(&_page_zone_map);
 
@@ -98,6 +103,7 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
+    moidfy_index_before_flush(_segment_zone_map);
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages

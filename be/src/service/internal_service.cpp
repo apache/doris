@@ -35,12 +35,19 @@
 
 namespace doris {
 
-template <typename T>
-PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
-        : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {}
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(add_batch_task_queue_size, MetricUnit::NOUNIT);
 
 template <typename T>
-PInternalServiceImpl<T>::~PInternalServiceImpl() {}
+PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
+        : _exec_env(exec_env), _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
+    REGISTER_HOOK_METRIC(add_batch_task_queue_size,
+                         [this]() { return _tablet_worker_pool.get_queue_size(); });
+}
+
+template <typename T>
+PInternalServiceImpl<T>::~PInternalServiceImpl() {
+    DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
+}
 
 template <typename T>
 void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cntl_base,
@@ -98,7 +105,8 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
                                                       PTabletWriterAddBatchResult* response,
                                                       google::protobuf::Closure* done) {
     VLOG_RPC << "tablet writer add batch, id=" << request->id()
-             << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
+             << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id()
+             << ", current_queued_size=" << _tablet_worker_pool.get_queue_size();
     // add batch maybe cost a lot of time, and this callback thread will be held.
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
@@ -288,10 +296,9 @@ void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* co
     st.to_protobuf(response->mutable_status());
 }
 
-template<typename T>
+template <typename T>
 void PInternalServiceImpl<T>::send_data(google::protobuf::RpcController* controller,
-                                        const PSendDataRequest* request,
-                                        PSendDataResult* response,
+                                        const PSendDataRequest* request, PSendDataResult* response,
                                         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     TUniqueId fragment_instance_id;
@@ -305,16 +312,16 @@ void PInternalServiceImpl<T>::send_data(google::protobuf::RpcController* control
         for (int i = 0; i < request->data_size(); ++i) {
             PDataRow* row = new PDataRow();
             row->CopyFrom(request->data(i));
-            pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row), sizeof(row) + row->ByteSize());
+            pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
+                                   sizeof(row) + row->ByteSize());
         }
         response->mutable_status()->set_status_code(0);
     }
 }
 
-template<typename T>
+template <typename T>
 void PInternalServiceImpl<T>::commit(google::protobuf::RpcController* controller,
-                                     const PCommitRequest* request,
-                                     PCommitResult* response,
+                                     const PCommitRequest* request, PCommitResult* response,
                                      google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     TUniqueId fragment_instance_id;
@@ -330,10 +337,9 @@ void PInternalServiceImpl<T>::commit(google::protobuf::RpcController* controller
     }
 }
 
-template<typename T>
+template <typename T>
 void PInternalServiceImpl<T>::rollback(google::protobuf::RpcController* controller,
-                                       const PRollbackRequest* request,
-                                       PRollbackResult* response,
+                                       const PRollbackRequest* request, PRollbackResult* response,
                                        google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     TUniqueId fragment_instance_id;
@@ -349,13 +355,11 @@ void PInternalServiceImpl<T>::rollback(google::protobuf::RpcController* controll
     }
 }
 
-template<typename T>
-void PInternalServiceImpl<T>::fold_constant_expr(
-    google::protobuf::RpcController* cntl_base,
-    const PConstantExprRequest* request,
-    PConstantExprResult* response,
-    google::protobuf::Closure* done) {
-
+template <typename T>
+void PInternalServiceImpl<T>::fold_constant_expr(google::protobuf::RpcController* cntl_base,
+                                                 const PConstantExprRequest* request,
+                                                 PConstantExprResult* response,
+                                                 google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
 
@@ -372,10 +376,9 @@ void PInternalServiceImpl<T>::fold_constant_expr(
     st.to_protobuf(response->mutable_status());
 }
 
-template<typename T>
+template <typename T>
 Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_request,
                                                     PConstantExprResult* response) {
-
     TFoldConstantParams t_request;
     {
         const uint8_t* buf = (const uint8_t*)ser_request.data();
@@ -387,6 +390,5 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
 }
 
 template class PInternalServiceImpl<PBackendService>;
-template class PInternalServiceImpl<palo::PInternalService>;
 
 } // namespace doris

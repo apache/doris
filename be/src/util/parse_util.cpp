@@ -67,7 +67,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
     }
 
     StringParser::ParseResult result;
-    int64_t bytes;
+    int64_t bytes = -1;
 
     if (multiplier != -1 || *is_percent) {
         // Parse float - MB or GB or percent

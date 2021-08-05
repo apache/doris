@@ -517,7 +517,7 @@ void Tablet::delete_expired_stale_rowset() {
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
-                LOG(INFO) << "delete stale rowset tablet=" << full_name() << " version["
+                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
                           << timestampedVersion->version().first << ","
                           << timestampedVersion->version().second
                           << "] move to unused_rowset success " << std::fixed

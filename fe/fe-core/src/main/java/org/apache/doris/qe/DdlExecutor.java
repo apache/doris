@@ -78,6 +78,7 @@ import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
+import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.common.Config;
@@ -163,6 +164,8 @@ public class DdlExecutor {
             catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             catalog.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof UpdateStmt) {
+            catalog.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
         } else if (ddlStmt instanceof DeleteStmt) {
             catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {

@@ -33,10 +33,11 @@ protected:
 };
 
 TEST_F(BufferedReaderTest, normal_use) {
+    RuntimeProfile profile("test");
     // buffered_reader_test_file 950 bytes
     auto file_reader = new LocalFileReader(
             "./be/test/exec/test_data/buffered_reader/buffered_reader_test_file", 0);
-    BufferedReader reader(file_reader, 1024);
+    BufferedReader reader(&profile, file_reader, 1024);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[1024];
@@ -50,10 +51,11 @@ TEST_F(BufferedReaderTest, normal_use) {
 }
 
 TEST_F(BufferedReaderTest, test_validity) {
+    RuntimeProfile profile("test");
     // buffered_reader_test_file.txt 45 bytes
     auto file_reader = new LocalFileReader(
             "./be/test/exec/test_data/buffered_reader/buffered_reader_test_file.txt", 0);
-    BufferedReader reader(file_reader, 64);
+    BufferedReader reader(&profile, file_reader, 64);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[10];
@@ -92,10 +94,11 @@ TEST_F(BufferedReaderTest, test_validity) {
 }
 
 TEST_F(BufferedReaderTest, test_seek) {
+    RuntimeProfile profile("test");
     // buffered_reader_test_file.txt 45 bytes
     auto file_reader = new LocalFileReader(
             "./be/test/exec/test_data/buffered_reader/buffered_reader_test_file.txt", 0);
-    BufferedReader reader(file_reader, 64);
+    BufferedReader reader(&profile, file_reader, 64);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[10];
@@ -143,10 +146,11 @@ TEST_F(BufferedReaderTest, test_seek) {
 }
 
 TEST_F(BufferedReaderTest, test_miss) {
+    RuntimeProfile profile("test");
     // buffered_reader_test_file.txt 45 bytes
     auto file_reader = new LocalFileReader(
             "./be/test/exec/test_data/buffered_reader/buffered_reader_test_file.txt", 0);
-    BufferedReader reader(file_reader, 64);
+    BufferedReader reader(&profile, file_reader, 64);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[128];

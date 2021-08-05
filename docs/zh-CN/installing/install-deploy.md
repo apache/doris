@@ -37,14 +37,14 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 
 #### Linux 操作系统版本需求
 
-| Linux 系统 | 版本 | 
+| Linux 系统 | 版本 |
 |---|---|
 | CentOS | 7.1 及以上 |
 | Ubuntu | 16.04 及以上 |
 
 #### 软件需求
 
-| 软件 | 版本 | 
+| 软件 | 版本 |
 |---|---|
 | Java | 1.8 及以上 |
 | GCC  | 4.8.2 及以上 |
@@ -88,7 +88,7 @@ Broker 是用于访问外部数据源（如 hdfs）的进程。通常，在每�
 
 Doris 各个实例直接通过网络进行通讯。以下表格展示了所有需要的端口
 
-| 实例名称 | 端口名称 | 默认端口 | 通讯方向 | 说明 | 
+| 实例名称 | 端口名称 | 默认端口 | 通讯方向 | 说明 |
 |---|---|---|---| ---|
 | BE | be_port | 9060 | FE --> BE | BE 上 thrift server 的端口，用于接收来自 FE 的请求 |
 | BE | webserver_port | 8040 | BE <--> BE | BE 上的 http server 的端口 |
@@ -141,7 +141,10 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 * 配置 FE
 
     1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`：元数据存放位置。默认在 fe/doris-meta/ 下。需**手动创建**该目录。
-    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，建议生产环境调整至 8G 以上。
+
+       **注意：生产环境强烈建议单独指定目录不要放在Doris安装目录下，最好是单独的磁盘（如果有SSD最好），测试开发环境可以使用默认配置**
+
+    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，**建议生产环境调整至 8G 以上**。
 
 * 启动FE
 
@@ -159,7 +162,23 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 修改所有 BE 的配置
 
-    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用 `;` 分隔（最后一个目录后不要加 `;`）。如果be部署在hadoop集群中，注意调整be.conf中的`webserver_port = 8040`,以免造成断开冲突
+    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+
+    **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+
+    示例如下：
+
+    `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+
+    示例说明
+
+    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+    - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+
+* BE webserver_port端口配置
+
+    如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成端口冲突
 
 * 在 FE 中添加所有 BE 节点
 
@@ -173,7 +192,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
     `ALTER SYSTEM ADD BACKEND "host:port";`
 
-   	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+      	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
 
 * 启动 BE
 

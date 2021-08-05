@@ -21,7 +21,9 @@
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
@@ -451,9 +453,10 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_DECIMALV2: {
             DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+            auto packed_decimal = *reinterpret_cast<const decimal12_t*>(ptr);
 
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            int64_t int_value = packed_decimal.integer;
+            int32_t frac_value = packed_decimal.fraction;
             if (!slot->from_olap_decimal(int_value, frac_value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
@@ -469,12 +472,10 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_DATE: {
             DateTimeValue* slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
-            uint64_t value = 0;
-            value = *(unsigned char*)(ptr + 2);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr + 1);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr);
+
+            uint24_t date = *reinterpret_cast<const uint24_t*>(ptr);
+            uint64_t value = uint32_t(date);
+
             if (!slot->from_olap_date(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
