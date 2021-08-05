@@ -576,7 +576,7 @@ public enum PrimitiveType {
     }
 
     public static int getMaxSlotSize() {
-        return DECIMALV2.slotSize;
+        return ARRAY.slotSize;
     }
 
     /**
