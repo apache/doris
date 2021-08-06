@@ -73,9 +73,7 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         // check base rowset first version must be zero
         // for tablet which state is not TABLET_RUNNING, there may not have base version.
         CHECK((*base_rowset_meta)->start_version() == 0);
-    }
 
-    if (tablet->tablet_state() == TABLET_RUNNING) {
         int64_t promotion_size = 0;
         _calc_promotion_size(*base_rowset_meta, &promotion_size);
 
