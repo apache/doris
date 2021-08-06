@@ -198,7 +198,8 @@ module.exports = [
     title: "最佳实践",
     directoryPath: "best-practices/",
     children: [
-      "fe-load-balance"
+      "fe-load-balance",
+      "samples"
     ],
   },
   {
@@ -212,6 +213,7 @@ module.exports = [
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
+      "datax",
       {
         title: "UDF",
         directoryPath: "udf/",
