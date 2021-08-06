@@ -132,4 +132,16 @@ public class IsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
+    /**
+     * fix issue 6390
+     */
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        recursiveResetChildrenResult();
+        final Expr childValue = getChild(0);
+        if(!(childValue instanceof LiteralExpr)) {
+            return this;
+        }
+        return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
+    }
 }
