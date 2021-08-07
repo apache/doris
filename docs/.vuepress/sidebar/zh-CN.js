@@ -199,6 +199,7 @@ module.exports = [
     directoryPath: "best-practices/",
     children: [
       "fe-load-balance",
+      "systemd",
       "samples"
     ],
   },
