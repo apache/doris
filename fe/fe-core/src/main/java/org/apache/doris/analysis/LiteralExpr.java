@@ -86,6 +86,41 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
+    /**
+     * Init LiteralExpr's Type information
+     * only use in rewrite alias function
+     * @param expr
+     * @return
+     * @throws AnalysisException
+     */
+    public static LiteralExpr init(LiteralExpr expr) throws AnalysisException {
+        Preconditions.checkArgument(expr.getType().equals(Type.INVALID));
+        String value = expr.getStringValue();
+        LiteralExpr literalExpr = null;
+        if (expr instanceof NullLiteral) {
+            literalExpr = new NullLiteral();
+        } else if (expr instanceof BoolLiteral) {
+            literalExpr = new BoolLiteral(value);
+        } else if (expr instanceof IntLiteral) {
+            literalExpr = new IntLiteral(Long.parseLong(value));
+        } else if (expr instanceof LargeIntLiteral) {
+            literalExpr = new LargeIntLiteral(value);
+        } else if (expr instanceof FloatLiteral) {
+            literalExpr = new FloatLiteral(value);
+        } else if (expr instanceof DecimalLiteral) {
+            literalExpr = new DecimalLiteral(value);
+        } else if (expr instanceof StringLiteral) {
+            literalExpr = new StringLiteral(value);
+        } else if (expr instanceof DateLiteral) {
+            literalExpr = new DateLiteral(value, expr.getType());
+        } else {
+            throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
+        }
+
+        Preconditions.checkNotNull(literalExpr);
+        return literalExpr;
+    }
+
     public static LiteralExpr createInfinity(Type type, boolean isMax) throws AnalysisException {
         Preconditions.checkArgument(!type.equals(Type.INVALID));
         if (isMax) {
