@@ -1185,9 +1185,19 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
 
         _is_doing_work = true;
         request.tablets.clear();
+        uint64_t report_version = _s_report_version;
         OLAPStatus build_all_report_tablets_info_status =
                 StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
+        if (report_version < _s_report_version) {
+            // TODO llj This can only reduce the possibility for report error, but can't avoid it.
+            // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
+            // report, and the report version has a small probability that it has not been updated in time. When FE
+            // receives this report, it is possible to delete the new tablet.
+            LOG(WARNING) << "report version " << report_version << " change to " << _s_report_version;
+            DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+            continue;
+        }
         if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
             LOG(WARNING) << "build all report tablets info failed. status: "
                          << build_all_report_tablets_info_status;
@@ -1197,7 +1207,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                 std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                          DorisMetrics::instance()->tablet_base_max_compaction_score->value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
-        request.__set_report_version(_s_report_version);
+        request.__set_report_version(report_version);
         _handle_report(request, ReportType::TABLET);
     }
     StorageEngine::instance()->deregister_report_listener(this);
