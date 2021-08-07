@@ -615,10 +615,14 @@ public class InsertStmt extends DdlStmt {
                 if (entry == null) {
                     extentedRow.add(extentedRow.get(entry.first));
                 } else {
-                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                    smap.getLhs().add(entry.second.getRefColumn());
-                    smap.getRhs().add(extentedRow.get(entry.first));
-                    extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
+                    if (entry.second == null) {
+                        extentedRow.add(extentedRow.get(entry.first));
+                    } else {
+                        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                        smap.getLhs().add(entry.second.getRefColumn());
+                        smap.getRhs().add(extentedRow.get(entry.first));
+                        extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
+                    }
                 }
             }
 
