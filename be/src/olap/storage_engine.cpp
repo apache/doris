@@ -500,19 +500,21 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
-    // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
-    std::lock_guard<std::mutex> l(_store_lock);
-    if (_store_map.empty()) {
-        return false;
-    }
-
-    for (auto& it : _store_map) {
-        ++total_root_path_num;
-        if (it.second->is_used()) {
-            continue;
+    {
+        // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
+        std::lock_guard<std::mutex> l(_store_lock);
+        if (_store_map.empty()) {
+            return false;
         }
-        it.second->clear_tablets(&tablet_info_vec);
-        ++unused_root_path_num;
+
+        for (auto& it : _store_map) {
+            ++total_root_path_num;
+            if (it.second->is_used()) {
+                continue;
+            }
+            it.second->clear_tablets(&tablet_info_vec);
+            ++unused_root_path_num;
+        }
     }
 
     if (too_many_disks_are_failed(unused_root_path_num, total_root_path_num)) {
