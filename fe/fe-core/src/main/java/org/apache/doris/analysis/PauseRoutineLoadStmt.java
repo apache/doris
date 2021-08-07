@@ -39,7 +39,7 @@ public class PauseRoutineLoadStmt extends DdlStmt {
         this.labelName = labelName;
     }
 
-    public boolean showAll() {
+    public boolean isAll() {
         return labelName == null;
     }
 

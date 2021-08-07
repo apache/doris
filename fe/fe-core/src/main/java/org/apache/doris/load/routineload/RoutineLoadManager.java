@@ -266,7 +266,7 @@ public class RoutineLoadManager implements Writable {
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
             throws UserException {
         List<RoutineLoadJob> jobs = Lists.newArrayList();
-        if (pauseRoutineLoadStmt.showAll()) {
+        if (pauseRoutineLoadStmt.isAll()) {
             jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
         } else {
             RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
@@ -293,7 +293,7 @@ public class RoutineLoadManager implements Writable {
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
 
         List<RoutineLoadJob> jobs = Lists.newArrayList();
-        if (resumeRoutineLoadStmt.showAll()) {
+        if (resumeRoutineLoadStmt.isAll()) {
             jobs = checkPrivAndGetAllJobs(resumeRoutineLoadStmt.getDbFullName());
         } else {
             RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
