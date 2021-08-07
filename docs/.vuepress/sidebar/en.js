@@ -399,6 +399,7 @@ module.exports = [
           },
           "window-function",
           "cast",
+          "digital-masking",
         ],
       },
       {
