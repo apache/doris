@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.profile.MultiProfileTreeBuilder;
+import org.apache.doris.common.profile.ProfileTreeBuilder;
 import org.apache.doris.common.profile.ProfileTreeNode;
 
 import com.google.common.base.Strings;
@@ -263,7 +264,15 @@ public class ProfileManager {
     // Return the tasks info of the specified load job
     // Columns: TaskId, ActiveTime
     public List<List<String>> getLoadJobTaskList(String jobId) throws AnalysisException {
-        MultiProfileTreeBuilder builder;
+        MultiProfileTreeBuilder builder = getMultiProfileTreeBuilder(jobId);
+        return builder.getSubTaskInfo();
+    }
+
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentsAndInstances(String queryId) throws AnalysisException{
+        return getMultiProfileTreeBuilder(queryId).getFragmentInstances(queryId);
+    }
+
+    private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException{
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(jobId);
@@ -271,11 +280,9 @@ public class ProfileManager {
                 throw new AnalysisException("failed to get task ids. err: "
                         + (element == null ? "not found" : element.errMsg));
             }
-            builder = element.builder;
+            return element.builder;
         } finally {
             readLock.unlock();
         }
-
-        return builder.getSubTaskInfo();
     }
 }

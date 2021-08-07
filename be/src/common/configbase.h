@@ -156,6 +156,8 @@ public:
 
     void set(const std::string& key, const std::string& val);
 
+    void set_force(const std::string& key, const std::string& val);
+
     // dump props to conf file
     bool dump(const std::string& conffile);
 
@@ -180,6 +182,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
 bool persist_config(const std::string& field, const std::string& value);
 
 std::mutex* get_mutable_string_config_lock();
+
+std::vector<std::vector<std::string>> get_config_info();
 
 } // namespace config
 } // namespace doris
