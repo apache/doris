@@ -52,6 +52,7 @@ DEFINE_ENGINE_COUNTER_METRIC(create_tablet_requests_failed, create_tablet, faile
 DEFINE_ENGINE_COUNTER_METRIC(drop_tablet_requests_total, drop_tablet, total);
 DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_total, report_all_tablets, total);
 DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_failed, report_all_tablets, failed);
+DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_skip, report_all_tablets, skip)
 DEFINE_ENGINE_COUNTER_METRIC(report_tablet_requests_total, report_tablet, total);
 DEFINE_ENGINE_COUNTER_METRIC(report_tablet_requests_failed, report_tablet, failed);
 DEFINE_ENGINE_COUNTER_METRIC(report_disk_requests_total, report_disk, total);
@@ -191,6 +192,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, drop_tablet_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_skip);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_disk_requests_total);

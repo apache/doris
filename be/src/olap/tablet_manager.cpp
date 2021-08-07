@@ -562,13 +562,21 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
-    for (int32 i = 0; i < _tablets_shards_size; i++) {
+    if (tablet_info_vec.empty()) { // This is a high probability event
+        return res;
+    }
+    std::vector<std::set<size_t>> local_tmp_vector(_tablets_shards_size);
+    for (size_t idx = 0; idx < tablet_info_vec.size(); ++idx) {
+        local_tmp_vector[tablet_info_vec[idx].tablet_id & _tablets_shards_mask].insert(idx);
+    }
+    for (int32 i = 0; i < _tablets_shards_size; ++i) {
+        if (local_tmp_vector[i].empty()) {
+            continue;
+        }
         WriteLock wlock(_tablets_shards[i].lock.get());
-        for (const TabletInfo& tablet_info : tablet_info_vec) {
+        for (size_t idx : local_tmp_vector[i]) {
+            const TabletInfo& tablet_info = tablet_info_vec[idx];
             TTabletId tablet_id = tablet_info.tablet_id;
-            if ((tablet_id & _tablets_shards_mask) != i) {
-                continue;
-            }
             TSchemaHash schema_hash = tablet_info.schema_hash;
             VLOG_NOTICE << "drop_tablet begin. tablet_id=" << tablet_id
                         << ", schema_hash=" << schema_hash;
