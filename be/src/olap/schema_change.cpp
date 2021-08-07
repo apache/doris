@@ -1774,63 +1774,6 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SchemaChangeHandler::_add_alter_task(
-        AlterTabletType alter_tablet_type, TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-        const std::vector<Version>& versions_to_be_changed) {
-    // check new tablet exists,
-    // prevent to set base's status after new's dropping (clear base's status)
-    if (StorageEngine::instance()->tablet_manager()->get_tablet(
-                new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
-        LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-
-    // 1. 在新表和旧表中添加schema change标志
-    base_tablet->delete_alter_task();
-    base_tablet->add_alter_task(new_tablet->tablet_id(), new_tablet->schema_hash(),
-                                versions_to_be_changed, alter_tablet_type);
-    base_tablet->save_meta();
-    new_tablet->add_alter_task(base_tablet->tablet_id(), base_tablet->schema_hash(),
-                               std::vector<Version>(), // empty versions
-                               alter_tablet_type);
-    new_tablet->save_meta();
-    LOG(INFO) << "successfully add alter task to both base and new";
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SchemaChangeHandler::_save_alter_state(AlterTabletState state,
-                                                  TabletSharedPtr base_tablet,
-                                                  TabletSharedPtr new_tablet) {
-    WriteLock base_wlock(base_tablet->get_header_lock_ptr());
-    WriteLock new_wlock(new_tablet->get_header_lock_ptr());
-    AlterTabletTaskSharedPtr base_alter_task = base_tablet->alter_task();
-    if (base_alter_task == nullptr) {
-        LOG(INFO) << "could not find alter task info from base tablet " << base_tablet->full_name();
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    }
-    OLAPStatus res = base_tablet->set_alter_state(state);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state
-                     << " tablet=" << base_tablet->full_name() << " res=" << res;
-        return res;
-    }
-    base_tablet->save_meta();
-    AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
-    if (new_alter_task == nullptr) {
-        LOG(INFO) << "could not find alter task info from new tablet " << new_tablet->full_name();
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    }
-    res = new_tablet->set_alter_state(state);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state << " tablet "
-                     << new_tablet->full_name() << " res" << res;
-        return res;
-    }
-    new_tablet->save_meta();
-
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << sc_params.base_tablet->full_name()

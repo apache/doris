@@ -275,7 +275,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 
     // set alter type to schema-change. it is useless
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            AlterTabletType::SCHEMA_CHANGE, request, is_schema_change, base_tablet.get(), stores);
+            request, is_schema_change, base_tablet.get(), stores);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to create tablet. tablet_id=" << request.tablet_id;
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
@@ -289,7 +289,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 }
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
-        const AlterTabletType alter_type, const TCreateTabletReq& request,
+        const TCreateTabletReq& request,
         const bool is_schema_change, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs) {
     // If in schema-change state, base_tablet must also be provided.
@@ -324,40 +324,33 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
             break;
         }
-        // TODO(lingbin): is it needed? because all type of create_tablet will be true.
-        // 1. !is_schema_change: not in schema-change state;
-        // 2. request.base_tablet_id > 0: in schema-change state;
-        if (!is_schema_change || (request.__isset.base_tablet_id && request.base_tablet_id > 0)) {
-            // Create init version if this is not a restore mode replica and request.version is set
-            // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
-            // if (!in_restore_mode && request.__isset.version) {
-            // create initial rowset before add it to storage engine could omit many locks
-            res = _create_initial_rowset_unlocked(request, tablet.get());
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
-                break;
-            }
-            TRACE("create initial rowset");
+
+        // Create init version if this is not a restore mode replica and request.version is set
+        // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
+        // if (!in_restore_mode && request.__isset.version) {
+        // create initial rowset before add it to storage engine could omit many locks
+        res = _create_initial_rowset_unlocked(request, tablet.get());
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
+            break;
         }
+        TRACE("create initial rowset");
+
         if (is_schema_change) {
-            if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
-                LOG(INFO) << "request for alter-tablet v2, do not add alter task to tablet";
-                // if this is a new alter tablet, has to set its state to not ready
-                // because schema change handler depends on it to check whether history data
-                // convert finished
-                tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
-            } else {
-                // add alter task to new tablet if it is a new tablet during schema change
-                tablet->add_alter_task(base_tablet->tablet_id(), base_tablet->schema_hash(),
-                                       std::vector<Version>(), alter_type);
-            }
-            // 有可能出现以下2种特殊情况：
-            // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
-            // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
-            //    然后立即alter该表)之间的时间间隔小于1s，则alter得到的新表和旧表的creation_time会相同
-            //
-            // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
-            // 旧表的creation_time加1
+            // if this is a new alter tablet, has to set its state to not ready
+            // because schema change handler depends on it to check whether history data
+            // convert finished
+            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+            // The following two special situations may occur:
+            // 1. Because the operating system time jumps, the creation_time of the newly generated table
+            //    is less than the creation_time of the old table
+            // 2. Because the unit of second is unified in the olap engine code,
+            //    if two operations (such as creating a table, and then immediately altering the table)
+            //    is less than 1s, then the creation_time of the new table and the old table obtained by alter will be the same
+            // 
+            // When the above two situations occur, in order to be able to distinguish between the new tablet
+            // obtained by alter and the old tablet, the creation_time of the new tablet is set to
+            // the creation_time of the old tablet increased by 1
             if (tablet->creation_time() <= base_tablet->creation_time()) {
                 LOG(WARNING) << "new tablet's create time is less than or equal to old tablet"
                              << "new_tablet_create_time=" << tablet->creation_time()
@@ -488,75 +481,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
         return OLAP_SUCCESS;
     }
 
-    // Try to get schema change info, we can drop tablet directly if it is not
-    // in schema-change state.
-    AlterTabletTaskSharedPtr alter_task = to_drop_tablet->alter_task();
-    if (alter_task == nullptr) {
-        return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    }
-
-    AlterTabletState alter_state = alter_task->alter_state();
-    TTabletId related_tablet_id = alter_task->related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task->related_schema_hash();
-
-    TabletSharedPtr related_tablet = _get_tablet_unlocked(related_tablet_id, related_schema_hash);
-    if (related_tablet == nullptr) {
-        // TODO(lingbin): in what case, can this happen?
-        LOG(WARNING) << "drop tablet directly when related tablet not found. "
-                     << " tablet_id=" << related_tablet_id
-                     << " schema_hash=" << related_schema_hash;
-        return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    }
-
-    // Check whether the tablet we want to delete is in schema-change state
-    bool is_schema_change_finished = (alter_state == ALTER_FINISHED || alter_state == ALTER_FAILED);
-
-    // Check whether the tablet we want to delete is base-tablet
-    bool is_dropping_base_tablet = false;
-    if (to_drop_tablet->creation_time() < related_tablet->creation_time()) {
-        is_dropping_base_tablet = true;
-    }
-
-    if (is_dropping_base_tablet && !is_schema_change_finished) {
-        LOG(WARNING) << "fail to drop tablet. it is in schema-change state. tablet="
-                     << to_drop_tablet->full_name();
-        return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
-    }
-
-    // When the code gets here, there are two possibilities:
-    // 1. The tablet currently being deleted is a base-tablet, and the corresponding
-    //    schema-change process has finished;
-    // 2. The tablet we are currently trying to drop is not base-tablet(i.e. a tablet
-    //    generated from its base-tablet due to schema-change). For example, the current
-    //    request is triggered by cancel alter). In this scenario, the corresponding
-    //    schema-change task may still in process.
-
-    // Drop specified tablet and clear schema-change info
-    // NOTE: must first break the hard-link and then drop the tablet.
-    // Otherwise, if first drop tablet, then break link. If BE restarts during execution,
-    // after BE restarts, the tablet is no longer in metadata, but because the hard-link
-    // is still there, the corresponding file may never be deleted from disk.
-    related_tablet->obtain_header_wrlock();
-    // should check the related tablet_id in alter task is current tablet to be dropped
-    // For example: A related to B, BUT B related to C.
-    // If drop A, should not clear B's alter task
-    OLAPStatus res = OLAP_SUCCESS;
-    AlterTabletTaskSharedPtr related_alter_task = related_tablet->alter_task();
-    if (related_alter_task != nullptr && related_alter_task->related_tablet_id() == tablet_id &&
-        related_alter_task->related_schema_hash() == schema_hash) {
-        related_tablet->delete_alter_task();
-        related_tablet->save_meta();
-    }
-    related_tablet->release_header_lock();
-    res = _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to drop tablet which in schema change. tablet="
-                     << to_drop_tablet->full_name();
-        return res;
-    }
-
-    LOG(INFO) << "finish to drop tablet. res=" << res;
-    return res;
+    return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
 }
 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
@@ -719,31 +644,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
+                if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
+                    continue;
+                }
+
                 auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
                 if (search != tablet_submitted_compaction.end()) {
-                    continue;
-                }
-
-                AlterTabletTaskSharedPtr cur_alter_task = tablet_ptr->alter_task();
-                if (cur_alter_task != nullptr && cur_alter_task->alter_state() != ALTER_FINISHED &&
-                    cur_alter_task->alter_state() != ALTER_FAILED) {
-                    TabletSharedPtr related_tablet =
-                            _get_tablet_unlocked(cur_alter_task->related_tablet_id(),
-                                                 cur_alter_task->related_schema_hash());
-                    if (related_tablet != nullptr &&
-                        tablet_ptr->creation_time() > related_tablet->creation_time()) {
-                        // Current tablet is newly created during schema-change or rollup, skip it
-                        continue;
-                    }
-                }
-                // A not-ready tablet maybe a newly created tablet under schema-change, skip it
-                if (tablet_ptr->tablet_state() == TABLET_NOTREADY) {
-                    continue;
-                }
-
-                if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash() ||
-                    !tablet_ptr->is_used() || !tablet_ptr->init_succeeded() ||
-                    !tablet_ptr->can_do_compaction()) {
                     continue;
                 }
 
@@ -753,7 +659,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
                 if (now_ms - last_failure_ms <=
                     config::min_compaction_failure_interval_sec * 1000) {
-                    VLOG_CRITICAL << "Too often to check compaction, skip it. "
+                    VLOG_DEBUG    << "Too often to check compaction, skip it. "
                                   << "compaction_type=" << compaction_type_str
                                   << ", last_failure_time_ms=" << last_failure_ms
                                   << ", tablet_id=" << tablet_ptr->tablet_id();
@@ -763,11 +669,13 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     MutexLock lock(tablet_ptr->get_base_lock(), TRY_LOCK);
                     if (!lock.own_lock()) {
+                        LOG(INFO) << "can not get base lock: " << tablet_ptr->tablet_id();
                         continue;
                     }
                 } else {
                     MutexLock lock(tablet_ptr->get_cumulative_lock(), TRY_LOCK);
                     if (!lock.own_lock()) {
+                        LOG(INFO) << "can not get cumu lock: " << tablet_ptr->tablet_id();
                         continue;
                     }
                 }
