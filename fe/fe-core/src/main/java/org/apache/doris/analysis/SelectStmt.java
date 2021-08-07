@@ -1359,6 +1359,9 @@ public class SelectStmt extends QueryStmt {
                 registerExprId(ref.onClause);
                 exprMap.put(ref.onClause.getId().toString(), ref.onClause);
             }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().collectExprs(exprMap);
+            }
         }
 
         if (whereClause != null) {
@@ -1464,6 +1467,9 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             if (ref.onClause != null) {
                 ref.setOnClause(rewrittenExprMap.get(ref.onClause.getId().toString()));
+            }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().putBackExprs(rewrittenExprMap);
             }
         }
 

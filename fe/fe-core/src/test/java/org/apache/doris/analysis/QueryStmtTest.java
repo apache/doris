@@ -111,7 +111,7 @@ public class QueryStmtTest {
         stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
-        Assert.assertEquals(6, exprsMap.size());
+        Assert.assertEquals(7, exprsMap.size());
 
         sql = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -188,6 +188,13 @@ public class QueryStmtTest {
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(4, exprsMap.size());
+
+        // inline view
+        sql = "select a.k1, b.now from (select k1,k2 from db1.baseall)a, (select now() as now)b";
+        stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        exprsMap.clear();
+        stmt.collectExprs(exprsMap);
+        Assert.assertEquals(5, exprsMap.size());
     }
 
     @Test
@@ -257,6 +264,19 @@ public class QueryStmtTest {
         Assert.assertTrue(stmt.toSql().contains("root''@''%"));
         Assert.assertTrue(stmt.toSql().contains("root''@''127.0.0.1"));
 
+        // inline view
+        sql = "SELECT\n" +
+                "   t1.k1, t2.k1\n" +
+                "FROM\n" +
+                "   (select USER() k1, CURRENT_USER() k2, SCHEMA() k3) t1,\n" +
+                "   (select @@license k1, @@version k2) t2\n";
+        stmt = UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        stmt.foldConstant(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        // reAnalyze
+        reAnalyze(stmt, ctx);
+        Assert.assertTrue(stmt.toSql().contains("root''@''%"));
+        Assert.assertTrue(stmt.toSql().contains("root''@''127.0.0.1"));
+        Assert.assertTrue(stmt.toSql().contains("Apache License, Version 2.0"));
     }
 
     private void reAnalyze(StatementBase stmt, ConnectContext ctx) throws UserException {
