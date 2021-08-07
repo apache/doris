@@ -96,60 +96,6 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     load_id.set_lo(0);
     RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
             request.partition_id, tablet, request.transaction_id, load_id));
-
-    // prepare txn will be always successful
-    // if current tablet is under schema change, origin tablet is successful and
-    // new tablet is not successful, it maybe a fatal error because new tablet has
-    // not load successfully
-
-    // only when fe sends schema_change true, should consider to push related
-    // tablet
-    if (_request.is_schema_changing) {
-        VLOG_NOTICE << "push req specify schema changing is true. "
-                << "tablet=" << tablet->full_name()
-                << ", transaction_id=" << request.transaction_id;
-        AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
-        if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
-            TTabletId related_tablet_id = alter_task->related_tablet_id();
-            TSchemaHash related_schema_hash = alter_task->related_schema_hash();
-            LOG(INFO) << "find schema_change status when realtime push. "
-                      << "tablet=" << tablet->full_name()
-                      << ", related_tablet_id=" << related_tablet_id
-                      << ", related_schema_hash=" << related_schema_hash
-                      << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet =
-                    StorageEngine::instance()->tablet_manager()->get_tablet(related_tablet_id,
-                                                                            related_schema_hash);
-
-            // if related tablet not exists, only push current tablet
-            if (related_tablet == nullptr) {
-                LOG(WARNING) << "find alter task but not find related tablet, "
-                             << "related_tablet_id=" << related_tablet_id
-                             << ", related_schema_hash=" << related_schema_hash;
-                tablet->release_push_lock();
-                return OLAP_ERR_TABLE_NOT_FOUND;
-                // if current tablet is new tablet, only push current tablet
-            } else if (tablet->creation_time() > related_tablet->creation_time()) {
-                LOG(INFO) << "current tablet is new, only push current tablet. "
-                          << "tablet=" << tablet->full_name()
-                          << " related_tablet=" << related_tablet->full_name();
-            } else {
-                ReadLock new_migration_rlock(related_tablet->get_migration_lock_ptr(), TRY_LOCK);
-                if (!new_migration_rlock.own_lock()) {
-                    return OLAP_ERR_RWLOCK_ERROR;
-                }
-                PUniqueId load_id;
-                load_id.set_hi(0);
-                load_id.set_lo(0);
-                RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
-                        request.partition_id, related_tablet, request.transaction_id, load_id));
-                // prepare txn will always be successful
-                tablet_vars->push_back(TabletVars());
-                TabletVars& new_item = tablet_vars->back();
-                new_item.tablet = related_tablet;
-            }
-        }
-    }
     tablet->release_push_lock();
 
     if (tablet_vars->size() == 1) {

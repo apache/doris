@@ -166,14 +166,6 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             res = OLAP_ERR_TABLE_NOT_FOUND;
             break;
         }
-        AlterTabletTaskSharedPtr alter_task = _tablet->alter_task();
-        if (alter_task != nullptr) {
-            if (alter_task->alter_state() == ALTER_FINISHED) {
-                new_tablet->set_alter_state(ALTER_FINISHED);
-            } else {
-                new_tablet->delete_alter_task();
-            }
-        }
     } while (0);
 
     _tablet->release_push_lock();
