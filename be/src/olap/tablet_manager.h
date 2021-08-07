@@ -169,8 +169,7 @@ private:
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
                                          bool include_deleted, std::string* err);
 
-    TabletSharedPtr _internal_create_tablet_unlocked(const AlterTabletType alter_type,
-                                                     const TCreateTabletReq& request,
+    TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
                                                      const Tablet* base_tablet,
                                                      const std::vector<DataDir*>& data_dirs);
