@@ -148,6 +148,9 @@ private:
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput;
 
+    // Used to counter send bytes under local data exchange
+    RuntimeProfile::Counter* _local_bytes_send_counter;
+
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
 };
