@@ -77,6 +77,7 @@ public class FunctionSet {
         ScalarBuiltins.initBuiltins(this);
         LikePredicate.initBuiltins(this);
         InPredicate.initBuiltins(this);
+        AliasFunction.initBuiltins(this);
     }
 
     public void buildNonNullResultWithNullParamFunction(Set<String> funcNames) {
