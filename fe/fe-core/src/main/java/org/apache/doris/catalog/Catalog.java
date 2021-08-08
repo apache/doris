@@ -65,6 +65,7 @@ import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -82,7 +83,6 @@ import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
@@ -162,6 +162,8 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
 import org.apache.doris.load.update.UpdateManager;
+import org.apache.doris.load.sync.SyncChecker;
+import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
@@ -223,7 +225,6 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -303,6 +304,7 @@ public class Catalog {
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
     private ExportMgr exportMgr;
+    private SyncJobManager syncJobManager;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
@@ -489,6 +491,7 @@ public class Catalog {
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
         this.exportMgr = new ExportMgr();
+        this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
         this.lock = new QueryableReentrantLock(true);
@@ -1280,6 +1283,9 @@ public class Catalog {
         // Export checker
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
+        // Sync checker
+        SyncChecker.init(Config.sync_checker_interval_second);
+        SyncChecker.startAll();
         // Tablet checker and scheduler
         tabletChecker.start();
         tabletScheduler.start();
@@ -1686,6 +1692,14 @@ public class Catalog {
         return newChecksum;
     }
 
+    public long loadSyncJobs(DataInputStream dis, long checksum) throws IOException, DdlException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
+            syncJobManager.readField(dis);
+        }
+        LOG.info("finished replay syncJobMgr from image");
+        return checksum;
+    }
+
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
@@ -2023,6 +2037,11 @@ public class Catalog {
             job.write(dos);
         }
 
+        return checksum;
+    }
+
+    public long saveSyncJobs(CountingDataOutputStream dos, long checksum) throws IOException {
+        syncJobManager.write(dos);
         return checksum;
     }
 
@@ -4846,6 +4865,10 @@ public class Catalog {
 
     public ExportMgr getExportMgr() {
         return this.exportMgr;
+    }
+
+    public SyncJobManager getSyncJobManager() {
+        return this.syncJobManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
