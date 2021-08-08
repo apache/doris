@@ -182,6 +182,14 @@ module.exports = [
         ],
         sidebarDepth: 1,
       },
+      {
+        title: "Block Rule",
+        directoryPath: "block-rule/",
+        children: [
+          "sql-block",
+        ],
+        sidebarDepth: 1,
+      },
       "backup-restore",
       "broker",
       "colocation-join",

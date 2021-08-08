@@ -181,6 +181,14 @@ module.exports = [
         ],
         sidebarDepth: 1,
       },
+      {
+        title: "拦截规则",
+        directoryPath: "block-rule/",
+        children: [
+          "sql-block",
+        ],
+        sidebarDepth: 1,
+      },
       "backup-restore",
       "broker",
       "colocation-join",
@@ -200,7 +208,6 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
-      "sql-block",
     ],
     sidebarDepth: 1,
   },

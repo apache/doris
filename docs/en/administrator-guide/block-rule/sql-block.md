@@ -55,5 +55,5 @@ DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ## User bind rules
 If global=false is configured, the rules binding for the specified user needs to be configured, with multiple rules separated by ', '
 ```
-SET PROPERTY FOR 'jack' 'sql_block_rules' = 'test_rule1,test_rule2'
+SET PROPERTY [FOR 'jack'] 'sql_block_rules' = 'test_rule1,test_rule2'
 ```

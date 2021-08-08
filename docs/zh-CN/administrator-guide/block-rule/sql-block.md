@@ -55,5 +55,5 @@ DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ## 用户规则绑定
 如果配置global=false，则需要配置指定用户的规则绑定，多个规则使用`,`分隔
 ```
-SET PROPERTY FOR 'jack' 'sql_block_rules' = 'test_rule1,test_rule2'
+SET PROPERTY [FOR 'jack'] 'sql_block_rules' = 'test_rule1,test_rule2'
 ```
