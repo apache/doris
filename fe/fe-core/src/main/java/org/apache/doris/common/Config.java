@@ -624,6 +624,17 @@ public class Config extends ConfigBase {
     public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
 
     /**
+     * Maximal intervals between two syncJob's commits.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long sync_commit_interval_second = 10;
+
+    /**
+     * Sync checker's running interval.
+     */
+    @ConfField public static int sync_checker_interval_second = 5;
+
+    /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
      * In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs
@@ -1237,6 +1248,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_materialized_view = true;
+
+    /**
+     * enable create sync job
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_sync_job = false;
 
     /**
      * it can't auto-resume routine load job as long as one of the backends is down
