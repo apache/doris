@@ -32,7 +32,6 @@ import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import mockit.Mocked;
 
@@ -44,6 +43,7 @@ public class SqlBlockRuleMgrTest {
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MetricRepo.init();
+
     }
 
 
@@ -52,8 +52,9 @@ public class SqlBlockRuleMgrTest {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
         String sqlHash = DigestUtils.md5Hex(sql);
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", ".* join .*", null, true, true);
-        Pattern sqlPattern = Pattern.compile(sqlRule.getSql());
-        SqlBlockRuleMgr.matchSql(sqlRule, sql, sqlHash, sqlPattern);
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        mgr.replayCreate(sqlRule);
+        mgr.matchSql(sqlRule, sql, sqlHash);
     }
 
     @Test(expected = AnalysisException.class)
@@ -62,7 +63,9 @@ public class SqlBlockRuleMgrTest {
         String sqlHash = DigestUtils.md5Hex(sql);
         System.out.println(sqlHash);
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, sqlHash, true, true);
-        SqlBlockRuleMgr.matchSql(sqlRule, sql, sqlHash,  null);
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        mgr.replayCreate(sqlRule);
+        mgr.matchSql(sqlRule, sql, sqlHash);
     }
 
     @Test

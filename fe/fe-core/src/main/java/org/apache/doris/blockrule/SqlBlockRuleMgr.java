@@ -30,7 +30,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -173,38 +172,40 @@ public class SqlBlockRuleMgr implements Writable {
         ruleNames.forEach(name -> nameToSqlBlockRuleMap.remove(name));
     }
 
-    public void matchSql(String sql, String sqlHash, String user) throws AnalysisException {
+    public void matchSql(String originSql, String sqlHash, String user) throws AnalysisException {
         // match global rule
         List<SqlBlockRule> globalRules = nameToSqlBlockRuleMap.values().stream().filter(SqlBlockRule::getGlobal).collect(Collectors.toList());
         for (SqlBlockRule rule : globalRules) {
-            Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-            matchSql(rule, sql, sqlHash, sqlPattern);
+            matchSql(rule, originSql, sqlHash);
         }
         // match user rule
         String bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
         if (StringUtils.isNotEmpty(bindSqlBlockRules)) {
             String[] split = bindSqlBlockRules.split(",");
             for (String ruleName : split) {
-                SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
-                Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-                matchSql(rule, sql, sqlHash, sqlPattern);
+                SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName.trim());
+                if (rule == null) {
+                    continue;
+                }
+                matchSql(rule, originSql, sqlHash);
             }
         }
     }
 
-    @VisibleForTesting
-    public static void matchSql(SqlBlockRule rule, String sql, String sqlHash, Pattern sqlPattern) throws AnalysisException {
+    public void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSql())) {
-                if (sqlPattern != null && sqlPattern.matcher(sql).find()) {
+            if (StringUtils.isNotEmpty(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash)) {
+                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+            } else if (StringUtils.isNotEmpty(rule.getSql())) {
+                Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
+                if (sqlPattern.matcher(originSql).find()) {
                     MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                     throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
                 }
-            } else if (StringUtils.isNotEmpty(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash)) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
             }
         }
+
     }
 
     @Override

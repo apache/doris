@@ -1905,7 +1905,7 @@ public class Catalog {
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
             sqlBlockRuleMgr.readFields(in);
         }
         LOG.info("finished replay sqlBlockRule from image");

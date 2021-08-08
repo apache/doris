@@ -113,7 +113,7 @@ public class SqlBlockRule implements Writable {
     }
 
     public List<String> getShowInfo() {
-        return Lists.newArrayList(this.name, this.sql, String.valueOf(this.enable));
+        return Lists.newArrayList(this.name, this.sql, this.sqlHash, String.valueOf(this.global), String.valueOf(this.enable));
     }
 
     @Override

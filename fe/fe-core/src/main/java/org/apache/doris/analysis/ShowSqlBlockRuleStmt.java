@@ -41,8 +41,9 @@ public class ShowSqlBlockRuleStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Name", ScalarType.createVarchar(50)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(30)))
                     .addColumn(new Column("Sql", ScalarType.createVarchar(65535)))
+                    .addColumn(new Column("SqlHash", ScalarType.createVarchar(65535)))
+                    .addColumn(new Column("Global", ScalarType.createVarchar(4)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
                     .build();
 

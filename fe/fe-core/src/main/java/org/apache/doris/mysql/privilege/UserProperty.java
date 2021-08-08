@@ -91,7 +91,7 @@ public class UserProperty implements Writable {
     private WhiteList whiteList = new WhiteList();
 
     // the binding of sql_block_rule name, multiple are separated by ','
-    private String sqlBlockRules;
+    private String sqlBlockRules = null;
 
     @Deprecated
     private byte[] password;
@@ -108,6 +108,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_SQL_BLOCK_RULES + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -458,7 +459,9 @@ public class UserProperty implements Writable {
         // common properties
         commonProperties.write(out);
 
-        Text.writeString(out, sqlBlockRules);
+        if (StringUtils.isNotEmpty(sqlBlockRules)) {
+            Text.writeString(out, sqlBlockRules);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -466,7 +469,7 @@ public class UserProperty implements Writable {
             // consume the flag of empty user name
             in.readBoolean();
         }
-            
+
         // user name
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));

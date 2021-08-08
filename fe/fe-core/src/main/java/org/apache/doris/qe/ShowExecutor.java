@@ -2081,7 +2081,6 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
     }
 
-<<<<<<< HEAD
     private void handleAdminShowDataSkew() throws AnalysisException {
         AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
         List<List<String>> results;

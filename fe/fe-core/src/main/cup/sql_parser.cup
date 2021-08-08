@@ -827,7 +827,7 @@ alter_stmt ::=
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
-    | KW_ALTER KW_SQL_BLOCK_RULE STRING_LITERAL:ruleName
+    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
@@ -1259,6 +1259,7 @@ create_stmt ::=
     {:
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
     :}
+    /* sql_block_rule */
     | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
