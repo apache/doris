@@ -26,10 +26,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class SqlBlockRule implements Writable {
 
@@ -56,6 +59,8 @@ public class SqlBlockRule implements Writable {
     @SerializedName(value = "enable")
     private Boolean enable;
 
+    private Pattern sqlPattern;
+
     public SqlBlockRule(String name) {
         this.name = name;
     }
@@ -66,6 +71,9 @@ public class SqlBlockRule implements Writable {
         this.sqlHash = sqlHash;
         this.global = global;
         this.enable = enable;
+        if (StringUtils.isNotEmpty(sql)) {
+            this.sqlPattern = Pattern.compile(sql);
+        }
     }
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
@@ -84,6 +92,10 @@ public class SqlBlockRule implements Writable {
         return sql;
     }
 
+    public Pattern getSqlPattern() {
+        return sqlPattern;
+    }
+
     public String getSqlHash() {
         return sqlHash;
     }
@@ -98,6 +110,10 @@ public class SqlBlockRule implements Writable {
 
     public void setSql(String sql) {
         this.sql = sql;
+    }
+
+    public void setSqlPattern(Pattern sqlPattern) {
+        this.sqlPattern = sqlPattern;
     }
 
     public void setSqlHash(String sqlHash) {
@@ -123,6 +139,8 @@ public class SqlBlockRule implements Writable {
 
     public static SqlBlockRule read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
+        SqlBlockRule sqlBlockRule = GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
+        sqlBlockRule.setSqlPattern(Pattern.compile(sqlBlockRule.getSql()));
+        return sqlBlockRule;
     }
 }

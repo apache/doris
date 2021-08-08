@@ -44,7 +44,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class SqlBlockRuleMgr implements Writable {
@@ -54,9 +53,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     @SerializedName(value = "nameToSqlBlockRuleMap")
     private Map<String, SqlBlockRule> nameToSqlBlockRuleMap = Maps.newConcurrentMap();
-
-    @SerializedName(value = "sqlPatternMap")
-    private Map<String, Pattern> sqlPatternMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -141,10 +137,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-        String sql = sqlBlockRule.getSql();
-        if (StringUtils.isNotEmpty(sql)) {
-            sqlPatternMap.put(sql, Pattern.compile(sql));
-        }
     }
 
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
@@ -179,16 +171,13 @@ public class SqlBlockRuleMgr implements Writable {
             matchSql(rule, originSql, sqlHash);
         }
         // match user rule
-        String bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
-        if (StringUtils.isNotEmpty(bindSqlBlockRules)) {
-            String[] split = bindSqlBlockRules.split(",");
-            for (String ruleName : split) {
-                SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName.trim());
-                if (rule == null) {
-                    continue;
-                }
-                matchSql(rule, originSql, sqlHash);
+        String[] bindSqlBlockRules = Catalog.getCurrentCatalog().getAuth().getSqlBlockRules(user);
+        for (String ruleName : bindSqlBlockRules) {
+            SqlBlockRule rule = nameToSqlBlockRuleMap.get(ruleName);
+            if (rule == null) {
+                continue;
             }
+            matchSql(rule, originSql, sqlHash);
         }
     }
 
@@ -197,15 +186,11 @@ public class SqlBlockRuleMgr implements Writable {
             if (StringUtils.isNotEmpty(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql())) {
-                Pattern sqlPattern = sqlPatternMap.get(rule.getSql());
-                if (sqlPattern.matcher(originSql).find()) {
-                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
-                }
+            } else if (StringUtils.isNotEmpty(rule.getSql()) && rule.getSqlPattern().matcher(originSql).find()) {
+                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
             }
         }
-
     }
 
     @Override
@@ -213,10 +198,8 @@ public class SqlBlockRuleMgr implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    public static SqlBlockRuleMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        SqlBlockRuleMgr mgr = GsonUtils.GSON.fromJson(json, SqlBlockRuleMgr.class);
-        this.nameToSqlBlockRuleMap = mgr.nameToSqlBlockRuleMap;
-        this.sqlPatternMap = mgr.sqlPatternMap;
+        return GsonUtils.GSON.fromJson(json, SqlBlockRuleMgr.class);
     }
 }

@@ -35,6 +35,8 @@ public class CommonUserProperties implements Writable {
     private long maxConn = 100;
     @SerializedName("maxQueryInstances")
     private long maxQueryInstances = -1;
+    @SerializedName("sqlBlockRules")
+    private String sqlBlockRules = "";
 
     long getMaxConn() {
         return maxConn;
@@ -44,12 +46,20 @@ public class CommonUserProperties implements Writable {
         return maxQueryInstances;
     }
 
+    String getSqlBlockRules() {
+        return sqlBlockRules;
+    }
+
     void setMaxConn(long maxConn) {
         this.maxConn = maxConn;
     }
 
     void setMaxQueryInstances(long maxQueryInstances) {
         this.maxQueryInstances = maxQueryInstances;
+    }
+
+    void setSqlBlockRules(String sqlBlockRules) {
+        this.sqlBlockRules = sqlBlockRules;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

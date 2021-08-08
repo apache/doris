@@ -1134,7 +1134,7 @@ public class PaloAuth implements Writable {
         }
     }
 
-    public String getSqlBlockRules(String qualifiedUser) {
+    public String[] getSqlBlockRules(String qualifiedUser) {
         readLock();
         try {
             return propertyMgr.getSqlBlockRules(qualifiedUser);

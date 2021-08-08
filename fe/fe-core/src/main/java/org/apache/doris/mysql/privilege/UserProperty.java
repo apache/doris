@@ -91,16 +91,7 @@ public class UserProperty implements Writable {
     private WhiteList whiteList = new WhiteList();
 
     // the binding of sql_block_rule name, multiple are separated by ','
-    private String sqlBlockRules = null;
-
-    @Deprecated
-    private byte[] password;
-    @Deprecated
-    private boolean isAdmin = false;
-    @Deprecated
-    private boolean isSuperuser = false;
-    @Deprecated
-    private Map<String, AccessPrivilege> dbPrivMap = Maps.newHashMap();
+    private String[] sqlBlockRulesSplit = {};
 
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
@@ -135,13 +126,15 @@ public class UserProperty implements Writable {
         return commonProperties.getMaxQueryInstances();// maxQueryInstances;
     }
 
-    public String getSqlBlockRules() {
-        return sqlBlockRules;
-    }
-
-    @Deprecated
-    public byte[] getPassword() {
-        return password;
+    public String[] getSqlBlockRules() {
+        if (this.sqlBlockRulesSplit.length != 0) {
+            return this.sqlBlockRulesSplit;
+        }
+        String sqlBlockRules = commonProperties.getSqlBlockRules();
+        if (StringUtils.isNotEmpty(sqlBlockRules)) {
+            this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
+        }
+        return this.sqlBlockRulesSplit;
     }
 
     public WhiteList getWhiteList() {
@@ -166,6 +159,7 @@ public class UserProperty implements Writable {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
         long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
+        String sqlBlockRules = this.commonProperties.getSqlBlockRules();
         UserResource newResource = resource.getCopiedUserResource();
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -264,6 +258,8 @@ public class UserProperty implements Writable {
         // set
         this.commonProperties.setMaxConn(newMaxConn);
         this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
+        this.commonProperties.setSqlBlockRules(sqlBlockRules);
+        this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -351,6 +347,9 @@ public class UserProperty implements Writable {
         // max query instance
         result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
 
+        // sql block rules
+        result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));
+
         // resource
         ResourceGroup group = resource.getResource();
         for (Map.Entry<ResourceType, Integer> entry : group.getQuotaMap().entrySet()) {
@@ -399,7 +398,7 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getPriorityKey(),
                     String.valueOf(dppConfig.getPriority())));
         }
-        
+
         // get resolved ips if user has domain
         Map<String, Set<String>> resolvedIPs = whiteList.getResolvedIPs();
         List<String> ips = Lists.newArrayList();
@@ -409,9 +408,6 @@ public class UserProperty implements Writable {
         if (!ips.isEmpty()) {
             result.add(Lists.newArrayList("resolved IPs", Joiner.on(";").join(ips)));
         }
-
-        // bind_sql_block_rules
-        result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, sqlBlockRules));
 
         // sort
         Collections.sort(result, new Comparator<List<String>>() {
@@ -429,7 +425,6 @@ public class UserProperty implements Writable {
         userProperty.readFields(in);
         return userProperty;
     }
-
 
 
     @Override
@@ -458,10 +453,6 @@ public class UserProperty implements Writable {
 
         // common properties
         commonProperties.write(out);
-
-        if (StringUtils.isNotEmpty(sqlBlockRules)) {
-            Text.writeString(out, sqlBlockRules);
-        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -549,10 +540,6 @@ public class UserProperty implements Writable {
         // common properties
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_100) {
             this.commonProperties = CommonUserProperties.read(in);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_103) {
-            sqlBlockRules = Text.readString(in);
         }
     }
 }
