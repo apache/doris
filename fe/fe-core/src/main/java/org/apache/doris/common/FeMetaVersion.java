@@ -216,6 +216,8 @@ public final class FeMetaVersion {
     public static final int VERSION_101 = 101;
     // add data encrypt
     public static final int VERSION_102 = 102;
+    // support sync job
+    public static final int VERSION_103 = 103;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_102;
+    public static final int VERSION_CURRENT = VERSION_103;
 }
