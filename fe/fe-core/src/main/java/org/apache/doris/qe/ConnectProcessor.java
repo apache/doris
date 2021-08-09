@@ -144,7 +144,7 @@ public class ConnectProcessor {
         }
         
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-    
+        
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
@@ -157,7 +157,7 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-    
+        
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
