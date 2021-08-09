@@ -66,7 +66,6 @@ public class CreateSqlBlockRuleStmtTest {
     @Test(expected = AnalysisException.class)
     public void testNoProps() throws UserException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(CreateSqlBlockRuleStmt.SQL_PROPERTY, "select \\* from test_table");
         properties.put(CreateSqlBlockRuleStmt.ENABLE_PROPERTY, "true");
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
         stmt.analyze(analyzer);
