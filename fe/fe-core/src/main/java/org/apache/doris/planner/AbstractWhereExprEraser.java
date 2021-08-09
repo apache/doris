@@ -61,7 +61,7 @@ import java.util.List;
  *
  *    d=5：由于c列对应了一个区间而并非单点，因此被选出的区间内或许存在 (1,2,4,any-number) 这类型的列；
  *    但是，根据查询者的要求，他只需要筛选出(1,2,3,5)、(1,2,4,5)、(1,2,5,5)的数据，擦除d=5不合法
- *    而b列及其左边，均为单点，因此不会出现类似情况。都是为了解决这类问题，应当引入一个变量，记录本用例`b`列的下标
+ *    而b列及其左边，均为单点，因此不会出现类似情况。为了解决这类问题，应当引入一个变量，记录本用例`b`列的下标
  *
  *    c<6：虽然upperBound是open、开区间，c列对应的也是6，但由于c并非最后一列，因此区间内也会存在(1,2,6,-∞)~(1,2,6,4)的数据
  *    因此c所处的列可以视为区间[3, 6]，即上界也是闭区间，c<6无法完全覆盖。
@@ -79,27 +79,29 @@ public abstract class AbstractWhereExprEraser {
     private int maxEqIndex = -1;
 
     public void initial(List<PartitionItem> partitionItems) throws AnalysisException {
-        range = null;
         this.doExpand(partitionItems);
-        maxEqIndex = -1;
-        if (range == null) {
-            return;
+        maxEqIndex = calculateMaxEqIndex();
+    }
+
+    private int calculateMaxEqIndex() {
+        if(range == null) {
+            return -1;
         }
         int size = range.lowerEndpoint().size();
         Preconditions.checkState(size == range.upperEndpoint().size(), "The size of two PartitionKey is not equal.");
+        int result = -1;
         for (int index = 0; index < size; index++) {
-            LiteralExpr l = range.lowerEndpoint().getKeyByIndex(index);
-            LiteralExpr u = range.upperEndpoint().getKeyByIndex(index);
-            int ret = l.compareLiteral(u);
+            LiteralExpr lower = range.lowerEndpoint().getKeyByIndex(index);
+            LiteralExpr upper = range.upperEndpoint().getKeyByIndex(index);
+            int ret = lower.compareLiteral(upper);
+            Preconditions.checkState(ret <= 0, "The lowerEndpoint is larger than the upperEndpoint");
             if (ret < 0) {
                 break;
-            } else if (ret == 0) {
-                maxEqIndex = index;
             } else {
-                LOG.warn("The lower is {}, the upper is {}. ", range.lowerEndpoint(), range.upperEndpoint());
-                throw new AnalysisException("The lowerEndpoint is larger than the upperEndpoint");
+                result = index;
             }
         }
+        return result;
     }
 
     /**
