@@ -37,7 +37,7 @@ public class CommonUserProperties implements Writable {
     private long maxQueryInstances = -1;
     @SerializedName("sqlBlockRules")
     private String sqlBlockRules = "";
-    private String[] sqlBlockRulesSplit;
+    private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
         return maxConn;
