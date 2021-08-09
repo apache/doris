@@ -2017,3 +2017,22 @@ the transaction will be cleaned after transaction_clean_interval_second seconds 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
 The default value is -1。
+
+
+### `enable_erase_where_expr_after_partition_prune`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+
+If enabled, redundant conditional expressions will be erased after partition pruning. eg..
+
+| selectedPartitions | WhereClause before erasing | Conjuncts after erasing |
+| ------------------ | -------------------------- | ----------------------- |
+| range:[1,4)        | where a>=1 and a<4         | {}                      |
+| range:[1,4)        | where a>=2 and a<4         | {a>=2}                  |
+| range:[1,4)        | where a>=1 and a<3         | {a<3}                   |
+| range:[1,4)        | where a>=2 and a<3         | {a>=2, a<3}             |
