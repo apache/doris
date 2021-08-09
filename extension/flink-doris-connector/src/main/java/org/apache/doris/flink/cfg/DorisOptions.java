@@ -25,7 +25,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 /**
  * Options for the Doris connector.
  */
-public class DorisOptions extends DorisConnectionOptions{
+public class DorisOptions extends DorisConnectionOptions {
 
     private static final long serialVersionUID = 1L;
 

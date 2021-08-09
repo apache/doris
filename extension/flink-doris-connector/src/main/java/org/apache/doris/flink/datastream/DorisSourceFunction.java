@@ -38,15 +38,15 @@ import java.util.List;
 
 public class DorisSourceFunction<T> extends RichSourceFunction<T> implements ResultTypeQueryable<T> {
 
-    private  static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
+    private static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
 
     private DorisDeserializationSchema deserializer;
     private DorisOptions options;
     private DorisReadOptions readOptions;
-    private List<PartitionDefinition>  dorisPartitions;
+    private List<PartitionDefinition> dorisPartitions;
     private ScalaValueReader scalaValueReader;
 
-    public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema deserializer)  {
+    public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema deserializer) {
         this.deserializer = deserializer;
         this.options = streamOptions.getOptions();
         this.readOptions = streamOptions.getReadOptions();
@@ -55,14 +55,14 @@ public class DorisSourceFunction<T> extends RichSourceFunction<T> implements Res
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        this.dorisPartitions =  RestService.findPartitions(options,readOptions,logger);
+        this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
     }
 
     @Override
-    public void run(SourceContext sourceContext) throws Exception{
-        for(PartitionDefinition partitions : dorisPartitions){
-            scalaValueReader = new ScalaValueReader(partitions, options,readOptions);
-            while (scalaValueReader.hasNext()){
+    public void run(SourceContext sourceContext) throws Exception {
+        for (PartitionDefinition partitions : dorisPartitions) {
+            scalaValueReader = new ScalaValueReader(partitions, options, readOptions);
+            while (scalaValueReader.hasNext()) {
                 Object next = scalaValueReader.next();
                 sourceContext.collect(next);
             }

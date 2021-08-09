@@ -88,13 +88,14 @@ public class RestService implements Serializable {
 
     /**
      * send request to Doris FE and get response json string.
+     *
      * @param options configuration of request
      * @param request {@link HttpRequestBase} real request
-     * @param logger {@link Logger}
+     * @param logger  {@link Logger}
      * @return Doris FE response in json string
      * @throws ConnectedFailedException throw when cannot connect to Doris FE
      */
-    private static String send(DorisOptions options,DorisReadOptions readOptions, HttpRequestBase request, Logger logger) throws
+    private static String send(DorisOptions options, DorisReadOptions readOptions, HttpRequestBase request, Logger logger) throws
             ConnectedFailedException {
         int connectTimeout = readOptions.getRequestConnectTimeoutMs() == null ? ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT : readOptions.getRequestConnectTimeoutMs();
         int socketTimeout = readOptions.getRequestReadTimeoutMs() == null ? ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT : readOptions.getRequestReadTimeoutMs();
@@ -116,10 +117,10 @@ public class RestService implements Serializable {
             logger.debug("Attempt {} to request {}.", attempt, request.getURI());
             try {
                 String response;
-                if (request instanceof HttpGet){
-                    response = getConnectionGet(request.getURI().toString(), options.getUsername(), options.getPassword(),logger);
+                if (request instanceof HttpGet) {
+                    response = getConnectionGet(request.getURI().toString(), options.getUsername(), options.getPassword(), logger);
                 } else {
-                    response = getConnectionPost(request,  options.getUsername(), options.getPassword(),logger);
+                    response = getConnectionPost(request, options.getUsername(), options.getPassword(), logger);
                 }
                 if (response == null) {
                     logger.warn("Failed to get response from Doris FE {}, http code is {}",
@@ -147,14 +148,14 @@ public class RestService implements Serializable {
         throw new ConnectedFailedException(request.getURI().toString(), statusCode, ex);
     }
 
-    private static String getConnectionPost(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
+    private static String getConnectionPost(HttpRequestBase request, String user, String passwd, Logger logger) throws IOException {
         URL url = new URL(request.getURI().toString());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod(request.getMethod());
         String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
-        InputStream content = ((HttpPost)request).getEntity().getContent();
+        InputStream content = ((HttpPost) request).getEntity().getContent();
         String res = IOUtils.toString(content);
         conn.setDoOutput(true);
         conn.setDoInput(true);
@@ -164,21 +165,21 @@ public class RestService implements Serializable {
         // flush
         out.flush();
         // read response
-        return parseResponse(conn,logger);
+        return parseResponse(conn, logger);
     }
 
-    private static String getConnectionGet(String request,String user, String passwd,Logger logger) throws IOException {
+    private static String getConnectionGet(String request, String user, String passwd, Logger logger) throws IOException {
         URL realUrl = new URL(request);
         // open connection
-        HttpURLConnection connection = (HttpURLConnection)realUrl.openConnection();
+        HttpURLConnection connection = (HttpURLConnection) realUrl.openConnection();
         String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         connection.setRequestProperty("Authorization", "Basic " + authEncoding);
 
         connection.connect();
-        return parseResponse(connection,logger);
+        return parseResponse(connection, logger);
     }
 
-    private static String parseResponse(HttpURLConnection connection,Logger logger) throws IOException {
+    private static String parseResponse(HttpURLConnection connection, Logger logger) throws IOException {
         if (connection.getResponseCode() != HttpStatus.SC_OK) {
             logger.warn("Failed to get response from Doris  {}, http code is {}",
                     connection.getURL(), connection.getResponseCode());
@@ -198,8 +199,9 @@ public class RestService implements Serializable {
 
     /**
      * parse table identifier to array.
+     *
      * @param tableIdentifier table identifier string
-     * @param logger {@link Logger}
+     * @param logger          {@link Logger}
      * @return first element is db name, second element is table name
      * @throws IllegalArgumentException table identifier is illegal
      */
@@ -220,8 +222,9 @@ public class RestService implements Serializable {
 
     /**
      * choice a Doris FE node to request.
+     *
      * @param feNodes Doris FE node list, separate be comma
-     * @param logger slf4j logger
+     * @param logger  slf4j logger
      * @return the chosen one Doris FE node
      * @throws IllegalArgumentException fe nodes is illegal
      */
@@ -239,14 +242,15 @@ public class RestService implements Serializable {
 
     /**
      * choice a Doris BE node to request.
+     *
      * @param options configuration of request
-     * @param logger slf4j logger
+     * @param logger  slf4j logger
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
      */
     @VisibleForTesting
-    public static String randomBackend(DorisOptions options,DorisReadOptions readOptions ,Logger logger) throws DorisException, IOException {
-        List<BackendRow> backends = getBackends(options,readOptions, logger);
+    public static String randomBackend(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
+        List<BackendRow> backends = getBackends(options, readOptions, logger);
         logger.trace("Parse beNodes '{}'.", backends);
         if (backends == null || backends.isEmpty()) {
             logger.error(ILLEGAL_ARGUMENT_MESSAGE, "beNodes", backends);
@@ -259,19 +263,20 @@ public class RestService implements Serializable {
 
     /**
      * get  Doris BE nodes to request.
+     *
      * @param options configuration of request
-     * @param logger slf4j logger
+     * @param logger  slf4j logger
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
      */
     @VisibleForTesting
-    static List<BackendRow> getBackends(DorisOptions options,DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
+    static List<BackendRow> getBackends(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException, IOException {
         String feNodes = options.getFenodes();
         String feNode = randomEndpoint(feNodes, logger);
         String beUrl = "http://" + feNode + BACKENDS;
         HttpGet httpGet = new HttpGet(beUrl);
-        String response = send(options, readOptions,httpGet, logger);
-        logger.info("Backend Info:{}",response);
+        String response = send(options, readOptions, httpGet, logger);
+        logger.info("Backend Info:{}", response);
         List<BackendRow> backends = parseBackend(response, logger);
         return backends;
     }
@@ -306,8 +311,9 @@ public class RestService implements Serializable {
 
     /**
      * get a valid URI to connect Doris FE.
+     *
      * @param options configuration of request
-     * @param logger {@link Logger}
+     * @param logger  {@link Logger}
      * @return uri string
      * @throws IllegalArgumentException throw when configuration is illegal
      */
@@ -323,24 +329,26 @@ public class RestService implements Serializable {
 
     /**
      * discover Doris table schema from Doris FE.
+     *
      * @param options configuration of request
-     * @param logger slf4j logger
+     * @param logger  slf4j logger
      * @return Doris table schema
      * @throws DorisException throw when discover failed
      */
-    public static Schema getSchema(DorisOptions options,DorisReadOptions readOptions, Logger logger)
+    public static Schema getSchema(DorisOptions options, DorisReadOptions readOptions, Logger logger)
             throws DorisException {
         logger.trace("Finding schema.");
         HttpGet httpGet = new HttpGet(getUriStr(options, logger) + SCHEMA);
-        String response = send(options, readOptions,httpGet, logger);
+        String response = send(options, readOptions, httpGet, logger);
         logger.debug("Find schema response is '{}'.", response);
         return parseSchema(response, logger);
     }
 
     /**
      * translate Doris FE response to inner {@link Schema} struct.
+     *
      * @param response Doris FE response
-     * @param logger {@link Logger}
+     * @param logger   {@link Logger}
      * @return inner {@link Schema} struct
      * @throws DorisException throw when translate failed
      */
@@ -381,14 +389,15 @@ public class RestService implements Serializable {
 
     /**
      * find Doris RDD partitions from Doris FE.
+     *
      * @param options configuration of request
-     * @param logger {@link Logger}
+     * @param logger  {@link Logger}
      * @return an list of Doris RDD partitions
      * @throws DorisException throw when find partition failed
      */
     public static List<PartitionDefinition> findPartitions(DorisOptions options, DorisReadOptions readOptions, Logger logger) throws DorisException {
         String[] tableIdentifiers = parseIdentifier(options.getTableIdentifier(), logger);
-        String readFields = StringUtils.isBlank(readOptions.getReadFields()) ? "*" :readOptions.getReadFields();
+        String readFields = StringUtils.isBlank(readOptions.getReadFields()) ? "*" : readOptions.getReadFields();
         String sql = "select " + readFields +
                 " from `" + tableIdentifiers[0] + "`.`" + tableIdentifiers[1] + "`";
         if (!StringUtils.isEmpty(readOptions.getFilterQuery())) {
@@ -397,14 +406,14 @@ public class RestService implements Serializable {
         logger.debug("Query SQL Sending to Doris FE is: '{}'.", sql);
 
         HttpPost httpPost = new HttpPost(getUriStr(options, logger) + QUERY_PLAN);
-        String entity = "{\"sql\": \""+ sql +"\"}";
+        String entity = "{\"sql\": \"" + sql + "\"}";
         logger.debug("Post body Sending to Doris FE is: '{}'.", entity);
         StringEntity stringEntity = new StringEntity(entity, StandardCharsets.UTF_8);
         stringEntity.setContentEncoding("UTF-8");
         stringEntity.setContentType("application/json");
         httpPost.setEntity(stringEntity);
 
-        String resStr = send(options, readOptions,httpPost, logger);
+        String resStr = send(options, readOptions, httpPost, logger);
         logger.debug("Find partition response is '{}'.", resStr);
         QueryPlan queryPlan = getQueryPlan(resStr, logger);
         Map<String, List<Long>> be2Tablets = selectBeForTablet(queryPlan, logger);
@@ -420,8 +429,9 @@ public class RestService implements Serializable {
 
     /**
      * translate Doris FE response string to inner {@link QueryPlan} struct.
+     *
      * @param response Doris FE response string
-     * @param logger {@link Logger}
+     * @param logger   {@link Logger}
      * @return inner {@link QueryPlan} struct
      * @throws DorisException throw when translate failed.
      */
@@ -461,13 +471,14 @@ public class RestService implements Serializable {
 
     /**
      * select which Doris BE to get tablet data.
+     *
      * @param queryPlan {@link QueryPlan} translated from Doris FE response
-     * @param logger {@link Logger}
+     * @param logger    {@link Logger}
      * @return BE to tablets {@link Map}
      * @throws DorisException throw when select failed.
      */
     @VisibleForTesting
-    static  Map<String, List<Long>> selectBeForTablet(QueryPlan queryPlan, Logger logger) throws DorisException {
+    static Map<String, List<Long>> selectBeForTablet(QueryPlan queryPlan, Logger logger) throws DorisException {
         Map<String, List<Long>> be2Tablets = new HashMap<>();
         for (Map.Entry<String, Tablet> part : queryPlan.getPartitions().entrySet()) {
             logger.debug("Parse tablet info: '{}'.", part);
@@ -512,8 +523,9 @@ public class RestService implements Serializable {
 
     /**
      * tablet count limit for one Doris RDD partition
+     *
      * @param readOptions configuration of request
-     * @param logger {@link Logger}
+     * @param logger      {@link Logger}
      * @return tablet count limit
      */
     @VisibleForTesting
@@ -533,18 +545,19 @@ public class RestService implements Serializable {
 
     /**
      * translate BE tablets map to Doris RDD partition.
-     * @param options configuration of request
-     * @param be2Tablets BE to tablets {@link Map}
+     *
+     * @param options          configuration of request
+     * @param be2Tablets       BE to tablets {@link Map}
      * @param opaquedQueryPlan Doris BE execute plan getting from Doris FE
-     * @param database database name of Doris table
-     * @param table table name of Doris table
-     * @param logger {@link Logger}
+     * @param database         database name of Doris table
+     * @param table            table name of Doris table
+     * @param logger           {@link Logger}
      * @return Doris RDD partition {@link List}
      * @throws IllegalArgumentException throw when translate failed
      */
     @VisibleForTesting
-    static List<PartitionDefinition> tabletsMapToPartition(DorisOptions options,DorisReadOptions readOptions, Map<String, List<Long>> be2Tablets,
-            String opaquedQueryPlan, String database, String table, Logger logger)
+    static List<PartitionDefinition> tabletsMapToPartition(DorisOptions options, DorisReadOptions readOptions, Map<String, List<Long>> be2Tablets,
+                                                           String opaquedQueryPlan, String database, String table, Logger logger)
             throws IllegalArgumentException {
         int tabletsSize = tabletCountLimitForOnePartition(readOptions, logger);
         List<PartitionDefinition> partitions = new ArrayList<>();
