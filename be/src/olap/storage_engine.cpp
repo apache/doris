@@ -622,6 +622,8 @@ void StorageEngine::_start_clean_fd_cache() {
 }
 
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
+    std::lock_guard<std::mutex> l(_trash_sweep_lock);
+
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "start trash and snapshot sweep.";
 

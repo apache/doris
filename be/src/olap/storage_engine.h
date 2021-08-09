@@ -291,6 +291,7 @@ private:
 
     EngineOptions _options;
     std::mutex _store_lock;
+    std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
     uint32_t _available_storage_medium_type_count;
 
