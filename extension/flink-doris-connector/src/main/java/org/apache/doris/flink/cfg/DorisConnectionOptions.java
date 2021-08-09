@@ -21,7 +21,7 @@ import org.apache.flink.util.Preconditions;
 import java.io.Serializable;
 
 /**
- *  Doris connection options.
+ * Doris connection options.
  */
 public class DorisConnectionOptions implements Serializable {
 

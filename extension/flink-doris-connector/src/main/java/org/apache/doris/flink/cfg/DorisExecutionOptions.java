@@ -21,22 +21,29 @@ import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 import java.time.Duration;
+import java.util.Properties;
 
 /**
  * JDBC sink batch options.
  */
-public class DorisExecutionOptions  implements Serializable {
+public class DorisExecutionOptions implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final Integer batchSize;
     private final Integer maxRetries;
     private final Long batchIntervalMs;
 
-    public DorisExecutionOptions(Integer batchSize, Integer maxRetries,Long batchIntervalMs) {
+    /**
+     * Properties for the StreamLoad.
+     */
+    private final Properties streamLoadProp;
+
+    public DorisExecutionOptions(Integer batchSize, Integer maxRetries, Long batchIntervalMs, Properties streamLoadProp) {
         Preconditions.checkArgument(maxRetries >= 0);
         this.batchSize = batchSize;
         this.maxRetries = maxRetries;
         this.batchIntervalMs = batchIntervalMs;
+        this.streamLoadProp = streamLoadProp;
     }
 
     public Integer getBatchSize() {
@@ -51,6 +58,10 @@ public class DorisExecutionOptions  implements Serializable {
         return batchIntervalMs;
     }
 
+    public Properties getStreamLoadProp() {
+        return streamLoadProp;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -62,6 +73,7 @@ public class DorisExecutionOptions  implements Serializable {
         private Integer batchSize;
         private Integer maxRetries;
         private Long batchIntervalMs;
+        private Properties streamLoadProp;
 
         public Builder setBatchSize(Integer batchSize) {
             this.batchSize = batchSize;
@@ -78,8 +90,13 @@ public class DorisExecutionOptions  implements Serializable {
             return this;
         }
 
+        public Builder setStreamLoadProp(Properties streamLoadProp) {
+            this.streamLoadProp = streamLoadProp;
+            return this;
+        }
+
         public DorisExecutionOptions build() {
-            return new DorisExecutionOptions(batchSize,maxRetries,batchIntervalMs);
+            return new DorisExecutionOptions(batchSize, maxRetries, batchIntervalMs, streamLoadProp);
         }
     }
 
