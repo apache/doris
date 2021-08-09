@@ -90,9 +90,6 @@ public class UserProperty implements Writable {
      */
     private WhiteList whiteList = new WhiteList();
 
-    // the binding of sql_block_rule name, multiple are separated by ','
-    private String[] sqlBlockRulesSplit = {};
-
     static {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
@@ -127,14 +124,7 @@ public class UserProperty implements Writable {
     }
 
     public String[] getSqlBlockRules() {
-        if (this.sqlBlockRulesSplit.length != 0) {
-            return this.sqlBlockRulesSplit;
-        }
-        String sqlBlockRules = commonProperties.getSqlBlockRules();
-        if (StringUtils.isNotEmpty(sqlBlockRules)) {
-            this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
-        }
-        return this.sqlBlockRulesSplit;
+        return commonProperties.getSqlBlockRulesSplit();
     }
 
     public WhiteList getWhiteList() {
@@ -250,7 +240,6 @@ public class UserProperty implements Writable {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
                 sqlBlockRules = value;
-                this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
