@@ -17,15 +17,15 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import com.alibaba.fastjson.JSON;
-
-import com.google.gson.reflect.TypeToken;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
+
+import com.google.gson.reflect.TypeToken;
+
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -54,12 +54,12 @@ public class HttpUtils {
                 .collect(Collectors.toList());
     }
 
-    static String concatUrl (Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
+    static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
         StringBuilder url = new StringBuilder("http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
-        for (Map.Entry<String, String> entry: arguments.entrySet()) {
-            if (!Strings.isNullOrEmpty(entry.getValue())){
+        for (Map.Entry<String, String> entry : arguments.entrySet()) {
+            if (!Strings.isNullOrEmpty(entry.getValue())) {
                 if (isFirst) {
                     url.append("?");
                 } else {
@@ -81,7 +81,7 @@ public class HttpUtils {
     static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
-            String jsonString = JSON.toJSONString(body);
+            String jsonString = GsonUtils.GSON.toJson(body);
             StringEntity stringEntity = new StringEntity(jsonString, "UTF-8");
             httpPost.setEntity(stringEntity);
         }
@@ -110,8 +110,8 @@ public class HttpUtils {
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
     }
 
-    static String  parseResponse (String response) {
-        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>(){}.getType());
+    static String parseResponse(String response) {
+        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {}.getType());
         if (responseEntity.getCode() != REQUEST_SUCCESS_CODE) {
             throw new RuntimeException(responseEntity.getMsg());
         }

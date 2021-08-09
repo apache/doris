@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.doris.common.Pair;
@@ -26,6 +25,7 @@ import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TUnit;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
