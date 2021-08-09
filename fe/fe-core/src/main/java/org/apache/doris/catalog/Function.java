@@ -634,7 +634,6 @@ public class Function implements Writable {
         }
         writeOptionString(output, libUrl);
         writeOptionString(output, checksum);
-        output.writeBoolean(vectorized);
     }
 
     @Override

@@ -71,13 +71,13 @@ void AggregateFunctions::init_zero_not_null(FunctionContext*, DecimalV2Val* dst)
 
 template <typename T>
 void AggregateFunctions::init_zero(FunctionContext*, T* dst) {
-    dst->is_null = true;
+    dst->is_null = false;
     dst->val = 0;
 }
 
 template <>
 void AggregateFunctions::init_zero(FunctionContext*, DecimalV2Val* dst) {
-    dst->is_null = true;
+    dst->is_null = false;
     dst->set_to_zero();
 }
 
