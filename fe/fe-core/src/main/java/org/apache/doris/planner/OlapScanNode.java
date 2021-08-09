@@ -129,6 +129,7 @@ public class OlapScanNode extends ScanNode {
     private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
+    private AbstractWhereExprEraser whereExprEraser = null;
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -316,6 +317,7 @@ public class OlapScanNode extends ScanNode {
         filterDeletedRows(analyzer);
         computeColumnFilter();
         computePartitionInfo();
+        eraseConjunctsAfterPartitionPrune();
         computeTupleState(analyzer);
 
         /**
@@ -419,23 +421,33 @@ public class OlapScanNode extends ScanNode {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
 
-        AbstractWhereExprEraser abstractWhereExprEraser = null;
         if (partitionInfo.getType() == PartitionType.RANGE) {
             partitionPruner = new RangePartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
-            abstractWhereExprEraser = new RangePartitionWhereExprEraser();
+            if (Config.enable_erase_where_expr_after_partition_prune) {
+                whereExprEraser = new RangePartitionWhereExprEraser();
+            }
         } else if (partitionInfo.getType() == PartitionType.LIST) {
             partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
-            abstractWhereExprEraser = new ListPartitionWhereExprEraser();
+            if (Config.enable_erase_where_expr_after_partition_prune) {
+                whereExprEraser = new ListPartitionWhereExprEraser();
+            }
         } else {
             throw new AnalysisException(partitionInfo.getType() + " does not match any partition type");
         }
-        Collection<Long> longCollection = partitionPruner.prune();
-        final List<PartitionItem> collect = longCollection.stream().map(keyItemMap::get).collect(Collectors.toList());
-        abstractWhereExprEraser.initial(collect);
-        abstractWhereExprEraser.eraseConjuncts(conjuncts, olapTable.getPartitionInfo().getPartitionColumns(), desc);
-        return longCollection;
+        Collection<Long> result = partitionPruner.prune();
+        if (whereExprEraser != null) {
+            List<PartitionItem> partitionItems = result.stream().map(keyItemMap::get).collect(Collectors.toList());
+            whereExprEraser.initial(partitionItems);
+        }
+        return result;
+    }
+
+    private void eraseConjunctsAfterPartitionPrune() {
+        if (whereExprEraser != null) {
+            whereExprEraser.eraseConjuncts(conjuncts, olapTable.getPartitionInfo().getPartitionColumns(), desc);
+        }
     }
 
     private Collection<Long> distributionPrune(

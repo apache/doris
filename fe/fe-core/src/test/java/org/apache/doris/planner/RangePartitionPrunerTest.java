@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -109,11 +110,14 @@ public class RangePartitionPrunerTest {
     @Before
     public void before() {
         FeConstants.runningUnitTest = true;
+        Config.enable_erase_where_expr_after_partition_prune = true;
     }
 
     @After
     public void after() {
         FeConstants.runningUnitTest = false;
+        // The default enable_erase_where_expr_after_partition_prune is false.
+        Config.enable_erase_where_expr_after_partition_prune = false;
     }
 
     @Test

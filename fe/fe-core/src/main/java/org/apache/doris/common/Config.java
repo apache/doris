@@ -1453,4 +1453,11 @@ public class Config extends ConfigBase {
     
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
+
+    /**
+     * Make {@link org.apache.doris.planner.AbstractWhereExprEraser} works.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_erase_where_expr_after_partition_prune = false;
+
 }
