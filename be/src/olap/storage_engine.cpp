@@ -622,9 +622,13 @@ void StorageEngine::_start_clean_fd_cache() {
 }
 
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
-    std::lock_guard<std::mutex> l(_trash_sweep_lock);
-
     OLAPStatus res = OLAP_SUCCESS;
+
+    if(!_trash_sweep_lock.try_lock()) {
+        LOG(INFO) << "trash and snapshot sweep is running.";
+        return res;
+    }
+
     LOG(INFO) << "start trash and snapshot sweep.";
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
@@ -688,6 +692,8 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     // clean unused rowset metas in OlapMeta
     _clean_unused_rowset_metas();
+
+    _trash_sweep_lock.unlock();
 
     return res;
 }
