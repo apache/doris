@@ -50,8 +50,8 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.base.Strings;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -144,10 +144,10 @@ public class ConnectProcessor {
         }
         
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-
-        String sql;
+    
+        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            sql = parsedStmt.toSql();
+            ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
             if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
@@ -156,10 +156,8 @@ public class ConnectProcessor {
             } else {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
-            sql = origStmt;
         }
-        // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        ctx.getAuditEventBuilder().setStmt(sql);
+    
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 

@@ -1460,6 +1460,5 @@ public class StmtExecutor implements ProfileWriter {
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
-
 }
 

@@ -250,6 +250,7 @@ public class UserProperty implements Writable {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
                 sqlBlockRules = value;
+                this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
             }
@@ -259,7 +260,6 @@ public class UserProperty implements Writable {
         this.commonProperties.setMaxConn(newMaxConn);
         this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
         this.commonProperties.setSqlBlockRules(sqlBlockRules);
-        this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -398,7 +398,7 @@ public class UserProperty implements Writable {
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getPriorityKey(),
                     String.valueOf(dppConfig.getPriority())));
         }
-
+        
         // get resolved ips if user has domain
         Map<String, Set<String>> resolvedIPs = whiteList.getResolvedIPs();
         List<String> ips = Lists.newArrayList();
@@ -425,8 +425,7 @@ public class UserProperty implements Writable {
         userProperty.readFields(in);
         return userProperty;
     }
-
-
+    
     @Override
     public void write(DataOutput out) throws IOException {
         // user name
@@ -460,7 +459,7 @@ public class UserProperty implements Writable {
             // consume the flag of empty user name
             in.readBoolean();
         }
-
+        
         // user name
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));

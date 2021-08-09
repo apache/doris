@@ -1935,7 +1935,7 @@ public class Catalog {
         MetaWriter.write(curFile, this);
     }
 
-    public long saveHeader(DataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
+    public long saveHeader(CountingDataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
         // Write meta version
         checksum ^= FeConstants.meta_version;
         dos.writeInt(FeConstants.meta_version);
