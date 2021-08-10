@@ -20,17 +20,18 @@
 package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.element.Record;
-import com.alibaba.fastjson.JSON;
 
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-// Convert DataX data to json
-public class DorisJsonCodec extends DorisCodec {
+// Convert DataX data to csv
+public class DorisCsvCodec extends DorisCodec {
 
-    public DorisJsonCodec(final List<String> fieldNames) {
+    private final String columnSeparator;
+
+    public DorisCsvCodec(final List<String> fieldNames, String columnSeparator) {
         super(fieldNames);
+        this.columnSeparator = columnSeparator;
     }
 
     @Override
@@ -38,13 +39,14 @@ public class DorisJsonCodec extends DorisCodec {
         if (null == this.fieldNames) {
             return "";
         }
-        final Map<String, Object> rowMap = new HashMap<String, Object>(this.fieldNames.size());
-        int idx = 0;
-        for (final String fieldName : this.fieldNames) {
-            rowMap.put(fieldName, this.convertColumn(row.getColumn(idx)));
-            ++idx;
+        List<String> list = new ArrayList<>();
+
+        for (int i = 0; i < this.fieldNames.size(); i++) {
+            Object value = this.convertColumn(row.getColumn(i));
+            list.add(value != null ? value.toString() : "\\N");
         }
-        return JSON.toJSONString(rowMap);
+
+        return String.join(columnSeparator, list);
     }
 
 }
