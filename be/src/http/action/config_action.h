@@ -21,13 +21,27 @@
 
 namespace doris {
 
+enum ConfigActionType {
+    UPDATE_CONFIG = 1,
+    SHOW_CONFIG = 2,
+};
+
 // Update BE config.
-class UpdateConfigAction : public HttpHandler {
+class ConfigAction : public HttpHandler {
 public:
-    UpdateConfigAction() {}
-    virtual ~UpdateConfigAction() {}
+    ConfigAction(ConfigActionType type): _type(type) {}
+
+    virtual ~ConfigAction() {}
 
     void handle(HttpRequest* req) override;
+
+private:
+    ConfigActionType _type;
+
+    void handle_update_config(HttpRequest* req);
+
+    void handle_show_config(HttpRequest* req);
+
 };
 
 } // namespace doris

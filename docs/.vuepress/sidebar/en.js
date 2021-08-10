@@ -88,6 +88,15 @@ module.exports = [
             title: "FE",
             directoryPath: "fe/",
             children: [
+                {
+                  title: "MANAGER",
+                  directoryPath: "manager/",
+                  children: [
+                    "cluster-action",
+                    "node-action",
+                    "query-profile-action",
+                  ],
+                },
                 "bootstrap-action",
                 "cancel-load-action",
                 "check-decommission-action",
