@@ -210,6 +210,40 @@ void BackendService::get_tablet_stat(TTabletStatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_tablet_stat(&result);
 }
 
+int64_t BackendService::get_trash_used_capacity() {
+    int64_t result = 0;
+
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    }
+    return result;
+}
+
+void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        TDiskTrashInfo diskTrashInfo;
+
+        diskTrashInfo.__set_root_path(root_path_info.path);
+
+        diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
+
+        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        diskTrashInfo.__set_trash_used_capacity(
+                StorageEngine::instance()->get_file_or_directory_size(trash_path));
+
+        diskTrashInfos.push_back(diskTrashInfo);
+    }
+}
+
 void BackendService::submit_routine_load_task(TStatus& t_status,
                                               const std::vector<TRoutineLoadTask>& tasks) {
     for (auto& task : tasks) {
