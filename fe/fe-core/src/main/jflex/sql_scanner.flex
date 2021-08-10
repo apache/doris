@@ -373,6 +373,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("tinyint", new Integer(SqlParserSymbols.KW_TINYINT));
         keywordMap.put("to", new Integer(SqlParserSymbols.KW_TO));
         keywordMap.put("transaction", new Integer(SqlParserSymbols.KW_TRANSACTION));
+        keywordMap.put("trash", new Integer(SqlParserSymbols.KW_TRASH));
         keywordMap.put("triggers", new Integer(SqlParserSymbols.KW_TRIGGERS));
         keywordMap.put("trim", new Integer(SqlParserSymbols.KW_TRIM));
         keywordMap.put("true", new Integer(SqlParserSymbols.KW_TRUE));
