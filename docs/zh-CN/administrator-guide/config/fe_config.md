@@ -1063,6 +1063,18 @@ colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 导出检查器的运行间隔
 
+### default_load_parallelism
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+单个节点broker load导入的默认并发度。
+如果用户在提交broker load任务时，在properties中自行指定了并发度，则采用用户自定义的并发度。
+此参数将与`max_broker_concurrency`、`min_bytes_per_broker_scanner`等多个配置共同决定导入任务的并发度。
+
 ### max_broker_concurrency
 
 默认值：10

@@ -46,56 +46,56 @@ import java.util.List;
  * where we instantiate the required {@link SourceFunction} and its {@link DeserializationSchema} for
  * runtime. Both instances are parameterized to return internal data structures (i.e. {@link RowData}).
  */
-public final class DorisDynamicTableSource implements ScanTableSource ,LookupTableSource {
+public final class DorisDynamicTableSource implements ScanTableSource, LookupTableSource {
 
-	private final DorisOptions options;
-	private final  DorisReadOptions readOptions;
-	private TableSchema physicalSchema;
-	private static final Logger LOG = LoggerFactory.getLogger(DorisRowDataInputFormat.class);
+    private final DorisOptions options;
+    private final DorisReadOptions readOptions;
+    private TableSchema physicalSchema;
+    private static final Logger LOG = LoggerFactory.getLogger(DorisRowDataInputFormat.class);
 
-	public DorisDynamicTableSource(DorisOptions options, DorisReadOptions readOptions,TableSchema physicalSchema) {
-		 this.options = options;
-		 this.readOptions = readOptions;
-		 this.physicalSchema = physicalSchema;
-	}
+    public DorisDynamicTableSource(DorisOptions options, DorisReadOptions readOptions, TableSchema physicalSchema) {
+        this.options = options;
+        this.readOptions = readOptions;
+        this.physicalSchema = physicalSchema;
+    }
 
-	@Override
-	public ChangelogMode getChangelogMode() {
-		// in our example the format decides about the changelog mode
-		// but it could also be the source itself
-		return ChangelogMode.insertOnly();
-	}
+    @Override
+    public ChangelogMode getChangelogMode() {
+        // in our example the format decides about the changelog mode
+        // but it could also be the source itself
+        return ChangelogMode.insertOnly();
+    }
 
-	@Override
-	public ScanRuntimeProvider getScanRuntimeProvider(ScanContext runtimeProviderContext) {
-		List<PartitionDefinition> dorisPartitions ;
-		try {
-			dorisPartitions = RestService.findPartitions(options,readOptions,LOG);
-		} catch (DorisException e) {
-			throw new RuntimeException("can not fetch partitions");
-		}
-		DorisRowDataInputFormat.Builder builder = DorisRowDataInputFormat.builder()
-				.setFenodes(options.getFenodes())
-				.setUsername(options.getUsername())
-				.setPassword(options.getPassword())
-				.setTableIdentifier(options.getTableIdentifier())
-				.setPartitions(dorisPartitions)
-				.setReadOptions(readOptions);
-		return InputFormatProvider.of(builder.build());
-	}
+    @Override
+    public ScanRuntimeProvider getScanRuntimeProvider(ScanContext runtimeProviderContext) {
+        List<PartitionDefinition> dorisPartitions;
+        try {
+            dorisPartitions = RestService.findPartitions(options, readOptions, LOG);
+        } catch (DorisException e) {
+            throw new RuntimeException("can not fetch partitions");
+        }
+        DorisRowDataInputFormat.Builder builder = DorisRowDataInputFormat.builder()
+                .setFenodes(options.getFenodes())
+                .setUsername(options.getUsername())
+                .setPassword(options.getPassword())
+                .setTableIdentifier(options.getTableIdentifier())
+                .setPartitions(dorisPartitions)
+                .setReadOptions(readOptions);
+        return InputFormatProvider.of(builder.build());
+    }
 
-	@Override
-	public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext lookupContext) {
-		return null;
-	}
+    @Override
+    public LookupRuntimeProvider getLookupRuntimeProvider(LookupContext lookupContext) {
+        return null;
+    }
 
-	@Override
-	public DynamicTableSource copy() {
-		return new DorisDynamicTableSource(options,readOptions,physicalSchema);
-	}
+    @Override
+    public DynamicTableSource copy() {
+        return new DorisDynamicTableSource(options, readOptions, physicalSchema);
+    }
 
-	@Override
-	public String asSummaryString() {
-		return "Doris Table Source";
-	}
+    @Override
+    public String asSummaryString() {
+        return "Doris Table Source";
+    }
 }

@@ -50,6 +50,7 @@ public class SetConfigAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(SetConfigAction.class);
 
     private static final String PERSIST_PARAM = "persist";
+    private static final String RESET_PERSIST = "reset_persist";
 
     public SetConfigAction(ActionController controller) {
         super(controller);
@@ -65,11 +66,18 @@ public class SetConfigAction extends RestBaseAction {
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         boolean needPersist = false;
+        boolean resetPersist = true;
         Map<String, List<String>> configs = request.getAllParameters();
         if (configs.containsKey(PERSIST_PARAM)) {
             List<String> val = configs.remove(PERSIST_PARAM);
             if (val.size() == 1 && val.get(0).equals("true")) {
                 needPersist = true;
+            }
+        }
+        if (configs.containsKey(RESET_PERSIST)) {
+            List<String> val = configs.remove(RESET_PERSIST);
+            if (val.size() == 1 && val.get(0).equals("false")) {
+                resetPersist = false;
             }
         }
 
@@ -114,7 +122,7 @@ public class SetConfigAction extends RestBaseAction {
         String persistMsg = "";
         if (needPersist) {
             try {
-                ConfigBase.persistConfig(setConfigs);
+                ConfigBase.persistConfig(setConfigs, resetPersist);
                 persistMsg = "ok";
             } catch (IOException e) {
                 LOG.warn("failed to persist config", e);
