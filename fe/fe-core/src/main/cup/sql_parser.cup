@@ -5243,6 +5243,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ISOLATION:id
     {: RESULT = id; :}
+    | KW_JOB:id
+    {: RESULT = id; :}
     | KW_ENCRYPTKEY:id
     {: RESULT = id; :}
     | KW_ENCRYPTKEYS:id
