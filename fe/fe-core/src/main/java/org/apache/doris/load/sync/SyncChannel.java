@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
-public class SyncChannel extends SyncLifeCycle {
+public class SyncChannel {
     private static final Logger LOG = LogManager.getLogger(SyncChannel.class);
 
     protected long id;
@@ -55,22 +55,6 @@ public class SyncChannel extends SyncLifeCycle {
         this.targetTable = table.getName().toLowerCase();
         this.srcDataBase = srcDataBase.toLowerCase();
         this.srcTable = srcTable.toLowerCase();
-    }
-
-    @Override
-    public void start() {
-        super.start();
-        LOG.info("channel {} has been started. dest table: {}, mysql src table: {}.{}", id, targetTable, srcDataBase, srcTable);
-    }
-
-    @Override
-    public void stop() {
-        super.stop();
-        LOG.info("channel {} has been stopped. dest table: {}, mysql src table: {}.{}", id, targetTable, srcDataBase, srcTable);
-    }
-
-    @Override
-    public void process() {
     }
 
     public void beginTxn(long batchId) throws UserException, TException, TimeoutException,

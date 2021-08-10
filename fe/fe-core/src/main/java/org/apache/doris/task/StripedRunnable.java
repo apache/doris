@@ -15,12 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.task;
 
-public interface SyncChannelCallback {
-
-    public void onFinished(long channelId);
-
-    public void onFailed(String errMsg);
-
+public interface StripedRunnable extends Runnable, StripedObject {
 }

@@ -32,6 +32,8 @@ import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.task.SyncTask;
+import org.apache.doris.task.SyncTaskPool;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMergeType;
@@ -49,7 +51,6 @@ import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Queues;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,8 +59,6 @@ import org.apache.thrift.TException;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class CanalSyncChannel extends SyncChannel {
@@ -69,44 +68,48 @@ public class CanalSyncChannel extends SyncChannel {
     private static final String DELETE_CONDITION = DELETE_COLUMN + "=1";
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
 
+    private final Object stripe = new Object();
+
     private long timeoutSecond;
     private long lastBatchId;
-    private LinkedBlockingQueue<Data<InternalService.PDataRow>> pendingQueue;
+
     private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
     public CanalSyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
         super(syncJob, db, table, columns, srcDataBase, srcTable);
         this.batchBuffer = new Data<>();
-        this.pendingQueue = Queues.newLinkedBlockingQueue(128);
         this.lastBatchId = -1L;
         this.timeoutSecond = -1L;
     }
 
-    public void process() {
-        while (running) {
-            if (!isTxnInit()) {
-                continue;
-            }
-            // if txn has begun, send all data in queue
-            if (isTxnBegin()) {
-                while (!pendingQueue.isEmpty()) {
-                    try {
-                        Data<InternalService.PDataRow> rows = pendingQueue.poll(CanalConfigs.channelWaitingTimeoutMs, TimeUnit.MILLISECONDS);
-                        if (rows != null) {
-                            sendData(rows);
-                        }
-                    } catch (Exception e) {
-                        String errMsg = "encounter exception in channel, channel " + id + ", " +
-                                "msg: " + e.getMessage() + ", table: " + targetTable;
-                        LOG.error(errMsg);
-                        callback.onFailed(errMsg);
-                    }
-                }
-            }
-            if (callback.state()) {
-                callback.onFinished(id);
-            }
+    final class SendTask extends SyncTask {
+        private final InsertStreamTxnExecutor executor;
+        private Data<InternalService.PDataRow> rows;
+        private long serial;
+
+        public SendTask(long signature, Object stripe, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor, long serial) {
+            super(signature, stripe, callback);
+            this.executor = executor;
+            this.rows = rows;
+            this.serial = serial;
+        }
+
+        public void exec() throws Exception {
+            TransactionEntry txnEntry = txnExecutor.getTxnEntry();
+            txnEntry.setDataToSend(rows.getDatas());
+            executor.sendData();
+        }
+    }
+
+    final class EOFTask extends SyncTask {
+
+        public EOFTask(long signature, Object stripe, SyncChannelCallback callback) {
+            super(signature, stripe, callback);
+        }
+
+        public void exec() throws Exception {
+            callback.onFinished(signature);
         }
     }
 
@@ -189,10 +192,10 @@ public class CanalSyncChannel extends SyncChannel {
             throw e;
         }  finally {
             this.batchBuffer = new Data<>();
-            this.pendingQueue.clear();
             updateBatchId(-1L);
         }
     }
+
     @Override
     public void commitTxn() throws TException, TimeoutException, InterruptedException, ExecutionException {
         if (!isTxnBegin()) {
@@ -213,10 +216,10 @@ public class CanalSyncChannel extends SyncChannel {
             throw e;
         } finally {
             this.batchBuffer = new Data<>();
-            this.pendingQueue.clear();
             updateBatchId(-1L);
         }
     }
+
     @Override
     public void initTxn(long timeoutSecond) {
         if (!isTxnInit()) {
@@ -254,7 +257,12 @@ public class CanalSyncChannel extends SyncChannel {
         }
     }
 
-    private void execute(long batchId, CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
+    public void submitEOF() {
+        EOFTask task = new EOFTask(id, stripe, callback);
+        SyncTaskPool.submit(task);
+    }
+
+    public void execute(long batchId, CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
         InternalService.PDataRow row = parseRow(eventType, columns);
         try {
             Preconditions.checkState(isTxnInit());
@@ -262,7 +270,8 @@ public class CanalSyncChannel extends SyncChannel {
                 if (!isTxnBegin()) {
                     beginTxn(batchId);
                 } else {
-                    this.pendingQueue.put(this.batchBuffer);
+                    SendTask task = new SendTask(id, stripe, callback, batchBuffer, txnExecutor, lastBatchId);
+                    SyncTaskPool.submit(task);
                     this.batchBuffer = new Data<>();
                 }
                 updateBatchId(batchId);
@@ -294,19 +303,13 @@ public class CanalSyncChannel extends SyncChannel {
         return row.build();
     }
 
-    private void sendData(Data<InternalService.PDataRow> rows) throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
-        Preconditions.checkState(isTxnBegin());
-        TransactionEntry txnEntry = txnExecutor.getTxnEntry();
-        txnEntry.setDataToSend(rows.getDatas());
-        this.txnExecutor.sendData();
-    }
-
     public void flushData() throws TException, TimeoutException,
             InterruptedException, ExecutionException {
-        if (batchBuffer.isNotEmpty()) {
-            sendData(batchBuffer);
-            batchBuffer = new Data<>();
+        if (this.batchBuffer.isNotEmpty()) {
+            TransactionEntry txnEntry = txnExecutor.getTxnEntry();
+            txnEntry.setDataToSend(batchBuffer.getDatas());
+            this.txnExecutor.sendData();
+            this.batchBuffer = new Data<>();
         }
     }
 

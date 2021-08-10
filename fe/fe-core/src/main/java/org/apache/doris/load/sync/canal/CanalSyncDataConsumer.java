@@ -102,7 +102,6 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
 
     @Override
     public void beginForTxn() {
-        handle.set(false);
         handle.reset(idToChannels.size());
         for (CanalSyncChannel channel : idToChannels.values()) {
             channel.initTxn(Config.max_stream_load_timeout_second);
@@ -161,15 +160,16 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     }
 
     public Status waitForTxn() {
+        for (CanalSyncChannel channel : idToChannels.values()) {
+            channel.submitEOF();
+        }
+
         Status st = Status.CANCELLED;
-        handle.set(true);
         try {
             handle.join();
             st = handle.getStatus();
         } catch (InterruptedException e) {
             logger.warn("InterruptedException: ", e);
-        } finally {
-            handle.set(false);
         }
         return st;
     }
@@ -190,7 +190,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                 long totalMemSize = 0L;
                 long startTime = System.currentTimeMillis();
                 beginForTxn();
-                while (true) {
+                while (running) {
                     Events<CanalEntry.Entry, EntryPosition> dataEvents = null;
                     try {
                         dataEvents = dataBlockingQueue.poll(CanalConfigs.pollWaitingTimeoutMs, TimeUnit.MILLISECONDS);
@@ -227,7 +227,12 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         break;
                     }
                 }
+
                 Status st = waitForTxn();
+                if (!running) {
+                    abortForTxn("stopping client");
+                    continue;
+                }
                 if (st.ok()) {
                     commitForTxn();
                 } else {
@@ -405,12 +410,15 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     private void rollback() {
         holdGetLock();
         try {
-            connector.rollback();
             // Wait for the receiver to put the last message into the queue before clearing queue
             try {
                 Thread.sleep(1000L);
             } catch (InterruptedException e) {
                 // ignore
+            }
+
+            if (!ackBatches.isEmpty()) {
+                connector.rollback();
             }
         } finally {
             releaseGetLock();

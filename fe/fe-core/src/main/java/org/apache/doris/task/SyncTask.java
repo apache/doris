@@ -15,39 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.task;
 
-import org.apache.doris.common.UserException;
-import org.apache.doris.load.sync.SyncFailMsg.MsgType;
-import org.apache.doris.load.sync.SyncJob.JobState;
-import org.apache.doris.task.MasterTask;
+import org.apache.doris.load.sync.SyncChannelCallback;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SyncPendingTask extends MasterTask {
-    private static final Logger LOG = LogManager.getLogger(SyncPendingTask.class);
+public abstract class SyncTask implements StripedRunnable {
+    private static final Logger LOG = LogManager.getLogger(SyncTask.class);
 
-    private SyncJob syncJob;
+    protected long signature;
+    protected Object stripe;
+    protected SyncChannelCallback callback;
 
-    public SyncPendingTask(SyncJob syncJob) {
-        super();
-        this.syncJob = syncJob;
-        this.signature = syncJob.getId();
+    public SyncTask(long signature, Object stripe, SyncChannelCallback callback) {
+        this.signature = signature;
+        this.stripe = stripe;
+        this.callback = callback;
     }
 
     @Override
-    protected void exec() {
-        if (syncJob.getJobState() != JobState.PENDING) {
-            return;
-        }
-
+    public void run() {
         try {
-            syncJob.execute();
-        } catch (UserException e) {
-            String failMsg = String.format("sync job execute pending task failed, jobName: %s, msg: %s", syncJob.getJobName(), e.getMessage());
-            syncJob.cancel(MsgType.UNKNOWN, failMsg);
-            LOG.warn(failMsg);
+            exec();
+        } catch (Exception e) {
+            String errMsg = "channel " + signature + ", " + "msg: " + e.getMessage();
+            LOG.error("sync task exec error: {}", errMsg);
+            callback.onFailed(errMsg);
         }
     }
+
+    public Object getStripe() {
+        return this.stripe;
+    }
+
+    /**
+     * implement in child
+     */
+    protected abstract void exec() throws Exception;
 }

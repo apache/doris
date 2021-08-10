@@ -183,7 +183,9 @@ public class CanalSyncJob extends SyncJob {
     public void execute() throws UserException {
         LOG.info("try to start canal client. Remote ip: {}, remote port: {}, debug: {}", ip, port, debug);
         // init
-        init();
+        if (!isInit()) {
+            init();
+        }
         // start client
         unprotectedStartClient();
     }
@@ -193,10 +195,12 @@ public class CanalSyncJob extends SyncJob {
         LOG.info("Cancel canal sync job {}. MsgType: {}, errMsg: {}", id, msgType.name(), errMsg);
         failMsg = new SyncFailMsg(msgType, errMsg);
         switch (msgType) {
-            case USER_CANCEL:
             case SUBMIT_FAIL:
             case RUN_FAIL:
+                unprotectedStopClient(JobState.PAUSED);
+                break;
             case UNKNOWN:
+            case USER_CANCEL:
                 unprotectedStopClient(JobState.CANCELLED);
                 break;
             default:
@@ -251,15 +255,12 @@ public class CanalSyncJob extends SyncJob {
             JobState jobState = info.getJobState();
             switch (jobState) {
                 case RUNNING:
-                    client.startup();
-                    updateState(JobState.RUNNING, true);
+                    updateState(JobState.PENDING, true);
                     break;
                 case PAUSED:
-                    client.shutdown(false);
                     updateState(JobState.PAUSED, true);
                     break;
                 case CANCELLED:
-                    client.shutdown(true);
                     updateState(JobState.CANCELLED, true);
                     break;
             }

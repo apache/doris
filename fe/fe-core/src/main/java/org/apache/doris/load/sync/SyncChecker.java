@@ -25,6 +25,7 @@ import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.task.SyncPendingTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

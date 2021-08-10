@@ -15,12 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.task;
 
-public interface SyncChannelCallback {
+import java.util.concurrent.ExecutorService;
 
-    public void onFinished(long channelId);
+public class SyncTaskPool {
 
-    public void onFailed(String errMsg);
+    private static final ExecutorService executor = new StripedTaskExecutor();
 
+    public SyncTaskPool() {
+    }
+
+    public static void submit(Runnable task) {
+        if (task == null) {
+            return;
+        }
+        executor.submit(task);
+    }
 }
