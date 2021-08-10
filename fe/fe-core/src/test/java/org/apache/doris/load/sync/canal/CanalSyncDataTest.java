@@ -226,7 +226,6 @@ public class CanalSyncDataTest {
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        // channel.start();
         consumer.start();
         receiver.start();
 
@@ -235,7 +234,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            // channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -301,7 +299,6 @@ public class CanalSyncDataTest {
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        // channel.start();
         consumer.start();
         receiver.start();
 
@@ -310,7 +307,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            // channel.stop();
         }
 
         LOG.info(consumer.getPositionInfo());
@@ -366,7 +362,6 @@ public class CanalSyncDataTest {
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        // channel.start();
         consumer.start();
         receiver.start();
 
@@ -375,7 +370,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            // channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -450,7 +444,6 @@ public class CanalSyncDataTest {
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        // channel.start();
         consumer.start();
         receiver.start();
 
@@ -459,7 +452,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            // channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
