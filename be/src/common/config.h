@@ -619,12 +619,6 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // else we will call sync method
 CONF_mBool(runtime_filter_use_async_rpc, "true");
 
-// max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism
-CONF_mInt32(max_send_batch_parallelism, "1");
-CONF_Validator(max_send_batch_parallelism, [](const int config) -> bool { return config >= 1; });
-
 } // namespace config
 
 } // namespace doris

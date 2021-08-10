@@ -64,7 +64,6 @@ public class LoadLoadingTask extends LoadTask {
     // timeout of load job, in seconds
     private final long timeoutS;
     private final int loadParallelism;
-    private final int sendBatchParallelism;
 
     private LoadingTaskPlanner planner;
 
@@ -75,7 +74,7 @@ public class LoadLoadingTask extends LoadTask {
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
                            long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS, int loadParallelism, int sendBatchParallelism, RuntimeProfile profile) {
+                           long timeoutS, int loadParallelism, RuntimeProfile profile) {
         super(callback, TaskType.LOADING);
         this.db = db;
         this.table = table;
@@ -90,14 +89,13 @@ public class LoadLoadingTask extends LoadTask {
         this.timezone = timezone;
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
-        this.sendBatchParallelism = sendBatchParallelism;
         this.jobProfile = profile;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table,
-                brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism, userInfo);
+                brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, this.loadParallelism, userInfo);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

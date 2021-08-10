@@ -116,7 +116,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
-    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
@@ -133,7 +132,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .add(EXEC_MEM_LIMIT_PROPERTY)
-            .add(SEND_BATCH_PARALLELISM)
             .build();
 
     private final LabelName labelName;
@@ -156,7 +154,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private boolean strictMode = true;
     private long execMemLimit = 2 * 1024 * 1024 * 1024L;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-    private int sendBatchParallelism = 1;
     /**
      * RoutineLoad support json data.
      * Require Params:
@@ -178,7 +175,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Long> MAX_BATCH_ROWS_PRED = (v) -> v >= 200000;
     public static final Predicate<Long> MAX_BATCH_SIZE_PRED = (v) -> v >= 100 * 1024 * 1024 && v <= 1024 * 1024 * 1024;
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
-    public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
@@ -234,10 +230,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public long getExecMemLimit() {
         return execMemLimit;
-    }
-
-    public int getSendBatchParallelism() {
-        return sendBatchParallelism;
     }
 
     public boolean isStrictMode() {
@@ -442,11 +434,6 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                                                       LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
                 RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
-
-        sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
-                RoutineLoadJob.DEFAULT_SEND_BATCH_PARALLELISM, SEND_BATCH_PARALLELISM_PRED,
-                SEND_BATCH_PARALLELISM + " should > 0")).intValue();
-
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
