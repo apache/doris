@@ -206,5 +206,12 @@ public class LoadJobTest {
         Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
         Assert.assertEquals(0, loadJob.idToTasks.size());
     }
+
+    @Test
+    public void testGetCostTimestamp() {
+        LoadJob loadJob = new BrokerLoadJob();
+        loadJob.setCreateTimestamp(1000L);
+        Assert.assertNotEquals(System.currentTimeMillis() - 1000L, (long) Deencapsulation.getField(loadJob, "costTimestamp"));
+    }
 }
 

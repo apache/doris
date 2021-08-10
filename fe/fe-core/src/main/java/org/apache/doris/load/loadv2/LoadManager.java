@@ -436,6 +436,14 @@ public class LoadManager implements Writable{
         }
     }
 
+    public Map<Long, Map<String, List<LoadJob>>> getDbIdToLabelToLoadJobs() {
+        return dbIdToLabelToLoadJobs;
+    }
+
+    public Map<Long, LoadJob> getIdToLoadJob() {
+        return idToLoadJob;
+    }
+
     public void removeOldLoadJob() {
         long currentTimeMs = System.currentTimeMillis();
 

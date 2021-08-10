@@ -99,6 +99,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
     protected long finishTimestamp = -1;
+    protected long costTimestamp = 0;
 
     protected long transactionId;
     protected FailMsg failMsg;
@@ -281,6 +282,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return finishTimestamp;
     }
 
+    public long getCostTimestamp() {
+        return System.currentTimeMillis() - createTimestamp;
+    }
+
     public long getTransactionId() {
         return transactionId;
     }
@@ -296,6 +301,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public void setLoadFileInfo(int fileNum, long fileSize) {
         this.loadStatistic.fileNum = fileNum;
         this.loadStatistic.totalFileSizeB = fileSize;
+    }
+
+    public void setCreateTimestamp(long createTimestamp) {
+        this.createTimestamp = createTimestamp;
     }
 
     public TUniqueId getRequestId() {

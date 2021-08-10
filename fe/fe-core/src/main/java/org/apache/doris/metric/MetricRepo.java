@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
@@ -326,6 +327,34 @@ public final class MetricRepo {
         }
     }
 
+    private static void updateBrokerLoadCostTimestamp() {
+        LoadManager loadManagerForBrokerLoad = Catalog.getCurrentCatalog().getLoadManager();
+        PALO_METRIC_REGISTER.removeMetrics("brokerLoadJob");
+        for (Long jobId : loadManagerForBrokerLoad.getIdToLoadJob().keySet()) {
+            LoadJob loadJob = loadManagerForBrokerLoad.getIdToLoadJob().get(jobId);
+            if (loadJob.getJobType().name() == "BROKER") {
+                if (loadJob.getState().name() == "PENDING" || loadJob.getState().name() == "ETL" || loadJob.getState().name() == "LOADING" || loadJob.getState().name() == "COMMITTED") {
+                    GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("brokerLoadJob",
+                            MetricUnit.MILLISECONDS, "broker load job costTimestamps") {
+                        @Override
+                        public Long getValue() {
+                            if (!Catalog.getCurrentCatalog().isMaster()) {
+                                return 0L;
+                            }
+                            return loadJob.getCostTimestamp();
+                        }
+                    };
+                    gauge.addLabel(new MetricLabel("job", "load"))
+                            .addLabel(new MetricLabel("jobId", jobId.toString()))
+                            .addLabel(new MetricLabel("jobLabel", loadJob.getLabel()))
+                            .addLabel(new MetricLabel("type", loadJob.getJobType().name()))
+                            .addLabel(new MetricLabel("state", loadJob.getState().name()));
+                    PALO_METRIC_REGISTER.addPaloMetrics(gauge);
+                }
+            }
+        }
+    }
+
     private static void initSystemMetrics() {
         // TCP retransSegs
         GaugeMetric<Long> tcpRetransSegs = (GaugeMetric<Long>) new GaugeMetric<Long>(
@@ -511,6 +540,7 @@ public final class MetricRepo {
     // update some metrics to make a ready to be visited
     private static void updateMetrics() {
         SYSTEM_METRICS.update();
+        updateBrokerLoadCostTimestamp();
     }
 
     public static synchronized List<Metric> getMetricsByName(String name) {
