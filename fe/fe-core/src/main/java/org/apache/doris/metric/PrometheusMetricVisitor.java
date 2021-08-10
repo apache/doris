@@ -17,8 +17,6 @@
 
 package org.apache.doris.metric;
 
-import java.util.HashSet;
-import java.util.Set;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.BufferPool;
@@ -30,8 +28,10 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /*
