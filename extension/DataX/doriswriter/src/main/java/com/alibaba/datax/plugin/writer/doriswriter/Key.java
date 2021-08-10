@@ -48,15 +48,25 @@ public class Key implements Serializable {
     public static final String MAX_BATCH_BYTE_SIZE = "maxBatchByteSize";
     public static final String LABEL_PREFIX = "labelPrefix";
     public static final String LINE_DELIMITER = "lineDelimiter";
+    public static final String COLUMN_SEPARATOR = "columnSeparator";
+    public static final String FORMAT = "format";
+    public static final String CONNECT_TIMEOUT = "connectTimeout";
     private final Configuration options;
-    
+    private final String columnSeparatorDesc;
+    private final String lineDelimiterDesc;
+
     private static final long DEFAULT_MAX_BATCH_ROWS = 50_0000;
     private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
+    private static final String DEFAULT_FORMAT = "json";
+    private static final int DEFAULT_CONNECT_TIMEOUT = -1;
 
     public Key(final Configuration options) {
         this.options = options;
+        this.columnSeparatorDesc = parseHexReadable(this.getColumnSeparator());
+        this.lineDelimiterDesc = parseHexReadable(this.getLineDelimiter());
     }
 
     public void doPretreatment() {
@@ -124,6 +134,27 @@ public class Key implements Serializable {
         return this.options.getString(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
     }
 
+    public String getFormat() {
+        return this.options.getString(FORMAT, DEFAULT_FORMAT);
+    }
+
+    public String getColumnSeparator() {
+        return this.options.getString(COLUMN_SEPARATOR, DEFAULT_COLUMN_SEPARATOR);
+    }
+
+    public int getConnectTimeout() {
+        return this.options.getInt(CONNECT_TIMEOUT, DEFAULT_CONNECT_TIMEOUT);
+    }
+
+
+    public String getColumnSeparatorDesc() {
+        return columnSeparatorDesc;
+    }
+
+    public String getLineDelimiterDesc() {
+        return lineDelimiterDesc;
+    }
+
     private void validateStreamLoadUrl() {
         List<String> urlList = this.getBeLoadUrlList();
         if (urlList == null) {
@@ -137,15 +168,26 @@ public class Key implements Serializable {
             if (host.split(":").length < 2) {
                 throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
                         "Invalid load url format. IF use FE hosts, should be like: fe_host:fe_http_port."
-					  + " If use BE hosts, should be like: be_host:be_webserver_port");
+                                + " If use BE hosts, should be like: be_host:be_webserver_port");
             }
         }
     }
 
+    private String parseHexReadable(String s) {
+        byte[] separatorBytes = s.getBytes();
+        StringBuilder desc = new StringBuilder();
+
+        for (byte separatorByte : separatorBytes) {
+            desc.append(String.format("\\x%02x", separatorByte));
+        }
+        return desc.toString();
+    }
+
     private void validateRequired() {
-        final String[] requiredOptionKeys =  new String[] { JDBC_URL, USERNAME, DATABASE, TABLE, COLUMN };
+        final String[] requiredOptionKeys = new String[]{JDBC_URL, USERNAME, DATABASE, TABLE, COLUMN};
         for (final String optionKey : requiredOptionKeys) {
             this.options.getNecessaryValue(optionKey, DBUtilErrorCode.REQUIRED_VALUE);
         }
     }
 }
+
