@@ -164,7 +164,7 @@ Status NodeChannel::open_wait() {
     _add_batch_closure->addFailedHandler([this]() {
         std::stringstream ss;
         ss << name() << " add batch req rpc failed, " << print_load_info()
-           << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
+           << ", node=" << node_info()->id << ":" << node_info()->brpc_port;
         _cancel_with_msg(ss.str());
     });
 
