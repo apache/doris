@@ -41,13 +41,13 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -239,12 +239,13 @@ public class RoutineLoadManager implements Writable {
         List<RoutineLoadJob> result = Lists.newArrayList();
         Database database = Catalog.getCurrentCatalog().getDb(dbName);
         if (database == null) {
-            throw new MetaNotFoundException("failed to find database: " + dbName);
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
-            throw new MetaNotFoundException("failed to find routine load jobs with databas id: " + dbId);
+            // return empty result
+            return result;
         }
 
         for (List<RoutineLoadJob> jobs : jobMap.values()) {
