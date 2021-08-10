@@ -120,6 +120,10 @@ TEST_F(StringFunctionsTest, money_format_double) {
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
     expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
     ASSERT_EQ(expected, result);
+
+    result = StringFunctions::money_format(context, doris_udf::DoubleVal(-9223372036854775807.089));
+    expected = AnyValUtil::from_string_temp(context, std::string("-9,223,372,036,854,775,807.09"));
+    ASSERT_EQ(expected, result);
     delete context;
 }
 
