@@ -58,7 +58,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(sysctl -n hw.logicalcpu)/4+1]
+PARALLEL=$[$(nproc)/4+1]
 if [[ $# -ne 1 ]] ; then
     while true; do
         case "$1" in
@@ -226,8 +226,7 @@ build_openssl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
-    #./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
-    ./Configure --prefix=$TP_INSTALL_DIR -shared ${OPENSSL_PLATFORM}
+    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
     make -j $PARALLEL && make install_sw
     # NOTE(zc): remove this dynamic library files to make libcurl static link.
     # If I don't remove this files, I don't known how to make libcurl link static library
@@ -248,16 +247,13 @@ build_thrift() {
         ./bootstrap.sh
     fi
 
-    OPENSSL_DIR="/usr/local/Cellar/openssl@1.1/1.1.1k"
-    OPENSSL_SUPPORT="-I${OPENSSL_DIR}/include -L${OPENSSL_DIR}/lib"
-
     echo ${TP_LIB_DIR}
     ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
     --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
     --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs \
     --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby \
     --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp \
-    --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR 
+    --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
 
     if [ -f compiler/cpp/thrifty.hh ];then
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
@@ -305,7 +301,7 @@ build_protobuf() {
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
     cd src
-    sed -i '' 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
+    sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
     cd -
     make -j $PARALLEL && make install
 }
@@ -454,7 +450,7 @@ build_curl() {
     LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --without-librtmp --with-ssl=/usr/local/Cellar/openssl@1.1/1.1.1k --without-libidn2 --disable-ldap --enable-ipv6 \
+    --without-librtmp --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6 \
     --without-libssh2
     make -j $PARALLEL && make install
 }

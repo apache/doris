@@ -86,13 +86,11 @@ public class CanalSyncChannel extends SyncChannel {
     final class SendTask extends SyncTask {
         private final InsertStreamTxnExecutor executor;
         private Data<InternalService.PDataRow> rows;
-        private long serial;
 
-        public SendTask(long signature, Object stripe, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor, long serial) {
+        public SendTask(long signature, Object stripe, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
             super(signature, stripe, callback);
             this.executor = executor;
             this.rows = rows;
-            this.serial = serial;
         }
 
         public void exec() throws Exception {
@@ -270,7 +268,7 @@ public class CanalSyncChannel extends SyncChannel {
                 if (!isTxnBegin()) {
                     beginTxn(batchId);
                 } else {
-                    SendTask task = new SendTask(id, stripe, callback, batchBuffer, txnExecutor, lastBatchId);
+                    SendTask task = new SendTask(id, stripe, callback, batchBuffer, txnExecutor);
                     SyncTaskPool.submit(task);
                     this.batchBuffer = new Data<>();
                 }
