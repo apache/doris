@@ -324,14 +324,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("Table name should not be null");
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new AnalysisException("database: " + dbName + " not found.");
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("table: " + tableName + " not found.");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
                 && (table.getType() != Table.TableType.OLAP
                 || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {

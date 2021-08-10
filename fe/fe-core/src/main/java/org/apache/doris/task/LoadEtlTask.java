@@ -84,7 +84,7 @@ public abstract class LoadEtlTask extends MasterTask {
         
         // check db
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -160,10 +160,7 @@ public abstract class LoadEtlTask extends MasterTask {
         try {
             for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
                 long tableId = tableEntry.getKey();
-                OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    throw new MetaNotFoundException("table does not exist. id: " + tableId);
-                }
+                OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
                 
                 TableLoadInfo tableLoadInfo = tableEntry.getValue();
                 Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
@@ -233,10 +230,7 @@ public abstract class LoadEtlTask extends MasterTask {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
 
             table.readLock();
             try {

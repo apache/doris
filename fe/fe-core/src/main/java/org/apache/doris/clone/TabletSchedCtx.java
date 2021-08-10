@@ -637,9 +637,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
             // clear all CLONE replicas
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db != null) {
-                Table table = db.getTable(tblId);
+                Table table = db.getTableNullable(tblId);
                 if (table != null) {
                     table.writeLock();
                     try {
@@ -795,14 +795,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
-        }
-        OlapTable olapTable = (OlapTable) db.getTable(tblId);
-        if (olapTable == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db does not exist"));
+        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl does not exist"));
 
         olapTable.writeLock();
         try {
@@ -810,23 +804,23 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (partition == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "partition does not exist");
             }
-            
+
             MaterializedIndex index = partition.getIndex(indexId);
             if (index == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
             }
-            
+
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
                 throw new SchedException(Status.UNRECOVERABLE, "schema hash is not consistent. index's: "
                         + olapTable.getSchemaHashByIndexId(indexId)
                         + ", task's: " + schemaHash);
             }
-            
+
             Tablet tablet = index.getTablet(tabletId);
             if (tablet == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
             }
-            
+
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
@@ -835,9 +829,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
             }
-            
+
             // tablet is unhealthy, go on
-            
+
             // Here we do not check if the clone version is equal to the partition's visible version.
             // Because in case of high frequency loading, clone version always lags behind the visible version,
             // But we will check if the clone replica's version is larger than or equal to the task's visible version.
@@ -850,20 +844,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         visibleVersion, visibleVersionHash);
                 throw new SchedException(Status.RUNNING_FAILED, msg);
             }
-            
+
             // check if replica exist
             Replica replica = tablet.getReplicaByBackendId(destBackendId);
             if (replica == null) {
                 throw new SchedException(Status.UNRECOVERABLE,
                         "replica does not exist. backend id: " + destBackendId);
             }
-            
+
             replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersionHash(),
                     reportedTablet.getDataSize(), reportedTablet.getRowCount());
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
             }
-            
+
             if (this.type == Type.BALANCE) {
                 long partitionVisibleVersion = partition.getVisibleVersion();
                 if (replica.getVersion() < partitionVisibleVersion) {

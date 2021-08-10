@@ -147,26 +147,15 @@ public class DeleteHandler implements Writable {
         List<String> partitionNames = stmt.getPartitionNames();
         boolean noPartitionSpecified = partitionNames.isEmpty();
         List<Predicate> conditions = stmt.getDeleteConditions();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         DeleteJob deleteJob = null;
         try {
             MarkedCountDownLatch<Long, Long> countDownLatch;
             long transactionId = -1;
-            Table table = null;
+            OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+            olapTable.readLock();
             try {
-                table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
-            } catch (MetaNotFoundException e) {
-                throw new DdlException(e.getMessage());
-            }
-
-            table.readLock();
-            try {
-                OlapTable olapTable = (OlapTable) table;
-
                 if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
                     // table under alter operation can also do delete.
                     // just add a comment here to notice.
@@ -197,7 +186,7 @@ public class DeleteHandler implements Writable {
                         throw new DdlException("Partition does not exist. name: " + partName);
                     }
                     partitions.add(partition);
-                    partitionReplicaNum.put(partition.getId(), ((OlapTable) table).getPartitionInfo().getReplicationNum(partition.getId()));
+                    partitionReplicaNum.put(partition.getId(), olapTable.getPartitionInfo().getReplicationNum(partition.getId()));
                 }
 
                 List<String> deleteConditions = Lists.newArrayList();
@@ -211,7 +200,7 @@ public class DeleteHandler implements Writable {
                 long jobId = Catalog.getCurrentCatalog().getNextId();
                 // begin txn here and generate txn id
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        Lists.newArrayList(table.getId()), label, null,
+                        Lists.newArrayList(olapTable.getId()), label, null,
                         new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         TransactionState.LoadJobSourceType.FRONTEND, jobId, Config.stream_load_default_timeout_second);
 
@@ -289,7 +278,7 @@ public class DeleteHandler implements Writable {
                 }
                 throw new DdlException(t.getMessage(), t);
             } finally {
-                table.readUnlock();
+                olapTable.readUnlock();
             }
 
             long timeoutMs = deleteJob.getTimeoutMs();
@@ -344,14 +333,14 @@ public class DeleteHandler implements Writable {
                             cancelJob(deleteJob, CancelType.UNKNOWN, e.getMessage());
                             throw new DdlException(e.getMessage(), e);
                         }
-                        commitJob(deleteJob, db, table, timeoutMs);
+                        commitJob(deleteJob, db, olapTable, timeoutMs);
                         break;
                     default:
                         Preconditions.checkState(false, "wrong delete job state: " + state.name());
                         break;
                 }
             } else {
-                commitJob(deleteJob, db, table, timeoutMs);
+                commitJob(deleteJob, db, olapTable, timeoutMs);
             }
         } finally {
             if (!FeConstants.runningUnitTest) {
@@ -676,7 +665,7 @@ public class DeleteHandler implements Writable {
     // show delete stmt
     public List<List<Comparable>> getDeleteInfosByDb(long dbId) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }

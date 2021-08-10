@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.system.Backend;
@@ -36,6 +35,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/rest/v2")
@@ -60,13 +60,8 @@ public class StatisticAction extends RestBaseController {
     }
 
     private int getTblCount(Catalog catalog) {
-        int tblCount = 0;
-        List<Long> dbIds = catalog.getDbIds();
-        for (long dbId : dbIds) {
-            Database db = catalog.getDb(dbId);
-            tblCount += db.getTables().size();
-        }
-        return tblCount;
+        return catalog.getDbIds().stream().map(catalog::getDbNullable).filter(Objects::nonNull)
+                .map(db -> db.getTables().size()).reduce(Integer::sum).orElse(0);
     }
 
     private long getDiskOccupancy(SystemInfoService infoService) {

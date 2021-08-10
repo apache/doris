@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -94,29 +93,23 @@ public class CanalSyncJob extends SyncJob {
         if (channels == null) {
             channels = Lists.newArrayList();
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new DdlException("Database[" + dbId + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
         db.writeLock();
         try {
             for (ChannelDescription channelDescription : channelDescriptions) {
                 String tableName = channelDescription.getTargetTable();
-                Table table = db.getTable(tableName);
-                if (!(table instanceof OlapTable)) {
-                    throw new DdlException("Table[" + tableName + "] is invalid.");
-                }
-                if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS || !((OlapTable) table).hasDeleteSign()) {
+                OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+                if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || !olapTable.hasDeleteSign()) {
                     throw new DdlException("Table[" + tableName + "] don't support batch delete.");
                 }
                 List<String> colNames = channelDescription.getColNames();
                 if (colNames == null) {
                     colNames = Lists.newArrayList();
-                    for (Column column : table.getBaseSchema(false)) {
+                    for (Column column : olapTable.getBaseSchema(false)) {
                         colNames.add(column.getName());
                     }
                 }
-                CanalSyncChannel syncChannel = new CanalSyncChannel(this, db, (OlapTable) table, colNames,
+                CanalSyncChannel syncChannel = new CanalSyncChannel(this, db, olapTable, colNames,
                         channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
                 if (channelDescription.getPartitionNames() != null) {
                     syncChannel.setPartitions(channelDescription.getPartitionNames());

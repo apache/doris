@@ -301,12 +301,12 @@ public class ConnectProcessor {
             ctx.getState().setError("Empty tableName");
             return;
         }
-        Database db = ctx.getCatalog().getDb(ctx.getDatabase());
+        Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
-        Table table = db.getTable(tableName);
+        Table table = db.getTableNullable(tableName);
         if (table == null) {
             ctx.getState().setError("Unknown table(" + tableName + ")");
             return;

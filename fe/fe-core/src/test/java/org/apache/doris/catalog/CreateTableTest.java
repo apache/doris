@@ -198,18 +198,18 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
         Assert.assertTrue(tbl6.getColumn("k3").isKey());
 
-        OlapTable tbl7 = (OlapTable) db.getTable("tbl7");
+        OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
         Assert.assertTrue(tbl7.getColumn("k1").isKey());
         Assert.assertFalse(tbl7.getColumn("k2").isKey());
         Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
 
-        OlapTable tbl8 = (OlapTable) db.getTable("tbl8");
+        OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());

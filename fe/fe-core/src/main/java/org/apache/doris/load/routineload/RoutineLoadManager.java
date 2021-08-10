@@ -237,10 +237,7 @@ public class RoutineLoadManager implements Writable {
             throws MetaNotFoundException, DdlException, AnalysisException {
 
         List<RoutineLoadJob> result = Lists.newArrayList();
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
@@ -499,12 +496,8 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
 
-            long dbId = 0L;
-            Database database = Catalog.getCurrentCatalog().getDb(dbFullName);
-            if (database == null) {
-                throw new MetaNotFoundException("failed to find database by dbFullName " + dbFullName);
-            }
-            dbId = database.getId();
+            Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbFullName);
+            long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();
                 break RESULT;

@@ -451,17 +451,10 @@ public class TabletScheduler extends MasterDaemon {
         tabletCtx.setLastVisitedTime(currentTime);
         stat.counterTabletScheduled.incrementAndGet();
 
-        // check this tablet again
-        Database db = catalog.getDb(tabletCtx.getDbId());
-        if (db == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
-        }
-
         Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
-        OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
-        if (tbl == null) {
-            throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
-        }
+        // check this tablet again
+        Database db = catalog.getDbOrException(tabletCtx.getDbId(), s -> new SchedException(Status.UNRECOVERABLE, "db does not exist"));
+        OlapTable tbl = (OlapTable) db.getTableOrException(tabletCtx.getTblId(), s -> new SchedException(Status.UNRECOVERABLE, "tbl does not exist"));
         tbl.writeLock();
         try {
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());

@@ -105,7 +105,7 @@ public class StatisticProcDir implements ProcDirInterface {
                 // skip information_schema database
                 continue;
             }
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }

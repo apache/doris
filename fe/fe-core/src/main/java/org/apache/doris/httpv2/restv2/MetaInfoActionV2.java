@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -139,9 +140,11 @@ public class MetaInfoActionV2 extends RestBaseController {
 
 
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
@@ -207,30 +210,25 @@ public class MetaInfoActionV2 extends RestBaseController {
 
         String fullDbName = getFullDbName(dbName);
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SHOW);
-
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
-        }
-
         String withMvPara = request.getParameter(PARAM_WITH_MV);
-        boolean withMv = Strings.isNullOrEmpty(withMvPara) ? false : withMvPara.equals("1");
+        boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
-
-        TableSchemaInfo tableSchemaInfo = new TableSchemaInfo();
-        db.readLock();
         try {
-            Table tbl = db.getTable(tblName);
-            if (tbl == null) {
-                return ResponseEntityBuilder.okWithCommonError("Table does not exist: " + tblName);
-            }
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            db.readLock();
+            try {
+                Table tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
 
-            tableSchemaInfo.setEngineType(tbl.getType().toString());
-            SchemaInfo schemaInfo = generateSchemaInfo(tbl, withMv);
-            tableSchemaInfo.setSchemaInfo(schemaInfo);
-            return ResponseEntityBuilder.ok(tableSchemaInfo);
-        } finally {
-            db.readUnlock();
+                TableSchemaInfo tableSchemaInfo = new TableSchemaInfo();
+                tableSchemaInfo.setEngineType(tbl.getType().toString());
+                SchemaInfo schemaInfo = generateSchemaInfo(tbl, withMv);
+                tableSchemaInfo.setSchemaInfo(schemaInfo);
+                return ResponseEntityBuilder.ok(tableSchemaInfo);
+            } finally {
+                db.readUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
     }
 

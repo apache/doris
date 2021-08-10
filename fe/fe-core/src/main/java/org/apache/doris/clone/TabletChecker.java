@@ -27,7 +27,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
@@ -242,14 +241,14 @@ public class TabletChecker extends MasterDaemon {
 
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
             for (long tblId : tblPartMap.keySet()) {
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
                     continue;
                 }
@@ -277,7 +276,7 @@ public class TabletChecker extends MasterDaemon {
         List<Long> dbIds = catalog.getDbIds();
         OUT:
         for (Long dbId : dbIds) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -437,7 +436,7 @@ public class TabletChecker extends MasterDaemon {
         while (iter.hasNext()) {
             Map.Entry<Long, Map<Long, Set<PrioPart>>> dbEntry = iter.next();
             long dbId = dbEntry.getKey();
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 iter.remove();
                 continue;
@@ -447,7 +446,7 @@ public class TabletChecker extends MasterDaemon {
             while (jter.hasNext()) {
                 Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
                 long tblId = tblEntry.getKey();
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
                     deletedPrios.add(Pair.create(dbId, tblId));
                     continue;
@@ -525,22 +524,15 @@ public class TabletChecker extends MasterDaemon {
 
     public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
 
         long dbId = db.getId();
         long tblId = -1;
         List<Long> partIds = Lists.newArrayList();
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-        tbl.readLock();
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
         try {
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
+            tblId = olapTable.getId();
 
             if (partitions == null || partitions.isEmpty()) {
                 partIds = olapTable.getPartitions().stream().map(Partition::getId).collect(Collectors.toList());
@@ -554,7 +546,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         Preconditions.checkState(tblId != -1);

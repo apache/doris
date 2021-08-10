@@ -45,8 +45,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
@@ -228,7 +228,7 @@ public class CatalogMocker {
         return clusterInfo;
     }
 
-    public static Database mockDb() throws AnalysisException {
+    public static Database mockDb() throws UserException {
         // mock all meta obj
         Database db = new Database(TEST_DB_ID, TEST_DB_NAME);
 
@@ -405,19 +405,19 @@ public class CatalogMocker {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(TEST_DB_NAME);
+                    catalog.getDbNullable(TEST_DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb(WRONG_DB);
+                    catalog.getDbNullable(WRONG_DB);
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(TEST_DB_ID);
+                    catalog.getDbNullable(TEST_DB_ID);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 

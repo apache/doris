@@ -148,8 +148,7 @@ public class LoadManager implements Writable{
             cluster = request.getCluster();
         }
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
-        Table table = database.getTable(request.tbl);
-        checkTable(database, request.getTbl());
+        Table table = database.getTableOrDdlException(request.tbl);
         LoadJob loadJob = null;
         writeLock();
         try {
@@ -279,10 +278,7 @@ public class LoadManager implements Writable{
             long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new MetaNotFoundException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
 
         LoadJob loadJob;
         switch (jobType) {
@@ -298,10 +294,7 @@ public class LoadManager implements Writable{
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
 
         // List of load jobs waiting to be cancelled
         List<LoadJob> loadJobs = Lists.newArrayList();
@@ -355,10 +348,7 @@ public class LoadManager implements Writable{
     }
 
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + stmt.getDbName());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
 
         LoadJob loadJob = null;
         readLock();
@@ -615,26 +605,7 @@ public class LoadManager implements Writable{
     }
 
     private Database checkDb(String dbName) throws DdlException {
-        // get db
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            LOG.warn("Database {} does not exist", dbName);
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
-        return db;
-    }
-
-    /**
-     * Please don't lock any load lock before check table
-     * @param database
-     * @param tableName
-     * @throws DdlException
-     */
-    private void checkTable(Database database, String tableName) throws DdlException {
-        if (database.getTable(tableName) == null) {
-            LOG.info("Table {} is not belongs to database {}", tableName, database.getFullName());
-            throw new DdlException("Table[" + tableName + "] does not exist");
-        }
+        return Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
     }
 
     /**

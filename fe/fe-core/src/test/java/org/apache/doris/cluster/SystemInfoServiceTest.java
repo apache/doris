@@ -93,11 +93,11 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
-                db.getTable(anyLong);
+                db.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
 

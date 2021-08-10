@@ -398,7 +398,7 @@ public class ReportHandler extends Daemon {
                              long backendId, long backendReportVersion) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletSyncMap.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -414,7 +414,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -528,7 +528,7 @@ public class ReportHandler extends Daemon {
         AgentBatchTask createReplicaBatchTask = new AgentBatchTask();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         for (Long dbId : tabletDeleteFromMeta.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -543,7 +543,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -802,7 +802,7 @@ public class ReportHandler extends Daemon {
         BackendTabletsInfo backendTabletsInfo = new BackendTabletsInfo(backendId);
         backendTabletsInfo.setBad(true);
         for (Long dbId : tabletRecoveryMap.keySet()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -815,7 +815,7 @@ public class ReportHandler extends Daemon {
                 }
                 long tabletId = tabletIds.get(i);
                 long tableId = tabletMeta.getTableId();
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null) {
                     continue;
                 }
@@ -936,12 +936,8 @@ public class ReportHandler extends Daemon {
         long dataSize = backendTabletInfo.getDataSize();
         long rowCount = backendTabletInfo.getRowCount();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("db[" + dbId + "] does not exist");
-        }
-
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);

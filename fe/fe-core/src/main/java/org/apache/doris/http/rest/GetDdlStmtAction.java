@@ -72,19 +72,12 @@ public class GetDdlStmtAction extends RestBaseAction {
             throw new DdlException("Missing params. Need database name and Table name");
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Table table = db.getTableOrDdlException(tableName);
 
         List<String> createTableStmt = Lists.newArrayList();
         List<String> addPartitionStmt = Lists.newArrayList();
         List<String> createRollupStmt = Lists.newArrayList();
-
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new DdlException("Table[" + tableName + "] does not exist");
-        }
 
         table.readLock();
         try {
