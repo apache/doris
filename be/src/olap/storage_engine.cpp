@@ -331,7 +331,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos,
+OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                                 bool need_update) {
     OLAPStatus res = OLAP_SUCCESS;
     data_dir_infos->clear();
@@ -375,6 +375,20 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
               << " ms. tablet counter: " << tablet_count;
 
     return res;
+}
+
+int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_path) {
+    if (!std::filesystem::exists(file_path)) {
+        return 0;
+    }
+    if (!std::filesystem::is_directory(file_path)) {
+        return std::filesystem::file_size(file_path);
+    }
+    int64_t sum_size = 0;
+    for (const auto& it : std::filesystem::directory_iterator(file_path)) {
+        sum_size += get_file_or_directory_size(it.path());
+    }
+    return sum_size;
 }
 
 void StorageEngine::_start_disk_stat_monitor() {

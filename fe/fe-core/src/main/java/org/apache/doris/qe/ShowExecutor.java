@@ -76,6 +76,8 @@ import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
+import org.apache.doris.analysis.ShowTrashStmt;
+import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -123,6 +125,8 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.proc.TrashProcDir;
+import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
@@ -279,6 +283,10 @@ public class ShowExecutor {
             handleShowGrants();
         } else if (stmt instanceof ShowRolesStmt) {
             handleShowRoles();
+        } else if (stmt instanceof ShowTrashStmt) {
+            handleShowTrash();
+        } else if (stmt instanceof ShowTrashDiskStmt) {
+            handleShowTrashDisk();
         } else if (stmt instanceof AdminShowReplicaStatusStmt) {
             handleAdminShowTabletStatus();
         } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
@@ -1764,6 +1772,20 @@ public class ShowExecutor {
     private void handleShowRoles() {
         ShowRolesStmt showStmt = (ShowRolesStmt) stmt;
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+    
+    private void handleShowTrash() {
+        ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
+        List<List<String>> infos = Lists.newArrayList();
+        TrashProcDir.getTrashInfo(showStmt.getBackends(), infos);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowTrashDisk() {
+        ShowTrashDiskStmt showStmt = (ShowTrashDiskStmt) stmt;
+        List<List<String>> infos = Lists.newArrayList();
+        TrashProcNode.getTrashDiskInfo(showStmt.getBackend(), infos);
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 

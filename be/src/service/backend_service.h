@@ -61,6 +61,7 @@ class TQueryOptions;
 class TExportTaskRequest;
 class TExportStatusResult;
 class TStreamLoadRecordResult;
+class TDiskTrashInfo;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -129,6 +130,10 @@ public:
 
     virtual void get_tablet_stat(TTabletStatResult& result) override;
 
+    virtual int64_t get_trash_used_capacity() override;
+
+    virtual void get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) override;
+
     virtual void submit_routine_load_task(TStatus& t_status,
                                           const std::vector<TRoutineLoadTask>& tasks) override;
 
@@ -141,7 +146,8 @@ public:
     // used for external service, close some context and release resource related with this context
     virtual void close_scanner(TScanCloseResult& result_, const TScanCloseParams& params);
 
-    virtual void get_stream_load_record(TStreamLoadRecordResult& result, const int64_t last_stream_record_time) override;
+    virtual void get_stream_load_record(TStreamLoadRecordResult& result,
+                                        const int64_t last_stream_record_time) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
