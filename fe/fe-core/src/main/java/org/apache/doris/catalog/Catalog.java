@@ -63,6 +63,7 @@ import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InstallPluginStmt;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
@@ -75,6 +76,8 @@ import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
@@ -205,6 +208,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -1219,11 +1223,15 @@ public class Catalog {
             Preconditions.checkNotNull(self);
             // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
             editLog.logAddFirstFrontend(self);
+
+            initLowerCaseTableNames();
         }
 
         if (!isDefaultClusterCreated) {
             initDefaultCluster();
         }
+
+        checkLowerCaseTableNames();
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
@@ -1378,6 +1386,8 @@ public class Catalog {
             replayer.start();
         }
 
+        checkLowerCaseTableNames();
+
         // 'isReady' will be set to true in 'setCanRead()' method
         fixBugAfterMetadataReplayed(true);
 
@@ -1385,6 +1395,44 @@ public class Catalog {
 
         MetricRepo.init();
     }
+
+    // Set global variable 'lower_case_table_names' only when the cluster is initialized.
+    private void initLowerCaseTableNames() {
+        if (Config.lower_case_table_names > 2 || Config.lower_case_table_names < 0) {
+            LOG.error("Unsupported configuration value of lower_case_table_names: " + Config.lower_case_table_names);
+            System.exit(-1);
+        }
+        try {
+            VariableMgr.setGlobalVarAndWriteEditLogNoCheck(new SetVar(SetType.GLOBAL,
+                    GlobalVariable.LOWER_CASE_TABLE_NAMES, new IntLiteral(Config.lower_case_table_names)));
+        } catch (Exception e) {
+            LOG.error("Initialization of lower_case_table_names failed.", e);
+            System.exit(-1);
+        }
+        LOG.info("Finish initializing lower_case_table_names, value is {}", GlobalVariable.lowerCaseTableNames);
+    }
+
+    // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
+    // restart or upgrade.
+    private void checkLowerCaseTableNames() {
+        while (GlobalVariable.lowerCaseTableNames == -1) {
+            // Waiting for lower_case_table_names to initialize value from image or editlog.
+            try {
+                LOG.info("Waiting for \'lower_case_table_names\' initialization.");
+                TimeUnit.SECONDS.sleep(1);
+            } catch (InterruptedException e) {
+                LOG.error("Sleep got exception while waiting for lower_case_table_names initialization. ", e);
+            }
+        }
+        if (Config.lower_case_table_names != GlobalVariable.lowerCaseTableNames) {
+            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, " +
+                            "the expected value is {}, but the actual value is {}",
+                    GlobalVariable.lowerCaseTableNames, Config.lower_case_table_names);
+            System.exit(-1);
+        }
+        LOG.info("lower_case_table_names is {}", GlobalVariable.lowerCaseTableNames);
+    }
+
 
     /*
      * If the current node is not in the frontend list, then exit. This may
@@ -7127,5 +7175,13 @@ public class Catalog {
                 }
             }
         }
+    }
+
+    public static boolean isStoredTableNamesLowerCase() {
+        return GlobalVariable.lowerCaseTableNames == 1;
+    }
+
+    public static boolean isTableNamesCaseInsensitive() {
+        return GlobalVariable.lowerCaseTableNames == 2;
     }
 }

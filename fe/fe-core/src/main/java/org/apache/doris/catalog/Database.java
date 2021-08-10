@@ -85,6 +85,8 @@ public class Database extends MetaObject implements Writable {
     // table family group map
     private Map<Long, Table> idToTable;
     private Map<String, Table> nameToTable;
+    // table name lower cast -> table name
+    private Map<String, String> lowerCaseToTableName;
 
     // user define function
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
@@ -115,6 +117,7 @@ public class Database extends MetaObject implements Writable {
         this.rwLock = new ReentrantReadWriteLock(true);
         this.idToTable = Maps.newConcurrentMap();
         this.nameToTable = Maps.newConcurrentMap();
+        this.lowerCaseToTableName = Maps.newConcurrentMap();
         this.dataQuotaBytes = Config.default_db_data_quota_bytes;
         this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
@@ -260,7 +263,7 @@ public class Database extends MetaObject implements Writable {
                 + leftQuotaUnitPair.second;
 
         LOG.info("database[{}] data quota: left bytes: {} / total: {}",
-                 fullQualifiedName, readableLeftQuota, readableQuota);
+                fullQualifiedName, readableLeftQuota, readableQuota);
 
         if (leftDataQuota <= 0L) {
             throw new DdlException("Database[" + fullQualifiedName
@@ -284,6 +287,16 @@ public class Database extends MetaObject implements Writable {
         checkReplicaQuota();
     }
 
+    private boolean isTableExist(String tableName) {
+        if (Catalog.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return false;
+            }
+        }
+        return nameToTable.containsKey(tableName);
+    }
+
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
@@ -292,12 +305,16 @@ public class Database extends MetaObject implements Writable {
         writeLock();
         try {
             String tableName = table.getName();
-            if (nameToTable.containsKey(tableName)) {
+            if (Catalog.isStoredTableNamesLowerCase()) {
+                tableName = tableName.toLowerCase();
+            }
+            if (isTableExist(tableName)) {
                 result = setIfNotExist;
                 isTableExist = true;
             } else {
                 idToTable.put(table.getId(), table);
                 nameToTable.put(table.getName(), table);
+                lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
 
                 if (!isReplay) {
                     // Write edit log
@@ -305,7 +322,7 @@ public class Database extends MetaObject implements Writable {
                     Catalog.getCurrentCatalog().getEditLog().logCreateTable(info);
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
-                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable)table);
+                    Catalog.getCurrentCatalog().getEsRepository().registerTable((EsTable) table);
                 }
             }
             return Pair.create(result, isTableExist);
@@ -317,11 +334,15 @@ public class Database extends MetaObject implements Writable {
     public boolean createTable(Table table) {
         boolean result = true;
         String tableName = table.getName();
-        if (nameToTable.containsKey(tableName)) {
+        if (Catalog.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (isTableExist(tableName)) {
             result = false;
         } else {
             idToTable.put(table.getId(), table);
             nameToTable.put(table.getName(), table);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
         return result;
     }
@@ -329,21 +350,21 @@ public class Database extends MetaObject implements Writable {
     public void dropTableWithLock(String tableName) {
         writeLock();
         try {
-            Table table = this.nameToTable.get(tableName);
-            if (table != null) {
-                this.nameToTable.remove(tableName);
-                this.idToTable.remove(table.getId());
-            }
+            dropTable(tableName);
         } finally {
             writeUnlock();
         }
     }
 
     public void dropTable(String tableName) {
-        Table table = this.nameToTable.get(tableName);
+        if (Catalog.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        Table table = getTable(tableName);
         if (table != null) {
             this.nameToTable.remove(tableName);
             this.idToTable.remove(table.getId());
+            this.lowerCaseToTableName.remove(tableName.toLowerCase());
         }
     }
 
@@ -394,22 +415,33 @@ public class Database extends MetaObject implements Writable {
 
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
+     *
      * @param tableName
      * @return
      */
     public Table getTable(String tableName) {
+        if (Catalog.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (Catalog.isTableNamesCaseInsensitive()) {
+            tableName = lowerCaseToTableName.get(tableName.toLowerCase());
+            if (tableName == null) {
+                return null;
+            }
+        }
         return nameToTable.get(tableName);
     }
 
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
+     *
      * @param tableName
      * @param tableType
      * @return
      */
     public Table getTableOrThrowException(String tableName, TableType tableType) throws MetaNotFoundException {
-        Table table = nameToTable.get(tableName);
-        if(table == null) {
+        Table table = getTable(tableName);
+        if (table == null) {
             throw new MetaNotFoundException("unknown table, table=" + tableName);
         }
         if (table.getType() != tableType) {
@@ -420,6 +452,7 @@ public class Database extends MetaObject implements Writable {
 
     /**
      * This is a thread-safe method when idToTable is a concurrent hash map
+     *
      * @param tableId
      * @return
      */
@@ -430,6 +463,7 @@ public class Database extends MetaObject implements Writable {
 
     /**
      * This is a thread-safe method when idToTable is a concurrent hash map
+     *
      * @param tableId
      * @param tableType
      * @return
@@ -535,8 +569,10 @@ public class Database extends MetaObject implements Writable {
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
-            nameToTable.put(table.getName(), table);
+            String tableName = table.getName();
+            nameToTable.put(tableName, table);
             idToTable.put(table.getId(), table);
+            lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
         }
 
         // read quota

@@ -31,14 +31,14 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Lists;
+
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Lists;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -267,18 +267,7 @@ public class VariableMgr {
         }
 
         if (setVar.getType() == SetType.GLOBAL) {
-            // set global variable should not affect variables of current session.
-            // global variable will only make effect when connecting in.
-            wlock.lock();
-            try {
-                setValue(ctx.getObj(), ctx.getField(), value);
-                // write edit log
-                GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(attr.name()));
-                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
-                editLog.logGlobalVariableV2(info);
-            } finally {
-                wlock.unlock();
-            }
+            setGlobalVarAndWriteEditLogNoCheck(setVar);
         } else {
             // set session variable
             Field field = ctx.getField();
@@ -294,11 +283,28 @@ public class VariableMgr {
         }
     }
 
+    public static void setGlobalVarAndWriteEditLogNoCheck(SetVar setVar) throws DdlException {
+        // set global variable should not affect variables of current session.
+        // global variable will only make effect when connecting in.
+        wlock.lock();
+        VarContext ctx = ctxByVarName.get(setVar.getVariable());
+        try {
+            setValue(ctx.getObj(), ctx.getField(), setVar.getValue().getStringValue());
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
+                    Lists.newArrayList(ctx.getField().getAnnotation(VarAttr.class).name()));
+            EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
+            editLog.logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
     // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
         defaultSessionVariable.write(out);
         // get all global variables
-        List<String> varNames = GlobalVariable.getAllGlobalVarNames();
+        List<String> varNames = GlobalVariable.getPersistentGlobalVarNames();
         GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, varNames);
         info.write(out);
     }

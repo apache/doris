@@ -259,7 +259,35 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `lower_case_table_names`
 
-    Used for compatibility with MySQL clients. Cannot be set. Table names in current Doris are case sensitive by default.
+    Used to control whether the user table name is case-sensitive.
+
+    A value of 0 makes the table name case-sensitive. The default is 0.
+
+    When the value is 1, the table name is case insensitive. Doris will convert the table name to lowercase when storing and querying.  
+    The advantage is that any case of table name can be used in one statement. The following SQL is correct:
+    ```
+    mysql> show tables;
+    +------------------+
+    | Tables_ in_testdb|
+    +------------------+
+    | cost             |
+    +------------------+
+    mysql> select * from COST where COst.id < 100 order by cost.id;
+    ```
+    The disadvantage is that the table name specified in the table creation statement cannot be obtained after table creation. The table name viewed by 'show tables' is lower case of the specified table name.
+
+    When the value is 2, the table name is case insensitive. Doris stores the table name specified in the table creation statement and converts it to lowercase for comparison during query.  
+    The advantage is that the table name viewed by 'show tables' is the table name specified in the table creation statement;  
+    The disadvantage is that only one case of table name can be used in the same statement. For example, the table name 'cost' can be used to query the 'cost' table:
+    ```
+    mysql> select * from COST where COST.id < 100 order by COST.id;
+    ```
+
+    This variable is compatible with MySQL and must be configured at cluster initialization by specifying `lower_case_table_names=` in fe.conf. It cannot be modified by the `set` statement after cluster initialization is complete, nor can it be modified by restarting or upgrading the cluster.
+
+    The system view table names in information_schema are case-insensitive and behave as 1 when the value of `lower_case_table_names` is 0.
+
+Translated with www.DeepL.com/Translator (free version)
 
 * `max_allowed_packet`
 

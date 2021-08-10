@@ -255,7 +255,34 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     
 * `lower_case_table_names`
 
-    用于兼容 MySQL 客户端。不可设置。当前 Doris 中的表名默认为大小写敏感。
+    用于控制用户表表名大小写是否敏感。
+
+    值为 0 时，表名大小写敏感。默认为0。
+
+    值为 1 时，表名大小写不敏感，doris在存储和查询时会将表名转换为小写。  
+    优点是在一条语句中可以使用表名的任意大小写形式，下面的sql是正确的：  
+    ```
+    mysql> show tables;  
+    +------------------+
+    | Tables_in_testdb |
+    +------------------+
+    | cost             |
+    +------------------+
+
+    mysql> select * from COST where COst.id < 100 order by cost.id;
+    ```
+    缺点是建表后无法获得建表语句中指定的表名，`show tables` 查看的表名为指定表名的小写。
+
+    值为 2 时，表名大小写不敏感，doris存储建表语句中指定的表名，查询时转换为小写进行比较。
+    优点是`show tables` 查看的表名为建表语句中指定的表名；  
+    缺点是同一语句中只能使用表名的一种大小写形式，例如对`cost` 表使用表名 `COST` 进行查询：
+    ```
+    mysql> select * from COST where COST.id < 100 order by COST.id;
+    ```
+
+    该变量兼容MySQL。需在集群初始化时通过fe.conf 指定 `lower_case_table_names=`进行配置，集群初始化完成后无法通过`set` 语句修改该变量，也无法通过重启、升级集群修改该变量。
+
+    information_schema中的系统视图表名不区分大小写，当`lower_case_table_names`值为 0 时，表现为 1。
 
 * `max_allowed_packet`
 

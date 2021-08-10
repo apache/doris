@@ -53,7 +53,7 @@ public final class GlobalVariable {
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.
     // 2: table names are stored as given but compared in lowercase.
     @VariableMgr.VarAttr(name = LOWER_CASE_TABLE_NAMES, flag = VariableMgr.READ_ONLY)
-    public static int lowerCaseTableNames = 0;
+    public static int lowerCaseTableNames = -1;
 
     @VariableMgr.VarAttr(name = LICENSE, flag = VariableMgr.READ_ONLY)
     public static String license = "Apache License, Version 2.0";
@@ -85,14 +85,13 @@ public final class GlobalVariable {
 
     }
 
-    public static List<String> getAllGlobalVarNames() {
+    public static List<String> getPersistentGlobalVarNames() {
         List<String> varNames = Lists.newArrayList();
         for (Field field : GlobalVariable.class.getDeclaredFields()) {
             VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
-            if (attr == null || attr.flag() != VariableMgr.GLOBAL) {
-                continue;
+            if (attr != null && (attr.flag() == VariableMgr.GLOBAL || attr.name().equals(LOWER_CASE_TABLE_NAMES))) {
+                varNames.add(attr.name());
             }
-            varNames.add(attr.name());
         }
         return varNames;
     }
