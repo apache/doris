@@ -148,6 +148,7 @@ public class StmtExecutor implements ProfileWriter {
     private RuntimeProfile plannerRuntimeProfile;
     private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
+    private String queryType = "Query";
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -195,10 +196,13 @@ public class StmtExecutor implements ProfileWriter {
             profile.addChild(summaryProfile);
             summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
+            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
             summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
@@ -209,8 +213,12 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(coord.getQueryProfile());
         } else {
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
@@ -360,6 +368,7 @@ public class StmtExecutor implements ProfileWriter {
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
+                        queryType = "Insert";
                         writeProfile(true);
                     }
                 } catch (Throwable t) {

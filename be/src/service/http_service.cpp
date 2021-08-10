@@ -31,7 +31,7 @@
 #include "http/action/tablets_distribution_action.h"
 #include "http/action/tablet_migration_action.h"
 #include "http/action/tablets_info_action.h"
-#include "http/action/update_config_action.h"
+#include "http/action/config_action.h"
 #include "http/default_path_handlers.h"
 #include "http/download_action.h"
 #include "http/ev_http_server.h"
@@ -144,8 +144,13 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
-    UpdateConfigAction* update_config_action = _pool.add(new UpdateConfigAction());
+    ConfigAction* update_config_action = 
+            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
+
+    ConfigAction* show_config_action = 
+            _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
 
     _ev_http_server->start();
     return Status::OK();

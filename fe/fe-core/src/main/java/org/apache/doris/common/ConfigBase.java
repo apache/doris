@@ -199,7 +199,9 @@ public class ConfigBase {
                 f.setDouble(null, Double.parseDouble(confVal));
                 break;
             case "boolean":
-                f.setBoolean(null, Boolean.parseBoolean(confVal));
+                if (isBoolean(confVal)) {
+                    f.setBoolean(null, Boolean.parseBoolean(confVal));
+                }
                 break;
             case "String":
                 f.set(null, confVal);
@@ -235,7 +237,9 @@ public class ConfigBase {
             case "boolean[]":
                 boolean[] ba = new boolean[sa.length];
                 for (int i = 0; i < ba.length; i++) {
-                    ba[i] = Boolean.parseBoolean(sa[i]);
+                    if (isBoolean(sa[i])) {
+                        ba[i] = Boolean.parseBoolean(sa[i]);
+                    }
                 }
                 f.set(null, ba);
                 break;
@@ -245,6 +249,13 @@ public class ConfigBase {
             default:
                 throw new Exception("unknown type: " + f.getType().getSimpleName());
         }
+    }
+
+    private static boolean isBoolean(String s) {
+        if (s.equalsIgnoreCase("true") || s.equalsIgnoreCase("false")) {
+            return true;
+        }
+        throw new IllegalArgumentException("type mismatch");
     }
 
     public static Map<String, Field> getAllMutableConfigs() {
@@ -357,14 +368,13 @@ public class ConfigBase {
         return anno.masterOnly();
     }
 
-    // overwrite configs to customConfFile.
     // use synchronized to make sure only one thread modify this file
-    public synchronized static void persistConfig(Map<String, String> customConf) throws IOException {
+    public synchronized static void persistConfig(Map<String, String> customConf, boolean resetPersist) throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else {
-            // clear the file content
+        } else if (resetPersist){
+            // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");
             }
