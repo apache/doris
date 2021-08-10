@@ -394,7 +394,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     
 * dynamic\_partition\_check\_interval\_seconds
 
-    动态分区线程的执行频率，默认为3600(1个小时)，即每1个小时进行一次调度。可以通过修改 fe.conf 中的参数并重启 FE 生效。也可以在运行时执行以下命令修改：
+    动态分区线程的执行频率，默认为600(10分钟)，即每10分钟进行一次调度。可以通过修改 fe.conf 中的参数并重启 FE 生效。也可以在运行时执行以下命令修改：
     
     MySQL 协议：
 
