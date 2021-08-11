@@ -87,12 +87,14 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .build();
 
     private final LabelName labelName;
+    private String dbName;
     private String dbFullName; // optional
     private String name; // optional
     private boolean includeHistory = false;
 
 
-    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory) {
+    public ShowRoutineLoadStmt(String dbName, LabelName labelName, boolean includeHistory) {
+        this.dbName = dbName;
         this.labelName = labelName;
         this.includeHistory = includeHistory;
     }
@@ -116,11 +118,15 @@ public class ShowRoutineLoadStmt extends ShowStmt {
     }
 
     private void checkLabelName(Analyzer analyzer) throws AnalysisException {
-        String dbName = labelName == null ? null : labelName.getDbName();
         if (Strings.isNullOrEmpty(dbName)) {
-            dbFullName = analyzer.getContext().getDatabase();
-            if (Strings.isNullOrEmpty(dbFullName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            dbName = labelName == null ? null : labelName.getDbName();
+            if (Strings.isNullOrEmpty(dbName)) {
+                dbFullName = analyzer.getContext().getDatabase();
+                if (Strings.isNullOrEmpty(dbFullName)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+                }
+            }else{
+                dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);
             }
         } else {
             dbFullName = ClusterNamespace.getFullName(getClusterName(), dbName);

@@ -1768,19 +1768,19 @@ stop_routine_load_stmt ::=
 show_routine_load_stmt ::=
     KW_SHOW KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, false);
+        RESULT = new ShowRoutineLoadStmt(null, jobLabel, false);
     :}
     | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowRoutineLoadStmt(jobLabel, true);
+        RESULT = new ShowRoutineLoadStmt(null, jobLabel, true);
     :}
-    | KW_SHOW KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ROUTINE KW_LOAD opt_db:db
     {:
-        RESULT = new ShowRoutineLoadStmt(null, false);
+        RESULT = new ShowRoutineLoadStmt(db, null, false);
     :}
-    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD
+    | KW_SHOW KW_ALL KW_ROUTINE KW_LOAD opt_db:db
     {:
-        RESULT = new ShowRoutineLoadStmt(null, true);
+        RESULT = new ShowRoutineLoadStmt(db, null, true);
     :}
     ;
 

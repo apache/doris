@@ -37,13 +37,11 @@ under the License.
 
 3. 显示 example_db 下，所有的例行导入作业（包括已停止或取消的作业）。结果为一行或多行。
 
-    use example_db;
-    SHOW ALL ROUTINE LOAD;
+    SHOW ALL ROUTINE LOAD FROM example_db;
 
 4. 显示 example_db 下，所有正在运行的例行导入作业
 
-    use example_db;
-    SHOW ROUTINE LOAD;
+    SHOW ROUTINE LOAD FROM example_db;
 
 5. 显示 example_db 下，名称为 test1 的当前正在运行的例行导入作业
 
