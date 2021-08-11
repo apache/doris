@@ -36,8 +36,9 @@ import java.util.List;
   Show routine load progress by routine load name
 
   syntax:
-      SHOW [ALL] ROUTINE LOAD [database.][name]
-
+      SHOW [ALL] ROUTINE LOAD [FROM db_name]
+      SHOW [ALL] ROUTINE LOAD FOR [db_name.]job_name
+      
       without ALL: only show job which is not final
       with ALL: show all of job include history job
 
@@ -50,17 +51,19 @@ import java.util.List;
 
       example:
         show routine load named test in database1
-        SHOW ROUTINE LOAD database1.test;
+        SHOW ROUTINE LOAD FOR database1.test;
 
+        show routine load named test in database1 include history
+        SHOW ALL ROUTINE LOAD FOR database1.test;
+        
         show routine load in database1
-        SHOW ROUTINE LOAD database1;
+        SHOW ROUTINE LOAD FROM database1;
 
         show routine load in database1 include history
-        use database1;
-        SHOW ALL ROUTINE LOAD;
+        SHOW ALL ROUTINE LOAD FROM database1;
 
         show routine load in all of database
-        please use show proc
+        please exec command show proc '/routine_loads'
  */
 public class ShowRoutineLoadStmt extends ShowStmt {
 
