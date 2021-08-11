@@ -128,6 +128,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
+    /**
+     * The default parallelism of the load execution plan
+     * on a single node when the broker load is submitted
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int default_load_parallelism = 1;
+
     // For some high frequency load job such as
     // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
     // Remove the finished job or task if expired.
@@ -622,6 +629,17 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
+
+    /**
+     * Maximal intervals between two syncJob's commits.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long sync_commit_interval_second = 10;
+
+    /**
+     * Sync checker's running interval.
+     */
+    @ConfField public static int sync_checker_interval_second = 5;
 
     /**
      * Default number of waiting jobs for routine load and version 2 of load
@@ -1237,6 +1255,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_materialized_view = true;
+
+    /**
+     * enable create sync job
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_sync_job = false;
 
     /**
      * it can't auto-resume routine load job as long as one of the backends is down

@@ -233,8 +233,8 @@ parser code {:
 :};
 
 // Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_APPEND, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BINLOG, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLON, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
@@ -247,14 +247,14 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_HASH, KW_HAVING, KW_HDFS, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE, KW_INSTALL,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
-    KW_JOIN,
+    KW_JOB, KW_JOIN,
     KW_KEY, KW_KEYS, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LIST, KW_LOAD,
     KW_LOCAL, KW_LOCATION,
     KW_MAP, KW_MATERIALIZED, KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMED_STRUCT, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
-    KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_LDAP_ADMIN_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
+    KW_PARAMETER, KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_LDAP_ADMIN_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
     KW_PLUGIN, KW_PLUGINS,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
@@ -262,9 +262,10 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
     KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
+    KW_SKEW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
+    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
@@ -484,6 +485,15 @@ nonterminal String keyword, ident, ident_or_text, variable_name, text_or_passwor
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit,
         literal_or_ident;
 
+// sync job
+nonterminal List<ChannelDescription> channel_desc_list;
+nonterminal ChannelDescription channel_desc;
+nonterminal BinlogDesc binlog_desc;
+nonterminal ResumeSyncJobStmt resume_sync_job_stmt;
+nonterminal PauseSyncJobStmt pause_sync_job_stmt;
+nonterminal StopSyncJobStmt stop_sync_job_stmt;
+nonterminal JobName job_name;
+
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
@@ -670,6 +680,12 @@ stmt ::=
     | pause_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | resume_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | pause_sync_job_stmt : stmt
+    {: RESULT = stmt; :}
+    | resume_sync_job_stmt : stmt
+    {: RESULT = stmt; :}
+    | stop_sync_job_stmt : stmt
     {: RESULT = stmt; :}
     | stop_routine_load_stmt : stmt
     {: RESULT = stmt; :}
@@ -1144,6 +1160,11 @@ create_stmt ::=
     {:
         RESULT = new CreateFunctionStmt(isAggregate, functionName, args, returnType, intermediateType, properties);
     :}
+    | KW_CREATE KW_ALIAS KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+            KW_WITH KW_PARAMETER LPAREN ident_list:parameters RPAREN KW_AS expr:func
+    {:
+        RESULT = new CreateFunctionStmt(functionName, args, parameters, func);
+    :}
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
     {:
@@ -1219,6 +1240,69 @@ create_stmt ::=
     | KW_CREATE KW_ENCRYPTKEY encryptkey_name:keyName KW_AS STRING_LITERAL:keyString
     {:
         RESULT = new CreateEncryptKeyStmt(keyName, keyString);
+    :}
+    /* sync job */
+    | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
+    {:
+        RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
+    :}
+    ;
+
+channel_desc_list ::=
+    channel_desc:desc
+    {:
+        RESULT = Lists.newArrayList(desc);
+    :}
+    | channel_desc_list:list COMMA channel_desc:desc
+    {:
+        list.add(desc);
+        RESULT = list;
+    :}
+    ;
+
+channel_desc ::=
+    KW_FROM ident:srcDatabase DOT ident:srcTableName KW_INTO ident:desTableName opt_partition_names:partitionNames opt_col_list:colList
+    {:
+        RESULT = new ChannelDescription(srcDatabase, srcTableName, desTableName, partitionNames, colList);
+    :}
+    ;
+
+binlog_desc ::=
+    KW_FROM KW_BINLOG LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new BinlogDesc(properties);
+    :}
+;
+
+resume_sync_job_stmt ::=
+    KW_RESUME KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new ResumeSyncJobStmt(jobName);
+    :}
+    ;
+
+pause_sync_job_stmt ::=
+    KW_PAUSE KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new PauseSyncJobStmt(jobName);
+    :}
+    ;
+
+stop_sync_job_stmt ::=
+    KW_STOP KW_SYNC KW_JOB job_name:jobName
+    {:
+        RESULT = new StopSyncJobStmt(jobName);
+    :}
+    ;
+
+job_name ::=
+    ident:jobName
+    {:
+        RESULT = new JobName("", jobName);
+    :}
+    | ident:db DOT ident:jobName
+    {:
+        RESULT = new JobName(db, jobName);
     :}
     ;
 
@@ -2570,6 +2654,14 @@ show_param ::=
     {:
         RESULT = new ShowBackendsStmt();
     :}
+    | KW_TRASH KW_ON STRING_LITERAL:backend
+    {:
+        RESULT = new ShowTrashDiskStmt(backend);
+    :}
+    | KW_TRASH 
+    {:
+        RESULT = new ShowTrashStmt();
+    :}
     | KW_FRONTENDS
     {:
         RESULT = new ShowFrontendsStmt();
@@ -2633,6 +2725,11 @@ show_param ::=
     | KW_ENCRYPTKEYS opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowEncryptKeysStmt(dbName, parser.wild);
+    :}
+    /* Show Sync Job */
+    | KW_SYNC KW_JOB opt_db:dbName
+    {:
+        RESULT = new ShowSyncJobStmt(dbName);
     :}
     ;
 
@@ -4823,6 +4920,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
     :}
+    | KW_ADMIN KW_SHOW KW_DATA KW_SKEW KW_FROM base_table_ref:table_ref
+    {:
+        RESULT = new AdminShowDataSkewStmt(table_ref);
+    :}
     ;
 
 truncate_stmt ::=
@@ -4929,6 +5030,8 @@ keyword ::=
     KW_AFTER:id
     {: RESULT = id; :}
     | KW_AGGREGATE:id
+    {: RESULT = id; :}
+    | KW_ALIAS:id
     {: RESULT = id; :}
     | KW_AUTHORS:id
     {: RESULT = id; :}
@@ -5078,6 +5181,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_OPEN:id
     {: RESULT = id; :}
+    | KW_PARAMETER:id
+    {: RESULT = id; :}
     | KW_PARTITIONS:id
     {: RESULT = id; :}
     | KW_PASSWORD:id
@@ -5131,6 +5236,8 @@ keyword ::=
     | KW_SERIALIZABLE:id
     {: RESULT = id; :}
     | KW_SESSION:id
+    {: RESULT = id; :}
+    | KW_SKEW:id
     {: RESULT = id; :}
     | KW_SNAPSHOT:id
     {: RESULT = id; :}

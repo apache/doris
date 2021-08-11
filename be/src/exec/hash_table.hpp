@@ -23,6 +23,13 @@
 namespace doris {
 
 inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
+    if (_num_filled_buckets > _num_buckets_till_resize) {
+        resize_buckets(_num_buckets * 2);
+    }
+    if (_current_used == _current_capacity) {
+        grow_node_array();
+    }
+
     bool has_nulls = eval_build_row(row);
 
     if (!_stores_nulls && has_nulls) {
@@ -52,14 +59,6 @@ inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
         node = last_node;
     }
     if (will_insert) {
-        if (_num_filled_buckets > _num_buckets_till_resize) {
-            resize_buckets(_num_buckets * 2);
-            // real bucket_id will modify after resize buckets
-            bucket_idx = hash & (_num_buckets - 1);
-        }
-        if (_current_used == _current_capacity) {
-            grow_node_array();
-        }
         Node* alloc_node =
                 reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
         ++_num_nodes;

@@ -129,6 +129,10 @@ public class MultiProfileTreeBuilder {
         return singleBuilder.getFragmentTreeRoot();
     }
 
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId) throws AnalysisException{
+        return getExecutionProfileTreeBuilder(executionId).getFragmentsInstances();
+    }
+
     private ProfileTreeBuilder getExecutionProfileTreeBuilder(String executionId) throws AnalysisException {
         ProfileTreeBuilder singleBuilder = idToSingleTreeBuilder.get(executionId);
         if (singleBuilder == null) {

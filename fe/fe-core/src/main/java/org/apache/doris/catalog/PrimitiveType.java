@@ -481,11 +481,7 @@ public enum PrimitiveType {
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
     }
 
-    private static PrimitiveType[][] schemaChangeCompatibilityMatrix;
-
     static {
-        schemaChangeCompatibilityMatrix = new PrimitiveType[HLL.ordinal() + 1][HLL.ordinal() + 1];
-
         // NULL_TYPE is compatible with any type and results in the non-null type.
         compatibilityMatrix[NULL_TYPE.ordinal()][NULL_TYPE.ordinal()] = NULL_TYPE;
         compatibilityMatrix[NULL_TYPE.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
@@ -576,7 +572,7 @@ public enum PrimitiveType {
     }
 
     public static int getMaxSlotSize() {
-        return DECIMALV2.slotSize;
+        return ARRAY.slotSize;
     }
 
     /**

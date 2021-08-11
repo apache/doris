@@ -19,29 +19,21 @@
  */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
-import com.alibaba.datax.common.element.Column;
-import com.alibaba.datax.common.element.DateColumn;
 import com.alibaba.datax.common.element.Record;
 import com.alibaba.fastjson.JSON;
-
-import org.apache.commons.lang3.time.DateFormatUtils;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TimeZone;
 
 // Convert DataX data to json
-public class DorisJsonCodec {
-    private static String timeZone = "GMT+8";
-    private static TimeZone timeZoner = TimeZone.getTimeZone(timeZone);
-
-    private final List<String> fieldNames;
+public class DorisJsonCodec extends DorisCodec {
 
     public DorisJsonCodec(final List<String> fieldNames) {
-        this.fieldNames = fieldNames;
+        super(fieldNames);
     }
 
+    @Override
     public String serialize(final Record row) {
         if (null == this.fieldNames) {
             return "";
@@ -55,40 +47,4 @@ public class DorisJsonCodec {
         return JSON.toJSONString(rowMap);
     }
 
-    /**
-     *  convert datax internal  data to string
-     *
-     * @param col
-     * @return
-     */
-    private Object convertColumn(final Column col) {
-        if (null == col.getRawData()) {
-            return null;
-        }
-        Column.Type type = col.getType();
-        switch (type) {
-            case BOOL:
-            case INT:
-            case LONG:
-                return col.asLong();
-            case DOUBLE:
-                return col.asDouble();
-            case STRING:
-                return col.asString();
-            case DATE: {
-                final DateColumn.DateType dateType = ((DateColumn) col).getSubType();
-                switch (dateType) {
-                    case DATE:
-                        return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd", timeZoner);
-                    case DATETIME:
-                        return DateFormatUtils.format(col.asDate(), "yyyy-MM-dd HH:mm:ss", timeZoner);
-                    default:
-                        return col.asString();
-                }
-            }
-            default:
-                // BAD, NULL, BYTES
-                return null;
-        }
-    }
 }

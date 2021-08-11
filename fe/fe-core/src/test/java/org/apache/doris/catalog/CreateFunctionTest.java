@@ -103,5 +103,28 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
+
+        // create alias function
+        createFuncStr = "create alias function db1.id_masking(int) with parameter(id) as concat(left(id,3),'****',right(id,4));";
+        createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
+        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+
+        functions = db.getFunctions();
+        Assert.assertEquals(2, functions.size());
+
+        queryStr = "select db1.id_masking(13888888888);";
+        ctx.getState().reset();
+        stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+        planner = stmtExecutor.planner();
+        Assert.assertEquals(1, planner.getFragments().size());
+        fragment = planner.getFragments().get(0);
+        Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
+        unionNode =  (UnionNode)fragment.getPlanRoot();
+        constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
+        Assert.assertEquals(1, constExprLists.size());
+        Assert.assertEquals(1, constExprLists.get(0).size());
+        Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
     }
 }

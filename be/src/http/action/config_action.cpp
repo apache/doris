@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/action/update_config_action.h"
+#include "http/action/config_action.h"
 
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -40,7 +40,34 @@ const static std::string HEADER_JSON = "application/json";
 
 const static std::string PERSIST_PARAM = "persist";
 
-void UpdateConfigAction::handle(HttpRequest* req) {
+void ConfigAction::handle(HttpRequest* req) {
+    if (_type == ConfigActionType::UPDATE_CONFIG) {
+        handle_update_config(req);
+    } else if (_type == ConfigActionType::SHOW_CONFIG) {
+        handle_show_config(req);
+    }
+}
+
+void ConfigAction::handle_show_config(HttpRequest* req) {
+    std::vector<std::vector<std::string>> config_info = config::get_config_info();
+
+    rapidjson::StringBuffer str_buf;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(str_buf);
+
+    writer.StartArray();
+    for (const auto& _config : config_info) {
+        writer.StartArray();
+        for (const std::string& config_filed : _config) {
+            writer.String(config_filed.c_str());
+        }
+        writer.EndArray();   
+    }
+
+    writer.EndArray();
+    HttpChannel::send_reply(req, str_buf.GetString());
+}
+
+void ConfigAction::handle_update_config(HttpRequest* req) {
     LOG(INFO) << req->debug_string();
 
     Status s;

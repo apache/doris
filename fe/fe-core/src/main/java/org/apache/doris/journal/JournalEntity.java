@@ -26,10 +26,10 @@ import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -46,6 +46,7 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -90,7 +91,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
-
 import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
@@ -530,6 +530,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_LOAD_JOB: {
                 data = LoadJobStateUpdateInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SYNC_JOB: {
+                data = SyncJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
+                data = SyncJob.SyncJobUpdateStateInfo.read(in);
                 isRead = true;
                 break;
             }

@@ -382,7 +382,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
         jobProperties.put(LoadStmt.STRICT_MODE, false);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, 1);
+        jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
     }
 
     public void isJobTypeRead(boolean jobTypeRead) {

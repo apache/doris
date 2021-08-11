@@ -33,6 +33,7 @@ import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.ProtocolException;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpHead;
@@ -64,9 +65,15 @@ public class DorisWriterEmitter {
     private int hostPos = 0;
     private List<String> targetHosts = Lists.newArrayList();
 
+    private RequestConfig requestConfig;
+
     public DorisWriterEmitter(final Key keys) {
         this.keys = keys;
         initHostList();
+        initRequestConfig();
+    }
+    private void initRequestConfig(){
+        requestConfig=RequestConfig.custom().setConnectTimeout(this.keys.getConnectTimeout()).build();
     }
 
     // get target host from config
@@ -110,6 +117,7 @@ public class DorisWriterEmitter {
 
     /**
      * loop to get target host
+     *
      * @return
      */
     private String getAvailableHost() {
@@ -162,7 +170,7 @@ public class DorisWriterEmitter {
                     return new HttpGet(uri);
                 } else {
                     int status = response.getStatusLine().getStatusCode();
-                    return (HttpUriRequest)(status == 307 ? RequestBuilder.copy(request).setUri(uri).build() : new HttpGet(uri));
+                    return (HttpUriRequest) (status == 307 ? RequestBuilder.copy(request).setUri(uri).build() : new HttpGet(uri));
                 }
             }
         });
@@ -186,11 +194,20 @@ public class DorisWriterEmitter {
             httpPut.setHeader(HttpHeaders.EXPECT, "100-continue");
             httpPut.setHeader(HttpHeaders.AUTHORIZATION, this.getBasicAuthHeader(this.keys.getUsername(), this.keys.getPassword()));
             httpPut.setHeader("label", flushBatch.getLabel());
-            httpPut.setHeader("format", "json");
-            httpPut.setHeader("read_json_by_line", "true");
-            httpPut.setHeader("fuzzy_parse", "true");
+            httpPut.setHeader("format", this.keys.getFormat());
+            httpPut.setHeader("line_delimiter", this.keys.getLineDelimiterDesc());
+
+            if ("csv".equalsIgnoreCase(this.keys.getFormat())) {
+                httpPut.setHeader("column_separator", this.keys.getColumnSeparatorDesc());
+            } else {
+                httpPut.setHeader("read_json_by_line", "true");
+                httpPut.setHeader("fuzzy_parse", "true");
+            }
+
             // Use ByteArrayEntity instead of StringEntity to handle Chinese correctly
             httpPut.setEntity(new ByteArrayEntity(flushBatch.getData().toString().getBytes()));
+
+            httpPut.setConfig(requestConfig);
 
             try (final CloseableHttpResponse resp = httpclient.execute(httpPut)) {
                 final int code = resp.getStatusLine().getStatusCode();

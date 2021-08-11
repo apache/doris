@@ -87,6 +87,15 @@ module.exports = [
             title: "FE",
             directoryPath: "fe/",
             children: [
+                {
+                  title: "MANAGER",
+                  directoryPath: "manager/",
+                  children: [
+                    "cluster-action",
+                    "node-action",
+                    "query-profile-action",
+                  ],
+                },
                 "bootstrap-action",
                 "cancel-load-action",
                 "check-decommission-action",
@@ -198,7 +207,9 @@ module.exports = [
     title: "最佳实践",
     directoryPath: "best-practices/",
     children: [
-      "fe-load-balance"
+      "fe-load-balance",
+      "systemd",
+      "samples"
     ],
   },
   {
@@ -212,6 +223,7 @@ module.exports = [
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
+      "datax",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -404,6 +416,7 @@ module.exports = [
           },
           "window-function",
           "cast",
+          "digital-masking",
         ],
       },
       {
@@ -438,6 +451,7 @@ module.exports = [
               "ADMIN SHOW CONFIG",
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
+              "ADMIN-SHOW-DATA-SKEW",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",
@@ -459,6 +473,7 @@ module.exports = [
               "SHOW MIGRATIONS",
               "SHOW PLUGINS",
               "SHOW TABLE STATUS",
+              "SHOW TRASH",
               "UNINSTALL PLUGIN",
             ],
           },

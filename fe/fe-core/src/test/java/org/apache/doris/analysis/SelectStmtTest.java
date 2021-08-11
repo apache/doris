@@ -696,4 +696,23 @@ public class SelectStmtTest {
             Assert.fail(e.getMessage());
         }
     }
+
+    @Test
+    public void testSystemViewCaseInsensitive() throws Exception {
+        String sql1 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
+        // The system view names in information_schema are case-insensitive,
+        dorisAssert.query(sql1).explainQuery();
+
+        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA\n";
+        try {
+            // Should not refer to one of system views using different cases within the same statement.
+            // sql2 is wrong because 'ROUTINES' and 'routines' are used.
+            dorisAssert.query(sql2).explainQuery();
+            Assert.fail("Refer to one of system views using different cases within the same statement is wrong.");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
+    }
 }

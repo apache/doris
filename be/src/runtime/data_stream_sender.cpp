@@ -317,6 +317,7 @@ Status DataStreamSender::Channel::send_local_batch(bool eos) {
         if (eos) {
             recvr->remove_sender(_parent->_sender_id, _be_number);
         }
+        COUNTER_UPDATE(_parent->_local_bytes_send_counter, _batch->total_byte_size());
     }
     _batch->reset();
     return Status::OK();
@@ -328,6 +329,7 @@ Status DataStreamSender::Channel::send_local_batch(RowBatch* batch, bool use_mov
                                                                    _dest_node_id);
     if (recvr != nullptr) {
         recvr->add_batch(batch, _parent->_sender_id, use_move);
+        COUNTER_UPDATE(_parent->_local_bytes_send_counter, batch->total_byte_size());
     }
     return Status::OK();
 }
@@ -384,6 +386,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _profile(NULL),
           _serialize_batch_timer(NULL),
           _bytes_sent_counter(NULL),
+          _local_bytes_send_counter(NULL),
           _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -495,6 +498,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
                                profile()->total_time_counter()),
             "");
+    _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));
     }
