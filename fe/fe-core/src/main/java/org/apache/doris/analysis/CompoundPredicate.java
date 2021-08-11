@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
+import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -37,6 +40,15 @@ import java.util.Objects;
 public class CompoundPredicate extends Predicate {
     private final static Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     private final Operator op;
+
+    public static void initBuiltins(FunctionSet functionSet) {
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
+    }
 
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
         super();
@@ -226,5 +238,10 @@ public class CompoundPredicate extends Predicate {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
+    }
+
+    @Override
+    public boolean isNullable() {
+        return hasNullableChild();
     }
 }

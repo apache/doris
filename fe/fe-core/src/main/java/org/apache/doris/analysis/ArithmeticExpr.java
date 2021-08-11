@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -105,17 +106,57 @@ public class ArithmeticExpr extends Expr {
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE));
+                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
                 Operator.DIVIDE.getName(),
                 Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2));
+                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
 
         // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
         // builtins, see palo_functions.py
         for (Type t : Type.getIntegerTypes()) {
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t), t));
+                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t),
+                    t, Function.NullableMode.ALWAYS_NULLABLE));
+        }
+
+        // init vec build function
+        for (int i = 0; i < Type.getNumericTypes().size(); i++) {
+            Type t1 = Type.getNumericTypes().get(i);
+            for (int j = 0; j < Type.getNumericTypes().size(); j++) {
+                Type t2 = Type.getNumericTypes().get(j);
+
+                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2),
+                        Type.getAssignmentCompatibleType(t1, t2, false)));
+                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                        Operator.ADD.getName(), Lists.newArrayList(t1, t2),
+                        Type.getAssignmentCompatibleType(t1, t2, false)));
+                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2),
+                        Type.getAssignmentCompatibleType(t1, t2, false)));
+            }
+        }
+
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
+                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
+        functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                Operator.DIVIDE.getName(),
+                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
+                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+
+        for (int i = 0; i < Type.getIntegerTypes().size(); i++) {
+            Type t1 = Type.getIntegerTypes().get(i);
+            for (int j = 0; j < Type.getIntegerTypes().size(); j++) {
+                Type t2 = Type.getIntegerTypes().get(j);
+
+                functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
+                        Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
+                        Type.getAssignmentCompatibleType(t1, t2, false),
+                        Function.NullableMode.ALWAYS_NULLABLE));
+            }
         }
     }
 
@@ -211,67 +252,104 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        // bitnot is the only unary op, deal with it here
-        if (op == Operator.BITNOT) {
-            type = Type.BIGINT;
-            if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
-                castChild(type, 0);
+        if (VectorizedUtil.isVectorized()) {
+            analyzeSubqueryInChildren();
+            // if children has subquery, it will be rewritten and reanalyzed in the future.
+            if (contains(Subquery.class)) {
+                return;
             }
-            fn = getBuiltinFunction(
-                    analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+
+            Type t1 = getChild(0).getType();
+            Type t2 = getChild(1).getType();
+
+            switch (op) {
+                case MULTIPLY:
+                case ADD:
+                case SUBTRACT:
+                case MOD:
+                case INT_DIVIDE:
+                    fn = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
+                            Function.CompareMode.IS_IDENTICAL);
+                    break;
+                case DIVIDE:
+                    t1 = getChild(0).getType().getNumResultType();
+                    t2 = getChild(1).getType().getNumResultType();
+                    Type commonType = findCommonType(t1, t2);
+                    if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
+                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
+                        commonType = Type.DOUBLE;
+                    }
+                    castBinaryOp(commonType);
+                    fn = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
+                            Function.CompareMode.IS_IDENTICAL);
+                    break;
+            }
+
             if (fn == null) {
-                Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
+                Preconditions.checkState(false, String.format(
+                        "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
             }
-            return;
-        }
-
-        analyzeSubqueryInChildren();
-        // if children has subquery, it will be rewritten and reanalyzed in the future.
-        if (contains(Subquery.class)) {
-            return;
-        }
-
-        Type t1 = getChild(0).getType().getNumResultType();
-        Type t2 = getChild(1).getType().getNumResultType();
-        // Find result type of this operator
-        Type commonType = Type.INVALID;
-        String fnName = op.getName();
-        switch (op) {
-            case MULTIPLY:
-            case ADD:
-            case SUBTRACT:
-            case MOD:
-                // numeric ops must be promoted to highest-resolution type
-                // (otherwise we can't guarantee that a <op> b won't overflow/underflow)
-                commonType = findCommonType(t1, t2);
-                break;
-            case DIVIDE:
-                commonType = findCommonType(t1, t2);
-                if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                        || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
-                    commonType = Type.DOUBLE;
+            type = fn.getReturnType();
+        } else {
+            // bitnot is the only unary op, deal with it here
+            if (op == Operator.BITNOT) {
+                type = Type.BIGINT;
+                if (getChild(0).getType().getPrimitiveType() != PrimitiveType.BIGINT) {
+                    castChild(type, 0);
                 }
-                break;
-            case INT_DIVIDE:
-            case BITAND:
-            case BITOR:
-            case BITXOR:
-                // Must be bigint
-                commonType = Type.BIGINT;
-                break;
-            default:
-                // the programmer forgot to deal with a case
-                Preconditions.checkState(false,
-                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
-                break;
-        }
-
-        type = castBinaryOp(commonType);
-        fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
-                Function.CompareMode.IS_IDENTICAL);
-        if (fn == null) {
-            Preconditions.checkState(false, String.format(
-                    "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+                fn = getBuiltinFunction(
+                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                if (fn == null) {
+                    Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
+                }
+                return;
+            }
+            analyzeSubqueryInChildren();
+            // if children has subquery, it will be rewritten and reanalyzed in the future.
+            if (contains(Subquery.class)) {
+                return;
+            }
+            Type t1 = getChild(0).getType().getNumResultType();
+            Type t2 = getChild(1).getType().getNumResultType();
+            // Find result type of this operator
+            Type commonType = Type.INVALID;
+            String fnName = op.getName();
+            switch (op) {
+                case MULTIPLY:
+                case ADD:
+                case SUBTRACT:
+                case MOD:
+                    // numeric ops must be promoted to highest-resolution type
+                    // (otherwise we can't guarantee that a <op> b won't overflow/underflow)
+                    commonType = findCommonType(t1, t2);
+                    break;
+                case DIVIDE:
+                    commonType = findCommonType(t1, t2);
+                    if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
+                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
+                        commonType = Type.DOUBLE;
+                    }
+                    break;
+                case INT_DIVIDE:
+                case BITAND:
+                case BITOR:
+                case BITXOR:
+                    // Must be bigint
+                    commonType = Type.BIGINT;
+                    break;
+                default:
+                    // the programmer forgot to deal with a case
+                    Preconditions.checkState(false,
+                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                    break;
+            }
+            type = castBinaryOp(commonType);
+            fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
+                    Function.CompareMode.IS_IDENTICAL);
+            if (fn == null) {
+                Preconditions.checkState(false, String.format(
+                        "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+            }
         }
     }
 
@@ -304,4 +382,5 @@ public class ArithmeticExpr extends Expr {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
+
 }

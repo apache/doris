@@ -346,6 +346,8 @@ public:
 
     int32_t runtime_filter_max_in_num() { return _query_options.runtime_filter_max_in_num; }
 
+    bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
+
     bool enable_exchange_node_parallel_merge() const {
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }

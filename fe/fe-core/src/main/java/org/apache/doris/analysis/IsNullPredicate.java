@@ -48,11 +48,11 @@ public class IsNullPredicate extends Predicate {
                         "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
             }
 
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     IS_NULL, isNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
 
             String isNotNullSymbol = isNullSymbol.replace("7is_null", "11is_not_null");
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     IS_NOT_NULL, isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
         }
     }
@@ -128,4 +128,8 @@ public class IsNullPredicate extends Predicate {
         return new IsNullPredicate(getChild(0), !isNotNull);
     }
 
+    @Override
+    public boolean isNullable() {
+        return false;
+    }
 }

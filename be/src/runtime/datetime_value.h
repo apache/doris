@@ -137,6 +137,28 @@ const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 
+constexpr size_t const_length(const char* str) {
+    return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
+}
+
+constexpr size_t max_char_length(const char* const* name, size_t end) {
+    size_t res = 0;
+    for (int i = 0; i < end; ++i) {
+        res = std::max(const_length(name[i]), res);
+    }
+    return res;
+}
+
+static constexpr const char* s_month_name[] = {
+        "",     "January", "February",  "March",   "April",    "May",      "June",
+        "July", "August",  "September", "October", "November", "December", NULL};
+
+static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
+                                             "Friday", "Saturday", "Sunday",    NULL};
+
+static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
+static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
+
 uint8_t mysql_week_mode(uint32_t mode);
 
 class DateTimeValue {
@@ -145,15 +167,15 @@ public:
     DateTimeValue()
             : _neg(0),
               _type(TIME_DATETIME),
-              _hour(0),
-              _minute(0),
               _second(0),
-              _year(0),
-              _month(0),
+              _minute(0),
+              _hour(0),
               _day(0),
+              _month(0),
+              _year(0),
               _microsecond(0) {}
 
-    DateTimeValue(int64_t t) { from_date_int64(t); }
+    explicit DateTimeValue(int64_t t) { from_date_int64(t); }
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
         uint32_t minute, uint32_t second, uint32_t microsecond);
@@ -255,6 +277,68 @@ public:
 
     static bool check_date(uint32_t year, uint32_t month, uint32_t day);
 
+    // compute the diff between two datetime value
+    template <TimeUnit unit>
+    static int64_t datetime_diff(const DateTimeValue& ts_value1, const DateTimeValue& ts_value2) {
+        switch (unit) {
+        case YEAR: {
+            int year = (ts_value2.year() - ts_value1.year());
+            if (year > 0) {
+                year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) <
+                        0;
+            } else if (year < 0) {
+                year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) >
+                        0;
+            }
+            return year;
+        }
+        case MONTH: {
+            int month = (ts_value2.year() - ts_value1.year()) * 12 +
+                        (ts_value2.month() - ts_value1.month());
+            if (month > 0) {
+                month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+            } else if (month < 0) {
+                month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
+            }
+            return month;
+        }
+        case WEEK: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day / 7;
+        }
+        case DAY: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day;
+        }
+        case HOUR: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t hour = second / 60 / 60;
+            return hour;
+        }
+        case MINUTE: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t minute = second / 60;
+            return minute;
+        }
+        case SECOND: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            return second;
+        }
+        }
+        // Rethink the default return value
+        return 0;
+    }
+
     // Convert this value to uint64_t
     // Will check its type
     int64_t to_int64() const;
@@ -278,11 +362,13 @@ public:
 
     int year() const { return _year; }
     int month() const { return _month; }
+    int quarter() const { return (_month - 1) / 3 + 1; }
     int day() const { return _day; }
     int hour() const { return _hour; }
     int minute() const { return _minute; }
     int second() const { return _second; }
     int microsecond() const { return _microsecond; }
+    int neg() const { return _neg; }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0 || _microsecond != 0;
@@ -309,6 +395,7 @@ public:
 
     // Weekday, from 0(Mon) to 6(Sun)
     inline uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    inline auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
     // WEEK_MONDAY_FIRST (0)
@@ -536,15 +623,15 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
-    // 1 bits for neg. 3 bits for type. 12bit for hour
+    // 1 bits for neg. 3 bits for type. 12bit for second
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.
-    uint16_t _hour : 12;
+    uint16_t _second : 12;
     uint8_t _minute;
-    uint8_t _second;
-    uint16_t _year;
-    uint8_t _month;
+    uint8_t _hour;
     uint8_t _day;
+    uint8_t _month;
+    uint16_t _year;
     // TODO(zc): used for nothing
     uint64_t _microsecond;
 
@@ -552,12 +639,12 @@ private:
                   uint32_t microsecond, uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
-              _hour(hour),
-              _minute(minute),
               _second(second),
-              _year(year),
-              _month(month),
+              _minute(minute),
+              _hour(hour),
               _day(day),
+              _month(month),
+              _year(year),
               _microsecond(microsecond) {}
 
     // RE2 obj is thread safe

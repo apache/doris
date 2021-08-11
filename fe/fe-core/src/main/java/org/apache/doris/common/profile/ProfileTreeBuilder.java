@@ -56,6 +56,8 @@ public class ProfileTreeBuilder {
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
     private static final String PROFILE_NAME_EXCHANGE_NODE = "EXCHANGE_NODE";
     public static final String FINAL_SENDER_ID = "-1";
+    private static final String PROFILE_NAME_VEXCHANGE_NODE = "VEXCHANGE_NODE";
+    public static final String DATA_BUFFER_SENDER_ID = "-1";
     public static final String UNKNOWN_ID = "-2";
 
     private RuntimeProfile profileRoot;
@@ -270,7 +272,8 @@ public class ProfileTreeBuilder {
             node.setParentNode(root);
         }
 
-        if (node.name.equals(PROFILE_NAME_EXCHANGE_NODE) && instanceId == null) {
+        if ((node.name.equals(PROFILE_NAME_EXCHANGE_NODE) ||
+            node.name.equals(PROFILE_NAME_VEXCHANGE_NODE)) && instanceId == null) {
             exchangeNodes.add(node);
         }
 

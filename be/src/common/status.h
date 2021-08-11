@@ -235,6 +235,8 @@ public:
     ///   trailing message.
     Status clone_and_append(const Slice& msg) const;
 
+    operator bool() { return this->ok(); }
+
 private:
     const char* copy_state(const char* state);
 
