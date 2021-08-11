@@ -251,6 +251,28 @@ public class PlannerTest {
                 .getPlanRoot().getChild(0) instanceof AggregationNode);
         Assert.assertTrue(fragments10.get(0).getPlanRoot()
                 .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
+
+        String sql11 = "SELECT a.x FROM\n" +
+                "(SELECT '01' x) a \n" +
+                "INNER JOIN\n" +
+                "(SELECT '01' x UNION all SELECT '02') b";
+        StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
+        stmtExecutor11.execute();
+        Planner planner11 = stmtExecutor11.planner();
+        SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode11.getMaterializedConstExprLists_().size());
+
+        String sql12 = "SELECT a.x \n" +
+                "FROM (SELECT '01' x) a \n" +
+                "INNER JOIN \n" +
+                "(SELECT k1 from db1.tbl1 \n" +
+                "UNION all \n" +
+                "SELECT k1 from db1.tbl1) b;";
+        StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
+        stmtExecutor12.execute();
+        Planner planner12 = stmtExecutor12.planner();
+        SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode12.getMaterializedResultExprLists_().size());
     }
 
     @Test
