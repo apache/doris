@@ -127,7 +127,11 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
 
     for (int i = 0; i < _column_num; ++i) {
         TSlotDescriptor t_slot_desc;
-        t_slot_desc.__set_slotType(TypeDescriptor(_columns[i].type).to_thrift());
+        if (_columns[i].type == TYPE_DECIMALV2) {
+            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
+        } else {
+            t_slot_desc.__set_slotType(TypeDescriptor(_columns[i].type).to_thrift());
+        }
         t_slot_desc.__set_colName(_columns[i].name);
         t_slot_desc.__set_columnPos(i);
         t_slot_desc.__set_byteOffset(offset);

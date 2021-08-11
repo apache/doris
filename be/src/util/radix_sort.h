@@ -192,7 +192,7 @@ using RadixSortNumTraits = conditional_t<
  * To use RadixSort, you should define `Traits` to give out the information for sorting.
  * `RadixSortFloatTraits` is a good example to refer to.
  * Then you can run it as follows:
- *           RadixSort<YourTraits>::executeLSD(arr, size);
+ *           RadixSort<YourTraits>::execute_lsd(arr, size);
  *
  * In particular, if you want to sort an array of numeric, you can use it easily as follows:
  *           radixSortLSD(array_of_numeric, array_size);

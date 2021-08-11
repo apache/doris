@@ -327,7 +327,7 @@ public class PlannerTest {
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
         String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(true, false));
-        Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
     }
 
     @Test

@@ -379,6 +379,17 @@ HDFS3_NAME="libhdfs3-master.zip"
 HDFS3_SOURCE="libhdfs3-master"
 HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
 
+#libdivide
+LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v4.0.0.tar.gz"
+LIBDIVIDE_NAME="libdivide-4.0.0.tar.gz"
+LIBDIVIDE_SOURCE="libdivide-4.0.0"
+LIBDIVIDE_MD5SUM="71b99d499b9a5effd0fb2e249622b017"
+
+#pdqsort
+PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort_0.0.0+git20180419.orig.tar.gz"
+PDQSORT_NAME="pdqsort.tar.gz"
+PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
+PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -434,4 +445,7 @@ AWS_SDK
 LZMA
 XML2
 GSASL
-HDFS3"
+HDFS3
+LIBDIVIDE
+PDQSORT"
+

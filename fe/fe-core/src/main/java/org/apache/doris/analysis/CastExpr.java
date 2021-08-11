@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import java.util.Arrays;
+import java.util.Map;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -25,6 +28,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -32,9 +36,11 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 
 public class CastExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(CastExpr.class);
@@ -47,6 +53,29 @@ public class CastExpr extends Expr {
 
     // True if this cast does not change the type.
     private boolean noOp = false;
+
+    private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
+
+    static {
+        TYPE_NULLABLE_MODE = Maps.newHashMap();
+        for (ScalarType fromType: Type.getSupportedTypes()) {
+            if (fromType.isNull()) {
+                continue;
+            }
+            for (ScalarType toType: Type.getSupportedTypes()) {
+                if (fromType.isNull()) {
+                    continue;
+                }
+                if (fromType.isStringType() && !toType.isStringType()) {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                } else if (!fromType.isDateType() && toType.isDateType()) {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                } else {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
+                }
+            }
+        }
+    }
 
     public CastExpr(Type targetType, Expr e) {
         super();
@@ -120,8 +149,10 @@ public class CastExpr extends Expr {
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
-                functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(toType),
-                        Lists.newArrayList(fromType), false, toType, beSymbol, null, null, true));
+                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
+                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                        Lists.newArrayList(fromType), false ,
+                        beSymbol, null, null, true));
             }
         }
     }
@@ -186,7 +217,7 @@ public class CastExpr extends Expr {
 
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, collectChildReturnTypes(), Type.INVALID, false);
+        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
         if (isImplicit) {
             fn = Catalog.getCurrentCatalog().getFunction(
                     searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);

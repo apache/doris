@@ -34,7 +34,6 @@
 #include "util/uid_util.h" // for print_id
 
 namespace doris {
-
 class Expr;
 class ExprContext;
 class ObjectPool;
@@ -45,6 +44,11 @@ class TPlan;
 class TupleRow;
 class DataSink;
 class MemTracker;
+
+namespace vectorized {
+class Block;
+class VExpr;
+}
 
 using std::string;
 using std::stringstream;
@@ -97,6 +101,7 @@ public:
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) = 0;
+    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
     // Clears all internal state, returning this node to the state it was in after calling

@@ -74,6 +74,7 @@ public:
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
                                    const RowDescriptor& row_desc,
+                                   bool is_vec,
                                    boost::scoped_ptr<DataSink>* sink);
 
     // Returns the runtime profile for the sink.

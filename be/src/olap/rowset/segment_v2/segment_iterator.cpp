@@ -526,7 +526,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     _opts.stats->raw_rows_read += nrows_read;
     _opts.stats->blocks_load += 1;
 
-    // phase 2: run vectorization evaluation on remaining predicates to prune rows.
+    // phase 2: run vectorized evaluation on remaining predicates to prune rows.
     // block's selection vector will be set to indicate which rows have passed predicates.
     // TODO(hkp): optimize column predicate to check column block once for one column
     if (!_col_predicates.empty() || _opts.delete_condition_predicates.get() != nullptr) {
