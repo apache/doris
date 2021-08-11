@@ -66,6 +66,7 @@ public class OperationType {
     public static final short OP_BATCH_ADD_ROLLUP = 123;
     public static final short OP_BATCH_DROP_ROLLUP = 124;
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
+    public static final short OP_MODIFY_COMMENT = 126;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
