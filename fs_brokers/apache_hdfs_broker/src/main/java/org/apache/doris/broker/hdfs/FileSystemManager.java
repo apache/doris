@@ -271,7 +271,11 @@ public class FileSystemManager {
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
                         // different kerberos account has different file
-                        tmpFilePath = "/tmp/." + principal + "_" + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
+                        tmpFilePath ="/tmp/." +
+                                principal.replace('/', '_') +
+                                "_" + Long.toString(currentTime) +
+                                "_" + Integer.toString(randNumber);
+                        logger.info("create kerberos tmp file" + tmpFilePath);
                         FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
                         fileOutputStream.write(base64decodedBytes);
                         fileOutputStream.close();
