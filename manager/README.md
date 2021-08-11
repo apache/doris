@@ -1,4 +1,3 @@
-
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -23,7 +22,12 @@ under the License.
 
 Apache Doris Manager is used to manage the doris cluster, such as installing the cluster, upgrading the cluster, starting and stopping services, etc.
 
-## 1. Compile and install
+## 1.Database configuration
+
+*  Modify the database configuration in the manager/dm-server/src/main/resources/application.properties file.
+*  Create a new database, and then execute the table creation statement in the manager/dm-server/src/main/resources/dm-server.sql file
+
+## 2. Compile and install
 
 ### Step1: build
 ```
