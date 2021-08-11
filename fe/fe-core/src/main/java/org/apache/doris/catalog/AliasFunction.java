@@ -41,6 +41,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -63,17 +64,13 @@ public class AliasFunction extends Function {
     protected AliasFunction() {
     }
 
-    public AliasFunction(FunctionName fnName, Type[] argTypes, Type retType, boolean hasVarArgs) {
-        super(fnName, argTypes, retType, hasVarArgs);
-    }
-
-    public AliasFunction(FunctionName fnName, ArrayList<Type> argTypes, Type retType, boolean hasVarArgs) {
+    public AliasFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs) {
         super(fnName, argTypes, retType, hasVarArgs);
     }
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
                                                boolean hasVarArgs, List<String> parameters, Expr originFunction) {
-        AliasFunction aliasFunction = new AliasFunction(functionName, argTypes, retType, hasVarArgs);
+        AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.NATIVE);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
