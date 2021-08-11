@@ -211,6 +211,51 @@ public class AlterTest {
     }
 
     @Test
+    public void alterTableModifyComment() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Table tbl = db.getTable("tbl5");
+
+        // table comment
+        String stmt = "alter table test.tbl5 modify comment 'comment1'";
+        alterTable(stmt, false);
+        Assert.assertEquals("comment1", tbl.getComment());
+
+        // column comment
+        stmt = "alter table test.tbl5 modify column k1 comment 'k1'";
+        alterTable(stmt, false);
+        Assert.assertEquals("k1", tbl.getColumn("k1").getComment());
+
+        // columns comment
+        stmt = "alter table test.tbl5 modify column k1 comment 'k11', modify column v1 comment 'v11'";
+        alterTable(stmt, false);
+        Assert.assertEquals("k11", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v11", tbl.getColumn("v1").getComment());
+
+        // empty comment
+        stmt = "alter table test.tbl5 modify comment ''";
+        alterTable(stmt, false);
+        Assert.assertEquals("OLAP", tbl.getComment());
+
+        // empty column comment
+        stmt = "alter table test.tbl5 modify column k1 comment '', modify column v1 comment 'v111'";
+        alterTable(stmt, false);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
+
+        // unknown column
+        stmt = "alter table test.tbl5 modify column x comment '', modify column v1 comment 'v111'";
+        alterTable(stmt, true);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
+
+        // duplicate column
+        stmt = "alter table test.tbl5 modify column k1 comment '', modify column k1 comment 'v111'";
+        alterTable(stmt, true);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
+    }
+
+    @Test
     public void testConflictAlterOperations() throws Exception {
         String stmt = "alter table test.tbl1 add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
         alterTable(stmt, true);
