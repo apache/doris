@@ -188,14 +188,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param analyzer
      * @throws AnalysisException
      */
-    private void getConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    // public only for unit test
+    public void getConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
                               Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
-        // Analyze constant exprs, if necessary. Note that the 'expr' may become non-constant
-        // after analysis (e.g., aggregate functions).
-        if (!expr.isAnalyzed()) {
-            expr.analyze(analyzer);
-        }
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
             // cast-to-types and that can lead to query failures, e.g., CTAS
