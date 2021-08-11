@@ -1,0 +1,34 @@
+target/
+logs/
+!.mvn/wrapper/maven-wrapper.jar
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+
+### IntelliJ IDEA ###
+.idea
+.idea/
+*.iws
+*.iml
+*.ipr
+.mvn
+.idea/*
+
+### NetBeans ###
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+/.idea/externalDependencies.xml
+/.idea/
+/manager.iml
+/doris-manager.iml
+assembly/output/
+log/
