@@ -1,3 +1,10 @@
+---
+{
+    "title": "DataX doriswriter",
+    "language": "en"
+}
+---
+
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -17,7 +24,21 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DataX Extension Directory
+# DataX doriswriter
+
+[DataX](https://github.com/alibaba/DataX) doriswriter plug-in, used to synchronize data from other data sources to Doris through DataX.
+
+The plug-in uses Doris' Stream Load function to synchronize and import data. It needs to be used with DataX service.
+
+## About DataX
+
+DataX is an open source version of Alibaba Cloud DataWorks data integration, an offline data synchronization tool/platform widely used in Alibaba Group. DataX implements efficient data synchronization functions between various heterogeneous data sources including MySQL, Oracle, SqlServer, Postgre, HDFS, Hive, ADS, HBase, TableStore (OTS), MaxCompute (ODPS), Hologres, DRDS, etc.
+
+More details can be found at: `https://github.com/alibaba/DataX/`
+
+## Usage
+
+The code of DataX doriswriter plug-in can be found [here](https://github.com/apache/incubator-doris/tree/master/extension/DataX).
 
 This directory is the doriswriter plug-in development environment of Alibaba DataX.
 
@@ -30,26 +51,26 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
     This directory is the code directory of doriswriter, and this part of the code should be in the Doris code base.
 
     The help doc can be found in `doriswriter/doc`
-    
+
 2. `init_env.sh`
 
     The script mainly performs the following steps:
-    
+
     1. Git clone the DataX code base to the local
     2. Softlink the `doriswriter/` directory to `DataX/doriswriter`.
     3. Add `<module>doriswriter</module>` to the original `DataX/pom.xml`
     4. Change httpclient version from 4.5 to 4.5.13 in DataX/core/pom.xml
 
-        > httpclient v4.5 can not handle redirect 307 correctly. 
-    
+        > httpclient v4.5 can not handle redirect 307 correctly.
+
     After that, developers can enter `DataX/` for development. And the changes in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code.
 
 ### How to build
 
 1. Run `init_env.sh`
-2. Modify code of doriswriter in `DataX/doriswriter`
+2. Modify code of doriswriter in `DataX/doriswriter` if you need.
 3. Build doriswriter
-    
+
     1. Build doriswriter along:
 
         `mvn clean install -pl plugin-rdbms-util,doriswriter -DskipTests`
@@ -61,11 +82,9 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
         The output will be in `target/datax/datax/`.
 
         > hdfsreader, hdfswriter and oscarwriter needs some extra jar packages. If you don't need to use these components, you can comment out the corresponding module in DataX/pom.xml.
-    
-4. Commit code of doriswriter in `doriswriter`
 
-### About DataX
+4. Commit code of doriswriter in `doriswriter` if you need.
 
-DataX is an open source version of Alibaba Cloud DataWorks data integration, an offline data synchronization tool/platform widely used in Alibaba Group. DataX implements efficient data synchronization functions between various heterogeneous data sources including MySQL, Oracle, SqlServer, Postgre, HDFS, Hive, ADS, HBase, TableStore (OTS), MaxCompute (ODPS), Hologres, DRDS, etc.
+### Example
 
-More details can be found at: `https://github.com/alibaba/DataX/`
+For instructions on using the doriswriter plug-in, please refer to [here](https://github.com/apache/incubator-doris/blob/master/extension/DataX/doriswriter/doc/doriswriter.md).
