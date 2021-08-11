@@ -25,7 +25,7 @@
 namespace doris {
 
 // Block Column Predicate support do column predicate in RowBlockV2 and support OR and AND predicate
-// Block Column Predicate will replace column predicate as a unified external vectorization interface
+// Block Column Predicate will replace column predicate as a unified external vectorized interface
 // in the future
 // TODO: support do predicate on Bitmap and ZoneMap, So we can use index of column to do predicate on
 // page and segment

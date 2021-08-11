@@ -28,19 +28,15 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-
 const uint64_t log_10_int[] = {1,           10,           100,           1000,
                                10000UL,     100000UL,     1000000UL,     10000000UL,
                                100000000UL, 1000000000UL, 10000000000UL, 100000000000UL};
 
 static int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-static const char* s_month_name[] = {"",        "January",  "February", "March",  "April",
-                                     "May",     "June",     "July",     "August", "September",
-                                     "October", "November", "December", NULL};
+
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
-static const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                   "Friday", "Saturday", "Sunday",    NULL};
+
 static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", NULL};
 
 uint8_t mysql_week_mode(uint32_t mode) {
@@ -1150,7 +1146,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
                 date_part_used = true;
                 break;
             case 'M':
-                int_value = check_word(s_month_name, val, val_end, &val);
+                int_value = check_word(const_cast<const char**>(s_month_name), val, val_end, &val);
                 if (int_value < 0) {
                     return false;
                 }
@@ -1245,7 +1241,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
                 break;
                 // Weekday
             case 'W':
-                int_value = check_word(s_day_name, val, val_end, &val);
+                int_value = check_word(const_cast<const char**>(s_day_name), val, val_end, &val);
                 if (int_value < 0) {
                     return false;
                 }

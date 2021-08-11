@@ -162,6 +162,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                     _plan);
     }
 
+
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
@@ -169,7 +170,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
-        static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+        if (_runtime_state->enable_vectorized_exec()) {
+        } else {
+            static_cast<ExchangeNode *>(exch_node)->set_num_senders(num_senders);
+        }
     }
 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
@@ -197,7 +201,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -249,8 +253,11 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
         _report_thread_active = true;
     }
-
-    Status status = open_internal();
+    Status status = Status::OK();
+    if (_runtime_state->enable_vectorized_exec()) {
+    } else {
+        status = open_internal();
+    }
 
     if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not

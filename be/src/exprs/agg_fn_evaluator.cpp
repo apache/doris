@@ -808,7 +808,7 @@ void AggFnEvaluator::choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRo
 
 void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
                                            const SlotDescriptor* dst_slot_desc, Tuple* dst,
-                                           void* fn) {
+                                           void* fn, bool add_null) {
     // DCHECK_EQ(dst_slot_desc->type().type, _return_type.type);
     if (src == NULL) {
         src = dst;
@@ -818,7 +818,7 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     }
 
     // same
-    bool src_slot_null = src->is_null(_intermediate_slot_desc->null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(_intermediate_slot_desc->null_indicator_offset());
     void* src_slot = NULL;
 
     if (!src_slot_null) {
