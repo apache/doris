@@ -117,6 +117,7 @@ public:
         _bf_buffer_size += bf->size();
         _bfs.push_back(std::move(bf));
         _values.clear();
+        _has_null = false;
         return Status::OK();
     }
 

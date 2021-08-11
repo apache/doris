@@ -103,7 +103,7 @@ public class PartitionDefinition implements Serializable, Comparable<PartitionDe
         similar.retainAll(o.tabletIds);
         diffSelf.removeAll(similar);
         diffOther.removeAll(similar);
-        if  (diffSelf.size() == 0) {
+        if (diffSelf.size() == 0) {
             return 0;
         }
         long diff = Collections.min(diffSelf) - Collections.min(diffOther);

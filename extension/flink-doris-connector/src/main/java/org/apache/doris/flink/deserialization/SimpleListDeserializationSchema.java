@@ -18,10 +18,11 @@ package org.apache.doris.flink.deserialization;
 
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+
 import java.util.List;
 
 
-public class SimpleListDeserializationSchema implements DorisDeserializationSchema{
+public class SimpleListDeserializationSchema implements DorisDeserializationSchema {
 
     @Override
     public TypeInformation getProducedType() {

@@ -100,6 +100,8 @@ public:
     // @brief 获取所有root_path信息
     OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
+    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
