@@ -1,0 +1,40 @@
+<assembly xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/assembly-1.0.0.xsd">
+    <id>package</id>
+    <formats>
+        <format>tar.gz</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <fileSets>
+        <fileSet>
+            <directory>../dm-agent/src/main/resources/agent</directory>
+            <outputDirectory>./agent</outputDirectory>
+            <includes>
+                <include>**</include>
+            </includes>
+        </fileSet>
+        <fileSet>
+            <directory>../dm-server/src/main/resources/bin</directory>
+            <outputDirectory>./bin</outputDirectory>
+        </fileSet>
+        <fileSet>
+            <directory>log</directory>
+            <outputDirectory>./log</outputDirectory>
+            <includes>
+                <include>**</include>
+            </includes>
+        </fileSet>
+    </fileSets>
+    <files>
+        <file>
+            <source>../dm-agent/target/dm-agent-${project.parent.version}.jar</source>
+            <outputDirectory>./agent/lib</outputDirectory>
+            <destName>dm-agent.jar</destName>
+        </file>
+        <file>
+            <source>../dm-server/target/dm-server-${project.parent.version}.jar</source>
+            <outputDirectory>./lib</outputDirectory>
+            <destName>dm-server.jar</destName>
+        </file>
+    </files>
+</assembly>
