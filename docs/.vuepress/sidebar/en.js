@@ -205,7 +205,9 @@ module.exports = [
     title: "Bast Practices",
     directoryPath: "best-practices/",
     children: [
-      "fe-load-balance"
+      "fe-load-balance",
+      "systemd",
+      "samples"
     ],
   },
   {
@@ -219,6 +221,7 @@ module.exports = [
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
+      "datax",
       {
         title: "UDF",
         directoryPath: "udf/",
