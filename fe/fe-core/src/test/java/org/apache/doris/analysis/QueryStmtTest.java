@@ -19,9 +19,12 @@ package org.apache.doris.analysis;
 
 import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.AfterClass;
@@ -55,6 +58,7 @@ public class QueryStmtTest {
                 "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
                 "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
                 "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+                "  `workDateTime` datetime NOT NULL COMMENT \"\",\n" +
                 "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
@@ -75,6 +79,7 @@ public class QueryStmtTest {
     @Test
     public void testCollectExprs() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
         String sql = "SELECT CASE\n" +
                 "        WHEN (\n" +
                 "            SELECT COUNT(*) / 2\n" +
@@ -93,6 +98,8 @@ public class QueryStmtTest {
         Map<String, Expr> exprsMap = new HashMap<>();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(4, exprsMap.size());
+        Map<String, TExpr> constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(0, constMap.size());
 
         sql = "SELECT username\n" +
                 "FROM db1.table1\n" +
@@ -112,6 +119,9 @@ public class QueryStmtTest {
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(7, exprsMap.size());
+        constMap.clear();
+        constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(3, constMap.size());
 
         sql = "select\n" +
                 "   avg(t1.k4)\n" +
@@ -181,6 +191,9 @@ public class QueryStmtTest {
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(2, exprsMap.size());
+        constMap.clear();
+        constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(0, constMap.size());
 
         sql = "SELECT k1 FROM db1.baseall GROUP BY k1 HAVING EXISTS(SELECT k4 FROM db1.tbl1 GROUP BY k4 " +
                 "HAVING SUM(k4) = k4);";
@@ -188,6 +201,9 @@ public class QueryStmtTest {
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(4, exprsMap.size());
+        constMap.clear();
+        constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(0, constMap.size());
 
         // inline view
         sql = "select a.k1, b.now from (select k1,k2 from db1.baseall)a, (select now() as now)b";
@@ -195,6 +211,41 @@ public class QueryStmtTest {
         exprsMap.clear();
         stmt.collectExprs(exprsMap);
         Assert.assertEquals(5, exprsMap.size());
+        constMap.clear();
+        constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(1, constMap.size());
+
+        // expr in subquery associate with column in grandparent level
+        sql = "WITH aa AS\n" +
+                "        (SELECT DATE_FORMAT(workDateTime, '%Y-%m') mon,\n" +
+                "                siteid\n" +
+                "                FROM db1.table1\n" +
+                "                WHERE workDateTime >= concat(year(now())-1, '-01-01 00:00:00')\n" +
+                "                AND workDateTime < now()\n" +
+                "                GROUP BY siteid,\n" +
+                "                DATE_FORMAT(workDateTime, '%Y-%m')),\n" +
+                "        bb AS\n" +
+                "        (SELECT mon,\n" +
+                "                count(DISTINCT siteid) total\n" +
+                "                FROM aa\n" +
+                "                GROUP BY mon),\n" +
+                "        cc AS\n" +
+                "        (SELECT mon,\n" +
+                "                count(DISTINCT siteid) num\n" +
+                "                FROM aa\n" +
+                "                GROUP BY mon)\n" +
+                "SELECT bb.mon,\n" +
+                "        round(cc.num / bb.total, 4) rate\n" +
+                "FROM bb\n" +
+                "LEFT JOIN cc ON cc.mon = bb.mon\n" +
+                "ORDER BY mon;";
+        stmt = (QueryStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        exprsMap.clear();
+        stmt.collectExprs(exprsMap);
+        Assert.assertEquals(17, exprsMap.size());
+        constMap.clear();
+        constMap = getConstantExprMap(exprsMap, analyzer);
+        Assert.assertEquals(4, constMap.size());
     }
 
     @Test
@@ -296,5 +347,26 @@ public class QueryStmtTest {
         // Restore the original result types and column labels.
         stmt.castResultExprs(origResultTypes);
         stmt.setColLabels(origColLabels);
+    }
+
+    /**
+     * get constant expr from exprMap
+     * @param exprMap
+     * @param analyzer
+     * @return
+     * @throws AnalysisException
+     */
+    private Map<String, TExpr> getConstantExprMap(Map<String, Expr> exprMap, Analyzer analyzer) throws AnalysisException {
+        FoldConstantsRule rule = (FoldConstantsRule) FoldConstantsRule.INSTANCE;
+        Map<String, TExpr> resultMap = new HashMap<>();
+        for (Map.Entry<String, Expr> entry : exprMap.entrySet()){
+            Map<String, TExpr> constMap = new HashMap<>();
+            Map<String, Expr> oriConstMap = new HashMap<>();
+            Map<String, Expr> sysVarMap = new HashMap<>();
+            Map<String, Expr> infoFnMap = new HashMap<>();
+            rule.getConstExpr(entry.getValue(), constMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
+            resultMap.putAll(constMap);
+        }
+        return resultMap;
     }
 }
