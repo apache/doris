@@ -1189,7 +1189,7 @@ public:
 
 
     // check if value x is present
-    bool contains(uint64_t x) {
+    bool contains(uint64_t x) const {
         switch (_type) {
         case EMPTY:
             return false;

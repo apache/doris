@@ -389,6 +389,18 @@ Status PInternalServiceImpl<T>::_fold_constant_expr(const std::string& ser_reque
     return mgr.fold_constant_expr(t_request, response);
 }
 
+template <typename T>
+void PInternalServiceImpl<T>::transmit_block(google::protobuf::RpcController* cntl_base,
+                                             const PTransmitDataParams* request,
+                                             PTransmitDataResult* response,
+                                             google::protobuf::Closure* done) {
+    VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
+             << " node=" << request->node_id();
+    if (done != nullptr) {
+        done->Run();
+    }
+}
+
 template class PInternalServiceImpl<PBackendService>;
 
 } // namespace doris

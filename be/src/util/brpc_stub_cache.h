@@ -32,9 +32,9 @@ namespace doris {
 class BrpcStubCache {
 public:
     BrpcStubCache();
-    ~BrpcStubCache();
+    virtual ~BrpcStubCache();
 
-    PBackendService_Stub* get_stub(const butil::EndPoint& endpoint) {
+    virtual PBackendService_Stub* get_stub(const butil::EndPoint& endpoint) {
         std::lock_guard<SpinLock> l(_lock);
         auto stub_ptr = _stub_map.seek(endpoint);
         if (stub_ptr != nullptr) {
@@ -52,7 +52,7 @@ public:
         return stub;
     }
 
-    PBackendService_Stub* get_stub(const TNetworkAddress& taddr) {
+    virtual PBackendService_Stub* get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname;
@@ -61,7 +61,7 @@ public:
         return get_stub(endpoint);
     }
 
-    PBackendService_Stub* get_stub(const std::string& host, int port) {
+    virtual PBackendService_Stub* get_stub(const std::string& host, int port) {
         butil::EndPoint endpoint;
         if (str2endpoint(host.c_str(), port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << host;

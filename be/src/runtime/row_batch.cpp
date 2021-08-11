@@ -29,6 +29,9 @@
 #include "gen_cpp/data.pb.h"
 #include "runtime/collection_value.h"
 
+//#include "vec/columns/column_vector.h"
+//#include "vec/core/block.h"
+
 using std::vector;
 
 namespace doris {

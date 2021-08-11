@@ -47,7 +47,7 @@ BrokerScanNode::BrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const D
 BrokerScanNode::~BrokerScanNode() {}
 
 Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ScanNode::init(tnode));
+    RETURN_IF_ERROR(ScanNode::init(tnode, state));
     auto& broker_scan_node = tnode.broker_scan_node;
 
     if (broker_scan_node.__isset.pre_filter_exprs) {
