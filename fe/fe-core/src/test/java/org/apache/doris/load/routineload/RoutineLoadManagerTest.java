@@ -913,4 +913,68 @@ public class RoutineLoadManagerTest {
 
         Assert.assertEquals(RoutineLoadJob.JobState.STOPPED, routineLoadJob.getState());
     }
+
+    @Test
+    public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt,
+                                                    @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt,
+                                                    @Mocked Catalog catalog,
+                                                    @Mocked Database database,
+                                                    @Mocked PaloAuth paloAuth,
+                                                    @Mocked ConnectContext connectContext) throws UserException {
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+        Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
+        Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newHashMap();
+
+        List<RoutineLoadJob> routineLoadJobList1 = Lists.newArrayList();
+        RoutineLoadJob routineLoadJob1 = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob1, "id", 1000L);
+        routineLoadJobList1.add(routineLoadJob1);
+
+        List<RoutineLoadJob> routineLoadJobList2 = Lists.newArrayList();
+        RoutineLoadJob routineLoadJob2 = new KafkaRoutineLoadJob();
+        Deencapsulation.setField(routineLoadJob2, "id", 1002L);
+        routineLoadJobList2.add(routineLoadJob2);
+
+        nameToRoutineLoadJob.put("job1", routineLoadJobList1);
+        nameToRoutineLoadJob.put("job2", routineLoadJobList2);
+        dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
+
+        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+
+        new Expectations() {
+            {
+                pauseRoutineLoadStmt.isAll();
+                minTimes = 0;
+                result = true;
+                pauseRoutineLoadStmt.getDbFullName();
+                minTimes = 0;
+                result = "";
+                catalog.getDb("");
+                minTimes = 0;
+                result = database;
+                database.getId();
+                minTimes = 0;
+                result = 1L;
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+                resumeRoutineLoadStmt.isAll();
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadStmt);
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob1.getState());
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob2.getState());
+
+        routineLoadManager.resumeRoutineLoadJob(resumeRoutineLoadStmt);
+        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob1.getState());
+        Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob2.getState());
+    }
 }
