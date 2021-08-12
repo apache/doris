@@ -41,13 +41,13 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -286,6 +286,11 @@ public class RoutineLoadManager implements Writable {
                         "routine load job has been paused by user").build());
             } catch (UserException e) {
                 LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
+                // if user want to pause a certain job and failed, return error.
+                // if user want to pause all possible jobs, skip error jobs.
+                if (!pauseRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
                 continue;
             }
         }
@@ -316,6 +321,11 @@ public class RoutineLoadManager implements Writable {
                         .build());
             } catch (UserException e) {
                 LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
+                // if user want to resume a certain job and failed, return error.
+                // if user want to resume all possible jobs, skip error jobs.
+                if (!resumeRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
                 continue;
             }
         }
