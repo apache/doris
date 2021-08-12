@@ -26,7 +26,6 @@
 #include <string_view>
 
 #include "anyval_util.h"
-#include "gutil/strings/numbers.h"
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 
@@ -149,17 +148,28 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
-            const int32_t frac_value = 0) {
-        char local[N];
-        char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
-        int32_t string_val_len = local + sizeof(local) - p + 3;
-        StringVal result = StringVal::create_temp_string_val(context, string_val_len);
-        memcpy(result.ptr, p, string_val_len - 3);
-        *(result.ptr + string_val_len - 3) = '.';
-        *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
-        *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
-        return result;
+    struct CommaMoneypunct : std::moneypunct<char> {
+        pattern do_pos_format() const override { return {{none, sign, none, value}}; }
+        pattern do_neg_format() const override { return {{none, sign, none, value}}; }
+        int do_frac_digits() const override { return 2; }
+        char_type do_thousands_sep() const override { return ','; }
+        string_type do_grouping() const override { return "\003"; }
+        string_type do_negative_sign() const override { return "-"; }
+    };
+
+    static StringVal do_money_format(FunctionContext* context, const std::string& v) {
+        static std::locale comma_locale(std::locale(), new CommaMoneypunct());
+        static std::stringstream ss;
+        static bool ss_init = false;
+        if (UNLIKELY(!ss_init)) {
+            ss.imbue(comma_locale);
+            ss_init = true;
+        }
+        static std::string empty_string;
+        ss.str(empty_string);
+
+        ss << std::put_money(v);
+        return AnyValUtil::from_string_temp(context, ss.str());
     };
 
     static StringVal split_part(FunctionContext* context, const StringVal& content,
