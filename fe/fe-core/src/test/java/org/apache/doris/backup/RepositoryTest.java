@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import mockit.*;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
@@ -25,12 +24,12 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.service.FrontendOptions;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -43,6 +42,12 @@ import java.io.PrintWriter;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 
 public class RepositoryTest {
@@ -335,6 +340,23 @@ public class RepositoryTest {
         } finally {
             file.delete();
         }
+    }
+
+    @Test
+    public void testPathNormalize() {
+        String newLoc = "bos://cmy_bucket/bos_repo/";
+        repo = new Repository(10000, "repo", false, newLoc, storage);
+        String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
+        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
+
+        path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content///__db_10000");
+        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
+
+        newLoc = "hdfs://path/to/repo";
+        repo = new Repository(10000, "repo", false, newLoc, storage);
+        SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
+        path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
+        Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
     }
 
 }
