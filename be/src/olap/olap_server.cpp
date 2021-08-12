@@ -174,7 +174,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         curr_interval = std::min(curr_interval, max_interval);
 
         // start clean trash and update usage.
-        OLAPStatus res = _start_trash_sweep(&usage);
+        OLAPStatus res = start_trash_sweep(&usage);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING(
                     "one or more errors occur when sweep trash."
