@@ -53,7 +53,7 @@ public final class GlobalVariable {
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.
     // 2: table names are stored as given but compared in lowercase.
     @VariableMgr.VarAttr(name = LOWER_CASE_TABLE_NAMES, flag = VariableMgr.READ_ONLY)
-    public static int lowerCaseTableNames = -1;
+    public static int lowerCaseTableNames = 0;
 
     @VariableMgr.VarAttr(name = LICENSE, flag = VariableMgr.READ_ONLY)
     public static String license = "Apache License, Version 2.0";

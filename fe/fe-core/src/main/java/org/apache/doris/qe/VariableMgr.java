@@ -267,7 +267,7 @@ public class VariableMgr {
         }
 
         if (setVar.getType() == SetType.GLOBAL) {
-            setGlobalVarAndWriteEditLogNoCheck(setVar);
+            setGlobalVarAndWriteEditLog(ctx, attr.name(), setVar.getValue().getStringValue());
         } else {
             // set session variable
             Field field = ctx.getField();
@@ -283,21 +283,23 @@ public class VariableMgr {
         }
     }
 
-    public static void setGlobalVarAndWriteEditLogNoCheck(SetVar setVar) throws DdlException {
+    private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
         // set global variable should not affect variables of current session.
         // global variable will only make effect when connecting in.
         wlock.lock();
-        VarContext ctx = ctxByVarName.get(setVar.getVariable());
         try {
-            setValue(ctx.getObj(), ctx.getField(), setVar.getValue().getStringValue());
+            setValue(ctx.getObj(), ctx.getField(), value);
             // write edit log
-            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable,
-                    Lists.newArrayList(ctx.getField().getAnnotation(VarAttr.class).name()));
-            EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
-            editLog.logGlobalVariableV2(info);
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            Catalog.getCurrentCatalog().getEditLog().logGlobalVariableV2(info);
         } finally {
             wlock.unlock();
         }
+    }
+
+    public static void setLowerCaseTableNames(int mode) throws DdlException {
+        VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
+        setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);
     }
 
     // global variable persistence

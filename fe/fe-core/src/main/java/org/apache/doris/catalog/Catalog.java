@@ -63,7 +63,6 @@ import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
@@ -76,8 +75,6 @@ import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
@@ -167,9 +164,9 @@ import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
-import org.apache.doris.load.update.UpdateManager;
 import org.apache.doris.load.sync.SyncChecker;
 import org.apache.doris.load.sync.SyncJobManager;
+import org.apache.doris.load.update.UpdateManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
@@ -235,6 +232,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -1231,8 +1229,6 @@ public class Catalog {
             initDefaultCluster();
         }
 
-        checkLowerCaseTableNames();
-
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
         this.masterIp = FrontendOptions.getLocalHostAddress();
@@ -1255,6 +1251,8 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
+
+        checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";
         Util.stdoutWithTime(msg);
@@ -1386,10 +1384,10 @@ public class Catalog {
             replayer.start();
         }
 
-        checkLowerCaseTableNames();
-
         // 'isReady' will be set to true in 'setCanRead()' method
         fixBugAfterMetadataReplayed(true);
+
+        checkLowerCaseTableNames();
 
         startNonMasterDaemonThreads();
 
@@ -1403,8 +1401,7 @@ public class Catalog {
             System.exit(-1);
         }
         try {
-            VariableMgr.setGlobalVarAndWriteEditLogNoCheck(new SetVar(SetType.GLOBAL,
-                    GlobalVariable.LOWER_CASE_TABLE_NAMES, new IntLiteral(Config.lower_case_table_names)));
+            VariableMgr.setLowerCaseTableNames(Config.lower_case_table_names);
         } catch (Exception e) {
             LOG.error("Initialization of lower_case_table_names failed.", e);
             System.exit(-1);
@@ -1415,11 +1412,11 @@ public class Catalog {
     // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
     // restart or upgrade.
     private void checkLowerCaseTableNames() {
-        while (GlobalVariable.lowerCaseTableNames == -1) {
+        while (!isReady()) {
             // Waiting for lower_case_table_names to initialize value from image or editlog.
             try {
                 LOG.info("Waiting for \'lower_case_table_names\' initialization.");
-                TimeUnit.SECONDS.sleep(1);
+                TimeUnit.MILLISECONDS.sleep(100);
             } catch (InterruptedException e) {
                 LOG.error("Sleep got exception while waiting for lower_case_table_names initialization. ", e);
             }
@@ -1432,7 +1429,6 @@ public class Catalog {
         }
         LOG.info("lower_case_table_names is {}", GlobalVariable.lowerCaseTableNames);
     }
-
 
     /*
      * If the current node is not in the frontend list, then exit. This may
