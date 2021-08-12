@@ -37,13 +37,11 @@ SHOW ROUTINE LOAD FOR test1;
 
 3. Display all routine import jobs (including stopped or cancelled jobs) under example_db. The result is one or more lines.
 
-use example_db;
-SHOW ALL ROUTINE LOAD;
+SHOW ALL ROUTINE LOAD FROM example_db;
 
 4. Display all running routine import jobs under example_db
 
-use example_db;
-SHOW ROUTINE LOAD;
+SHOW ROUTINE LOAD FROM example_db;
 
 5. Display the current running routine import job named test1 under example_db
 
