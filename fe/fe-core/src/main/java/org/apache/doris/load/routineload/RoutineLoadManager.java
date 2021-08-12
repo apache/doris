@@ -41,13 +41,13 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -232,34 +232,103 @@ public class RoutineLoadManager implements Writable {
         return routineLoadJob;
     }
 
+    // get all jobs which state is not in final state from specified database
+    public List<RoutineLoadJob> checkPrivAndGetAllJobs(String dbName)
+            throws MetaNotFoundException, DdlException, AnalysisException {
+
+        List<RoutineLoadJob> result = Lists.newArrayList();
+        Database database = Catalog.getCurrentCatalog().getDb(dbName);
+        if (database == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+        long dbId = database.getId();
+        Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
+        if (jobMap == null) {
+            // return empty result
+            return result;
+        }
+
+        for (List<RoutineLoadJob> jobs : jobMap.values()) {
+            for (RoutineLoadJob job : jobs) {
+                if (!job.getState().isFinalState()) {
+                    String tableName = job.getTableName();
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                            dbName, tableName, PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    result.add(job);
+                }
+            }
+        }
+
+        return result;
+    }
+
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
             throws UserException {
-        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
-                pauseRoutineLoadStmt.getName());
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        if (pauseRoutineLoadStmt.isAll()) {
+            jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
+        } else {
+            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
+                    pauseRoutineLoadStmt.getName());
+            jobs.add(routineLoadJob);
+        }
 
-        routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
-                        "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
-                false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
-                routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                                "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
+                        false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
+                        routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
                         "routine load job has been paused by user").build());
+            } catch (UserException e) {
+                LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
+                // if user want to pause a certain job and failed, return error.
+                // if user want to pause all possible jobs, skip error jobs.
+                if (!pauseRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
+                continue;
+            }
+        }
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
-                resumeRoutineLoadStmt.getName());
 
-        routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
-        routineLoadJob.autoResumeCount = 0;
-        routineLoadJob.firstResumeTimestamp = 0;
-        routineLoadJob.autoResumeLock = false;
-        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("current_state", routineLoadJob.getState())
-                         .add("user", ConnectContext.get().getQualifiedUser())
-                         .add("msg", "routine load job has been resumed by user")
-                         .build());
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        if (resumeRoutineLoadStmt.isAll()) {
+            jobs = checkPrivAndGetAllJobs(resumeRoutineLoadStmt.getDbFullName());
+        } else {
+            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
+                    resumeRoutineLoadStmt.getName());
+            jobs.add(routineLoadJob);
+        }
+
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
+                routineLoadJob.autoResumeCount = 0;
+                routineLoadJob.firstResumeTimestamp = 0;
+                routineLoadJob.autoResumeLock = false;
+                routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                        .add("current_state", routineLoadJob.getState())
+                        .add("user", ConnectContext.get().getQualifiedUser())
+                        .add("msg", "routine load job has been resumed by user")
+                        .build());
+            } catch (UserException e) {
+                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
+                // if user want to resume a certain job and failed, return error.
+                // if user want to resume all possible jobs, skip error jobs.
+                if (!resumeRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
+                continue;
+            }
+        }
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)

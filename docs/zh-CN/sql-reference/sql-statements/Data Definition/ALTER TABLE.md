@@ -198,6 +198,13 @@ under the License.
         注意：
             1）只能用在分区类型为RANGE，采用哈希分桶的非colocate表
 
+    10. 修改表注释
+        语法:
+            MODIFY COMMENT "new table comment"
+
+    11. 修改列注释
+        语法:
+            MODIFY COLUMN col1 COMMENT "new column comment"
 
     rename 支持对以下名称进行修改：
     1. 修改表名
@@ -211,6 +218,7 @@ under the License.
     3. 修改 partition 名称
         语法：
             RENAME PARTITION old_partition_name new_partition_name;
+
     bitmap index 支持如下几种修改方式
     1. 创建bitmap 索引
         语法：
@@ -218,6 +226,7 @@ under the License.
         注意：
             1. 目前仅支持bitmap 索引
             1. BITMAP 索引仅在单列上创建
+
     2. 删除索引
         语法：
             DROP INDEX index_name；
@@ -373,6 +382,14 @@ under the License.
     18. 将表的默认分桶数改为50
 
         ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+    19. 修改表注释
+
+        ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+    20. 修改列注释
+
+        ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
     
     [rename]
     1. 将名为 table1 的表修改为 table2

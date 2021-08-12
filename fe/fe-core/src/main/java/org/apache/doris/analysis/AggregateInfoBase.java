@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 
 import com.google.common.base.MoreObjects;
@@ -102,7 +102,7 @@ public abstract class AggregateInfoBase {
         // Create the intermediate tuple desc first, so that the tuple ids are increasing
         // from bottom to top in the plan tree.
         intermediateTupleDesc_ = createTupleDesc(analyzer, false);
-        if (requiresIntermediateTuple(aggregateExprs_)) {
+        if (requiresIntermediateTuple(aggregateExprs_, groupingExprs_.size() == 0)) {
             outputTupleDesc_ = createTupleDesc(analyzer, true);
         } else {
             outputTupleDesc_ = intermediateTupleDesc_;
@@ -148,16 +148,11 @@ public abstract class AggregateInfoBase {
                     slotDesc.setSourceExpr(aggExpr);
                 }
 
-                // COUNT(), NDV() and NDV_NO_FINALIZE() are non-nullable. The latter two are used
-                // by compute stats and compute incremental stats, respectively.
-                if (aggExpr.getFnName().getFunction().equals(FunctionSet.COUNT)
-                        || aggExpr.getFnName().getFunction().equals("ndv")
-                        || aggExpr.getFnName().getFunction().equals(FunctionSet.BITMAP_UNION_INT)
-                        || aggExpr.getFnName().getFunction().equals("ndv_no_finalize")) {
-                    // TODO: Consider making nullability a property of types or of builtin agg fns.
-                    // row_number(), rank(), and dense_rank() are non-nullable as well.
-                    slotDesc.setIsNullable(false);
+                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT) &&
+                        groupingExprs_.size() == 0) {
+                    slotDesc.setIsNullable(true);
                 }
+
                 if (!isOutputTuple) {
                     Type intermediateType = ((AggregateFunction)aggExpr.fn).getIntermediateType();
                     if (intermediateType != null) {
@@ -208,6 +203,21 @@ public abstract class AggregateInfoBase {
         for (Expr aggExpr: aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
             if (intermediateType != null) return true;
+        }
+        return false;
+    }
+
+    /**
+     * output tuple maybe different from intermediate when noGrouping and fn null mode
+     * is depend on argument
+     */
+    public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs, boolean noGrouping) {
+        for (Expr aggExpr: aggExprs) {
+            Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
+            if (intermediateType != null) return true;
+            if (noGrouping && ((AggregateFunction) aggExpr.fn).getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)) {
+                return true;
+            }
         }
         return false;
     }

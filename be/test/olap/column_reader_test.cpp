@@ -78,7 +78,7 @@ public:
         _length_buffers.clear();
     }
 
-    void CreateColumnWriter(const TabletSchema& tablet_schema) {
+    void create_columnWriter(const TabletSchema& tablet_schema) {
         _column_writer = ColumnWriter::create(0, tablet_schema, _stream_factory, 1024,
                                               BLOOM_FILTER_DEFAULT_FPP);
 
@@ -86,15 +86,15 @@ public:
         ASSERT_EQ(_column_writer->init(), OLAP_SUCCESS);
     }
 
-    void CreateColumnReader(const TabletSchema& tablet_schema) {
+    void create_columnReader(const TabletSchema& tablet_schema) {
         UniqueIdEncodingMap encodings;
         encodings[0] = ColumnEncodingMessage();
         encodings[0].set_kind(ColumnEncodingMessage::DIRECT);
         encodings[0].set_dictionary_size(1);
-        CreateColumnReader(tablet_schema, encodings);
+        create_columnReader(tablet_schema, encodings);
     }
 
-    void CreateColumnReader(const TabletSchema& tablet_schema, UniqueIdEncodingMap& encodings) {
+    void create_columnReader(const TabletSchema& tablet_schema, UniqueIdEncodingMap& encodings) {
         UniqueIdToColumnIdMap included;
         included[0] = 0;
         UniqueIdToColumnIdMap segment_included;
@@ -219,7 +219,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -244,7 +244,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -267,7 +267,7 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, false, true,
                                  &tablet_schema);
 
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -303,7 +303,7 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -345,7 +345,7 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, false, true,
                                  &tablet_schema);
 
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -374,7 +374,7 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -391,7 +391,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -416,7 +416,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -435,7 +435,7 @@ TEST_F(TestColumn, TinyColumnIndex) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -460,7 +460,7 @@ TEST_F(TestColumn, TinyColumnIndex) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -479,7 +479,7 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -515,7 +515,7 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -554,7 +554,7 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("TinyColumn", "TINYINT", "REPLACE", 1, true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -583,7 +583,7 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -601,7 +601,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -626,7 +626,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -646,7 +646,7 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -680,7 +680,7 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -721,7 +721,7 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -750,7 +750,7 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -768,7 +768,7 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -802,7 +802,7 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -841,7 +841,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -866,7 +866,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -888,7 +888,7 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("ShortColumn", "SMALLINT", "REPLACE", 2, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -916,7 +916,7 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -933,7 +933,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("IntColumn", "INT", "REPLACE", 4, false, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -958,7 +958,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -977,7 +977,7 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("IntColumn", "INT", "REPLACE", 4, false, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -998,7 +998,7 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1024,7 +1024,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     // write data
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("IntColumn", "INT", "REPLACE", 4, true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1049,7 +1049,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1072,7 +1072,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("LongColumnWithoutPresent", "BIGINT", "REPLACE", 8, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1098,7 +1098,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1118,7 +1118,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("LongColumnWithPresent", "BIGINT", "REPLACE", 8, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1144,7 +1144,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1166,7 +1166,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("FloatColumnWithoutPresent", "FLOAT", "REPLACE", 4, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1192,7 +1192,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1214,7 +1214,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1240,7 +1240,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1263,7 +1263,7 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1293,7 +1293,7 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1328,7 +1328,7 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("FloatColumnWithPresent", "FLOAT", "REPLACE", 4, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1354,7 +1354,7 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1373,7 +1373,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
 
     SetTabletSchemaWithOneColumn("DoubleColumnWithoutPresent", "DOUBLE", "REPLACE", 8, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1399,7 +1399,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1421,7 +1421,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DoubleColumnWithPresent", "DOUBLE", "REPLACE", 8, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1447,7 +1447,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1471,7 +1471,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
 
     SetTabletSchemaWithOneColumn("DatetimeColumnWithoutPresent", "DATETIME", "REPLACE", 8, false,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1493,7 +1493,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1512,7 +1512,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DatetimeColumnWithoutPresent", "DATETIME", "REPLACE", 8, true,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1540,7 +1540,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1566,7 +1566,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
 
     SetTabletSchemaWithOneColumn("DatetimeColumnWithoutPresent", "DATETIME", "REPLACE", 8, true,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1594,7 +1594,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1622,7 +1622,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
 
     SetTabletSchemaWithOneColumn("DateColumnWithoutoutPresent", "DATE", "REPLACE", 3, false, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1644,7 +1644,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1662,7 +1662,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DateColumnWithoutoutPresent", "DATE", "REPLACE", 3, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1692,7 +1692,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1718,7 +1718,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
 
     SetTabletSchemaWithOneColumn("DecimalColumnWithoutoutPresent", "DECIMAL", "REPLACE", 12, false,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1748,7 +1748,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1770,7 +1770,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DecimalColumnWithoutoutPresent", "DECIMAL", "REPLACE", 12, true,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1799,7 +1799,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1822,7 +1822,7 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DecimalColumnWithPresent", "DECIMAL", "REPLACE", 12, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1850,7 +1850,7 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1870,7 +1870,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("DecimalColumnWithPresent", "DECIMAL", "REPLACE", 12, true, true,
                                  &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -1904,7 +1904,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -1950,7 +1950,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     string value2 = "-170141183460469231731687303715884105728";
 
     // write data
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
     RowCursor write_row;
     write_row.init(tablet_schema);
 
@@ -1979,7 +1979,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -2007,7 +2007,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     string value2 = "-170141183460469231731687303715884105728";
 
     // write data
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
     RowCursor write_row;
     write_row.init(tablet_schema);
 
@@ -2043,7 +2043,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -2078,7 +2078,7 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     string value2 = "-170141183460469231731687303715884105728";
 
     // write data
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
     RowCursor write_row;
     write_row.init(tablet_schema);
 
@@ -2107,7 +2107,7 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
     RowCursor read_row;
     read_row.init(tablet_schema);
 
@@ -2127,7 +2127,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithoutoutPresent", "VARCHAR", "REPLACE", 10,
                                  false, true, &tablet_schema);
 
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2164,7 +2164,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2191,7 +2191,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithoutoutPresent", "VARCHAR", "REPLACE", 10,
                                  true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2220,7 +2220,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2243,7 +2243,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithPresent", "VARCHAR", "REPLACE", 10, true,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2274,7 +2274,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2295,7 +2295,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
 
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithPresent", "VARCHAR", "REPLACE", 10, false,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2330,7 +2330,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2368,7 +2368,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
 
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithPresent", "VARCHAR", "REPLACE", 10, true,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2403,7 +2403,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2440,7 +2440,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("VarcharColumnWithoutoutPresent", "CHAR", "REPLACE",
                                  strlen("abcde"), false, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2477,7 +2477,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2504,7 +2504,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("VarcharColumnWithoutoutPresent", "CHAR", "REPLACE",
                                  strlen("abcde"), true, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2531,7 +2531,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2553,7 +2553,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("VarcharColumnWithoutoutPresent", "CHAR", "REPLACE", 20, false,
                                  true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2608,7 +2608,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);
@@ -2638,7 +2638,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     TabletSchema tablet_schema;
     SetTabletSchemaWithOneColumn("DirectVarcharColumnWithoutoutPresent", "VARCHAR", "REPLACE",
                                  65535, false, true, &tablet_schema);
-    CreateColumnWriter(tablet_schema);
+    create_columnWriter(tablet_schema);
 
     RowCursor write_row;
     write_row.init(tablet_schema);
@@ -2671,7 +2671,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
-    CreateColumnReader(tablet_schema);
+    create_columnReader(tablet_schema);
 
     RowCursor read_row;
     read_row.init(tablet_schema);

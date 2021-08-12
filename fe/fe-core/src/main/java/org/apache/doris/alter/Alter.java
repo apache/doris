@@ -26,8 +26,10 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
+import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
@@ -56,16 +58,18 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TTabletType;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.Arrays;
 import java.util.List;
@@ -196,11 +200,95 @@ public class Alter {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
             Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_COLUMN_COMMENT)) {
+            processModifyColumnComment(db, olapTable, alterClauses);
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_COMMENT)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            processModifyTableComment(db, olapTable, alterClause);
         } else {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
 
         return needProcessOutsideTableLock;
+    }
+
+    private void processModifyTableComment(Database db, OlapTable tbl, AlterClause alterClause)
+            throws DdlException {
+        tbl.writeLock();
+        try {
+            ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
+            tbl.setComment(clause.getComment());
+            // log
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forTable(db.getId(), tbl.getId(), clause.getComment());
+            Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
+        } finally {
+            tbl.writeUnlock();
+        }
+    }
+
+    private void processModifyColumnComment(Database db, OlapTable tbl, List<AlterClause> alterClauses)
+            throws DdlException {
+        tbl.writeLock();
+        try {
+            // check first
+            Map<String, String> colToComment = Maps.newHashMap();
+            for (AlterClause alterClause : alterClauses) {
+                Preconditions.checkState(alterClause instanceof ModifyColumnCommentClause);
+                ModifyColumnCommentClause clause = (ModifyColumnCommentClause) alterClause;
+                String colName = clause.getColName();
+                if (tbl.getColumn(colName) == null) {
+                    throw new DdlException("Unknown column: " + colName);
+                }
+                if (colToComment.containsKey(colName)) {
+                    throw new DdlException("Duplicate column: " + colName);
+                }
+                colToComment.put(colName, clause.getComment());
+            }
+
+            // modify comment
+            for (Map.Entry<String, String> entry : colToComment.entrySet()) {
+                Column col = tbl.getColumn(entry.getKey());
+                col.setComment(entry.getValue());
+            }
+
+            // log
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forColumn(db.getId(), tbl.getId(), colToComment);
+            Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
+        } finally {
+            tbl.writeUnlock();
+        }
+    }
+
+    public void replayModifyComment(ModifyCommentOperationLog operation) {
+        long dbId = operation.getDbId();
+        long tblId = operation.getTblId();
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            return;
+        }
+        Table tbl = db.getTable(tblId);
+        if (tbl == null) {
+            return;
+        }
+        tbl.writeLock();
+        try {
+            ModifyCommentOperationLog.Type type = operation.getType();
+            switch (type) {
+                case TABLE:
+                    tbl.setComment(operation.getTblComment());
+                    break;
+                case COLUMN:
+                    for (Map.Entry<String, String> entry : operation.getColToComment().entrySet()) {
+                        tbl.getColumn(entry.getKey()).setComment(entry.getValue());
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } finally {
+            tbl.writeUnlock();
+        }
     }
 
     private void processAlterExternalTable(AlterTableStmt stmt, Table externalTable, Database db) throws UserException {

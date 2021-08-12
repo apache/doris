@@ -22,7 +22,9 @@
 #include "olap/options.h"
 
 namespace doris {
-
+namespace vectorized {
+class VDataStreamMgr;
+}
 class BfdParser;
 class BrokerMgr;
 class BrpcStubCache;

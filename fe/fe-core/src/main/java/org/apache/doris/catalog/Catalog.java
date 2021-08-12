@@ -43,6 +43,7 @@ import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
+import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -104,6 +105,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -217,11 +219,13 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
+import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
@@ -234,14 +238,10 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedReader;
 import java.io.DataInputStream;
@@ -267,6 +267,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
+import org.codehaus.jackson.map.ObjectMapper;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -5750,8 +5755,8 @@ public class Catalog {
         return functionSet.getBulitinFunctions();
     }
 
-    public boolean isNonNullResultWithNullParamFunction(String funcName) {
-        return functionSet.isNonNullResultWithNullParamFunctions(funcName);
+    public boolean isNullResultWithOneNullParamFunction(String funcName) {
+        return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }
 
     public boolean isNondeterministicFunction(String funcName) {
@@ -7069,6 +7074,29 @@ public class Catalog {
         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
             for (Tablet tablet : index.getTablets()) {
                 invertedIndex.deleteTablet(tablet.getId());
+            }
+        }
+    }
+
+    public void cleanTrash(AdminCleanTrashStmt stmt) {
+        List<Backend> backends = stmt.getBackends();
+        for (Backend backend : backends){
+            BackendService.Client client = null;
+            TNetworkAddress address = null;
+            boolean ok = false;
+            try {
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                client = ClientPool.backendPool.borrowObject(address);
+                client.cleanTrash(); // async
+                ok = true;
+            } catch (Exception e) {
+                LOG.warn("trash clean exec error. backend[{}]", backend.getId(), e);
+            } finally {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
             }
         }
     }

@@ -20,14 +20,12 @@
 #include <algorithm>
 #include <boost/variant.hpp>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <utility>
 
 #include "agent/cgroups_mgr.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
@@ -38,7 +36,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
@@ -68,7 +65,7 @@ OlapScanNode::~OlapScanNode() {}
 
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    _direct_conjunct_size = _conjunct_ctxs.size();
+    _direct_conjunct_size = state->enable_vectorized_exec() ? 1 : _conjunct_ctxs.size();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -157,6 +154,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+
+    // time of node to wait for batch/block queue
+    _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -286,6 +286,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     RowBatch* materialized_batch = NULL;
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
+        SCOPED_TIMER(_olap_wait_batch_queue_timer);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
                 _transfer_done = true;
@@ -454,6 +455,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
 
     VLOG_CRITICAL << "Filter idle conjuncts";
     // 4. Filter idle conjunct which already trans to olap filters`
+    // TODO: filter idle conjunct in vexpr_contexts
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "BuildScanKey";
@@ -514,6 +516,9 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
         if (iter != _conjunctid_to_runtime_filter_ctxs.end()) {
             iter->second->runtimefilter->set_push_down_profile();
         }
+    }
+    // set vconjunct_ctx is empty, if all conjunct
+    if (_direct_conjunct_size == 0) {
     }
 }
 
@@ -654,11 +659,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                        bool is_begin_include, bool is_end_include,
-                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                        RuntimeProfile* profile) {
+Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_count,
+                               bool is_begin_include, bool is_end_include,
+                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                               RuntimeProfile* profile) {
     auto tablet_id = scan_range.tablet_id;
     int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), NULL, 10);
     std::string err;
