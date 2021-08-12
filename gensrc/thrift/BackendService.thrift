@@ -171,4 +171,5 @@ service BackendService {
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
+    oneway void clean_trash();
 }
