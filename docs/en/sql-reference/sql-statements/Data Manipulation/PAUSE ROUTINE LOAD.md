@@ -27,9 +27,14 @@ under the License.
 # PAUSE ROUTINE LOAD
 ## example
 
-1. Suspend the routine import operation named test 1.
+1. Pause routine load named test1;
 
-PAUSE ROUTINE LOAD FOR test1;
+	PAUSE ROUTINE LOAD FOR test1;
+
+2. Pause all running routine load;
+
+    PAUSE ALL ROUTINE LOAD;
 
 ## keyword
-PAUSE,ROUTINE,LOAD
+
+	PAUSE,ALL,ROUTINE,LOAD

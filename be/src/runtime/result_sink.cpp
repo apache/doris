@@ -122,6 +122,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(NULL) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;

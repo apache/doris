@@ -36,6 +36,10 @@ class ResultWriter;
 class MemTracker;
 class ResultFileOptions;
 
+namespace vectorized {
+    class VExprContext;
+}
+
 class ResultSink : public DataSink {
 public:
     // construct a buffer for the result need send to coordinator.
@@ -74,6 +78,8 @@ private:
     boost::shared_ptr<ResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size;            // Allocated from _pool
+
+    bool _is_vec;
 };
 
 } // namespace doris

@@ -127,6 +127,21 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
     * snapshot/: 快照目录下的快照文件。
     * trash/：回收站中的文件。
 
+    **这种操作会对 [从 BE 回收站中恢复数据](./tablet-restore-tool.md) 产生影响。**
+
+    如果BE还能够启动，则可以使用`ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);`来主动清理临时文件，会清理 **所有** trash文件和过期snapshot文件，**这将影响从回收站恢复数据的操作** 。
+
+    如果不手动执行`ADMIN CLEAN TRASH`，系统仍将会在几分钟至几十分钟内自动执行清理，这里分为两种情况：
+    * 如果磁盘占用未达到 **危险水位(Flood Stage)** 的90%，则会清理过期trash文件和过期snapshot文件，此时会保留一些近期文件而不影响恢复数据。
+    * 如果磁盘占用已达到 **危险水位(Flood Stage)** 的90%，则会清理 **所有** trash文件和过期snapshot文件， **此时会影响从回收站恢复数据的操作** 。
+    自动执行的时间间隔可以通过配置项中的`max_garbage_sweep_interval`和`max_garbage_sweep_interval`更改。
+
+    出现由于缺少trash文件而导致恢复失败的情况时，可能返回如下结果：
+
+    ```
+    {"status": "Fail","msg": "can find tablet path in trash"}
+    ```
+
 * 删除数据文件（危险！！！）
 
     当以上操作都无法释放空间时，需要通过删除数据文件来释放空间。数据文件在指定数据目录的 `data/` 目录下。删除数据分片（Tablet）必须先确保该 Tablet 至少有一个副本是正常的，否则**删除唯一副本会导致数据丢失**。假设我们要删除 id 为 12345 的 Tablet：

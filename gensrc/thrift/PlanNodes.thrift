@@ -50,7 +50,7 @@ enum TPlanNodeType {
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
   EXCEPT_NODE,
-  ODBC_SCAN_NODE
+  ODBC_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -769,6 +769,8 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+
+  40: optional Exprs.TExpr vconjunct
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -34,6 +34,7 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
@@ -260,6 +261,8 @@ public class DdlExecutor {
             catalog.getSyncJobManager().pauseSyncJob((PauseSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof StopSyncJobStmt) {
             catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCleanTrashStmt) {
+            catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

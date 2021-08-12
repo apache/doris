@@ -70,6 +70,9 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -79,9 +82,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -1263,6 +1263,10 @@ public class RestoreJob extends AbstractJob {
                                 // bos://location/__palo_repository_my_repo/_ss_my_ss/_ss_content/__db_10000/
                                 // __tbl_10001/__part_10002/_idx_10001/__10003
                                 String src = repo.getRepoPath(label, repoTabletPath);
+                                if (src == null) {
+                                    status = new Status(ErrCode.COMMON_ERROR, "invalid src path: " + repoTabletPath);
+                                    return;
+                                }
                                 SnapshotInfo snapshotInfo = snapshotInfos.get(info.getTabletId(), info.getBeId());
                                 Preconditions.checkNotNull(snapshotInfo, info.getTabletId() + "-" + info.getBeId());
                                 // download to previous exist snapshot dir

@@ -266,9 +266,8 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            // TODO: inlineView threat all column is nullable to make sure query results are correct
-            // we should judge column whether is nullable by selectItemExpr in the future
-            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(), true));
+            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(),
+                    selectItemExpr.isNullable()));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 

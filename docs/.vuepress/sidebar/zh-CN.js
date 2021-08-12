@@ -207,7 +207,9 @@ module.exports = [
     title: "最佳实践",
     directoryPath: "best-practices/",
     children: [
-      "fe-load-balance"
+      "fe-load-balance",
+      "systemd",
+      "samples"
     ],
   },
   {
@@ -221,6 +223,7 @@ module.exports = [
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
+      "datax",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -441,6 +444,7 @@ module.exports = [
             directoryPath: "Administration/",
             children: [
               "ADMIN CANCEL REPAIR",
+              "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",

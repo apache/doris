@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
@@ -166,6 +167,10 @@ public class Planner {
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
+
+        if (VectorizedUtil.isVectorized()) {
+            singleNodePlan.convertToVectoriezd();
+        }
 
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;

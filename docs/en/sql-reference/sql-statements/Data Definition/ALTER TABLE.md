@@ -200,6 +200,14 @@ under the License.
         note：
             1）Only support non colocate table with RANGE partition and HASH distribution
 
+    10. Modify table comment
+        grammer:
+            MODIFY COMMENT "new table comment"
+
+    11. Modify column comment
+        grammer:
+            MODIFY COLUMN col1 COMMENT "new column comment"
+
      
     Rename supports modification of the following names:
     1. Modify the table name
@@ -379,6 +387,14 @@ under the License.
     18. Modify the default buckets number of example_db.my_table to 50
 
         ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+    19. Modify table comment
+
+        ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+    20. Modify column comment
+
+        ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
         
     [rename]
     1. Modify the table named table1 to table2
