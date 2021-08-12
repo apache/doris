@@ -282,7 +282,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     该变量兼容MySQL。需在集群初始化时通过fe.conf 指定 `lower_case_table_names=`进行配置，集群初始化完成后无法通过`set` 语句修改该变量，也无法通过重启、升级集群修改该变量。
 
-    information_schema中的系统视图表名不区分大小写，当`lower_case_table_names`值为 0 时，表现为 1。
+    information_schema中的系统视图表名不区分大小写，当`lower_case_table_names`值为 0 时，表现为 2。
 
 * `max_allowed_packet`
 

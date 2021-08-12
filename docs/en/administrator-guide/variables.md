@@ -285,7 +285,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     This variable is compatible with MySQL and must be configured at cluster initialization by specifying `lower_case_table_names=` in fe.conf. It cannot be modified by the `set` statement after cluster initialization is complete, nor can it be modified by restarting or upgrading the cluster.
 
-    The system view table names in information_schema are case-insensitive and behave as 1 when the value of `lower_case_table_names` is 0.
+    The system view table names in information_schema are case-insensitive and behave as 2 when the value of `lower_case_table_names` is 0.
 
 Translated with www.DeepL.com/Translator (free version)
 
