@@ -18,15 +18,18 @@
 #ifndef DORIS_BE_SRC_UTIL_COUNTS_H_
 #define DORIS_BE_SRC_UTIL_COUNTS_H_
 
-#include <map>
 #include <cmath>
+#include <map>
+#include <unordered_map>
+#include <vector>
+
 #include "udf/udf.h"
 
 namespace doris {
 
 class Counts {
 public:
-    Counts() = default; 
+    Counts() = default;
 
     inline void merge(const Counts* other) {
         if (other == nullptr || other->_counts.empty()) {
@@ -38,7 +41,7 @@ public:
         }
     }
 
-    void increment(int64_t key, int i) {
+    void increment(int64_t key, uint32_t i) {
         auto item = _counts.find(key);
         if (item != _counts.end()) {
             item->second += i;
@@ -48,7 +51,8 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(uint32_t) + sizeof(int64_t) * _counts.size() + sizeof(int) * _counts.size();
+        return sizeof(uint32_t) + sizeof(int64_t) * _counts.size() +
+               sizeof(uint32_t) * _counts.size();
     }
 
     void serialize(uint8_t* writer) {
@@ -58,8 +62,8 @@ public:
         for (auto& cell : _counts) {
             memcpy(writer, &cell.first, sizeof(int64_t));
             writer += sizeof(int64_t);
-            memcpy(writer, &cell.second, sizeof(int));
-            writer += sizeof(int);
+            memcpy(writer, &cell.second, sizeof(uint32_t));
+            writer += sizeof(uint32_t);
         }
     }
 
@@ -69,21 +73,22 @@ public:
         type_reader += sizeof(uint32_t);
         for (uint32_t i = 0; i < size; ++i) {
             int64_t key;
-            int count;
+            uint32_t count;
             memcpy(&key, type_reader, sizeof(int64_t));
             type_reader += sizeof(int64_t);
-            memcpy(&count, type_reader, sizeof(int));
-            type_reader += sizeof(int);
+            memcpy(&count, type_reader, sizeof(uint32_t));
+            type_reader += sizeof(uint32_t);
             _counts.emplace(std::make_pair(key, count));
         }
     }
 
-    double get_percentile(std::map<int64_t, int>& copy_counts, double position) {
+    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts, double position) {
         long lower = std::floor(position);
         long higher = std::ceil(position);
 
-        auto iter = copy_counts.begin();
-        for (; iter != copy_counts.end() && iter->second < lower + 1; ++iter);
+        auto iter = counts.begin();
+        for (; iter != counts.end() && iter->second < lower + 1; ++iter)
+            ;
 
         int64_t lower_key = iter->first;
         if (higher == lower) {
@@ -94,7 +99,7 @@ public:
             iter++;
         }
 
-        int64_t  higher_key = iter->first;
+        int64_t higher_key = iter->first;
         if (lower_key == higher_key) {
             return lower_key;
         }
@@ -107,20 +112,21 @@ public:
             return doris_udf::DoubleVal();
         }
 
-        std::map<int64_t, int> copy_counts(_counts);
+        std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
+        std::sort(elems.begin(), elems.end());
         long total = 0;
-        for (auto& cell : copy_counts) {
+        for (auto& cell : elems) {
             total += cell.second;
             cell.second = total;
         }
 
         long max_position = total - 1;
         double position = max_position * quantile;
-        return doris_udf::DoubleVal(get_percentile(copy_counts, position));
+        return doris_udf::DoubleVal(get_percentile(elems, position));
     }
 
 private:
-    std::map<int64_t, int> _counts;
+    std::unordered_map<int64_t, uint32_t> _counts;
 };
 
 } // namespace doris
