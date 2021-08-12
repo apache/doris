@@ -25,9 +25,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.List;
+import java.util.Map;
+
+import com.clearspring.analytics.util.Lists;
 
 public class StatisticsManager {
     private Statistics statistics;
@@ -37,33 +43,109 @@ public class StatisticsManager {
     }
 
     public void alterTableStatistics(AlterTableStatsStmt stmt)
-            throws DdlException, AnalysisException {
+            throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
         statistics.updateTableStats(table.getId(), stmt.getProperties());
     }
 
-    public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws DdlException, AnalysisException {
+    public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
         String columnName = stmt.getColumnName();
         Column column = table.getColumn(columnName);
         if (column == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
         // match type and column value
         statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getProperties());
     }
 
-    private Table validateTableName(TableName dbTableName) throws DdlException {
+    public List<List<String>> showTableStatsList(String dbName, String tableName)
+            throws AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+        List<List<String>> result = Lists.newArrayList();
+        if (tableName != null) {
+            Table table = db.getTable(tableName);
+            // check meta
+            if (table == null) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+            // check priv
+            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
+                    PrivPredicate.SHOW)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(),
+                        tableName);
+            }
+            // get stats
+            result.add(showTableStats(table));
+        } else {
+            for (Table table : db.getTables()) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, table.getName(),
+                        PrivPredicate.SHOW)) {
+                    continue;
+                }
+                try {
+                    result.add(showTableStats(table));
+                } catch (AnalysisException e) {
+                    // ignore no stats table
+                }
+            }
+        }
+        return result;
+    }
+
+    public List<List<String>> showColumnStatsList(TableName tableName) throws AnalysisException {
+        // check meta
+        Table table = validateTableName(tableName);
+        // check priv
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                tableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tableName.getTbl());
+        }
+        // get stats
+        List<List<String>> result = Lists.newArrayList();
+        Map<String, ColumnStats> nameToColumnStats = statistics.getColumnStats(table.getId());
+        if (nameToColumnStats == null) {
+            throw new AnalysisException("There is no column statistics in this table:" + table.getName());
+        }
+        for (Map.Entry<String, ColumnStats> entry : nameToColumnStats.entrySet()) {
+            List<String> row = Lists.newArrayList();
+            row.add(entry.getKey());
+            row.addAll(entry.getValue().getShowInfo());
+            result.add(row);
+        }
+        return result;
+    }
+
+    private List<String> showTableStats(Table table) throws AnalysisException {
+        TableStats tableStats = statistics.getTableStats(table.getId());
+        if (tableStats == null) {
+            throw new AnalysisException("There is no statistics in this table:" + table.getName());
+        }
+        List<String> row = Lists.newArrayList();
+        row.add(table.getName());
+        row.addAll(tableStats.getShowInfo());
+        return row;
+    }
+
+    private Table validateTableName(TableName dbTableName) throws AnalysisException {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
 
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
         Table table = db.getTable(tableName);
         if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
         }
         return table;
     }

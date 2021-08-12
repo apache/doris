@@ -58,4 +58,16 @@ public class Statistics {
         }
         tableStats.updateColumnStats(columnName, columnType, statsNameToValue);
     }
+
+    public TableStats getTableStats(long tableId) {
+        return idToTableStats.get(tableId);
+    }
+
+    public Map<String, ColumnStats> getColumnStats(long tableId) {
+        TableStats tableStats = getTableStats(tableId);
+        if (tableStats == null) {
+            return null;
+        }
+        return tableStats.getNameToColumnStats();
+    }
 }

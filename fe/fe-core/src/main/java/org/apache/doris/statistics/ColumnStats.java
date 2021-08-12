@@ -33,8 +33,11 @@ import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 
+import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+
+import com.clearspring.analytics.util.Lists;
 
 /**
  * There are the statistics of column.
@@ -94,6 +97,25 @@ public class ColumnStats {
                 maxValue = validateColumnValue(columnType, entry.getValue());
             }
         }
+    }
+
+    public List<String> getShowInfo() {
+        List<String> result = Lists.newArrayList();
+        result.add(Long.toString(ndv));
+        result.add(Float.toString(avgSize));
+        result.add(Long.toString(maxSize));
+        result.add(Long.toString(numNulls));
+        if (minValue != null) {
+            result.add(minValue.getStringValue());
+        } else {
+            result.add("N/A");
+        }
+        if (maxValue != null) {
+            result.add(maxValue.getStringValue());
+        } else {
+            result.add("N/A");
+        }
+        return result;
     }
 
     private LiteralExpr validateColumnValue(Type type, String columnValue) throws AnalysisException {

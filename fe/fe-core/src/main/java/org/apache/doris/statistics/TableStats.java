@@ -23,8 +23,11 @@ import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
+
+import com.clearspring.analytics.util.Lists;
 
 /**
  * There are the statistics of table.
@@ -79,5 +82,16 @@ public class TableStats {
             nameToColumnStats.put(columnName, columnStats);
         }
         columnStats.updateStats(columnType, statsNameToValue);
+    }
+
+    public List<String> getShowInfo() {
+        List<String> result = Lists.newArrayList();
+        result.add(Long.toString(rowCount));
+        result.add(Long.toString(dataSize));
+        return result;
+    }
+
+    public Map<String, ColumnStats> getNameToColumnStats() {
+        return nameToColumnStats;
     }
 }

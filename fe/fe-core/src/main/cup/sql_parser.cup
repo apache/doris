@@ -351,7 +351,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
-nonterminal TableName table_name;
+nonterminal TableName table_name, opt_table_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
 nonterminal Expr pre_filter_clause;
@@ -832,6 +832,7 @@ alter_stmt ::=
     opt_properties:properties
     {:
         RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
+    :}
     | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN
     {:
         RESULT = new AlterTableStatsStmt(tbl, map);
@@ -2786,6 +2787,16 @@ show_param ::=
     {:
         RESULT = new ShowSyncJobStmt(dbName);
     :}
+    /* show table stats */
+    | KW_TABLE KW_STATS opt_table_name:tbl
+    {:
+        RESULT = new ShowTableStatsStmt(tbl);
+    :}
+    /* show column stats */
+    | KW_COLUMN KW_STATS table_name:tbl
+    {:
+        RESULT = new ShowColumnStatsStmt(tbl);
+    :}
     ;
 
 opt_tmp ::=
@@ -3832,6 +3843,16 @@ star_expr ::=
     | ident:db DOT ident:tbl DOT STAR
     {:
         RESULT = SelectListItem.createStarItem(new TableName(db, tbl));
+    :}
+    ;
+
+opt_table_name ::=
+    {:
+        RESULT = null;
+    :}
+    | table_name:tbl
+    {:
+        RESULT = tbl;
     :}
     ;
 
