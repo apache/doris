@@ -890,7 +890,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value()));
+    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
