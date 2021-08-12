@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
@@ -51,6 +52,8 @@ import java.io.File;
 import java.util.List;
 import java.util.UUID;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -60,6 +63,7 @@ public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
+    private static final Logger LOG = LogManager.getLogger(QueryPlanTest.class);
 
     private static ConnectContext connectContext;
 
@@ -400,6 +404,9 @@ public class QueryPlanTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");");
+
+        createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
+
     }
 
     @AfterClass
@@ -411,6 +418,10 @@ public class QueryPlanTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+    private static void createView(String sql) throws Exception {
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
     }
 
     @Test
@@ -1449,7 +1460,6 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
-
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
@@ -1697,5 +1707,21 @@ public class QueryPlanTest {
         queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
+    }
+
+    @Test
+    public void testNullColumnViewOrderBy() throws Exception{
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "select * from tbl_null_column_view where add_column is not null;";
+        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        LOG.info(explainString1);
+        Assert.assertTrue(explainString1.contains("EMPTYSET"));
+
+        String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+
+        LOG.info(explainString2);
+        Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
 }
