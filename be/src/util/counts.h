@@ -117,9 +117,7 @@ public:
         long max_position = total - 1;
         double position = max_position * quantile;
         return doris_udf::DoubleVal(get_percentile(copy_counts, position));
-
     }
-
 
 private:
     std::map<int64_t, int> _counts;

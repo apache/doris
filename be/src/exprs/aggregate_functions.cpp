@@ -194,8 +194,6 @@ void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src,
         return;
     }
 
-    DCHECK_GE(quantile.val, 0);
-    DCHECK_LE(quantile.val, 1);
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(PercentileState), dst->len);
 
