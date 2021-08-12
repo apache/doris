@@ -635,15 +635,24 @@ void StorageEngine::_start_clean_fd_cache() {
     VLOG_TRACE << "end clean file descritpor cache";
 }
 
-OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
+OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
+
+    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
+    if(!l.try_lock()) {
+        LOG(INFO) << "trash and snapshot sweep is running.";
+        return res;
+    }
+
     LOG(INFO) << "start trash and snapshot sweep.";
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
     // the guard space should be lower than storage_flood_stage_usage_percent,
     // so here we multiply 0.9
-    const double guard_space = config::storage_flood_stage_usage_percent / 100.0 * 0.9;
+    // if ignore_guard is true, set guard_space to 0.
+    const double guard_space =
+            ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
     RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
                       "failed to get root path stat info when sweep trash.")
@@ -687,7 +696,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     }
 
     if (usage != nullptr) {
-        *usage = tmp_usage;
+        *usage = tmp_usage; // update usage
     }
 
     // clear expire incremental rowset, move deleted tablet to trash

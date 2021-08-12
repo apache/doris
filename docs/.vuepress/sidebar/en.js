@@ -154,6 +154,7 @@ module.exports = [
         directoryPath: "operation/",
         children: [
           "doris-error-code",
+          "disk-capacity",
           "metadata-operation",
           "monitor-alert",
           "multi-tenant",
@@ -439,6 +440,7 @@ module.exports = [
             directoryPath: "Administration/",
             children: [
               "ADMIN CANCEL REPAIR",
+              "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",
