@@ -43,7 +43,7 @@ public class SyncChecker extends MasterDaemon {
     private static Map<JobState, MasterTaskExecutor> executors = Maps.newHashMap();
 
     private SyncChecker(JobState jobState, long intervalMs) {
-        super("sync checker " + jobState.name().toLowerCase(), intervalMs);
+        super("sync checker " + jobState.name().toLowerCase(), intervalMs * 1000);
         this.jobState = jobState;
     }
 

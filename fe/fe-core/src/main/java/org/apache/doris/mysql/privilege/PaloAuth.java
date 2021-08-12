@@ -24,8 +24,8 @@ import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.RevokeStmt;
-import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetLdapPassVar;
+import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
@@ -50,13 +50,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -1138,6 +1138,15 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getSqlBlockRules(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getCpuResourceLimit(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getCpuResourceLimit(qualifiedUser);
         } finally {
             readUnlock();
         }
