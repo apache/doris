@@ -270,7 +270,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR;
+    KW_YEAR, KW_SQL_BLOCK_RULE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -827,6 +827,11 @@ alter_stmt ::=
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
+    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
+    opt_properties:properties
+    {:
+        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
+    :}
     ;
 
 opt_datasource_properties ::=
@@ -1253,6 +1258,11 @@ create_stmt ::=
     | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
     {:
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
+    :}
+    /* sql_block_rule */
+    | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
+    {:
+        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
     ;
 
@@ -1955,6 +1965,10 @@ drop_stmt ::=
     {:
         RESULT = new DropEncryptKeyStmt(keyName);
     :}
+    | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
+    {:
+        RESULT = new DropSqlBlockRuleStmt(ruleNames);
+    :}
     ;
 
 // Recover statement
@@ -2421,6 +2435,14 @@ show_stmt ::=
     KW_SHOW show_param:stmt
     {:
         RESULT = stmt;
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE KW_FOR ident:ruleName
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(ruleName);
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(null);
     :}
     ;
 
