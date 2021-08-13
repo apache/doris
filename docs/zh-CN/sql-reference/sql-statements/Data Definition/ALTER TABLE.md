@@ -47,7 +47,7 @@ under the License.
             partition_desc ["key"="value"]
             [DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]]
         注意：
-            1) partition_desc 支持一下两种写法：
+            1) partition_desc 支持以下两种写法：
                 * VALUES LESS THAN [MAXVALUE|("value1", ...)]
                 * VALUES [("value1", ...), ("value1", ...))
             1) 分区为左闭右开区间，如果用户仅指定右边界，系统会自动确定左边界
