@@ -21,7 +21,9 @@ import java.util.StringJoiner
 
 import org.apache.commons.collections.CollectionUtils
 import org.apache.doris.spark.DorisStreamLoad
+import org.apache.doris.spark.cfg.SparkSettings
 import org.apache.doris.spark.exception.DorisException
+import org.apache.doris.spark.rest.RestService
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
@@ -45,21 +47,12 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
   override def createRelation(sqlContext: SQLContext,
                               mode: SaveMode, parameters: Map[String, String],
                               data: DataFrame): BaseRelation = {
-    val beHostPort: String = parameters.getOrElse(DorisOptions.beHostPort, throw new DorisException("beHostPort is empty"))
-
-    val dbName: String = parameters.getOrElse(DorisOptions.dbName, throw new DorisException("dbName is empty"))
-
-    val tbName: String = parameters.getOrElse(DorisOptions.tbName, throw new DorisException("tbName is empty"))
-
-    val user: String = parameters.getOrElse(DorisOptions.user, throw new DorisException("user is empty"))
-
-    val password: String = parameters.getOrElse(DorisOptions.password, throw new DorisException("password is empty"))
-
-    val maxRowCount: Long = parameters.getOrElse(DorisOptions.maxRowCount, "1024").toLong
-
-    val splitHost = beHostPort.split(";")
-    val choosedBeHost = splitHost(Random.nextInt(splitHost.length))
-    val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dbName, tbName, user, password)
+    val dorisWriterOption = getDorisWriterOption(parameters)
+    val sparkSettings = new SparkSettings(sqlContext.sparkContext.getConf)
+    // choose available be node
+    val choosedBeHost = RestService.randomBackend(sparkSettings,dorisWriterOption,log)
+    // init stream loader
+    val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dorisWriterOption.dbName, dorisWriterOption.tbName, dorisWriterOption.user, dorisWriterOption.password)
     val fieldDelimiter: String = "\t"
     val lineDelimiter: String = "\n"
     val NULL_VALUE: String = "\\N"
@@ -79,7 +72,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
         }
         // add one row string to buffer
         buffer += value.toString
-        if (buffer.size > maxRowCount) {
+        if (buffer.size > dorisWriterOption.maxRowCount) {
           dorisStreamLoader.load(buffer.mkString(lineDelimiter))
           buffer.clear()
         }
@@ -105,5 +98,23 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
         throw new UnsupportedOperationException("BaseRelation from doris write operation is not usable.")
     }
   }
+
+
+  def getDorisWriterOption(parameters: Map[String, String])={
+    val feHostPort: String = parameters.getOrElse(DorisWriterOptionKeys.feHostPort, throw new DorisException("feHostPort is empty"))
+
+    val dbName: String = parameters.getOrElse(DorisWriterOptionKeys.dbName, throw new DorisException("dbName is empty"))
+
+    val tbName: String = parameters.getOrElse(DorisWriterOptionKeys.tbName, throw new DorisException("tbName is empty"))
+
+    val user: String = parameters.getOrElse(DorisWriterOptionKeys.user, throw new DorisException("user is empty"))
+
+    val password: String = parameters.getOrElse(DorisWriterOptionKeys.password, throw new DorisException("password is empty"))
+
+    val maxRowCount: Long = parameters.getOrElse(DorisWriterOptionKeys.maxRowCount, "1024").toLong
+
+    DorisWriterOption(feHostPort,dbName,tbName,user,password,maxRowCount)
+  }
+
 
 }
