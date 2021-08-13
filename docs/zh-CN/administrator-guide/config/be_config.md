@@ -50,7 +50,7 @@ BE 的配置项有两种方式进行配置：
 
 2. 动态配置
 
-	BE 启动后，可以通过一下命令动态设置配置项。
+	BE 启动后，可以通过以下命令动态设置配置项。
 
 	```
 	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
