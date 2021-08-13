@@ -174,10 +174,7 @@ void AggregateFunctions::count_remove(FunctionContext*, const AnyVal& src, BigIn
 }
 
 struct PercentileState {
-    PercentileState() : counts(new Counts()) {}
-    ~PercentileState() { delete counts; }
-
-    Counts* counts = nullptr;
+    Counts counts; 
     double quantile = -1.0;
 };
 
@@ -198,7 +195,7 @@ void AggregateFunctions::percentile_update(FunctionContext* ctx, const T& src,
     DCHECK_EQ(sizeof(PercentileState), dst->len);
 
     PercentileState* percentile = reinterpret_cast<PercentileState*>(dst->ptr);
-    percentile->counts->increment(src.val, 1);
+    percentile->counts.increment(src.val, 1);
     percentile->quantile = quantile.val;
 }
 
@@ -211,10 +208,10 @@ void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal&
 
     PercentileState* src_percentile = new PercentileState();
     src_percentile->quantile = quantile;
-    src_percentile->counts->unserialize(src.ptr + sizeof(double));
+    src_percentile->counts.unserialize(src.ptr + sizeof(double));
 
     PercentileState* dst_percentile = reinterpret_cast<PercentileState*>(dst->ptr);
-    dst_percentile->counts->merge(src_percentile->counts);
+    dst_percentile->counts.merge(&src_percentile->counts);
     if (dst_percentile->quantile == -1.0) {
         dst_percentile->quantile = quantile;
     }
@@ -226,10 +223,10 @@ StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const S
     DCHECK(!src.is_null);
 
     PercentileState* percentile = reinterpret_cast<PercentileState*>(src.ptr);
-    uint32_t serialize_size = percentile->counts->serialized_size();
+    uint32_t serialize_size = percentile->counts.serialized_size();
     StringVal result(ctx, sizeof(double) + serialize_size);
     memcpy(result.ptr, &percentile->quantile, sizeof(double));
-    percentile->counts->serialize(result.ptr + sizeof(double));
+    percentile->counts.serialize(result.ptr + sizeof(double));
     
     delete percentile;
     return result;
@@ -240,7 +237,7 @@ DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const St
 
     PercentileState* percentile = reinterpret_cast<PercentileState*>(src.ptr);
     double quantile = percentile->quantile;
-    auto result = percentile->counts->terminate(quantile);
+    auto result = percentile->counts.terminate(quantile);
 
     delete percentile;
     return result;
