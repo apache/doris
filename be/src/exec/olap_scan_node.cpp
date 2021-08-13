@@ -1482,6 +1482,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
         _running_thread--;
+        // We need to make sure the scanner is closed because the query has been closed or cancelled.
+        scanner->close(scanner->runtime_state());
         _scan_batch_added_cv.notify_one();
         _scan_thread_exit_cv.notify_one();
         LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
