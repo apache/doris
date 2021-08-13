@@ -23,5 +23,6 @@ object DorisWriterOptionKeys {
   val user="user"
   val password="password"
   val maxRowCount="maxRowCount"
+  val maxRetryTimes="maxRetryTimes"
 
 }

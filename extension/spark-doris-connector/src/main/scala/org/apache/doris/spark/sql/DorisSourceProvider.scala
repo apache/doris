@@ -17,6 +17,7 @@
 
 package org.apache.doris.spark.sql
 
+import java.io.IOException
 import java.util.StringJoiner
 
 import org.apache.commons.collections.CollectionUtils
@@ -32,6 +33,7 @@ import org.json4s.jackson.Json
 
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
+import scala.util.control.Breaks
 
 private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with Logging {
   override def shortName(): String = "doris"
@@ -47,15 +49,20 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
   override def createRelation(sqlContext: SQLContext,
                               mode: SaveMode, parameters: Map[String, String],
                               data: DataFrame): BaseRelation = {
-    val dorisWriterOption = getDorisWriterOption(parameters)
+
+    val dorisWriterOption = DorisWriterOption(parameters)
     val sparkSettings = new SparkSettings(sqlContext.sparkContext.getConf)
     // choose available be node
-    val choosedBeHost = RestService.randomBackend(sparkSettings,dorisWriterOption,log)
+    val choosedBeHost = RestService.randomBackend(sparkSettings, dorisWriterOption, log)
     // init stream loader
     val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dorisWriterOption.dbName, dorisWriterOption.tbName, dorisWriterOption.user, dorisWriterOption.password)
     val fieldDelimiter: String = "\t"
     val lineDelimiter: String = "\n"
     val NULL_VALUE: String = "\\N"
+
+    val maxRowCount = dorisWriterOption.maxRowCount
+    val maxRetryTimes = dorisWriterOption.maxRetryTimes
+
     data.foreachPartition(partition => {
 
       val buffer = ListBuffer[String]()
@@ -72,16 +79,46 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
         }
         // add one row string to buffer
         buffer += value.toString
-        if (buffer.size > dorisWriterOption.maxRowCount) {
-          dorisStreamLoader.load(buffer.mkString(lineDelimiter))
-          buffer.clear()
+        if (buffer.size > maxRowCount) {
+          flush
         }
       })
       // flush buffer
       if (buffer.nonEmpty) {
-        dorisStreamLoader.load(buffer.mkString(lineDelimiter))
-        buffer.clear()
+        flush
       }
+
+      /**
+       * flush data to Doris and do retry when flush error
+       *
+       */
+      def flush = {
+        val loop = new Breaks
+        loop.breakable {
+
+          for (i <- 1 to maxRetryTimes) {
+            try {
+              dorisStreamLoader.load(buffer.mkString(lineDelimiter))
+              buffer.clear()
+              loop.break()
+            }
+            catch {
+              case e: Exception =>
+                try {
+                  Thread.sleep(1000 * i)
+                  dorisStreamLoader.load(buffer.mkString(lineDelimiter))
+                  buffer.clear()
+                } catch {
+                  case ex: InterruptedException =>
+                    Thread.currentThread.interrupt()
+                    throw new IOException("unable to flush; interrupted while doing another attempt", e)
+                }
+            }
+          }
+        }
+
+      }
+
     })
     new BaseRelation {
       override def sqlContext: SQLContext = unsupportedException
@@ -100,21 +137,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
   }
 
 
-  def getDorisWriterOption(parameters: Map[String, String])={
-    val feHostPort: String = parameters.getOrElse(DorisWriterOptionKeys.feHostPort, throw new DorisException("feHostPort is empty"))
 
-    val dbName: String = parameters.getOrElse(DorisWriterOptionKeys.dbName, throw new DorisException("dbName is empty"))
-
-    val tbName: String = parameters.getOrElse(DorisWriterOptionKeys.tbName, throw new DorisException("tbName is empty"))
-
-    val user: String = parameters.getOrElse(DorisWriterOptionKeys.user, throw new DorisException("user is empty"))
-
-    val password: String = parameters.getOrElse(DorisWriterOptionKeys.password, throw new DorisException("password is empty"))
-
-    val maxRowCount: Long = parameters.getOrElse(DorisWriterOptionKeys.maxRowCount, "1024").toLong
-
-    DorisWriterOption(feHostPort,dbName,tbName,user,password,maxRowCount)
-  }
 
 
 }
