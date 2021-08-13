@@ -253,7 +253,7 @@ mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.site
 
 当部署多个 FE 节点时，用户可以在多个 FE 之上部署负载均衡层来实现 Doris 的高可用。
 
-一下提供一些高可用的方案：
+以下提供一些高可用的方案：
 
 **第一种**
 

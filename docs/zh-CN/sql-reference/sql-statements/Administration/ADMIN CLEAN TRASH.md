@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CANCEL LABEL",
+    "title": "ADMIN CLEAN TRASH",
     "language": "zh-CN"
 }
 ---
@@ -24,36 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CANCEL LABEL
+# ADMIN CLEAN TRASH
 ## description
-    NAME:
-        cancel_label: cancel a transaction with label
-        
-    SYNOPSIS
-        curl -u user:passwd -XPOST http://host:port/api/{db}/_cancel?label={label}
+    该语句用于清理 backend 内的垃圾数据。
+    语法：
+        ADMIN CLEAN TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
 
-    DESCRIPTION
-        该命令用于cancel一个指定Label对应的事务，事务在Prepare阶段能够被成功cancel
+    说明：
+        以 BackendHost:BackendHeartBeatPort 表示需要清理的 backend ，不添加on限定则清理所有 backend 。
 
-    RETURN VALUES
-        执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-        Status: 是否成功cancel
-            Success: 成功cancel事务
-            其他: cancel失败
-        Message: 具体的失败信息
-           
-    ERRORS
-    
 ## example
 
-    1. cancel testDb, testLabel的作业
-        curl -u root -XPOST http://host:port/api/testDb/_cancel?label=testLabel
- 
+    1. 清理所有be节点的垃圾数据。
+
+        ADMIN CLEAN TRASH;
+
+    2. 清理'192.168.0.1:9050'和'192.168.0.2:9050'的垃圾数据。
+
+        ADMIN CLEAN TRASH ON ("192.168.0.1:9050","192.168.0.2:9050");
+
 ## keyword
-    CANCEL，LABEL
-
-
-
-
-
-
+    ADMIN, CLEAN, TRASH
