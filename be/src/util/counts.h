@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_UTIL_COUNTS_H_
 #define DORIS_BE_SRC_UTIL_COUNTS_H_
 
+#include <algorithm>
 #include <cmath>
-#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -113,7 +113,11 @@ public:
         }
 
         std::vector<std::pair<int64_t, uint32_t>> elems(_counts.begin(), _counts.end());
-        std::sort(elems.begin(), elems.end());
+        sort(elems.begin(), elems.end(),
+             [](const std::pair<int64_t, uint32_t> l, const std::pair<int64_t, uint32_t> r) {
+                 return l.first < r.first;
+             });
+
         long total = 0;
         for (auto& cell : elems) {
             total += cell.second;
