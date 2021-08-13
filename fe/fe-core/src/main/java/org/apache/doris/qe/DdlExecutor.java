@@ -34,8 +34,11 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
+import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
@@ -51,6 +54,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
@@ -65,21 +69,27 @@ import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
+import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
+import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
+import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
+import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.sync.SyncJobManager;
 
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
@@ -102,6 +112,10 @@ public class DdlExecutor {
             catalog.createFunction((CreateFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFunctionStmt) {
             catalog.dropFunction((DropFunctionStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateEncryptKeyStmt) {
+            EncryptKeyHelper.createEncryptKey((CreateEncryptKeyStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropEncryptKeyStmt) {
+            EncryptKeyHelper.dropEncryptKey((DropEncryptKeyStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableLikeStmt) {
@@ -156,6 +170,8 @@ public class DdlExecutor {
             catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             catalog.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof UpdateStmt) {
+            catalog.getUpdateManager().handleUpdate((UpdateStmt) ddlStmt);
         } else if (ddlStmt instanceof DeleteStmt) {
             catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
@@ -230,6 +246,23 @@ public class DdlExecutor {
             catalog.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
         } else if (ddlStmt instanceof DropResourceStmt) {
             catalog.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateDataSyncJobStmt) {
+            CreateDataSyncJobStmt createSyncJobStmt = (CreateDataSyncJobStmt) ddlStmt;
+            SyncJobManager syncJobMgr = catalog.getSyncJobManager();
+            if (!syncJobMgr.isJobNameExist(createSyncJobStmt.getDbName(), createSyncJobStmt.getJobName())) {
+                syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
+            } else {
+                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName() +
+                        "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
+            }
+        } else if (ddlStmt instanceof ResumeSyncJobStmt) {
+            catalog.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof PauseSyncJobStmt) {
+            catalog.getSyncJobManager().pauseSyncJob((PauseSyncJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof StopSyncJobStmt) {
+            catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCleanTrashStmt) {
+            catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

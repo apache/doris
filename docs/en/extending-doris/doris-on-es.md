@@ -117,7 +117,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH // ENGINE must be Elasticsearch
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 
 "user" = "root",
@@ -187,7 +187,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",
@@ -207,9 +207,9 @@ Doris obtains data from ES following the following two principles:
 * **Best effort**: Automatically detect whether the column to be read has column storage enabled (doc_value: true).If all the fields obtained have column storage, Doris will obtain the values ​​of all fields from the column storage(doc_values)
 * **Automatic downgrade**: If the field to be obtained has one or more field that is not have doc_value, the values ​​of all fields will be parsed from the line store `_source`
 
-##### Advantage：
+##### Advantage:
 
-By default, Doris On ES will get all the required columns from the row storage, which is `_source`, and the storage of `_source` is the origin json format document，Inferior to column storage in batch read performance，Especially obvious when only a few columns are needed，When only a few columns are obtained, the performance of docvalue is about ten times that of _source
+By default, Doris On ES will get all the required columns from the row storage, which is `_source`, and the storage of `_source` is the origin json format document, Inferior to column storage in batch read performance, Especially obvious when only a few columns are needed, When only a few columns are obtained, the performance of docvalue is about ten times that of _source
 
 ##### Tip
 1. Fields of type `text` are not column-stored in ES, so if the value of the field to be obtained has a field of type `text`, it will be automatically downgraded to get from `_source`
@@ -228,7 +228,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",
@@ -237,13 +237,13 @@ PROPERTIES (
 );
 ```
 
-Parameter Description：
+Parameter Description:
 
 Parameter | Description
 ---|---
 **enable\_keyword\_sniff** | Whether to detect the string type (**text**) `fields` in ES to obtain additional not analyzed (**keyword**) field name(multi-fields mechanism)
 
-You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows：
+You can directly import data without creating an index. At this time, ES will automatically create a new index in ES, For a field of type string, a field of type `text` and field of type `keyword` will be created meantime, This is the multi-fields feature of ES, mapping is as follows:
 
 ```
 "k4": {
@@ -256,15 +256,15 @@ You can directly import data without creating an index. At this time, ES will au
    }
 }
 ```
-When performing conditional filtering on k4, for example =，Doris On ES will convert the query to ES's TermQuery
+When performing conditional filtering on k4, for example =, Doris On ES will convert the query to ES's TermQuery
 
-SQL filter：
+SQL filter:
 
 ```
 k4 = "Doris On ES"
 ```
 
-The query DSL converted into ES is：
+The query DSL converted into ES is:
 
 ```
 "term" : {
@@ -273,7 +273,7 @@ The query DSL converted into ES is：
 }
 ```
 
-Because the first field type of k4 is `text`, when data is imported, it will perform word segmentation processing according to the word segmentator set by k4 (if it is not set, it is the standard word segmenter) to get three Term of doris, on, and es, as follows ES analyze API analysis：
+Because the first field type of k4 is `text`, when data is imported, it will perform word segmentation processing according to the word segmentator set by k4 (if it is not set, it is the standard word segmenter) to get three Term of doris, on, and es, as follows ES analyze API analysis: 
 
 ```
 POST /_analyze
@@ -282,7 +282,7 @@ POST /_analyze
   "text": "Doris On ES"
 }
 ```
-The result of analyzed is：
+The result of analyzed is:
 
 ```
 {
@@ -311,14 +311,14 @@ The result of analyzed is：
    ]
 }
 ```
-The query uses：
+The query uses:
 
 ```
 "term" : {
     "k4": "Doris On ES"
 }
 ```
-This term does not match any term in the dictionary，and will not return any results，enable `enable_keyword_sniff: true` will automatically convert `k4 = "Doris On ES"` into `k4.keyword = "Doris On ES"`to exactly match SQL semantics，The converted ES query DSL is:
+This term does not match any term in the dictionary, and will not return any results, enable `enable_keyword_sniff: true` will automatically convert `k4 = "Doris On ES"` into `k4.keyword = "Doris On ES"`to exactly match SQL semantics, The converted ES query DSL is:
 
 ```
 "term" : {
@@ -328,6 +328,63 @@ This term does not match any term in the dictionary，and will not return any re
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
+### Enable node discovery mechanism, default is true(es\_nodes\_discovery=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"nodes_discovery" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
+
+Doris would find all available related data nodes (shards allocated on)from ES when this is true.  Just set false if address of  ES data nodes are not accessed by Doris BE, eg. the ES cluster is deployed in the intranet which isolated from your public Internet, and users access through a proxy
+
+### Whether ES cluster enables https access mode, if enabled should set value with`true`, default is false(http\_ssl\_enable=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"http_ssl_enabled" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**http\_ssl\_enabled** | Whether ES cluster enables https access mode
+
+The current FE/BE implementation is to trust all, this is a temporary solution, and the real user configuration certificate will be used later
 
 ### Query usage
 
@@ -456,7 +513,7 @@ select * from es_table where esquery(k4, ' {
 
 ### Suggestions for using Date type fields
 
-The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition can not be pushed down.
+The use of Datetype fields in ES is very flexible, but in Doris On ES, if the type of the Date type field is not set properly, it will cause the filter condition cannot be pushed down.
 
 When creating an index, do maximum format compatibility with the setting of the Date type format:
 

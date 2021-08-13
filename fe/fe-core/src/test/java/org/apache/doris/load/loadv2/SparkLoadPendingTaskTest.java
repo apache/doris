@@ -17,17 +17,11 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -55,6 +49,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -63,6 +58,12 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class SparkLoadPendingTaskTest {
 
@@ -231,12 +232,12 @@ public class SparkLoadPendingTaskTest {
         int partitionColumnIndex = 0;
         List<Partition> partitions = Lists.newArrayList(partition1, partition2);
         RangePartitionInfo partitionInfo = new RangePartitionInfo(Lists.newArrayList(columns.get(partitionColumnIndex)));
-        PartitionKeyDesc partitionKeyDesc1 = new PartitionKeyDesc(Lists.newArrayList(new PartitionValue("10")));
-        SingleRangePartitionDesc partitionDesc1 = new SingleRangePartitionDesc(false, "p1", partitionKeyDesc1, null);
+        PartitionKeyDesc partitionKeyDesc1 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("10")));
+        SinglePartitionDesc partitionDesc1 = new SinglePartitionDesc(false, "p1", partitionKeyDesc1, null);
         partitionDesc1.analyze(1, null);
         partitionInfo.handleNewSinglePartitionDesc(partitionDesc1, partition1Id, false);
-        PartitionKeyDesc partitionKeyDesc2 = new PartitionKeyDesc(Lists.newArrayList(new PartitionValue("20")));
-        SingleRangePartitionDesc partitionDesc2 = new SingleRangePartitionDesc(false, "p2", partitionKeyDesc2, null);
+        PartitionKeyDesc partitionKeyDesc2 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20")));
+        SinglePartitionDesc partitionDesc2 = new SinglePartitionDesc(false, "p2", partitionKeyDesc2, null);
         partitionDesc2.analyze(1, null);
         partitionInfo.handleNewSinglePartitionDesc(partitionDesc2, partition2Id, false);
 

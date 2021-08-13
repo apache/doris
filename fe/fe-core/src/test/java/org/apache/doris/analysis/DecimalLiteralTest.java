@@ -34,7 +34,7 @@ public class DecimalLiteralTest {
         BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
         DecimalLiteral literal = new DecimalLiteral(decimal);
         
-        ByteBuffer buffer = literal.getHashValue(PrimitiveType.DECIMAL);
+        ByteBuffer buffer = literal.getHashValue(PrimitiveType.DECIMALV2);
         long longValue = buffer.getLong();
         int fracValue = buffer.getInt();
         System.out.println("long: " + longValue);
@@ -44,7 +44,6 @@ public class DecimalLiteralTest {
 
         // if DecimalLiteral need to cast to Decimal and Decimalv2, need to cast
         // to themselves
-        Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMAL));
         Assert.assertEquals(literal, literal.uncheckedCastTo(Type.DECIMALV2));
 
         Assert.assertEquals(1, literal.compareLiteral(new NullLiteral()));

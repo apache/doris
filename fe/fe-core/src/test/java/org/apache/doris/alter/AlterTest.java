@@ -29,8 +29,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
@@ -44,6 +45,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.io.File;
 import java.util.List;
@@ -62,6 +64,7 @@ public class AlterTest {
         FeConstants.default_scheduler_interval_millisecond = 100;
         Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
+        Config.disable_storage_medium_check = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
 
         // create connect context
@@ -144,7 +147,6 @@ public class AlterTest {
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_table\n" +
                 "(  `k1` bigint(20) COMMENT \"\",\n" +
                 "  `k2` datetime COMMENT \"\",\n" +
@@ -206,6 +208,51 @@ public class AlterTest {
 
         stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
         alterTable(stmt, true);
+    }
+
+    @Test
+    public void alterTableModifyComment() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Table tbl = db.getTable("tbl5");
+
+        // table comment
+        String stmt = "alter table test.tbl5 modify comment 'comment1'";
+        alterTable(stmt, false);
+        Assert.assertEquals("comment1", tbl.getComment());
+
+        // column comment
+        stmt = "alter table test.tbl5 modify column k1 comment 'k1'";
+        alterTable(stmt, false);
+        Assert.assertEquals("k1", tbl.getColumn("k1").getComment());
+
+        // columns comment
+        stmt = "alter table test.tbl5 modify column k1 comment 'k11', modify column v1 comment 'v11'";
+        alterTable(stmt, false);
+        Assert.assertEquals("k11", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v11", tbl.getColumn("v1").getComment());
+
+        // empty comment
+        stmt = "alter table test.tbl5 modify comment ''";
+        alterTable(stmt, false);
+        Assert.assertEquals("OLAP", tbl.getComment());
+
+        // empty column comment
+        stmt = "alter table test.tbl5 modify column k1 comment '', modify column v1 comment 'v111'";
+        alterTable(stmt, false);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
+
+        // unknown column
+        stmt = "alter table test.tbl5 modify column x comment '', modify column v1 comment 'v111'";
+        alterTable(stmt, true);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
+
+        // duplicate column
+        stmt = "alter table test.tbl5 modify column k1 comment '', modify column k1 comment 'v111'";
+        alterTable(stmt, true);
+        Assert.assertEquals("", tbl.getColumn("k1").getComment());
+        Assert.assertEquals("v111", tbl.getColumn("v1").getComment());
     }
 
     @Test
@@ -391,6 +438,11 @@ public class AlterTest {
             }
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Database db = Catalog.getCurrentCatalog().getDb(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTable(alterJobV2.getTableId());
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
         }
     }
 
@@ -528,6 +580,49 @@ public class AlterTest {
         createTable(stmt4);
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
 
+        // table name -> tabletIds
+        Map<String, List<Long>> tblNameToTabletIds = Maps.newHashMap();
+        OlapTable replace1Tbl = (OlapTable) db.getTable("replace1");
+        OlapTable r1Tbl = (OlapTable) db.getTable("r1");
+        OlapTable replace2Tbl = (OlapTable) db.getTable("replace2");
+        OlapTable replace3Tbl = (OlapTable) db.getTable("replace3");
+
+        tblNameToTabletIds.put("replace1", Lists.newArrayList());
+        for (Partition partition : replace1Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace1").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("r1", Lists.newArrayList());
+        for (Partition partition : r1Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("r1").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("replace2", Lists.newArrayList());
+        for (Partition partition : replace2Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace2").add(tablet.getId());
+                }
+            }
+        }
+
+        tblNameToTabletIds.put("replace3", Lists.newArrayList());
+        for (Partition partition : replace3Tbl.getAllPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    tblNameToTabletIds.get("replace3").add(tablet.getId());
+                }
+            }
+        }
+
         // name conflict
         String replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE r1";
         alterTable(replaceStmt, true);
@@ -540,6 +635,8 @@ public class AlterTest {
         Assert.assertEquals(1, replace2.getPartition("replace2").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
 
         alterTable(replaceStmt, false);
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace2")));
 
         replace1 = (OlapTable) db.getTable("replace1");
         replace2 = (OlapTable) db.getTable("replace2");
@@ -556,6 +653,8 @@ public class AlterTest {
         Assert.assertNull(replace2);
         Assert.assertEquals(3, replace1.getPartition("replace1").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertEquals("replace1", replace1.getIndexNameById(replace1.getBaseIndexId()));
+        Assert.assertTrue(checkAllTabletsNotExists(tblNameToTabletIds.get("replace2")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
 
         replaceStmt = "ALTER TABLE test.replace1 REPLACE WITH TABLE replace3 properties('swap' = 'true')";
         alterTable(replaceStmt, false);
@@ -566,9 +665,70 @@ public class AlterTest {
         Assert.assertNotNull(replace1.getIndexIdByName("r3"));
         Assert.assertNotNull(replace1.getIndexIdByName("r4"));
 
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace1")));
+        Assert.assertTrue(checkAllTabletsExists(tblNameToTabletIds.get("replace3")));
+
         Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertNotNull(replace3.getIndexIdByName("r1"));
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+    }
+
+    @Test
+    public void testModifyBucketNum() throws Exception {
+        String stmt = "CREATE TABLE test.bucket\n" +
+                "(\n" +
+                "    k1 int, k2 int, k3 int sum\n" +
+                ")\n" +
+                "ENGINE = OLAP\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"100000\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"200000\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"300000\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        createTable(stmt);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+
+        String modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 1;";
+        alterTable(modifyBucketNumStmt, false);
+        OlapTable bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(1, bucket.getDefaultDistributionInfo().getBucketNum());
+
+        modifyBucketNumStmt = "ALTER TABLE test.bucket MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 30;";
+        alterTable(modifyBucketNumStmt, false);
+        bucket = (OlapTable) db.getTable("bucket");
+        Assert.assertEquals(30, bucket.getDefaultDistributionInfo().getBucketNum());
+
+    }
+
+    private boolean checkAllTabletsExists(List<Long> tabletIds) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
+        for (long tabletId : tabletIds) {
+            if (invertedIndex.getTabletMeta(tabletId) == null) {
+                return false;
+            }
+            if (invertedIndex.getReplicasByTabletId(tabletId).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean checkAllTabletsNotExists(List<Long> tabletIds) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentCatalog().getTabletInvertedIndex();
+        for (long tabletId : tabletIds) {
+            if (invertedIndex.getTabletMeta(tabletId) != null) {
+                return false;
+            }
+
+            if (!invertedIndex.getReplicasByTabletId(tabletId).isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Test

@@ -108,8 +108,6 @@ public:
 
     void perform_path_gc_by_tablet();
 
-    OLAPStatus remove_old_meta_and_files();
-
     bool convert_old_data_success();
 
     OLAPStatus set_convert_finished();
@@ -144,7 +142,6 @@ private:
     Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
     OLAPStatus _clean_unfinished_converting_data();
-    OLAPStatus _convert_old_tablet();
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.

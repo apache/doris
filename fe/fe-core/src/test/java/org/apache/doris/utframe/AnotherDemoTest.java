@@ -82,54 +82,12 @@ public class AnotherDemoTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        // get DORIS_HOME
-        String dorisHome = System.getenv("DORIS_HOME");
-        if (Strings.isNullOrEmpty(dorisHome)) {
-            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
-        }
-
-        getPorts();
-
-        // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
-        Map<String, String> feConfMap = Maps.newHashMap();
-        // set additional fe config
-        feConfMap.put("http_port", String.valueOf(fe_http_port));
-        feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
-        feConfMap.put("query_port", String.valueOf(fe_query_port));
-        feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
-        feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(dorisHome + "/" + runningDir, feConfMap);
-        frontend.start(new String[0]);
-
-        // start be
-        MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
-                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
-                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", frontend.getRpcPort()));
-        backend.start();
-
-        // add be
-        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
-        Map<String, DiskInfo> disks = Maps.newHashMap();
-        DiskInfo diskInfo1 = new DiskInfo("/path1");
-        diskInfo1.setTotalCapacityB(1000000);
-        diskInfo1.setAvailableCapacityB(500000);
-        diskInfo1.setDataUsedCapacityB(480000);
-        disks.put(diskInfo1.getRootPath(), diskInfo1);
-        be.setDisks(ImmutableMap.copyOf(disks));
-        be.setAlive(true);
-        be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        Catalog.getCurrentSystemInfo().addBackend(be);
-
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
+        UtFrameUtils.createMinDorisCluster(runningDir, 1);
     }
 
     @AfterClass
     public static void TearDown() {
-        UtFrameUtils.cleanDorisFeDir(runningDirBase);
+        UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
     // generate all port from valid ports

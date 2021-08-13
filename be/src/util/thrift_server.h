@@ -24,8 +24,8 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/unordered_map.hpp>
+#include <mutex>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "util/metrics.h"
@@ -130,11 +130,11 @@ private:
     SessionHandlerIf* _session_handler;
 
     // Protects _session_keys
-    boost::mutex _session_keys_lock;
+    std::mutex _session_keys_lock;
 
     // Map of active session keys to shared_ptr containing that key; when a key is
     // removed it is automatically freed.
-    typedef boost::unordered_map<SessionKey*, boost::shared_ptr<SessionKey>> SessionKeySet;
+    typedef std::unordered_map<SessionKey*, boost::shared_ptr<SessionKey>> SessionKeySet;
     SessionKeySet _session_keys;
 
     // Helper class which monitors starting servers. Needs access to internal members, and

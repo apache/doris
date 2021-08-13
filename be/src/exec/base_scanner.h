@@ -33,6 +33,9 @@ class MemTracker;
 class RuntimeState;
 class ExprContext;
 
+// The counter will be passed to each scanner.
+// Note that this struct is not thread safe.
+// So if we support concurrent scan in the future, we need to modify this struct.
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
 
@@ -43,7 +46,7 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                ScannerCounter* counter);
+                const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
     virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
 
     virtual Status init_expr_ctxes();
@@ -60,6 +63,7 @@ public:
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
+    void free_expr_local_allocations();
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
@@ -84,7 +88,14 @@ protected:
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
+    // to filter src tuple directly
+	const std::vector<ExprContext*>& _pre_filter_ctxs;
+
     bool _strict_mode;
+
+    int32_t _line_counter;
+    // reference to HASH_JOIN_NODE::RELEASE_CONTEXT_COUNTER
+    const static constexpr int32_t RELEASE_CONTEXT_COUNTER = 1 << 5;
     // Profile
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _rows_read_counter;

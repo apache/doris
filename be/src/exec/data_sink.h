@@ -74,6 +74,7 @@ public:
                                    const std::vector<TExpr>& output_exprs,
                                    const TPlanFragmentExecParams& params,
                                    const RowDescriptor& row_desc,
+                                   bool is_vec,
                                    boost::scoped_ptr<DataSink>* sink);
 
     // Returns the runtime profile for the sink.
@@ -88,6 +89,7 @@ protected:
     // close().
     bool _closed;
     std::shared_ptr<MemTracker> _expr_mem_tracker;
+    std::string _name;
 
     // Maybe this will be transferred to BufferControlBlock.
     std::shared_ptr<QueryStatistics> _query_statistics;

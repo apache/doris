@@ -38,6 +38,7 @@
 #include "runtime/etl_job_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
+#include "runtime/fold_constant_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/load_channel_mgr.h"
@@ -63,6 +64,11 @@
 #include "util/priority_thread_pool.hpp"
 
 namespace doris {
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "query"}}));
 
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths) {
     return env->_init(store_paths);
@@ -93,6 +99,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
+    _fold_constant_mgr = new FoldConstantMgr(this);
     _master_info = new TMasterInfo();
     _etl_job_mgr = new EtlJobMgr(this);
     _load_path_mgr = new LoadPathMgr(this);
@@ -125,6 +132,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
     _heartbeat_flags = new HeartbeatFlags();
+    _register_metrics();
     _is_init = true;
     return Status::OK();
 }
@@ -179,8 +187,8 @@ Status ExecEnv::_init_mem_tracker() {
         return Status::InternalError(ss.str());
     }
 
-    _mem_tracker =
-            MemTracker::CreateTracker(bytes_limit, "ExecEnv root", MemTracker::GetRootTracker());
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit, "Process", MemTracker::GetRootTracker(),
+                    false, false, MemTrackerLevel::OVERVIEW);
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
@@ -195,6 +203,10 @@ Status ExecEnv::_init_mem_tracker() {
     int32_t index_page_cache_percentage = config::index_page_cache_percentage;
     StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
 
+    REGISTER_HOOK_METRIC(query_mem_consumption, [this]() {
+      return _mem_tracker->consumption();
+    });
+
     // TODO(zc): The current memory usage configuration is a bit confusing,
     // we need to sort out the use of memory
     return Status::OK();
@@ -208,11 +220,27 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
     _buffer_reservation->InitRootTracker(nullptr, capacity);
 }
 
+void ExecEnv::_register_metrics() {
+    REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size, [this]() {
+        return _thread_pool->get_queue_size();
+    });
+
+    REGISTER_HOOK_METRIC(etl_thread_pool_queue_size, [this]() {
+        return _etl_thread_pool->get_queue_size();
+    });
+}
+
+void ExecEnv::_deregister_metrics() {
+    DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(etl_thread_pool_queue_size);
+}
+
 void ExecEnv::_destroy() {
     //Only destroy once after init
     if (!_is_init) {
         return;
     }
+    _deregister_metrics();
     SAFE_DELETE(_brpc_stub_cache);
     SAFE_DELETE(_load_stream_mgr);
     SAFE_DELETE(_load_channel_mgr);
@@ -224,6 +252,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_etl_job_mgr);
     SAFE_DELETE(_master_info);
     SAFE_DELETE(_fragment_mgr);
+    SAFE_DELETE(_fold_constant_mgr);
     SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_etl_thread_pool);
     SAFE_DELETE(_thread_pool);
@@ -240,6 +269,9 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_routine_load_task_executor);
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_heartbeat_flags);
+
+    DEREGISTER_HOOK_METRIC(query_mem_consumption);
+
     _is_init = false;
 }
 

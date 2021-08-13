@@ -273,10 +273,31 @@ The user can control the stop, pause and restart of the job by the three command
     * If the broker of the user kafka cluster has `auto.create.topics.enable = false` set, topic will not be created automatically, and the routine will be paused before any data is read, with the status `PAUSED`.
 
     So, if the user wants to be automatically created by the routine when the kafka topic does not exist, just set the broker in the kafka cluster** of the user's side to set auto.create.topics.enable = true` .
+    
 5. Problems that may occur in the some environment
      In some environments, there are isolation measures for network segment and domain name resolution. So should pay attention to:
         1. The broker list specified in the routine load task must be accessible on the doris environment. 
         2. If `advertised.listeners` is configured in kafka, The addresses in `advertised.listeners` need to be accessible on the doris environment.
+
+6. About specified Partition and Offset
+
+    Doris supports specifying Partition and Offset to start consumption. The new version also supports the consumption function at a specified time point. The configuration relationship of the corresponding parameters is explained here.
+    
+    There are three relevant parameters:
+    
+    * `kafka_partitions`: Specify the list of partitions to be consumed, such as: "0, 1, 2, 3".
+    * `kafka_offsets`: Specify the starting offset of each partition, which must correspond to the number of `kafka_partitions` lists. Such as: "1000, 1000, 2000, 2000"
+    * `property.kafka_default_offset`: Specify the default starting offset of the partition.
+
+    When creating an routine load job, these three parameters can have the following combinations:
+    
+    | Combinations | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | Behavior |
+    |---|---|---|---|---|
+    |1| No | No | No | The system will automatically find all the partitions corresponding to the topic and start consumption from OFFSET_END |
+    |2| No | No | Yes | The system will automatically find all the partitions corresponding to the topic and start consumption from the position specified by the default offset |
+    |3| Yes | No | No | The system will start consumption from the OFFSET_END of the specified partition |
+    |4| Yes | Yes | No | The system will start consumption from the specified offset of the specified partition |
+    |5| Yes | No | Yes | The system will start consumption from the specified partition and the location specified by the default offset |
 
 ## Related parameters
 

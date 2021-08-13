@@ -67,6 +67,7 @@ public class StmtExecutorTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
+    private MysqlChannel channel = null;
 
     @Mocked
     SocketChannel socketChannel;
@@ -92,7 +93,7 @@ public class StmtExecutorTest {
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         Catalog catalog = AccessTestUtil.fetchAdminCatalog();
 
-        MysqlChannel channel = new MysqlChannel(socketChannel);
+        channel = new MysqlChannel(socketChannel);
         new Expectations(channel) {
             {
                 channel.sendOnePacket((ByteBuffer) any);

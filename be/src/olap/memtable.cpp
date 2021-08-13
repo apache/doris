@@ -87,12 +87,14 @@ void MemTable::insert(const Tuple* tuple) {
     } else {
         _tuple_buf = _table_mem_pool->allocate(_schema_size);
         ContiguousRow dst_row(_schema, _tuple_buf);
+        _agg_object_pool.acquire_data(&_agg_buffer_pool);
         copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
         _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
     }
 
     // Make MemPool to be reusable, but does not free its memory
     _buffer_mem_pool->clear();
+    _agg_buffer_pool.clear();
 }
 
 void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
@@ -103,7 +105,7 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         const void* value = tuple->get_slot(slot->tuple_offset());
         _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
-                                    &_agg_object_pool);
+                                    &_agg_buffer_pool);
     }
 }
 

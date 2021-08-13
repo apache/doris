@@ -31,13 +31,13 @@
 namespace doris {
 
 TestEnv::TestEnv()
-        : _block_mgr_parent_tracker(MemTracker::CreateTracker(-1, "block mgr parent")),
-          _io_mgr_tracker(MemTracker::CreateTracker(-1, "io mgr")) {
+        : _block_mgr_parent_tracker(MemTracker::CreateTracker(-1, "BufferedBlockMgr2")),
+          _io_mgr_tracker(MemTracker::CreateTracker(-1, "DiskIoMgr")) {
     // Some code will use ExecEnv::GetInstance(), so init the global ExecEnv singleton
     _exec_env = ExecEnv::GetInstance();
     _exec_env->_thread_mgr = new ThreadResourceMgr(2);
     _exec_env->_buffer_reservation = new ReservationTracker();
-    _exec_env->_mem_tracker = MemTracker::CreateTracker(-1, "TestEnv root");
+    _exec_env->_mem_tracker = MemTracker::CreateTracker(-1, "TestEnv");
     _exec_env->_disk_io_mgr = new DiskIoMgr(1, 1, 1, 10);
     _exec_env->disk_io_mgr()->init(_io_mgr_tracker);
     _exec_env->_thread_pool = new PriorityThreadPool(1, 16);

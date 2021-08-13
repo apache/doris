@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -49,7 +50,7 @@ public class AlterRoutineLoadStmtTest {
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-
+        FeConstants.runningUnitTest = true;
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
@@ -80,7 +81,7 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000, 30000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
             try {
@@ -124,6 +125,7 @@ public class AlterRoutineLoadStmtTest {
             }
         }
 
+        // alter topic is now supported
         {
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, "100");
@@ -131,16 +133,16 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, "new_topic");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
 
             try {
                 stmt.analyze(analyzer);
-                Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("kafka_topic is invalid kafka custom property"));
+                Assert.fail();
             } catch (UserException e) {
+                e.printStackTrace();
                 Assert.fail();
             }
         }
@@ -152,14 +154,14 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Partition and offset must be specified at the same time"));
+                Assert.assertTrue(e.getMessage().contains("Must set offset or default offset with partition property"));
             } catch (UserException e) {
                 Assert.fail();
             }
@@ -173,7 +175,7 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "1000, 2000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
             try {
@@ -193,14 +195,14 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "1000, 2000, 3000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("Missing kafka partition info"));
+                Assert.assertTrue(e.getMessage().contains("Partitions number should be equals to offsets number"));
             } catch (UserException e) {
                 Assert.fail();
             }
@@ -217,7 +219,7 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000, 30000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties);
+                    typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
                     jobProperties, routineLoadDataSourceProperties);
             try {

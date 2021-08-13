@@ -66,7 +66,7 @@ enum TPrimitiveType {
   DATE,
   DATETIME,
   BINARY,
-  DECIMAL,
+  DECIMAL_DEPRACTED, // not used now, only for place holder
   // CHAR(n). Currently only supported in UDAs
   CHAR,
   LARGEINT,
@@ -74,7 +74,10 @@ enum TPrimitiveType {
   HLL,
   DECIMALV2,
   TIME,
-  OBJECT
+  OBJECT,
+  ARRAY,
+  MAP,
+  STRUCT
 }
 
 enum TTypeNodeType {
@@ -82,6 +85,13 @@ enum TTypeNodeType {
     ARRAY,
     MAP,
     STRUCT
+}
+
+enum TStorageBackendType {
+    BROKER,
+    S3,
+    HDFS,
+    LOCAL
 }
 
 struct TScalarType {
@@ -182,8 +192,24 @@ enum TStmtType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
+  BRIEF,
   NORMAL,
   VERBOSE
+}
+
+enum TRuntimeFilterMode {
+  // No filters are computed in the FE or the BE.
+  OFF = 0
+
+  // Only broadcast filters are computed in the BE, and are only published to the local
+  // fragment.
+  LOCAL = 1
+
+  // Only shuffle filters are computed in the BE, and are only published globally.
+  REMOTE = 2
+
+  // All fiters are computed in the BE, and are published globally.
+  GLOBAL = 3
 }
 
 struct TColumnType {
@@ -299,6 +325,7 @@ struct TFunction {
 
   11: optional i64 id
   12: optional string checksum
+  13: optional bool vectorized = false
 }
 
 enum TLoadJobState {
@@ -369,6 +396,8 @@ enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
     FILE_STREAM,    // file content is streaming in the buffer
+    FILE_S3,
+    FILE_HDFS,
 }
 
 struct TTabletCommitInfo {

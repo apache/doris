@@ -18,15 +18,14 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.common.ThriftServer;
-import org.apache.doris.common.util.JdkUtils;
+import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.BeThriftService;
 
-import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
-import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
-import com.baidu.jprotobuf.pbrpc.transport.RpcServer;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
 
 import org.apache.thrift.TProcessor;
 
@@ -48,7 +47,7 @@ public class MockedBackend {
 
     private ThriftServer heartbeatServer;
     private ThriftServer beThriftServer;
-    private RpcServer rpcServer;
+    private Server backendServer;
     
     private String host;
     private int heartbeatPort;
@@ -59,15 +58,10 @@ public class MockedBackend {
     // This must be set explicitly after creating mocked Backend
     private TNetworkAddress feAddress;
 
-    static {
-        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
-        JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
-    }
-
     public MockedBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
             HeartbeatService.Iface hbService,
-            BeThriftService backendService,
-            Object pBackendService) throws IOException {
+            BeThriftService backendService, PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
+            throws IOException {
 
         this.host = host;
         this.heartbeatPort = heartbeatPort;
@@ -116,7 +110,7 @@ public class MockedBackend {
         System.out.println("Be heartbeat service is started with port: " + heartbeatPort);
         beThriftServer.start();
         System.out.println("Be thrift service is started with port: " + thriftPort);
-        rpcServer.start(brpcPort);
+        backendServer.start();
         System.out.println("Be brpc service is started with port: " + brpcPort);
     }
 
@@ -130,8 +124,8 @@ public class MockedBackend {
         beThriftServer = new ThriftServer(beThriftPort, tprocessor);
     }
 
-    private void createBrpcService(int brpcPort, Object pBackendServiceImpl) {
-        rpcServer = new RpcServer();
-        rpcServer.registerService(pBackendServiceImpl);
+    private void createBrpcService(int brpcPort, PBackendServiceGrpc.PBackendServiceImplBase pBackendServiceImpl) {
+        backendServer = ServerBuilder.forPort(brpcPort)
+                .addService(pBackendServiceImpl).build();
     }
 }

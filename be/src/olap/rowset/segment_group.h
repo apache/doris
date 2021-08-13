@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
 #define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -305,7 +305,7 @@ private:
     bool _empty;
 
     // Lock held while loading the index.
-    mutable boost::mutex _index_load_lock;
+    mutable std::mutex _index_load_lock;
     size_t _current_num_rows_per_row_block;
 
     std::vector<std::pair<WrapperField*, WrapperField*>> _zone_maps;

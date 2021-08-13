@@ -340,6 +340,19 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     }
 }
 
+BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
+
+    if (src.len == 0) {
+        return reinterpret_cast<BitmapValue*>(src.ptr)->minimum();
+    } else {
+        auto bitmap = BitmapValue((char*)src.ptr);
+        return bitmap.minimum();
+    }
+}
+
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
                                      const doris_udf::StringVal& src) {
     BitmapValue bitmap;
@@ -497,6 +510,25 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    if (lhs.len == 0) {
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
+    } else {
+        bitmap |= BitmapValue((char*)lhs.ptr);
+    }
+
+    if (rhs.len == 0) {
+        bitmap -= *reinterpret_cast<BitmapValue*>(rhs.ptr);
+    } else {
+        bitmap -= BitmapValue((char*)rhs.ptr);
+    }
+    return serialize(ctx, &bitmap);
+}
 
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {

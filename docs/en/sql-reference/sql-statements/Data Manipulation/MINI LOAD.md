@@ -92,10 +92,10 @@ NOTE:
 It is recommended that the amount of data imported should not exceed 1 GB.
 
 2. Currently, it is not possible to submit multiple files in the form of `curl-T', `{file1, file2}', because curl splits them into multiple files.
-Request sent, multiple requests can not share a label number, so it can not be used
+Request sent, multiple requests cannot share a label number, so it cannot be used
 
 3. Miniload is imported in exactly the same way as streaming. It returns the results synchronously to users after the import of streaming is completed.
-Although the information of mini load can be found in subsequent queries, it can not be operated on. The queries are only compatible with the old ways of use.
+Although the information of mini load can be found in subsequent queries, it cannot be operated on. The queries are only compatible with the old ways of use.
 
 4. When importing from the curl command line, you need to add escape before & or the parameter information will be lost.
 

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,6 +57,53 @@ public class DateLiteralTest {
             hasException = true;
         }
         Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testDateFormat() {
+        boolean hasException = false;
+        try {
+            DateLiteral literal = new DateLiteral("1997-10-7", Type.DATE);
+            Assert.assertEquals(1997, literal.getYear());
+
+            literal = new DateLiteral("2021-06-1", Type.DATE);
+            Assert.assertEquals(2021, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2022-6-01", Type.DATE);
+            Assert.assertEquals(2022, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("2023-6-1", Type.DATE);
+            Assert.assertEquals(2023, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+
+            literal = new DateLiteral("20230601", Type.DATE);
+            Assert.assertEquals(2023, literal.getYear());
+            Assert.assertEquals(6, literal.getMonth());
+            Assert.assertEquals(1, literal.getDay());
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
+
+    @Test
+    public void testParseDateTimeToHourORMinute() throws Exception{
+        String s = "2020-12-13 12:13:14";
+        Type type = Type.DATETIME;
+        DateLiteral literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:14"));
+        s = "2020-12-13 12:13";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:13:00"));
+        s = "2020-12-13 12";
+        literal = new DateLiteral(s, type);
+        Assert.assertTrue(literal.toSql().contains("2020-12-13 12:00:00"));
     }
 
     @Test

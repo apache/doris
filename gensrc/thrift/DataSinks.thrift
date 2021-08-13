@@ -32,7 +32,9 @@ enum TDataSinkType {
     EXPORT_SINK,
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK,
-    ODBC_TABLE_SINK
+    ODBC_TABLE_SINK,
+    VRESULT_SINK,
+    VDATA_STREAM_SINK,
 }
 
 enum TResultSinkType {
@@ -48,6 +50,9 @@ struct TResultFileSinkOptions {
     5: optional i64 max_file_size_bytes
     6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     7: optional map<string, string> broker_properties // only for remote file
+    8: optional string success_file_name
+    9: optional list<list<string>> schema            // for parquet/orc file
+    10: optional map<string, string> file_properties // for parquet/orc file
 }
 
 struct TMemoryScratchSink {

@@ -72,16 +72,20 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
-    public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
+    public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
     public static final String ENABLE_SPILLING = "enable_spilling";
+    public static final String ENABLE_EXCHANGE_NODE_PARALLEL_MERGE = "enable_exchange_node_parallel_merge";
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
+    public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
+
+    public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
     public static final int MIN_EXEC_INSTANCE_NUM = 1;
     public static final int MAX_EXEC_INSTANCE_NUM = 32;
@@ -114,14 +118,42 @@ public class SessionVariable implements Serializable, Writable {
     // when true, the partition column must be set to NOT NULL.
     public static final String ALLOW_PARTITION_COLUMN_NULLABLE = "allow_partition_column_nullable";
 
+    // runtime filter run mode
+    public static final String RUNTIME_FILTER_MODE = "runtime_filter_mode";
+    // Size in bytes of Bloom Filters used for runtime filters. Actual size of filter will
+    // be rounded up to the nearest power of two.
+    public static final String RUNTIME_BLOOM_FILTER_SIZE = "runtime_bloom_filter_size";
+    // Minimum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MIN_SIZE = "runtime_bloom_filter_min_size";
+    // Maximum runtime bloom filter size, in bytes
+    public static final String RUNTIME_BLOOM_FILTER_MAX_SIZE = "runtime_bloom_filter_max_size";
+    // Time in ms to wait until runtime filters are delivered.
+    public static final String RUNTIME_FILTER_WAIT_TIME_MS = "runtime_filter_wait_time_ms";
+    // Maximum number of bloom runtime filters allowed per query
+    public static final String RUNTIME_FILTERS_MAX_NUM = "runtime_filters_max_num";
+    // Runtime filter type used, For testing, Corresponds to TRuntimeFilterType
+    public static final String RUNTIME_FILTER_TYPE = "runtime_filter_type";
+    // if the right table is greater than this value in the hash join,  we will ignore IN filter
+    public static final String RUNTIME_FILTER_MAX_IN_NUM = "runtime_filter_max_in_num";
+
     // max ms to wait transaction publish finish when exec insert stmt.
     public static final String INSERT_VISIBLE_TIMEOUT_MS = "insert_visible_timeout_ms";
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
-
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
+
+    public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
+    
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
+
+    public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
+
+    // session origin value
+    public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
+    // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
+    // if it is setStmt, we needn't collect session origin value
+    public boolean isSingleSetVar = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -132,6 +164,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SPILLING)
     public boolean enableSpilling = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_EXCHANGE_NODE_PARALLEL_MERGE)
+    public boolean enableExchangeNodeParallelMerge = false;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
@@ -231,14 +266,17 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
 
-    @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
-    public boolean disableColocateJoin = false;
+    @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
+    public boolean disableColocatePlan = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
-    public boolean enableBucketShuffleJoin = false;
+    public boolean enableBucketShuffleJoin = true;
 
     @VariableMgr.VarAttr(name = PREFER_JOIN_METHOD)
     public String preferJoinMethod = "broadcast";
+
+    @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
+    private boolean enableFoldConstantByBe = false;
 
     /*
      * the parallel exec instance num for one Fragment in one BE
@@ -258,6 +296,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PARTITION_CACHE)
     public boolean enablePartitionCache = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
+    private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = false;
@@ -297,6 +338,29 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
 
+    @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
+    public boolean extractWideRangeExpr = true;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
+    private String runtimeFilterMode = "GLOBAL";
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
+    private int runtimeBloomFilterSize = 2097152;
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MIN_SIZE)
+    private int runtimeBloomFilterMinSize = 1048576;
+    @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_MAX_SIZE)
+    private int runtimeBloomFilterMaxSize = 16777216;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_WAIT_TIME_MS)
+    private int runtimeFilterWaitTimeMs = 1000;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
+    private int runtimeFiltersMaxNum = 10;
+    // Set runtimeFilterType to IN filter
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
+    private int runtimeFilterType = 1;
+    @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
+    private int runtimeFilterMaxInNum = 1024;
+
+    @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
+    public boolean enableVectorizedEngine = false;
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -324,6 +388,8 @@ public class SessionVariable implements Serializable, Writable {
     public void setSqlMode(long sqlMode) {
         this.sqlMode = sqlMode;
     }
+
+    public boolean isEnableJoinReorderBasedCost() { return enableJoinReorderBasedCost; }
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -441,8 +507,8 @@ public class SessionVariable implements Serializable, Writable {
         this.resourceGroup = resourceGroup;
     }
 
-    public boolean isDisableColocateJoin() {
-        return disableColocateJoin;
+    public boolean isDisableColocatePlan() {
+        return disableColocatePlan;
     }
 
     public boolean isEnableBucketShuffleJoin() {
@@ -460,6 +526,10 @@ public class SessionVariable implements Serializable, Writable {
     public void setPreferJoinMethod(String preferJoinMethod) {
         this.preferJoinMethod = preferJoinMethod;
     }
+
+    public boolean isEnableFoldConstantByBe() { return enableFoldConstantByBe; }
+
+    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {this.enableFoldConstantByBe = foldConstantByBe; }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -571,6 +641,78 @@ public class SessionVariable implements Serializable, Writable {
         return allowPartitionColumnNullable;
     }
 
+    public String getRuntimeFilterMode() {
+        return runtimeFilterMode;
+    }
+
+    public void setRuntimeFilterMode(String runtimeFilterMode) {
+        this.runtimeFilterMode = runtimeFilterMode;
+    }
+
+    public int getRuntimeBloomFilterSize() {
+        return runtimeBloomFilterSize;
+    }
+
+    public void setRuntimeBloomFilterSize(int runtimeBloomFilterSize) {
+        this.runtimeBloomFilterSize = runtimeBloomFilterSize;
+    }
+
+    public int getRuntimeBloomFilterMinSize() {
+        return runtimeBloomFilterMinSize;
+    }
+
+    public void setRuntimeBloomFilterMinSize(int runtimeBloomFilterMinSize) {
+        this.runtimeBloomFilterMinSize = runtimeBloomFilterMinSize;
+    }
+
+    public int getRuntimeBloomFilterMaxSize() {
+        return runtimeBloomFilterMaxSize;
+    }
+
+    public void setRuntimeBloomFilterMaxSize(int runtimeBloomFilterMaxSize) {
+        this.runtimeBloomFilterMaxSize = runtimeBloomFilterMaxSize;
+    }
+
+    public int getRuntimeFilterWaitTimeMs() {
+        return runtimeFilterWaitTimeMs;
+    }
+
+    public void setRuntimeFilterWaitTimeMs(int runtimeFilterWaitTimeMs) {
+        this.runtimeFilterWaitTimeMs = runtimeFilterWaitTimeMs;
+    }
+
+    public int getRuntimeFiltersMaxNum() {
+        return runtimeFiltersMaxNum;
+    }
+
+    public void setRuntimeFiltersMaxNum(int runtimeFiltersMaxNum) {
+        this.runtimeFiltersMaxNum = runtimeFiltersMaxNum;
+    }
+
+    public int getRuntimeFilterType() {
+        return runtimeFilterType;
+    }
+
+    public void setRuntimeFilterType(int runtimeFilterType) {
+        this.runtimeFilterType = runtimeFilterType;
+    }
+
+    public int getRuntimeFilterMaxInNum() {
+        return runtimeFilterMaxInNum;
+    }
+
+    public void setRuntimeFilterMaxInNum(int runtimeFilterMaxInNum) {
+        this.runtimeFilterMaxInNum = runtimeFilterMaxInNum;
+    }
+
+    public boolean enableVectorizedEngine() {
+        return enableVectorizedEngine;
+    }
+
+    public void setEnableVectorizedEngine(boolean enableVectorizedEngine) {
+        this.enableVectorizedEngine = enableVectorizedEngine;
+    }
+
     public long getInsertVisibleTimeoutMs() {
         if (insertVisibleTimeoutMs < MIN_INSERT_VISIBLE_TIMEOUT_MS) {
             return MIN_INSERT_VISIBLE_TIMEOUT_MS;
@@ -587,8 +729,32 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean getIsSingleSetVar() {
+        return isSingleSetVar;
+    }
+
+    public void setIsSingleSetVar(boolean issinglesetvar) {
+        this.isSingleSetVar = issinglesetvar;
+    }
+
+    public Map<Field, String> getSessionOriginValue() {
+        return sessionOriginValue;
+    }
+
+    public void addSessionOriginValue(Field key, String value) {
+        sessionOriginValue.put(key, value);
+    }
+
+    public void clearSessionOriginValue() {
+        sessionOriginValue.clear();
+    }
+
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
+    }
+
+    public boolean isExtractWideRangeExpr() {
+        return extractWideRangeExpr;
     }
 
     // Serialize to thrift object
@@ -606,6 +772,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setIsReportSuccess(isReportSucc);
         tResult.setCodegenLevel(codegenLevel);
+        tResult.setEnableVectorizedEngine(enableVectorizedEngine);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -617,7 +784,12 @@ public class SessionVariable implements Serializable, Writable {
         if (maxPushdownConditionsPerColumn > -1) {
             tResult.setMaxPushdownConditionsPerColumn(maxPushdownConditionsPerColumn);
         }
+
         tResult.setEnableSpilling(enableSpilling);
+        tResult.setEnableEnableExchangeNodeParallelMerge(enableExchangeNodeParallelMerge);
+
+        tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
+        tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
         return tResult;
     }
 

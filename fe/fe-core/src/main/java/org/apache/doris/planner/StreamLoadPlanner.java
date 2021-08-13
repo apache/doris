@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -29,6 +30,9 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -36,6 +40,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -47,6 +52,7 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -74,6 +80,9 @@ public class StreamLoadPlanner {
 
     private Analyzer analyzer;
     private DescriptorTable descTable;
+
+    private StreamLoadScanNode scanNode;
+    private TupleDescriptor tupleDesc;
 
     public StreamLoadPlanner(Database db, OlapTable destTable, LoadTaskInfo taskInfo) {
         this.db = db;
@@ -113,7 +122,7 @@ public class StreamLoadPlanner {
         }
         resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
-        TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
+        tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = taskInfo.getNegative();
         // here we should be full schema to fill the descriptor table
         for (Column col : destTable.getFullSchema()) {
@@ -127,15 +136,22 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
+        scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), tupleDesc, destTable, taskInfo);
         scanNode.init(analyzer);
-        descTable.computeMemLayout();
+        descTable.computeStatAndMemLayout();
         scanNode.finalize(analyzer);
+
+        int timeout = taskInfo.getTimeout();
+        if (taskInfo instanceof RoutineLoadJob) {
+            // For routine load, make the timeout fo plan fragment larger than MaxIntervalS config.
+            // So that the execution won't be killed before consuming finished.
+            timeout *= 2;
+        }
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout());
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout);
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -170,7 +186,7 @@ public class StreamLoadPlanner {
         params.setParams(execParams);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
-        queryOptions.setQueryTimeout(taskInfo.getTimeout());
+        queryOptions.setQueryTimeout(timeout);
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
@@ -195,8 +211,8 @@ public class StreamLoadPlanner {
     }
 
     // get all specified partition ids.
-    // if no partition specified, return all partitions
-    private List<Long> getAllPartitionIds() throws DdlException {
+    // if no partition specified, return null
+    private List<Long> getAllPartitionIds() throws DdlException, AnalysisException {
         List<Long> partitionIds = Lists.newArrayList();
 
         PartitionNames partitionNames = taskInfo.getPartitions();
@@ -208,15 +224,37 @@ public class StreamLoadPlanner {
                 }
                 partitionIds.add(part.getId());
             }
-        } else {
-            for (Partition partition : destTable.getPartitions()) {
-                partitionIds.add(partition.getId());
-            }
-            if (partitionIds.isEmpty()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, destTable.getName());
-            }
+            return partitionIds;
         }
-
-        return partitionIds;
+        List<Expr> conjuncts = scanNode.getConjuncts();
+        if (destTable.getPartitionInfo().getType() != PartitionType.UNPARTITIONED && !conjuncts.isEmpty()) {
+            PartitionInfo partitionInfo = destTable.getPartitionInfo();
+            Map<Long, PartitionItem> itemById = partitionInfo.getIdToItem(false);
+            Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
+            for (Column column : partitionInfo.getPartitionColumns()) {
+                SlotDescriptor slotDesc = tupleDesc.getColumnSlot(column.getName());
+                if (null == slotDesc) {
+                    continue;
+                }
+                PartitionColumnFilter keyFilter = SingleNodePlanner.createPartitionFilter(slotDesc, conjuncts);
+                if (null != keyFilter) {
+                    columnFilters.put(column.getName(), keyFilter);
+                }
+            }
+            if (columnFilters.isEmpty()) {
+                return null;
+            }
+            PartitionPruner partitionPruner = null;
+            if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                partitionPruner = new RangePartitionPruner(itemById,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
+                partitionPruner = new ListPartitionPruner(itemById,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            }
+            partitionIds.addAll(partitionPruner.prune());
+            return partitionIds;
+        }
+        return null;
     }
 }

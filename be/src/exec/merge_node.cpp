@@ -18,6 +18,7 @@
 #include "exec/merge_node.h"
 
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"

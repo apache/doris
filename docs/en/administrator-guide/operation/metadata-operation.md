@@ -55,7 +55,7 @@ Let's assume that the path of `meta_dir` specified in fe.conf is `path/to/palo-m
 
 1. bdb
 
-	We use [bdbje] (https://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html) as a distributed kV system to store metadata journal. This BDB directory is equivalent to the "data directory" of bdbje.
+	We use [bdbje](https://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html) as a distributed kV system to store metadata journal. This BDB directory is equivalent to the "data directory" of bdbje.
 
 	The `.jdb` suffix is the data file of bdbje. These data files will increase with the increasing number of metadata journals. When Doris regularly completes the image, the old log is deleted. So normally, the total size of these data files varies from several MB to several GB (depending on how Doris is used, such as import frequency). When the total size of the data file is larger than 10GB, you may need to wonder whether the image failed or the historical journals that failed to distribute the image could not be deleted.
 
@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Deployment and Upgrade Documents] (https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Deployment and Upgrade Documents](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 
@@ -145,7 +145,7 @@ Adding FE processes is described in detail in the [Deployment and Upgrade Docume
 	* The first time you start a new FE, you must make sure that the `meta_dir` of the FE is created, has correct permissions and is empty.
 	* Starting a new FE and executing the `ALTER SYSTEM ADD FOLLOWER/OBSERVER` statement adds FE to metadata in a sequence that is not required. If a new FE is started first and no statement is executed, the `current node is not added to the group. Please add it first.` in the new FE log. When the statement is executed, it enters the normal process.
 	* Make sure that after the previous FE is added successfully, the next FE is added.
-	* Connect to  MASTER FE and execute `ALTER SYSTEM ADD FOLLOWER/OBSERVER` claus。
+	* Connect to  MASTER FE and execute `ALTER SYSTEM ADD FOLLOWER/OBSERVER` stmt.
 
 2. Common problems
 
@@ -239,7 +239,7 @@ FE currently has the following ports
 
 * Ed_log_port: bdbje's communication port
 * http_port: http port, also used to push image
-* rpc_port：FE 的 thrift server port
+* rpc_port:  thrift server port of Frontend
 * query_port: Mysql connection port
 
 1. edit_log_port
@@ -277,6 +277,59 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 
 **Note: If the Image file is large, the entire process can take a long time, so during this time, make sure Master FE does not generate a new image file via checkpoint. When the image.ckpt file in the meta_dir/image directory on the Master FE node is observed to be as large as the image.xxx file, the image.ckpt file can be deleted directly.**
 
+### View data in BDBJE
+
+The metadata log of FE is stored in BDBJE in the form of Key-Value. In some abnormal situations, FE may not be started due to metadata errors. In this case, Doris provides a way to help users query the data stored in BDBJE to facilitate troubleshooting.
+
+First, you need to add configuration in fe.conf: `enable_bdbje_debug_mode=true`, and then start FE through `sh start_fe.sh --daemon`.
+
+At this time, FE will enter the debug mode, only start the http server and MySQL server, and open the BDBJE instance, but will not load any metadata and other subsequent startup processes.
+
+This is, we can view the data stored in BDBJE by visiting the web page of FE, or after connecting to Doris through the MySQL client, through `show proc /bdbje;`.
+
+```
+mysql> show proc "/bdbje";
++----------+---------------+---------+
+| DbNames  | JournalNumber | Comment |
++----------+---------------+---------+
+| 110589   | 4273          |         |
+| epochDB  | 4             |         |
+| metricDB | 430694        |         |
++----------+---------------+---------+
+```
+
+The first level directory will display all the database names in BDBJE and the number of entries in each database.
+
+```
+mysql> show proc "/bdbje/110589";
++-----------+
+| JournalId |
++-----------+
+| 1         |
+| 2         |
+
+...
+| 114858    |
+| 114859    |
+| 114860    |
+| 114861    |
++-----------+
+4273 rows in set (0.06 sec)
+```
+
+Entering the second level, all the entry keys under the specified database will be listed.
+
+```
+mysql> show proc "/bdbje/110589/114861";
++-----------+--------------+---------------------------------------------+
+| JournalId | OpType       | Data                                        |
++-----------+--------------+---------------------------------------------+
+| 114861    | OP_HEARTBEAT | org.apache.doris.persist.HbPackage@6583d5fb |
++-----------+--------------+---------------------------------------------+
+1 row in set (0.05 sec)
+```
+
+The third level can display the value information of the specified key.
 
 ## Best Practices
 

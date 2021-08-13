@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -27,7 +28,11 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.PlanTreeBuilder;
+import org.apache.doris.common.profile.PlanTreePrinter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -35,6 +40,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,7 +57,7 @@ public class Planner {
 
     private boolean isBlockQuery = false;
 
-    private ArrayList<PlanFragment> fragments = Lists.newArrayList();
+    protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
     private PlannerContext plannerContext;
     private SingleNodePlanner singleNodePlanner;
@@ -87,13 +93,11 @@ public class Planner {
                 for (Expr expr : outputExprs) {
                     List<SlotId> slotList = Lists.newArrayList();
                     expr.getIds(null, slotList);
-                    if (PrimitiveType.DECIMAL != expr.getType().getPrimitiveType() && 
-                            PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
+                    if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
                             }
 
-                    if (PrimitiveType.DECIMAL != slotDesc.getType().getPrimitiveType() &&
-                            PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
+                    if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
                             }
 
@@ -115,7 +119,22 @@ public class Planner {
     /**
      * Return combined explain string for all plan fragments.
      */
-    public String getExplainString(List<PlanFragment> fragments, TExplainLevel explainLevel) {
+    public String getExplainString(List<PlanFragment> fragments, ExplainOptions explainOptions) {
+        Preconditions.checkNotNull(explainOptions);
+        if (explainOptions.isGraph()) {
+            // print the plan graph
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
+        }
+
+        // print text plan
+        TExplainLevel explainLevel = explainOptions.isVerbose() ? TExplainLevel.VERBOSE : TExplainLevel.NORMAL;
         StringBuilder str = new StringBuilder();
         for (int i = 0; i < fragments.size(); ++i) {
             PlanFragment fragment = fragments.get(i);
@@ -149,6 +168,10 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
+        if (VectorizedUtil.isVectorized()) {
+            singleNodePlan.convertToVectoriezd();
+        }
+
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
@@ -165,10 +188,26 @@ public class Planner {
         if (selectFailed) {
             throw new MVSelectFailedException("Failed to select materialize view");
         }
-        // compute mem layout *before* finalize(); finalize() may reference
-        // TupleDescriptor.avgSerializedSize
+
+        /**
+         * - Under normal circumstances, computeMemLayout() will be executed
+         *     at the end of the init function of the plan node.
+         * Such as :
+         * OlapScanNode {
+         *     init () {
+         *         analyzer.materializeSlots(conjuncts);
+         *         computeTupleStatAndMemLayout(analyzer);
+         *         computeStat();
+         *     }
+         * }
+         * - However Doris is currently unable to determine
+         *     whether it is possible to cut or increase the columns in the tuple after PlanNode.init().
+         * - Therefore, for the time being, computeMemLayout() can only be placed
+         *     after the completion of the entire single node planner.
+         */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+        
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -185,7 +224,13 @@ public class Planner {
         QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
-        if (statement instanceof InsertStmt) {
+        // Create runtime filters.
+        if (!ConnectContext.get().getSessionVariable().getRuntimeFilterMode().toUpperCase()
+                .equals(TRuntimeFilterMode.OFF.name())) {
+            RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
+        }
+
+	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

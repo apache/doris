@@ -102,6 +102,21 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 	When the corresponding import operation state of label is CANCELLED, the label can be used again.
 
+
++ column_separator
+    
+    Used to specify the column separator in the load file. The default is `\t`. If it is an invisible character, you need to add `\x` as a prefix and hexadecimal to indicate the separator.
+
+    For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`.
+
+    You can use a combination of multiple characters as the column separator.
+
++ line_delimiter
+   
+   Used to specify the line delimiter in the load file. The default is `\n`.
+
+   You can use a combination of multiple characters as the column separator.
+
 + max\_filter\_ratio
 
 	The maximum tolerance rate of the import task is 0 by default, and the range of values is 0-1. When the import error rate exceeds this value, the import fails.
@@ -187,7 +202,7 @@ The following main explanations are given for the Stream load import result para
 
 	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists"：Label duplicate, need to be replaced Label.
+	"Label Already Exists": Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
 	
@@ -211,13 +226,13 @@ The following main explanations are given for the Stream load import result para
 
 + BeginTxnTimeMs: The time cost for RPC to Fe to begin a transaction, Unit milliseconds.
 
-+ StreamLoadPutTimeMs：The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
++ StreamLoadPutTimeMs: The time cost for RPC to Fe to get a stream load plan, Unit milliseconds.
   
-+ ReadDataTimeMs：Read data time, Unit milliseconds.
++ ReadDataTimeMs: Read data time, Unit milliseconds.
 
-+ WriteDataTimeMs：Write data time, Unit milliseconds.
++ WriteDataTimeMs: Write data time, Unit milliseconds.
 
-+ CommitAndPublishTimeMs：The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
++ CommitAndPublishTimeMs: The time cost for RPC to Fe to commit and publish a transaction, Unit milliseconds.
 
 + ErrorURL: If you have data quality problems, visit this URL to see specific error lines.
 

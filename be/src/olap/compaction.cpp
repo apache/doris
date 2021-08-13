@@ -28,8 +28,11 @@ namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "readers tracker", _mem_tracker)),
+        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false, MemTrackerLevel::TASK)),
+          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
+                  true, false)),
+          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
+                  true, false)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -80,8 +83,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first << "-" << _output_version.second
-              << ", permits: " << permits;
+              << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
@@ -95,8 +97,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
-                     << ", output_version=" << _output_version.first << "-"
-                     << _output_version.second;
+                     << ", output_version=" << _output_version;
         return res;
     }
     TRACE("merge rowsets finished");
@@ -106,8 +107,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     _output_rowset = _output_rs_writer->build();
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version.first << "-"
-                     << _output_version.second;
+                     << ", output_version=" << _output_version;
         return OLAP_ERR_MALLOC_ERROR;
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
@@ -125,16 +125,25 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     // 5. update last success compaction time
     int64_t now = UnixMillis();
+    // TODO(yingchun): do the judge in Tablet class
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         _tablet->set_last_cumu_compaction_success_time(now);
     } else {
         _tablet->set_last_base_compaction_success_time(now);
     }
 
+    int64_t current_max_version;
+    {
+        ReadLock rdlock(_tablet->get_header_lock_ptr());
+        current_max_version = _tablet->rowset_with_max_version()->end_version();
+    }
+
     LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version.first << "-" << _output_version.second
-              << ", segments=" << segments_num << ". elapsed time=" << watch.get_elapse_second()
-              << "s.";
+              << ", output_version=" << _output_version
+              << ", current_max_version=" << current_max_version
+              << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
+              << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
+              << _tablet->cumulative_compaction_policy()->name() << ".";
 
     return OLAP_SUCCESS;
 }
@@ -156,6 +165,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.version = _output_version;
     context.version_hash = _output_version_hash;
     context.segments_overlap = NONOVERLAPPING;
+    context.parent_mem_tracker = _writer_tracker;
     // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
@@ -164,7 +174,11 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(_readers_tracker, &rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(
+                MemTracker::CreateTracker(
+                        -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
+                        _readers_tracker, true, true),
+                &rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;

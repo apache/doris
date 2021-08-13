@@ -233,8 +233,8 @@ class BitmapUnionAggregator extends SparkRDDAggregator<BitmapValue> {
             BitmapValue bitmapValue = new BitmapValue();
             if (value instanceof byte[]) {
                 bitmapValue.deserialize(new DataInputStream(new ByteArrayInputStream((byte[]) value)));
-            } else {
-                bitmapValue.add(value == null ? 0l : Long.valueOf(value.toString()));
+            } else if (value != null){
+                bitmapValue.add(Long.valueOf(value.toString()));
             }
             return bitmapValue;
         } catch (Exception e) {
@@ -277,8 +277,8 @@ class HllUnionAggregator extends SparkRDDAggregator<Hll> {
             Hll hll = new Hll();
             if (value instanceof byte[]) {
                 hll.deserialize(new DataInputStream(new ByteArrayInputStream((byte[]) value)));
-            } else {
-                hll.updateWithHash(value == null ? 0 : value);
+            } else if (value != null){
+                hll.updateWithHash(value);
             }
             return hll;
         } catch (Exception e) {

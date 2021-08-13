@@ -165,92 +165,6 @@ void ExprContext::free_local_allocations(const std::vector<FunctionContext*>& fn
     }
 }
 
-void ExprContext::get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val) {
-#if 0
-    void* value = get_value(row);
-    if (as_ascii) {
-        RawValue::print_value(value, _root->_type, _root->_output_scale, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        return;
-    }
-    if (value == NULL) {
-        return;
-    }
-
-    StringValue* string_val = NULL;
-    std::string tmp;
-    switch (_root->_type.type) {
-    case TYPE_BOOLEAN:
-        col_val->__set_bool_val(*reinterpret_cast<bool*>(value));
-        break;
-    case TYPE_TINYINT:
-        col_val->__set_byte_val(*reinterpret_cast<int8_t*>(value));
-        break;
-    case TYPE_SMALLINT:
-        col_val->__set_short_val(*reinterpret_cast<int16_t*>(value));
-        break;
-    case TYPE_INT:
-        col_val->__set_int_val(*reinterpret_cast<int32_t*>(value));
-        break;
-    case TYPE_BIGINT:
-        col_val->__set_long_val(*reinterpret_cast<int64_t*>(value));
-        break;
-    case TYPE_FLOAT:
-        col_val->__set_double_val(*reinterpret_cast<float*>(value));
-        break;
-    case TYPE_DOUBLE:
-        col_val->__set_double_val(*reinterpret_cast<double*>(value));
-        break;
-#if 0
-    case TYPE_DECIMAL:
-        switch (_root->_type.GetByteSize()) {
-        case 4:
-            col_val->string_val =
-                reinterpret_cast<Decimal4Value*>(value)->ToString(_root->_type);
-            break;
-        case 8:
-            col_val->string_val =
-                reinterpret_cast<Decimal8Value*>(value)->ToString(_root->_type);
-            break;
-        case 16:
-            col_val->string_val =
-                reinterpret_cast<Decimal16Value*>(value)->ToString(_root->_type);
-            break;
-        default:
-            DCHECK(false) << "Bad Type: " << _root->_type;
-        }
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_VARCHAR:
-        string_val = reinterpret_cast<StringValue*>(value);
-        tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_CHAR:
-        tmp.assign(StringValue::CharSlotToPtr(value, _root->_type), _root->_type.len);
-        col_val->string_val.swap(tmp);
-        col_val->__isset.string_val = true;
-        break;
-    case TYPE_TIMESTAMP:
-        RawValue::print_value(
-            value, _root->_type, _root->_output_scale_, &col_val->string_val);
-        col_val->__isset.string_val = true;
-        break;
-#endif
-    default:
-        DCHECK(false) << "bad get_value() type: " << _root->_type;
-    }
-#endif
-}
-
-void* ExprContext::get_value(TupleRow* row) {
-    if (_root->is_slotref()) {
-        return SlotRef::get_value(_root, row);
-    }
-    return get_value(_root, row);
-}
-
 bool ExprContext::is_nullable() {
     if (_root->is_slotref()) {
         return SlotRef::is_nullable(_root);
@@ -364,14 +278,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.datetime_val = DateTimeValue::from_datetime_val(v);
         return &_result.datetime_val;
     }
-    case TYPE_DECIMAL: {
-        DecimalVal v = e->get_decimal_val(this, row);
-        if (v.is_null) {
-            return NULL;
-        }
-        _result.decimal_val = DecimalValue::from_decimal_val(v);
-        return &_result.decimal_val;
-    }
     case TYPE_DECIMALV2: {
         DecimalV2Val v = e->get_decimalv2_val(this, row);
         if (v.is_null) {
@@ -380,16 +286,15 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.decimalv2_val = DecimalV2Value::from_decimal_val(v);
         return &_result.decimalv2_val;
     }
-#if 0
-    case TYPE_ARRAY:
-    case TYPE_MAP: {
-        doris_udf::ArrayVal v = e->GetArrayVal(this, row);
-        if (v.is_null) return NULL;
-        _result.array_val.ptr = v.ptr;
-        _result.array_val.num_tuples = v.num_tuples;
+    case TYPE_ARRAY: {
+        doris_udf::CollectionVal v = e->get_array_val(this, row);
+        if (v.is_null) {
+            return NULL;
+        }
+
+        _result.array_val = CollectionValue::from_collection_val(v);
         return &_result.array_val;
     }
-#endif
     default:
         DCHECK(false) << "Type not implemented: " << e->_type;
         return NULL;
@@ -451,10 +356,6 @@ StringVal ExprContext::get_string_val(TupleRow* row) {
 
 DateTimeVal ExprContext::get_datetime_val(TupleRow* row) {
     return _root->get_datetime_val(this, row);
-}
-
-DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
-    return _root->get_decimal_val(this, row);
 }
 
 DecimalV2Val ExprContext::get_decimalv2_val(TupleRow* row) {

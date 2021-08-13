@@ -208,15 +208,32 @@ set enable_odbc_transcation = true;
 |   DATETIME  | DATETIME |  |
 |   NUMBER  | DECIMAL |  |
 
+### SQLServer
+
+| SQLServer  | Doris  |             替换方案              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
+| VARCHAR | VARCHAR |       当前仅支持UTF8编码       |
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   TINYINT   | TINYINT |  |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   FLOAT  | DOUBLE |  |
+|   DATETIME/DATETIME2  | DATETIME |  |
+|   DECIMAL/NUMERIC | DECIMAL |  |
+
 ## Q&A
 
 1. 与原先的MySQL外表的关系
 
     在接入ODBC外表之后，原先的访问MySQL外表的方式将被逐渐弃用。如果之前没有使用过MySQL外表，建议新接入的MySQL表直接使用ODBC的MySQL外表。
     
-2. 除了MySQL,Oracle,PostgreSQL, 是否能够支持更多的数据库
+2. 除了MySQL,Oracle,PostgreSQL,SQLServer是否能够支持更多的数据库
 
-    目前Doris只适配了MySQL,Oracle,PostgreSQL，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
+    目前Doris只适配了MySQL,Oracle,PostgreSQL,SQLServer，关于其他的数据库的适配工作正在规划之中，原则上来说任何支持ODBC访问的数据库都能通过ODBC外表来访问。如果您有访问其他外表的需求，欢迎修改代码并贡献给Doris。
 
 3. 什么场合适合通过外表访问
 
@@ -234,9 +251,9 @@ set enable_odbc_transcation = true;
 
     没有在每一个BE上安装好对应数据的Driver，或者是没有在be/conf/odbcinst.ini配置正确的路径，亦或是建表是Driver名与be/conf/odbcinst.ini不同
 
-7. 报错 `fail to convert odbc value 'PALO ' TO INT`
+7. 报错 `Fail to convert odbc value 'PALO ' TO INT on column:'A'`
 
-    类型转换出错，需要修改列的类型映射
+    ODBC外表的A列类型转换出错，说明外表的实际列与ODBC的映射列的数据类型不同，需要修改列的类型映射
     
 8. 同时使用旧的MySQL表与ODBC外表的Driver时出现程序Crash
 

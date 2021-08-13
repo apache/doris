@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AdminShowConfigStmt;
+import org.apache.doris.analysis.AdminShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
@@ -33,24 +34,31 @@ import org.apache.doris.analysis.ShowCollationStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
+import org.apache.doris.analysis.ShowDbIdStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
+import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
+import org.apache.doris.analysis.ShowEncryptKeysStmt;
+import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
+import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
+import org.apache.doris.analysis.ShowQueryProfileStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
@@ -61,20 +69,28 @@ import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowStreamLoadStmt;
+import org.apache.doris.analysis.ShowSyncJobStmt;
+import org.apache.doris.analysis.ShowTableIdStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
+import org.apache.doris.analysis.ShowTrashStmt;
+import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
+import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -109,10 +125,17 @@ import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.RollupProcDir;
 import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
+import org.apache.doris.common.proc.TrashProcDir;
+import org.apache.doris.common.proc.TrashProcNode;
+import org.apache.doris.common.profile.ProfileTreeNode;
+import org.apache.doris.common.profile.ProfileTreePrinter;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.common.util.ProfileManager;
+import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -125,16 +148,17 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -177,10 +201,14 @@ public class ShowExecutor {
             handleHelp();
         } else if (stmt instanceof ShowDbStmt) {
             handleShowDb();
+        } else if (stmt instanceof ShowDbIdStmt) {
+            handleShowDbId();
         } else if (stmt instanceof ShowTableStmt) {
             handleShowTable();
         } else if (stmt instanceof ShowTableStatusStmt) {
             handleShowTableStatus();
+        } else if (stmt instanceof ShowTableIdStmt) {
+            handleShowTableId();
         } else if (stmt instanceof DescribeStmt) {
             handleDescribe();
         } else if (stmt instanceof ShowCreateTableStmt) {
@@ -195,18 +223,24 @@ public class ShowExecutor {
             handleShowFunctions();
         } else if (stmt instanceof ShowCreateFunctionStmt) {
             handleShowCreateFunction();
+        } else if (stmt instanceof ShowEncryptKeysStmt) {
+            handleShowEncryptKeys();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
             handleShowColumn();
         } else if (stmt instanceof ShowLoadStmt) {
             handleShowLoad();
+        } else if (stmt instanceof ShowStreamLoadStmt) {
+            handleShowStreamLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
         } else if (stmt instanceof ShowRoutineLoadStmt) {
             handleShowRoutineLoad();
         } else if (stmt instanceof ShowRoutineLoadTaskStmt) {
             handleShowRoutineLoadTask();
+        } else if (stmt instanceof ShowCreateRoutineLoadStmt) {
+            handleShowCreateRoutineLoad();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -219,6 +253,8 @@ public class ShowExecutor {
             handleShowCollation();
         } else if (stmt instanceof ShowPartitionsStmt) {
             handleShowPartitions();
+        } else if (stmt instanceof ShowPartitionIdStmt) {
+            handleShowPartitionId();
         } else if (stmt instanceof ShowTabletStmt) {
             handleShowTablet();
         } else if (stmt instanceof ShowBackupStmt) {
@@ -247,6 +283,10 @@ public class ShowExecutor {
             handleShowGrants();
         } else if (stmt instanceof ShowRolesStmt) {
             handleShowRoles();
+        } else if (stmt instanceof ShowTrashStmt) {
+            handleShowTrash();
+        } else if (stmt instanceof ShowTrashDiskStmt) {
+            handleShowTrashDisk();
         } else if (stmt instanceof AdminShowReplicaStatusStmt) {
             handleAdminShowTabletStatus();
         } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
@@ -259,10 +299,20 @@ public class ShowExecutor {
             handleShowDynamicPartition();
         } else if (stmt instanceof ShowIndexStmt) {
             handleShowIndex();
+        } else if (stmt instanceof ShowViewStmt) {
+            handleShowView();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
         } else if (stmt instanceof ShowPluginsStmt) {
             handleShowPlugins();
+        } else if (stmt instanceof ShowQueryProfileStmt) {
+            handleShowQueryProfile();
+        } else if (stmt instanceof ShowLoadProfileStmt) {
+            handleShowLoadProfile();
+        } else if (stmt instanceof AdminShowDataSkewStmt) {
+            handleAdminShowDataSkew();
+        } else if (stmt instanceof ShowSyncJobStmt) {
+            handleShowSyncJobs();
         } else {
             handleEmtpy();
         }
@@ -380,6 +430,46 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showCreateFunctionStmt.getMetaData(), resultRowSet);
     }
 
+    // Handle show encryptkeys
+    private void handleShowEncryptKeys() throws AnalysisException {
+        ShowEncryptKeysStmt showStmt = (ShowEncryptKeysStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        List<EncryptKey> encryptKeys = db.getEncryptKeys();
+
+        List<List<Comparable>> rowSet = Lists.newArrayList();
+        for (EncryptKey encryptKey : encryptKeys) {
+            List<Comparable> row = encryptKey.getInfo();
+            // like predicate
+            if (showStmt.getWild() == null || showStmt.like(encryptKey.getEncryptKeyName().getKeyName())) {
+                rowSet.add(row);
+            }
+
+        }
+
+        // sort function rows by first column asc
+        ListComparator<List<Comparable>> comparator = null;
+        OrderByPair orderByPair = new OrderByPair(0, false);
+        comparator = new ListComparator<>(orderByPair);
+        Collections.sort(rowSet, comparator);
+        List<List<String>> resultRowSet = Lists.newArrayList();
+
+        Set<String> encryptKeyNameSet = new HashSet<>();
+        for (List<Comparable> row : rowSet) {
+            List<String> resultRow = Lists.newArrayList();
+            for (Comparable column : row) {
+                resultRow.add(column.toString());
+            }
+            resultRowSet.add(resultRow);
+            encryptKeyNameSet.add(resultRow.get(0));
+        }
+
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
     private void handleShowProc() throws AnalysisException {
         ShowProcStmt showProcStmt = (ShowProcStmt) stmt;
         ShowResultSetMetaData metaData = showProcStmt.getMetaData();
@@ -433,6 +523,80 @@ public class ShowExecutor {
                                         String.valueOf(percent + "%")));
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowDbId() throws AnalysisException {
+        ShowDbIdStmt showStmt = (ShowDbIdStmt) stmt;
+        long dbId = showStmt.getDbId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        Database database = catalog.getDb(dbId);
+        if (database != null) {
+            List<String> row = new ArrayList<>();
+            row.add(database.getFullName());
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowTableId() throws AnalysisException {
+        ShowTableIdStmt showStmt = (ShowTableIdStmt) stmt;
+        long tableId = showStmt.getTableId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        List<Long> dbIds = catalog.getDbIds();
+        for (long dbId : dbIds) {
+            Database database = catalog.getDb(dbId);
+            if (database == null) {
+                continue;
+            }
+            Table table = database.getTable(tableId);
+            if (table != null) {
+                List<String> row = new ArrayList<>();
+                row.add(database.getFullName());
+                row.add(table.getName());
+                row.add(String.valueOf(database.getId()));
+                rows.add(row);
+                break;
+            }
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowPartitionId() throws AnalysisException {
+        ShowPartitionIdStmt showStmt = (ShowPartitionIdStmt) stmt;
+        long partitionId = showStmt.getPartitionId();
+        List<List<String>> rows = Lists.newArrayList();
+        Catalog catalog = ctx.getCatalog();
+        List<Long> dbIds = catalog.getDbIds();
+        for (long dbId : dbIds) {
+            Database database = catalog.getDb(dbId);
+            if (database == null) {
+                continue;
+            }
+            List<Table> tables = database.getTables();
+            for (Table tbl : tables) {
+                if (tbl instanceof OlapTable) {
+                    tbl.readLock();
+                    try {
+                        Partition partition = ((OlapTable) tbl).getPartition(partitionId);
+                        if (partition != null) {
+                            List<String> row = new ArrayList<>();
+                            row.add(database.getFullName());
+                            row.add(tbl.getName());
+                            row.add(partition.getName());
+                            row.add(String.valueOf(database.getId()));
+                            row.add(String.valueOf(tbl.getId()));
+                            rows.add(row);
+                            break;
+                        }
+                    } finally {
+                        tbl.readUnlock();
+                    }
+                }
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -529,16 +693,50 @@ public class ShowExecutor {
                         PrivPredicate.SHOW)) {
                     continue;
                 }
-
                 List<String> row = Lists.newArrayList();
                 // Name
                 row.add(table.getName());
                 // Engine
                 row.add(table.getEngine());
-                // version, ra
-                for (int i = 0; i < 15; ++i) {
+                // version
+                row.add(null);
+                // Row_format
+                row.add(null);
+                // Rows
+                row.add(String.valueOf(table.getRowCount()));
+                // Avg_row_length
+                row.add(String.valueOf(table.getAvgRowLength()));
+                // Data_length
+                row.add(String.valueOf(table.getDataLength()));
+                // Max_data_length
+                row.add(null);
+                // Index_length
+                row.add(null);
+                // Data_free
+                row.add(null);
+                // Auto_increment
+                row.add(null);
+                // Create_time
+                row.add(TimeUtils.longToTimeString(table.getCreateTime() * 1000));
+                // Update_time
+                if (table.getUpdateTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getUpdateTime()));
+                } else {
                     row.add(null);
                 }
+                // Check_time
+                if (table.getLastCheckTime() > 0) {
+                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime() * 1000));
+                } else {
+                    row.add(null);
+                }
+                // Collation
+                row.add("utf-8");
+                // Checksum
+                row.add(null);
+                // Create_options
+                row.add(null);
+
                 row.add(table.getComment());
                 rows.add(row);
             }
@@ -708,6 +906,26 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
+    //Show view statement.
+    private void handleShowView() {
+        ShowViewStmt showStmt = (ShowViewStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<View> matchViews = showStmt.getMatchViews();
+        for (View view : matchViews) {
+            view.readLock();
+            try {
+                List<String> createViewStmt = Lists.newArrayList();
+                Catalog.getDdlStmt(view, createViewStmt, null, null, false, true /* hide password */);
+                if (!createViewStmt.isEmpty()) {
+                    rows.add(Lists.newArrayList(view.getName(), createViewStmt.get(0)));
+                }
+            } finally {
+                view.readUnlock();
+            }
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
     // Handle help statement.
     private void handleHelp() {
         HelpStmt helpStmt = (HelpStmt) stmt;
@@ -830,6 +1048,59 @@ public class ShowExecutor {
             }
         }
 
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    // Show stream load statement.
+    private void handleShowStreamLoad() throws AnalysisException {
+        ShowStreamLoadStmt showStmt = (ShowStreamLoadStmt) stmt;
+
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
+        }
+        long dbId = db.getId();
+
+        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr().getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
+
+        // order the result of List<StreamLoadRecord> by orderByPairs in show stmt
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        if (orderByPairs == null) {
+            orderByPairs = showStmt.getOrderByFinishTime();
+        }
+        ListComparator<List<Comparable>> comparator = null;
+        if (orderByPairs != null) {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<List<Comparable>>(orderByPairs.toArray(orderByPairArr));
+        } else {
+            // sort by id asc
+            comparator = new ListComparator<List<Comparable>>(0);
+        }
+        Collections.sort(streamLoadRecords, comparator);
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> streamLoadRecord : streamLoadRecords) {
+            List<String> oneInfo = new ArrayList<String>(streamLoadRecord.size());
+
+            for (Comparable element : streamLoadRecord) {
+                oneInfo.add(element.toString());
+            }
+            rows.add(oneInfo);
+        }
+
+        // filter by limit
+        long limit = showStmt.getLimit();
+        long offset = showStmt.getOffset() == -1L ? 0 : showStmt.getOffset();
+        if (offset >= rows.size()) {
+            rows = Lists.newArrayList();
+        } else if (limit != -1L) {
+            if ((limit + offset) < rows.size()) {
+                rows = rows.subList((int) offset, (int) (limit + offset));
+            } else {
+                rows = rows.subList((int) offset, rows.size());
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -1317,10 +1588,13 @@ public class ShowExecutor {
     // Handle show brokers
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
-        List<List<String>> rowSet = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        List<List<String>> brokersInfo = Catalog.getCurrentCatalog().getBrokerMgr().getBrokersInfo();
+        for (List<String> row : brokersInfo) {
+            row.remove(BrokerMgr.HOSTNAME_INDEX);
+        }
 
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), brokersInfo);
     }
 
     // Handle show resources
@@ -1439,16 +1713,13 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        AbstractJob jobI = Catalog.getCurrentCatalog().getBackupHandler().getJob(db.getId());
-        if (!(jobI instanceof BackupJob)) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), EMPTY_SET);
-            return;
-        }
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
 
-        BackupJob backupJob = (BackupJob) jobI;
-        List<String> info = backupJob.getInfo();
-        List<List<String>> infos = Lists.newArrayList();
-        infos.add(info);
+        List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
+                .map(job -> (BackupJob) job).collect(Collectors.toList());
+
+        List<List<String>> infos = backupJobs.stream().map(BackupJob::getInfo).collect(Collectors.toList());
+
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
@@ -1459,17 +1730,37 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        AbstractJob jobI = Catalog.getCurrentCatalog().getBackupHandler().getJob(db.getId());
-        if (!(jobI instanceof RestoreJob)) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), EMPTY_SET);
-            return;
+        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
+
+        List<RestoreJob> restoreJobs = jobs.stream().filter(job -> job instanceof RestoreJob)
+                .map(job -> (RestoreJob) job).collect(Collectors.toList());
+
+        List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowSyncJobs() throws AnalysisException {
+        ShowSyncJobStmt showStmt = (ShowSyncJobStmt) stmt;
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        RestoreJob restoreJob = (RestoreJob) jobI;
-        List<String> info = restoreJob.getInfo();
-        List<List<String>> infos = Lists.newArrayList();
-        infos.add(info);
-        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+        List<List<Comparable>> syncInfos = catalog.getSyncJobManager().getSyncJobsInfoByDbId(db.getId());
+        Collections.sort(syncInfos, new ListComparator<List<Comparable>>(0));
+
+        List<List<String>> rows = Lists.newArrayList();
+        for (List<Comparable> syncInfo : syncInfos) {
+            List<String> row = new ArrayList<String>(syncInfo.size());
+
+            for (Comparable element : syncInfo) {
+                row.add(element.toString());
+            }
+            rows.add(row);
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowGrants() {
@@ -1481,6 +1772,20 @@ public class ShowExecutor {
     private void handleShowRoles() {
         ShowRolesStmt showStmt = (ShowRolesStmt) stmt;
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+    
+    private void handleShowTrash() {
+        ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
+        List<List<String>> infos = Lists.newArrayList();
+        TrashProcDir.getTrashInfo(showStmt.getBackends(), infos);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleShowTrashDisk() {
+        ShowTrashDiskStmt showStmt = (ShowTrashDiskStmt) stmt;
+        List<List<String>> infos = Lists.newArrayList();
+        TrashProcNode.getTrashDiskInfo(showStmt.getBackend(), infos);
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
@@ -1556,7 +1861,7 @@ public class ShowExecutor {
                 olapTable.readLock();
                 try {
                     if (!olapTable.dynamicPartitionExists()) {
-                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
+                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getId());
                         continue;
                     }
 
@@ -1569,7 +1874,7 @@ public class ShowExecutor {
                     DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
                     int replicationNum = dynamicPartitionProperty.getReplicationNum();
-                    replicationNum = (replicationNum == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) ? olapTable.getDefaultReplicationNum() : FeConstants.default_replication_num;
+                    replicationNum = (replicationNum == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) ? olapTable.getDefaultReplicationNum() : replicationNum;
                     rows.add(Lists.newArrayList(
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
@@ -1580,11 +1885,11 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
                             String.valueOf(replicationNum),
                             dynamicPartitionProperty.getStartOfInfo(),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG)));
                 } finally {
                     olapTable.readUnlock();
                 }
@@ -1602,8 +1907,15 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
-        long txnId = showStmt.getTxnId();
+        Long txnId = showStmt.getTxnId();
+        String label = showStmt.getLabel();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        if (!label.isEmpty()) {
+            txnId = transactionMgr.getTransactionId(db.getId(), label);
+            if (txnId == null) {
+                throw new AnalysisException("transaction with label " + label + " does not exist");
+            }
+        }
         resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
     }
 
@@ -1611,6 +1923,169 @@ public class ShowExecutor {
         ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
         List<List<String>> rows = Catalog.getCurrentPluginMgr().getPluginShowInfos();
         resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowQueryProfile() throws AnalysisException {
+        ShowQueryProfileStmt showStmt = (ShowQueryProfileStmt) stmt;
+        ShowQueryProfileStmt.PathType pathType = showStmt.getPathType();
+        List<List<String>> rows = Lists.newArrayList();
+        switch (pathType) {
+            case QUERY_IDS:
+                rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.QUERY);
+                break;
+            case FRAGMETNS: {
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
+                        showStmt.getQueryId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get fragment tree for query: " + showStmt.getQueryId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            case INSTANCES: {
+                // For query profile, there should be only one execution profile,
+                // And the execution id is same as query id
+                List<Triple<String, String, Long>> instanceList
+                        = ProfileManager.getInstance().getFragmentInstanceList(
+                        showStmt.getQueryId(), showStmt.getQueryId(), showStmt.getFragmentId());
+                if (instanceList == null) {
+                    throw new AnalysisException("Failed to get instance list for fragment: " + showStmt.getFragmentId());
+                }
+                for (Triple<String, String, Long> triple : instanceList) {
+                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
+                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                    rows.add(row);
+                }
+                break;
+            }
+            case SINGLE_INSTANCE: {
+                // For query profile, there should be only one execution profile,
+                // And the execution id is same as query id
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
+                        showStmt.getQueryId(), showStmt.getFragmentId(), showStmt.getInstanceId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            default:
+                break;
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowLoadProfile() throws AnalysisException {
+        ShowLoadProfileStmt showStmt = (ShowLoadProfileStmt) stmt;
+        ShowLoadProfileStmt.PathType pathType = showStmt.getPathType();
+        List<List<String>> rows = Lists.newArrayList();
+        switch (pathType) {
+            case JOB_IDS:
+                rows = ProfileManager.getInstance().getQueryWithType(ProfileManager.ProfileType.LOAD);
+                break;
+            case TASK_IDS: {
+                rows = ProfileManager.getInstance().getLoadJobTaskList(showStmt.getJobId());
+                break;
+            }
+            case INSTANCES: {
+                // For load profile, there should be only one fragment in each execution profile
+                // And the fragment id is 0.
+                List<Triple<String, String, Long>> instanceList
+                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
+                        showStmt.getTaskId(), "0");
+                if (instanceList == null) {
+                    throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
+                }
+                for (Triple<String, String, Long> triple : instanceList) {
+                    List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
+                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                    rows.add(row);
+                }
+                break;
+            }
+            case SINGLE_INSTANCE: {
+                // For load profile, there should be only one fragment in each execution profile.
+                // And the fragment id is 0.
+                ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
+                        showStmt.getTaskId(), "0", showStmt.getInstanceId());
+                if (treeRoot == null) {
+                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                }
+                List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
+                rows.add(row);
+                break;
+            }
+            default:
+                break;
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    private void handleShowCreateRoutineLoad() throws AnalysisException {
+        ShowCreateRoutineLoadStmt showCreateRoutineLoadStmt = (ShowCreateRoutineLoadStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        String dbName = showCreateRoutineLoadStmt.getDb();
+        String labelName = showCreateRoutineLoadStmt.getLabel();
+        // if include history return all create load
+        if (showCreateRoutineLoadStmt.isIncludeHistory()) {
+            List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
+            try {
+                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true);
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
+                        .add("error_msg", "Routine load cannot be found by this name")
+                        .build(), e);
+            }
+            if (routineLoadJobList == null) {
+                resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                return;
+            }
+            for (RoutineLoadJob job : routineLoadJobList) {
+                String tableName = "";
+                try {
+                    tableName = job.getTableName();
+                } catch (MetaNotFoundException e) {
+                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
+                            .add("error_msg", "The table name for this routine load does not exist")
+                            .build(), e);
+                }
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                        dbName,
+                        tableName,
+                        PrivPredicate.LOAD)) {
+                    resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+                    continue;
+                }
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+            }
+        } else {
+            // if job exists
+            RoutineLoadJob routineLoadJob;
+            try {
+                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
+                // get routine load info
+                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+            } catch (MetaNotFoundException | DdlException e) {
+                LOG.warn(e.getMessage(), e);
+                throw new AnalysisException(e.getMessage());
+            }
+        }
+        resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
+    }
+
+    private void handleAdminShowDataSkew() throws AnalysisException {
+        AdminShowDataSkewStmt showStmt = (AdminShowDataSkewStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = MetadataViewer.getDataSkew(showStmt);
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 }
 

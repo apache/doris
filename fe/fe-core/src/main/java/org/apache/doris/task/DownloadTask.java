@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -31,14 +32,17 @@ public class DownloadTask extends AgentTask {
     private Map<String, String> srcToDestPath;
     private FsBroker brokerAddr;
     private Map<String, String> brokerProperties;
+    private StorageBackend.StorageType storageType;
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
-            Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties) {
+            Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
+            StorageBackend.StorageType storageType) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
         this.brokerAddr = brokerAddr;
         this.brokerProperties = brokerProperties;
+        this.storageType = storageType;
     }
 
     public long getJobId() {
@@ -61,6 +65,7 @@ public class DownloadTask extends AgentTask {
         TNetworkAddress address = new TNetworkAddress(brokerAddr.ip, brokerAddr.port);
         TDownloadReq req = new TDownloadReq(jobId, srcToDestPath, address);
         req.setBrokerProp(brokerProperties);
+        req.setStorageBackend(storageType.toThrift());
         return req;
     }
 }

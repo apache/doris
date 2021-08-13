@@ -21,11 +21,11 @@
 #include <unistd.h>
 
 #include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 #include "common/configbase.h"
-#include "util/logging.h"
 #include "test_util/test_util.h"
+#include "util/logging.h"
 
 using std::vector;
 using boost::thread;

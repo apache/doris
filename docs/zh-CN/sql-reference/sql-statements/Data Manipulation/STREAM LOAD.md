@@ -47,7 +47,11 @@ under the License.
         当前Palo内部保留30分钟内最近成功的label。
 
         column_separator：用于指定导入文件中的列分隔符，默认为\t。如果是不可见字符，则需要加\x作为前缀，使用十六进制来表示分隔符。
-        如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"
+        如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
+        可以使用多个字符的组合作为列分隔符。
+
+        line_delimiter：用于指定导入文件中的换行符，默认为\n。
+        可以使用做多个字符的组合作为换行符。
 
         columns：用于指定导入文件中的列和 table 中的列的对应关系。如果源文件中的列正好对应表中的内容，那么是不需要指定这个字段的内容的。
         如果源文件与表schema不对应，那么需要这个字段进行一些数据转换。这里有两种形式column，一种是直接对应导入文件中的字段，直接使用字段名表示；
@@ -76,7 +80,7 @@ under the License.
 
         format: 指定导入数据格式，默认是csv，支持json格式。
 
-        jsonpaths: 导入json方式分为：简单模式和精准模式。
+        jsonpaths: 导入json方式分为：简单模式和匹配模式。
               简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
               {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
 
@@ -97,10 +101,14 @@ under the License.
         function_column.sequence_col: 只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence列进行REPLACE, 
             source_sequence可以是数据源中的列，也可以是表结构中的一列。
         
-        fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+        fuzzy_parse: 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json 格式
+
+        num_as_string: 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
+        read_json_by_line: 布尔类型，为true表示支持每行读取一个json对象，默认值为false。
 
     RETURN VALUES
-        导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
+        导入完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Status: 导入最后的状态。
             Success：表示导入成功，数据已经可见；
             Publish Timeout：表述导入作业已经成功Commit，但是由于某种原因并不能立即可见。用户可以视作已经成功不必重试导入
@@ -114,8 +122,13 @@ under the License.
         NumberUnselectedRows: 此次导入，通过 where 条件被过滤掉的行数
         LoadBytes: 此次导入的源文件数据量大小
         LoadTimeMs: 此次导入所用的时间
+        BeginTxnTimeMs: 向Fe请求开始一个事务所花费的时间，单位毫秒。
+        StreamLoadPutTimeMs: 向Fe请求获取导入数据执行计划所花费的时间，单位毫秒。
+        ReadDataTimeMs: 读取数据所花费的时间，单位毫秒。
+        WriteDataTimeMs: 执行写入数据操作所花费的时间，单位毫秒。
+        CommitAndPublishTimeMs: 向Fe请求提交并且发布事务所花费的时间，单位毫秒。
         ErrorURL: 被过滤数据的具体内容，仅保留前1000条
-
+     
     ERRORS
         可以通过以下语句查看导入错误详细信息：
 
@@ -159,16 +172,14 @@ under the License.
            `author` varchar(512) NULL COMMENT "",
            `title` varchar(512) NULL COMMENT "",
            `price` double NULL COMMENT ""
-       json数据格式：
+         json数据格式：
            {"category":"C++","author":"avc","title":"C++ primer","price":895}
          导入命令：
            curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-         为了提升吞吐量，支持一次性导入条数据，json数据格式如下：
-              [
-               {"category":"C++","author":"avc","title":"C++ primer","price":89.5},
-               {"category":"Java","author":"avc","title":"Effective Java","price":95},
-               {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
-              ]
+         为了提升吞吐量，支持一次性导入多条json数据，每行为一个json对象，默认使用\n作为换行符，需要将read_json_by_line设置为true，json数据格式如下：  
+            {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
+            {"category":"Java","author":"avc","title":"Effective Java","price":95}
+            {"category":"Linux","author":"avc","title":"Linux kernel","price":195}    
 
     11. 匹配模式，导入json数据
        json数据格式：

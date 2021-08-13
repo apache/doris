@@ -83,7 +83,11 @@ Status ExchangeNode::open(RuntimeState* state) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
-        RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        if (state->enable_exchange_node_parallel_merge()) {
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(), mem_tracker().get()));
+        } else {
+            RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
+        }
     } else {
         RETURN_IF_ERROR(fill_input_row_batch(state));
     }
@@ -149,7 +153,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             RETURN_IF_CANCELLED(state);
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
             while (!reached_limit() && !output_batch->at_capacity() && _input_batch != NULL &&
-                   _next_row_idx < _input_batch->capacity()) {
+                   _next_row_idx < _input_batch->num_rows()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
                 if (ExecNode::eval_conjuncts(ctxs, num_ctxs, src)) {

@@ -105,6 +105,13 @@ public class ThreadPoolManager {
                new BlockedPolicy(poolName, 60), poolName, needRegisterMetric);
     }
 
+    public static ThreadPoolExecutor newDaemonProfileThreadPool(int numThread, int queueSize, String poolName,
+                                                                boolean needRegisterMetric) {
+        return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(queueSize), new LogDiscardOldestPolicy(poolName), poolName,
+                needRegisterMetric);
+    }
+
     public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
                                                int maximumPoolSize,
                                                long keepAliveTime,
@@ -181,6 +188,26 @@ public class ThreadPoolManager {
                 executor.getQueue().offer(r, timeoutSeconds, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 LOG.warn("Task " + r.toString() + " wait to enqueue in " + threadPoolName + " " + executor.toString() + " failed");
+            }
+        }
+    }
+
+    static class LogDiscardOldestPolicy implements RejectedExecutionHandler{
+
+        private static final Logger LOG = LogManager.getLogger(LogDiscardOldestPolicy.class);
+
+        private String threadPoolName;
+
+        public LogDiscardOldestPolicy(String threadPoolName) {
+            this.threadPoolName = threadPoolName;
+        }
+
+        @Override
+        public void rejectedExecution(Runnable task, ThreadPoolExecutor executor) {
+            if (!executor.isShutdown()) {
+                Runnable discardTask = executor.getQueue().poll();
+                LOG.warn("Task: {} submit to {}, and discard the oldest task:{}", task, threadPoolName, discardTask);
+                executor.execute(task);
             }
         }
     }

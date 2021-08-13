@@ -158,7 +158,6 @@ public class BaseController {
             for (Cookie cookie : cookies) {
                 if (cookie.getName() != null && cookie.getName().equals(cookieName)) {
                     String sessionId = cookie.getValue();
-                    LOG.debug("get cookie value. {}: {}", cookie.getName(), sessionId);
                     sessionIds.add(sessionId);
                 }
             }
@@ -173,7 +172,6 @@ public class BaseController {
                 cookie.setMaxAge(age);
                 cookie.setPath("/");
                 response.addCookie(cookie);
-                LOG.debug("get update cookie: {} {}", cookie.getName(), cookie.getValue());
             }
         }
     }

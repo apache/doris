@@ -18,14 +18,51 @@
 package org.apache.doris.common.util;
 
 import com.google.common.collect.Lists;
+import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class ListUtilTest {
+
+    private static PartitionKey pk1;
+    private static PartitionKey pk2;
+    private static PartitionKey pk3;
+    private static List<PartitionKey> listA = new ArrayList<>();
+    private static List<PartitionKey> listB = new ArrayList<>();
+    private static List<PartitionKey> listC = new ArrayList<>();
+
+    @BeforeClass
+    public static void setUp() throws AnalysisException {
+        Column charString = new Column("char", PrimitiveType.CHAR);
+        Column varchar = new Column("varchar", PrimitiveType.VARCHAR);
+
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing")), Arrays.asList(charString));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("shanghai")), Arrays.asList(varchar));
+        pk3 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("tianjin")), Arrays.asList(varchar));
+
+        listA.add(pk1);
+
+        listB.add(pk1);
+        listB.add(pk2);
+
+        listC.add(pk1);
+        listC.add(pk2);
+        listC.add(pk3);
+    }
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -97,5 +134,32 @@ public class ListUtilTest {
         expectedEx.expectMessage("expectedSize must larger than 0");
 
         ListUtil.splitBySize(lists, expectSize);
+    }
+
+    @Test
+    public void testListsMatchNormal() throws DdlException {
+
+        List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+        List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+
+        ListUtil.checkPartitionKeyListsMatch(list1, list2);
+
+    }
+
+    @Test(expected = DdlException.class)
+    public void testListsMatchSameSize() throws DdlException {
+        List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+        List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listC));
+
+        ListUtil.checkPartitionKeyListsMatch(list1, list2);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testListMatchDiffSize() throws DdlException {
+        List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
+        List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB),
+                new ListPartitionItem(listC));
+
+        ListUtil.checkPartitionKeyListsMatch(list1, list2);
     }
 }

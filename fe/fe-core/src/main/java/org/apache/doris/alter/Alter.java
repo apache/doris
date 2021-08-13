@@ -26,7 +26,10 @@ import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
+import org.apache.doris.analysis.ModifyColumnCommentClause;
+import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
+import org.apache.doris.analysis.ModifyTableCommentClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
@@ -55,6 +58,7 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.qe.ConnectContext;
@@ -63,9 +67,9 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.Arrays;
 import java.util.List;
@@ -192,11 +196,99 @@ public class Alter {
             processReplaceTable(db, olapTable, alterClauses);
         } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
             needProcessOutsideTableLock = true;
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_DISTRIBUTION)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            Catalog.getCurrentCatalog().modifyDefaultDistributionBucketNum(db, olapTable, (ModifyDistributionClause) alterClause);
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_COLUMN_COMMENT)) {
+            processModifyColumnComment(db, olapTable, alterClauses);
+        } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_COMMENT)) {
+            Preconditions.checkState(alterClauses.size() == 1);
+            AlterClause alterClause = alterClauses.get(0);
+            processModifyTableComment(db, olapTable, alterClause);
         } else {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
 
         return needProcessOutsideTableLock;
+    }
+
+    private void processModifyTableComment(Database db, OlapTable tbl, AlterClause alterClause)
+            throws DdlException {
+        tbl.writeLock();
+        try {
+            ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
+            tbl.setComment(clause.getComment());
+            // log
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forTable(db.getId(), tbl.getId(), clause.getComment());
+            Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
+        } finally {
+            tbl.writeUnlock();
+        }
+    }
+
+    private void processModifyColumnComment(Database db, OlapTable tbl, List<AlterClause> alterClauses)
+            throws DdlException {
+        tbl.writeLock();
+        try {
+            // check first
+            Map<String, String> colToComment = Maps.newHashMap();
+            for (AlterClause alterClause : alterClauses) {
+                Preconditions.checkState(alterClause instanceof ModifyColumnCommentClause);
+                ModifyColumnCommentClause clause = (ModifyColumnCommentClause) alterClause;
+                String colName = clause.getColName();
+                if (tbl.getColumn(colName) == null) {
+                    throw new DdlException("Unknown column: " + colName);
+                }
+                if (colToComment.containsKey(colName)) {
+                    throw new DdlException("Duplicate column: " + colName);
+                }
+                colToComment.put(colName, clause.getComment());
+            }
+
+            // modify comment
+            for (Map.Entry<String, String> entry : colToComment.entrySet()) {
+                Column col = tbl.getColumn(entry.getKey());
+                col.setComment(entry.getValue());
+            }
+
+            // log
+            ModifyCommentOperationLog op = ModifyCommentOperationLog.forColumn(db.getId(), tbl.getId(), colToComment);
+            Catalog.getCurrentCatalog().getEditLog().logModifyComment(op);
+        } finally {
+            tbl.writeUnlock();
+        }
+    }
+
+    public void replayModifyComment(ModifyCommentOperationLog operation) {
+        long dbId = operation.getDbId();
+        long tblId = operation.getTblId();
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            return;
+        }
+        Table tbl = db.getTable(tblId);
+        if (tbl == null) {
+            return;
+        }
+        tbl.writeLock();
+        try {
+            ModifyCommentOperationLog.Type type = operation.getType();
+            switch (type) {
+                case TABLE:
+                    tbl.setComment(operation.getTblComment());
+                    break;
+                case COLUMN:
+                    for (Map.Entry<String, String> entry : operation.getColToComment().entrySet()) {
+                        tbl.getColumn(entry.getKey()).setComment(entry.getValue());
+                    }
+                    break;
+                default:
+                    break;
+            }
+        } finally {
+            tbl.writeUnlock();
+        }
     }
 
     private void processAlterExternalTable(AlterTableStmt stmt, Table externalTable, Database db) throws UserException {
@@ -230,16 +322,6 @@ public class Alter {
         List<AlterClause> alterClauses = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
-
-        // check conflict alter ops first
-        AlterOperations currentAlterOps = new AlterOperations();
-        currentAlterOps.checkConflict(alterClauses);
-        // check cluster capacity and db quota outside table lock to escape dead lock, only need to check once.
-        if (currentAlterOps.needCheckCapacity()) {
-            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-            db.checkQuota();
-        }
-
         switch (table.getType()) {
             case OLAP:
                 OlapTable olapTable = (OlapTable) table;
@@ -305,7 +387,7 @@ public class Alter {
             if (swapTable) {
                 origTable.checkAndSetName(newTblName, true);
             }
-            replaceTableInternal(db, origTable, olapNewTbl, swapTable);
+            replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
             // write edit log
             ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
             Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
@@ -326,7 +408,7 @@ public class Alter {
         OlapTable newTbl = (OlapTable) db.getTable(newTblId);
 
         try {
-            replaceTableInternal(db, origTable, newTbl, log.isSwapTable());
+            replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
         } catch (DdlException e) {
             LOG.warn("should not happen", e);
         }
@@ -347,7 +429,8 @@ public class Alter {
      * 1.1 check if B can be renamed to A (checking name conflict, etc...)
      * 1.2 rename B to A, drop old A, and add new A to database.
      */
-    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable)
+    private void replaceTableInternal(Database db, OlapTable origTable, OlapTable newTbl, boolean swapTable,
+                                      boolean isReplay)
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
@@ -364,6 +447,9 @@ public class Alter {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.createTable(origTable);
+        } else {
+            // not swap, the origin table is not used anymore, need to drop all its tablets.
+            Catalog.getCurrentCatalog().onEraseOlapTable(origTable, isReplay);
         }
     }
 
@@ -545,119 +631,15 @@ public class Alter {
         Catalog.getCurrentCatalog().getEditLog().logBatchModifyPartition(info);
     }
 
-    /**
-     * Update partition's properties
-     * caller should hold the db lock
-     */
-    public ModifyPartitionInfo modifyPartitionProperty(Database db,
-                                                       OlapTable olapTable,
-                                                       String partitionName,
-                                                       Map<String, String> properties)
-            throws DdlException {
-        Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
-        if (olapTable.getState() != OlapTableState.NORMAL) {
-            throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
-        }
-
-        Partition partition = olapTable.getPartition(partitionName);
-        if (partition == null) {
-            throw new DdlException(
-                    "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
-        }
-
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-
-        // 1. data property
-        DataProperty oldDataProperty = partitionInfo.getDataProperty(partition.getId());
-        DataProperty newDataProperty = null;
-        try {
-            newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, oldDataProperty);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        Preconditions.checkNotNull(newDataProperty);
-
-        if (newDataProperty.equals(oldDataProperty)) {
-            newDataProperty = null;
-        }
-
-        // 2. replication num
-        short oldReplicationNum = partitionInfo.getReplicationNum(partition.getId());
-        short newReplicationNum = (short) -1;
-        try {
-            newReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, oldReplicationNum);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        if (newReplicationNum == oldReplicationNum) {
-            newReplicationNum = (short) -1;
-        } else if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_NUM, oldReplicationNum);
-        }
-
-        // 3. in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
-
-        // 4. tablet type
-        TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
-        try {
-            tabletType = PropertyAnalyzer.analyzeTabletType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        // check if has other undefined properties
-        if (properties != null && !properties.isEmpty()) {
-            Joiner.MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
-            throw new DdlException("Unknown properties: " + mapJoiner.join(properties));
-        }
-
-        // modify meta here
-        // date property
-        if (newDataProperty != null) {
-            partitionInfo.setDataProperty(partition.getId(), newDataProperty);
-            LOG.debug("modify partition[{}-{}-{}] data property to {}", db.getId(), olapTable.getId(), partitionName,
-                    newDataProperty.toString());
-        }
-
-        // replication num
-        if (newReplicationNum != (short) -1) {
-            partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
-            LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), olapTable.getId(), partitionName,
-                    newReplicationNum);
-        }
-
-        // in memory
-        if (isInMemory != partitionInfo.getIsInMemory(partition.getId())) {
-            partitionInfo.setIsInMemory(partition.getId(), isInMemory);
-            LOG.debug("modify partition[{}-{}-{}] in memory to {}", db.getId(), olapTable.getId(), partitionName,
-                    isInMemory);
-        }
-
-        // tablet type
-        // TODO: serialize to edit log
-        if (tabletType != partitionInfo.getTabletType(partition.getId())) {
-            partitionInfo.setTabletType(partition.getId(), tabletType);
-            LOG.debug("modify partition[{}-{}-{}] tablet type to {}", db.getId(), olapTable.getId(), partitionName,
-                    tabletType);
-        }
-
-        // log
-        ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), olapTable.getId(), partition.getId(),
-                newDataProperty, newReplicationNum, isInMemory);
-        Catalog.getCurrentCatalog().getEditLog().logModifyPartition(info);
-
-        LOG.info("finish modify partition[{}-{}-{}]", db.getId(), olapTable.getId(), partitionName);
-        return info;
-    }
-
     public void replayModifyPartition(ModifyPartitionInfo info) {
         Database db = Catalog.getCurrentCatalog().getDb(info.getDbId());
-        db.writeLock();
+        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+        if (olapTable == null) {
+            LOG.warn("table {} does not eixst when replaying modify partition. db: {}", info.getTableId(), info.getDbId());
+            return;
+        }
+        olapTable.writeLock();
         try {
-            OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             if (info.getDataProperty() != null) {
                 partitionInfo.setDataProperty(info.getPartitionId(), info.getDataProperty());
@@ -667,7 +649,7 @@ public class Alter {
             }
             partitionInfo.setIsInMemory(info.getPartitionId(), info.isInMemory());
         } finally {
-            db.writeUnlock();
+            olapTable.writeUnlock();
         }
     }
 

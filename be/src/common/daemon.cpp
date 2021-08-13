@@ -17,15 +17,15 @@
 
 #include "common/daemon.h"
 
-#include <signal.h>
 #include <gflags/gflags.h>
 #include <gperftools/malloc_extension.h>
+#include <signal.h>
 
 #include "common/config.h"
+#include "exprs/array_functions.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
 #include "exprs/compound_predicate.h"
-#include "exprs/decimal_operators.h"
 #include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/es_functions.h"
@@ -245,12 +245,12 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     IsNullPredicate::init();
     LikePredicate::init();
     StringFunctions::init();
+    ArrayFunctions::init();
     CastFunctions::init();
     InPredicate::init();
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();
-    DecimalOperators::init();
     DecimalV2Operators::init();
     TimeOperators::init();
     UtilityFunctions::init();
@@ -291,7 +291,8 @@ void Daemon::start() {
     if (config::enable_metric_calculator) {
         CHECK(DorisMetrics::instance()->is_inited())
                 << "enable metric calculator failed, maybe you set enable_system_metrics to false "
-                << " or there may be some hardware error which causes metric init failed, please check log first;"
+                << " or there may be some hardware error which causes metric init failed, please "
+                   "check log first;"
                 << " you can set enable_metric_calculator = false to quickly recover ";
 
         st = Thread::create(

@@ -34,7 +34,7 @@ add_executable(palo_be
 )
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-# set_target_properties(palo_be PROPERTIES LINK_FLAGS -pthread)
+set_target_properties(palo_be PROPERTIES ENABLE_EXPORTS 1)
 
 target_link_libraries(palo_be
     ${DORIS_LINK_LIBS}

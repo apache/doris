@@ -31,7 +31,7 @@ under the License.
 
 * FE: Frontend, the front-end node of Doris. Mainly responsible for receiving and returning client requests, metadata, cluster management, query plan generation and so on.
 * BE: Backend, the back-end node of Doris. Mainly responsible for data storage and management, query plan execution and other work.
-* bdbje: [Oracle Berkeley DB Java Edition] (http://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html). In Doris, we use bdbje to persist metadata operation logs and high availability of FE.
+* bdbje: [Oracle Berkeley DB Java Edition](http://www.oracle.com/technetwork/database/berkeleydb/overview/index-093405.html). In Doris, we use bdbje to persist metadata operation logs and high availability of FE.
 
 ## Overall architecture
 ![](/images/palo_architecture.jpg)

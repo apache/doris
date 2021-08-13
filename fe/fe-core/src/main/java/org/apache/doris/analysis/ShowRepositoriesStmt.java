@@ -26,7 +26,7 @@ import com.google.common.collect.ImmutableList;
 public class ShowRepositoriesStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("RepoId").add("RepoName").add("CreateTime").add("IsReadOnly").add("Location")
-            .add("Broker").add("ErrMsg")
+            .add("Broker").add("Type").add("ErrMsg")
             .build();
 
     public ShowRepositoriesStmt() {

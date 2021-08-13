@@ -82,7 +82,7 @@ Here is a detailed list of  ```query ID, execution time, execution statement``` 
            - RowsReturned: 8.322K (8322)
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
-```
+ ```
 The fragment ID is listed here; ``` hostname ``` show the be node executing the fragment; ```active: 10s270ms```show the total execution time of the node;  ```non child: 0.14%``` means the execution time of the execution node itself (not including the execution time of child nodes) as a percentage of the total time. 
 
 `PeakMemoryUsage` indicates the peak memory usage of `EXCHANGE_NODE`; `RowsReturned` indicates the number of rows returned by `EXCHANGE_NODE`; `RowsReturnedRate`=`RowsReturned`/`ActiveTime`; the meaning of these three statistics in other `NODE` the same.
@@ -110,16 +110,26 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `DataStreamSender`
  - BytesSent: Total bytes data sent
  - IgnoreRows: Rows filtered
+ - LocalBytesSent: The amount bytes of local node send to it's self during Exchange
  - OverallThroughput: Total throughput = BytesSent / Time
  - SerializeBatchTime: Sending data serialization time
  - UncompressedRowBatchSize: Size of rowbatch before sending data compression
 
+#### `ODBC_TABLE_SINK`
+   - NumSentRows: Total number of rows written to ODBC table
+   - TupleConvertTime: Time consuming of sending data serialization to insert statement
+   - ResultSendTime: Time consuming of writing through ODBC driver
+
 #### `EXCHANGE_NODE`
   - BytesReceived: Size of bytes received by network
   - DataArrivalWaitTime: Total waiting time of sender to push data 
+  - MergeGetNext: When there is a sort in the lower level node, exchange node will perform a unified merge sort and output an ordered result. This indicator records the total time consumption of merge sorting, including the time consumption of MergeGetNextBatch.
+  - MergeGetNextBatch：It takes time for merge node to get data. If it is single-layer merge sort, the object to get data is network queue. For multi-level merge sorting, the data object is child merger.
+  - ChildMergeGetNext: When there are too many senders in the lower layer to send data, single thread merge will become a performance bottleneck. Doris will start multiple child merge threads to do merge sort in parallel. The sorting time of child merge is recorded, which is the cumulative value of multiple threads.
+  - ChildMergeGetNextBatch: It takes time for child merge to get data，If the time consumption is too large, the bottleneck may be the lower level data sending node.
   - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
-  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full，wait time of sender
+  - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full, wait time of sender
   - ConvertRowBatchTime: Time taken to transfer received data to RowBatch
   - RowsReturned: Number of receiving rows
   - RowsReturnedRate: Rate of rows received
@@ -135,16 +145,16 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `AGGREGATION_NODE`
   - PartitionsCreated: Number of partition split by aggregate
   - GetResultsTime: Time to get aggregate results from each partition
-  - HTResizeTime:  Time spent in resizing hashtable
-  - HTResize:  Number of times hashtable resizes
+  - HTResizeTime: Time spent in resizing hashtable
+  - HTResize: Number of times hashtable resizes
   - HashBuckets: Number of buckets in hashtable
-  - HashBucketsWithDuplicate:  Number of buckets with duplicatenode in hashtable
-  - HashCollisions:  Number of hash conflicts generated 
-  - HashDuplicateNodes:  Number of duplicate nodes with the same buckets in hashtable
-  - HashFailedProbe:  Number of failed probe operations
-  - HashFilledBuckets:  Number of buckets filled data
-  - HashProbe:  Number of hashtable probe
-  - HashTravelLength:  The number of steps moved when hashtable queries
+  - HashBucketsWithDuplicate: Number of buckets with duplicatenode in hashtable
+  - HashCollisions: Number of hash conflicts generated 
+  - HashDuplicateNodes: Number of duplicate nodes with the same buckets in hashtable
+  - HashFailedProbe: Number of failed probe operations
+  - HashFilledBuckets: Number of buckets filled data
+  - HashProbe: Number of hashtable probe
+  - HashTravelLength: The number of steps moved when hashtable queries
 
 #### `HASH_JOIN_NODE`
   - ExecOption: The way to construct a HashTable for the right child (synchronous or asynchronous), the right child in Join may be a table or a subquery, the same is true for the left child
@@ -194,6 +204,8 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
   - RowsReturnedRate: 6.979K /sec       # RowsReturned/ActiveTime
   - TabletCount: 20                     # The number of Tablets involved in this ScanNode.
   - TotalReadThroughput: 74.70 KB/sec   # BytesRead divided by the total time spent in this node (from Open to Close). For IO bounded queries, this should be very close to the total throughput of all the disks
+  - ScannerBatchWaitTime: 426.886us     # To count the time the transfer thread waits for the scaner thread to return rowbatch.
+  - ScannerWorkerWaitTime: 17.745us     # To count the time that the scanner thread waits for the available worker threads in the thread pool.
   OlapScanner:
     - BlockConvertTime: 8.941us         # The time it takes to convert a vectorized Block into a RowBlock with a row structure. The vectorized Block is VectorizedRowBatch in V1 and RowBlockV2 in V2.
     - BlockFetchTime: 468.974us         # Rowset Reader gets the time of the Block.

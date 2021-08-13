@@ -17,7 +17,7 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.ColumnSeparator;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -42,12 +42,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -82,7 +82,9 @@ public class BrokerFileGroup implements Writable {
     private List<ImportColumnDesc> columnExprList;
     // this is only for hadoop function check
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
-    // filter the data which has been conformed
+    // filter the data from source directly
+    private Expr precedingFilterExpr;
+    // filter the data which has been mapped and transformed
     private Expr whereExpr;
     private Expr deleteCondition;
     private LoadTask.MergeType mergeType;
@@ -100,6 +102,8 @@ public class BrokerFileGroup implements Writable {
     private String jsonPaths = "";
     private String jsonRoot = "";
     private boolean fuzzyParse = true;
+    private boolean readJsonByLine = false;
+    private boolean numAsString = false;
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
@@ -108,8 +112,8 @@ public class BrokerFileGroup implements Writable {
     // Used for broker table, no need to parse
     public BrokerFileGroup(BrokerTable table) throws AnalysisException {
         this.tableId = table.getId();
-        this.valueSeparator = ColumnSeparator.convertSeparator(table.getColumnSeparator());
-        this.lineDelimiter = table.getLineDelimiter();
+        this.valueSeparator = Separator.convertSeparator(table.getColumnSeparator());
+        this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
         this.isNegative = false;
         this.filePaths = table.getPaths();
         this.fileFormat = table.getFileFormat();
@@ -120,6 +124,7 @@ public class BrokerFileGroup implements Writable {
         this.columnsFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
@@ -233,6 +238,9 @@ public class BrokerFileGroup implements Writable {
             jsonPaths = dataDescription.getJsonPaths();
             jsonRoot = dataDescription.getJsonRoot();
             fuzzyParse = dataDescription.isFuzzyParse();
+            // For broker load, we only support reading json format data line by line, so we set readJsonByLine to true here.
+            readJsonByLine = true;
+            numAsString = dataDescription.isNumAsString();
         }
     }
 
@@ -258,6 +266,10 @@ public class BrokerFileGroup implements Writable {
 
     public List<Long> getPartitionIds() {
         return partitionIds;
+    }
+
+    public Expr getPrecedingFilterExpr() {
+        return precedingFilterExpr;
     }
 
     public Expr getWhereExpr() {
@@ -338,6 +350,22 @@ public class BrokerFileGroup implements Writable {
 
     public void setFuzzyParse(boolean fuzzyParse) {
         this.fuzzyParse = fuzzyParse;
+    }
+
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
+    }
+
+    public void setReadJsonByLine(boolean readJsonByLine) {
+        this.readJsonByLine = readJsonByLine;
+    }
+
+    public boolean isNumAsString() {
+        return numAsString;
+    }
+
+    public void setNumAsString(boolean numAsString) {
+        this.numAsString = numAsString;
     }
 
     public String getJsonPaths() {

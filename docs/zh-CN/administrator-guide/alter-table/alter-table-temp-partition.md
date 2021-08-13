@@ -52,6 +52,15 @@ ALTER TABLE tbl2 ADD TEMPORARY PARTITION tp1 VALUES [("2020-01-01"), ("2020-02-0
 ALTER TABLE tbl1 ADD TEMPORARY PARTITION tp1 VALUES LESS THAN("2020-02-01")
 ("in_memory" = "true", "replication_num" = "1")
 DISTRIBUTED BY HASH(k1) BUCKETS 5;
+
+ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai");
+
+ALTER TABLE tbl4 ADD TEMPORARY PARTITION tp1 VALUES IN ((1, "Beijing"), (1, "Shanghai"));
+
+ALTER TABLE tbl3 ADD TEMPORARY PARTITION tp1 VALUES IN ("Beijing", "Shanghai")
+("in_memory" = "true", "replication_num" = "1")
+DISTRIBUTED BY HASH(k1) BUCKETS 5;
+
 ```
 
 通过 `HELP ALTER TABLE;` 查看更多帮助和示例。
@@ -97,7 +106,13 @@ PROPERTIES (
 
 1. `strict_range`
 
-    默认为 true。当该参数为 true 时，表示要被替换的所有正式分区的范围并集需要和替换的临时分区的范围并集完全相同。当置为 false 时，只需要保证替换后，新的正式分区间的范围不重叠即可。下面举例说明：
+    默认为 true。  
+
+    对于 Range 分区，当该参数为 true 时，表示要被替换的所有正式分区的范围并集需要和替换的临时分区的范围并集完全相同。当置为 false 时，只需要保证替换后，新的正式分区间的范围不重叠即可。
+
+    对于 List 分区，该参数恒为 true。要被替换的所有正式分区的枚举值必须和替换的临时分区枚举值完全相同。
+    
+    下面举例说明：
     
     * 示例1
     
@@ -130,6 +145,38 @@ PROPERTIES (
         ```
         
         范围并集不相同，如果 `strict_range` 为 true，则不可以使用 tp1 和 tp2 替换 p1。如果为 false，且替换后的两个分区范围 `[10, 30), [40, 50)` 和其他正式分区不重叠，则可以替换。
+
+    * 示例3
+
+        待替换的分区 p1, p2 的枚举值(=> 并集)：
+
+        ```
+        (1, 2, 3), (4, 5, 6) => (1, 2, 3, 4, 5, 6)
+        ```
+
+        替换分区 tp1, tp2, tp3 的枚举值(=> 并集)：
+
+        ```
+        (1, 2, 3), (4), (5, 6) => (1, 2, 3, 4, 5, 6)
+        ```
+
+        枚举值并集相同，可以使用 tp1，tp2，tp3 替换 p1，p2
+
+    * 示例4
+
+        待替换的分区 p1, p2，p3 的枚举值(=> 并集)：
+
+        ```
+        (("1","beijing"), ("1", "shanghai")), (("2","beijing"), ("2", "shanghai")), (("3","beijing"), ("3", "shanghai")) => (("1","beijing"), ("1", "shanghai"), ("2","beijing"), ("2", "shanghai"), ("3","beijing"), ("3", "shanghai"))
+        ```
+
+        替换分区 tp1, tp2 的枚举值(=> 并集)：
+
+        ```
+        (("1","beijing"), ("1", "shanghai")), (("2","beijing"), ("2", "shanghai"), ("3","beijing"), ("3", "shanghai")) => (("1","beijing"), ("1", "shanghai"), ("2","beijing"), ("2", "shanghai"), ("3","beijing"), ("3", "shanghai"))
+        ```
+
+        枚举值并集相同，可以使用 tp1，tp2 替换 p1，p2，p3
 
 2. `use_temp_partition_name`
 

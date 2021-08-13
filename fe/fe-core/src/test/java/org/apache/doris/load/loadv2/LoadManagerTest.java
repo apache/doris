@@ -161,6 +161,9 @@ public class LoadManagerTest {
                 table.getName();
                 minTimes = 0;
                 result = "tablename";
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeMetaVersion.VERSION_CURRENT;
             }
         };
 
@@ -169,7 +172,7 @@ public class LoadManagerTest {
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         //make job1 don't serialize
-        Config.label_keep_max_second = 1;
+        Config.streaming_label_keep_max_second = 1;
         Thread.sleep(2000);
 
         File file = serializeToFile(loadManager);

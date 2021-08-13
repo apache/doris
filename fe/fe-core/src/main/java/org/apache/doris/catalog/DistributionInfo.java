@@ -65,6 +65,11 @@ public abstract class DistributionInfo implements Writable {
         throw new NotImplementedException("not implemented");
     }
 
+    public void setBucketNum(int bucketNum) {
+        // should override in sub class
+        throw new NotImplementedException("not implemented");
+    }
+
     public DistributionDesc toDistributionDesc() {
         throw new NotImplementedException();
     }

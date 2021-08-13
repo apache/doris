@@ -186,7 +186,7 @@ public:
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
                                    MemPool* pool) {
-        decimal12_t decimal_val;
+        decimal12_t decimal_val = {0, 0};
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
                 encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(

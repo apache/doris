@@ -68,40 +68,6 @@ class DataDir;
 class TabletMeta;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 
-class AlterTabletTask {
-public:
-    AlterTabletTask() {}
-    void init_from_pb(const AlterTabletPB& alter_task);
-    void to_alter_pb(AlterTabletPB* alter_task);
-
-    inline const AlterTabletState& alter_state() const { return _alter_state; }
-    OLAPStatus set_alter_state(AlterTabletState alter_state);
-
-    inline int64_t related_tablet_id() const { return _related_tablet_id; }
-    inline int32_t related_schema_hash() const { return _related_schema_hash; }
-    inline void set_related_tablet_id(int64_t related_tablet_id) {
-        _related_tablet_id = related_tablet_id;
-    }
-    inline void set_related_schema_hash(int32_t schema_hash) { _related_schema_hash = schema_hash; }
-
-    inline const AlterTabletType& alter_type() const { return _alter_type; }
-    inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
-
-    friend bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
-    friend bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
-
-private:
-    AlterTabletState _alter_state = ALTER_PREPARED;
-    int64_t _related_tablet_id = 0;
-    int32_t _related_schema_hash = 0;
-    AlterTabletType _alter_type = SCHEMA_CHANGE;
-};
-
-bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
-bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
-
-typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
-
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
@@ -133,6 +99,7 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
+    uint32_t mem_size() const;
 
     inline TabletTypePB tablet_type() const { return _tablet_type; }
     inline TabletUid tablet_uid() const;
@@ -167,17 +134,15 @@ public:
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
+    // If same_version is true, the rowset in "to_delete" will not be added
+    // to _stale_rs_meta, but to be deleted from rs_meta directly.
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                         const std::vector<RowsetMetaSharedPtr>& to_delete);
+                         const std::vector<RowsetMetaSharedPtr>& to_delete,
+                         bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
-    void revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
-
-    inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
-    OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
-    void delete_inc_rs_meta_by_version(const Version& version);
-    RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
+    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
 
@@ -185,10 +150,6 @@ public:
     void remove_delete_predicate_by_version(const Version& version);
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
-    AlterTabletTaskSharedPtr alter_task();
-    void add_alter_task(const AlterTabletTask& alter_task);
-    void delete_alter_task();
-    OLAPStatus set_alter_state(AlterTabletState alter_state);
 
     std::string full_name() const;
 
@@ -200,8 +161,12 @@ public:
         _preferred_rowset_type = preferred_rowset_type;
     }
 
+    // used for after tablet cloned to clear stale rowset
+    void clear_stale_rowset() { _stale_rs_metas.clear(); }
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
+    void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -222,14 +187,12 @@ private:
     TabletSchema _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
-    std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
     DelPredicateArray _del_pred_array;
-    AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
 
@@ -328,10 +291,6 @@ inline TabletSchema* TabletMeta::mutable_tablet_schema() {
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {
     return _rs_metas;
-}
-
-inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_inc_rs_metas() const {
-    return _inc_rs_metas;
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_stale_rs_metas() const {

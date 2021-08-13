@@ -89,7 +89,7 @@ under the License.
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                                     [FROM from_index_name]
                                     [PROPERTIES ("key"="value", ...)],...]
-        example：
+        example:
             ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 note:
             1) If from_index_name is not specified, it is created by default from base index
@@ -103,8 +103,8 @@ under the License.
         example:
            DROP ROLLUP r1
     2.1 Batch Delete rollup index
-        grammar：DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
-        example：DROP ROLLUP r1,r2
+        grammar: DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
+        example: DROP ROLLUP r1,r2
     2.2 note:
             1) Cannot delete base index
                
@@ -153,7 +153,7 @@ under the License.
             3) Only the type of the column can be modified. The other attributes of the column remain as they are (ie other attributes need to be explicitly written in the statement according to the original attribute, see example 8)
             4) The partition column cannot be modified
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
-	        TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE convert to a wider range of numeric types
+                TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE convert to a wider range of numeric types
                 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
                 VARCHAR supports modification of maximum length
                 Convert VARCHAR/CHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.
@@ -173,7 +173,7 @@ under the License.
             1) All columns in index must be written
             2) value is listed after the key column
             
-    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute， the replication_num and default.replication_num.
+    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute,  the replication_num and default.replication_num.
         grammar:
             PROPERTIES ("key"="value")
         note:
@@ -194,7 +194,21 @@ under the License.
             2) The sequence_type is used to specify the type of the sequence column, which can be integral and time type
             3) Only the orderliness of newly imported data is supported. Historical data cannot be changed
      
+    9. Modify default buckets number of partition 
+        grammer:
+            MODIFY DISTRIBUTION DISTRIBUTED BY HASH (k1[,k2 ...]) BUCKETS num
+        note：
+            1）Only support non colocate table with RANGE partition and HASH distribution
 
+    10. Modify table comment
+        grammer:
+            MODIFY COMMENT "new table comment"
+
+    11. Modify column comment
+        grammer:
+            MODIFY COLUMN col1 COMMENT "new column comment"
+
+     
     Rename supports modification of the following names:
     1. Modify the table name
         grammar:
@@ -217,13 +231,13 @@ under the License.
             2. BITMAP index only supports apply on single column
     2. drop index
         grammar:
-            DROP INDEX index_name；
+            DROP INDEX index_name;
 
 ## example
 
     [table]
     1. Modify the default number of replications of the table, which is used as default number of replications while creating new partition.
-        ATLER TABLE example_db.my_table 
+        ALTER TABLE example_db.my_table 
         SET ("default.replication_num" = "2");
         
     2. Modify the actual number of replications of a unpartitioned table (unpartitioned table only)
@@ -269,8 +283,7 @@ under the License.
     [rollup]
     1. Create index: example_rollup_index, based on base index(k1,k2,k3,v1,v2). Columnar storage.
         ALTER TABLE example_db.my_table
-        ADD ROLLUP example_rollup_index(k1, k3, v1, v2)
-        PROPERTIES("storage_type"="column");
+        ADD ROLLUP example_rollup_index(k1, k3, v1, v2);
         
     2. Create index: example_rollup_index2, based on example_rollup_index(k1,k3,v1,v2)
         ALTER TABLE example_db.my_table
@@ -281,7 +294,7 @@ under the License.
         
         ALTER TABLE example_db.my_table
         ADD ROLLUP example_rollup_index(k1, k3, v1)
-        PROPERTIES("storage_type"="column", "timeout" = "3600");
+        PROPERTIES("timeout" = "3600");
     
     3. Delete index: example_rollup_index2
         ALTER TABLE example_db.my_table
@@ -318,9 +331,10 @@ under the License.
         DROP COLUMN col2
         FROM example_rollup_index;
         
-    7. Modify the base index's col1 column to be of type BIGINT and move to the col2 column
+    7. Modify the base index's col1 key column to be of type BIGINT and move to the col2 column
+       (*Attention: Whether to modify the key column or the value column, complete column information need to be declared. For example, MODIFY COLUMN xxx COLUMNTYPE [KEY|agg_type]*)
         ALTER TABLE example_db.my_table
-        MODIFY COLUMN col1 BIGINT DEFAULT "1" AFTER col2;
+        MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
 
     8. Modify the maximum length of the val1 column of the base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
         ALTER TABLE example_db.my_table
@@ -369,6 +383,18 @@ under the License.
     17. Enable the ability to import in order by the value of the Sequence column
 
         ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+
+    18. Modify the default buckets number of example_db.my_table to 50
+
+        ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+    19. Modify table comment
+
+        ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+    20. Modify column comment
+
+        ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
         
     [rename]
     1. Modify the table named table1 to table2

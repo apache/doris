@@ -21,9 +21,11 @@
 #include <memory>
 
 #include "common/status.h"
+#include "exprs/expr.h"
 #include "exprs/expr_value.h"
+#include "exprs/slot_ref.h"
 #include "udf/udf.h"
-#include "udf/udf_internal.h" // for ArrayVal
+#include "udf/udf_internal.h" // for CollectionVal
 
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
@@ -79,23 +81,6 @@ public:
     /// result in result_.
     void* get_value(TupleRow* row);
 
-    /// Convenience function: extract value into col_val and sets the
-    /// appropriate __isset flag.
-    /// If the value is NULL and as_ascii is false, nothing is set.
-    /// If 'as_ascii' is true, writes the value in ascii into stringVal
-    /// (nulls turn into "NULL");
-    /// if it is false, the specific field in col_val that receives the value is
-    /// based on the type of the expr:
-    /// TYPE_BOOLEAN: boolVal
-    /// TYPE_TINYINT/SMALLINT/INT: intVal
-    /// TYPE_BIGINT: longVal
-    /// TYPE_FLOAT/DOUBLE: doubleVal
-    /// TYPE_STRING: stringVal
-    /// TYPE_TIMESTAMP: stringVal
-    /// Note: timestamp is converted to string via RawValue::PrintValue because HiveServer2
-    /// requires timestamp in a string format.
-    void get_value(TupleRow* row, bool as_ascii, TColumnValue* col_val);
-
     /// Convenience functions: print value into 'str' or 'stream'.  NULL turns into "NULL".
     void print_value(TupleRow* row, std::string* str);
     void print_value(void* value, std::string* str);
@@ -136,7 +121,6 @@ public:
     // TODO(zc):
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
-    DecimalVal get_decimal_val(TupleRow* row);
     DecimalV2Val get_decimalv2_val(TupleRow* row);
 
     /// Frees all local allocations made by fn_contexts_. This can be called when result
@@ -170,6 +154,8 @@ private:
     friend class Expr;
     friend class ScalarFnCall;
     friend class InPredicate;
+    friend class RuntimePredicateWrapper;
+    friend class BloomFilterPredicate;
     friend class OlapScanNode;
     friend class EsScanNode;
     friend class EsPredicate;
@@ -205,6 +191,13 @@ private:
     /// This is used by Exprs to call GetValue() on a child expr, rather than root_.
     void* get_value(Expr* e, TupleRow* row);
 };
+
+inline void* ExprContext::get_value(TupleRow* row) {
+    if (_root->is_slotref()) {
+        return SlotRef::get_value(_root, row);
+    }
+    return get_value(_root, row);
+}
 
 } // namespace doris
 

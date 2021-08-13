@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -35,8 +34,10 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.backup.BlobStorage;
@@ -64,6 +65,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -74,6 +76,7 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -87,6 +90,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
@@ -257,9 +261,9 @@ public class Load {
         // partitions | column names | separator | line delimiter
         List<String> partitionNames = null;
         List<String> columnNames = null;
-        ColumnSeparator columnSeparator = null;
+        Separator columnSeparator = null;
         List<String> hllColumnPairList = null;
-        String lineDelimiter = null;
+        Separator lineDelimiter = null;
         String formatType = null;
         if (params != null) {
             String specifiedPartitions = params.get(LoadStmt.KEY_IN_PARAM_PARTITIONS);
@@ -281,14 +285,25 @@ public class Load {
                 if (columnSeparatorStr.isEmpty()) {
                     columnSeparatorStr = "\t";
                 }
-                columnSeparator = new ColumnSeparator(columnSeparatorStr);
+                columnSeparator = new Separator(columnSeparatorStr);
                 try {
                     columnSeparator.analyze();
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
             }
-            lineDelimiter = params.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER);
+            String lineDelimiterStr = params.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER);
+            if (lineDelimiterStr != null) {
+                if (lineDelimiterStr.isEmpty()) {
+                    lineDelimiterStr = "\n";
+                }
+                lineDelimiter = new Separator(lineDelimiterStr);
+                try {
+                    lineDelimiter.analyze();
+                } catch (AnalysisException e) {
+                    throw new DdlException(e.getMessage());
+                }
+            }
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
@@ -595,7 +610,7 @@ public class Load {
      * This is only used for hadoop load
      */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
+                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -779,7 +794,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                                                mappingColumn, dataDescription.isHadoopLoad());
+                                mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -883,7 +898,7 @@ public class Load {
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                                                                             new SlotRef(null, originCol));
+                            new SlotRef(null, originCol));
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -912,13 +927,13 @@ public class Load {
      * This function should be used for broker load v2 and stream load.
      * And it must be called in same db lock when planing.
      */
-    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+    public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
-        rewriteColumns(columnExprs);
-        initColumns(tbl, columnExprs, columnToHadoopFunction, exprsByName, analyzer,
-                    srcTupleDesc, slotDescByName, params, true);
+        rewriteColumns(columnDescs);
+        initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
+                srcTupleDesc, slotDescByName, params, true);
     }
 
     /*
@@ -929,14 +944,19 @@ public class Load {
      * 4. validate hadoop functions
      * 5. init slot descs and expr map for load plan
      */
-    public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-            Map<String, Pair<String, List<String>>> columnToHadoopFunction,
-            Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-            Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
-            boolean needInitSlotAndAnalyzeExprs) throws UserException {
+    private static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
+                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
+                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
+                                    Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                    boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
         // skip the mapping columns not exist in schema
+        // eg: the origin column list is:
+        //          (k1, k2, tmpk3 = k1 + k2, k3 = tmpk3)
+        //     after calling rewriteColumns(), it will become
+        //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
+        //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<ImportColumnDesc> copiedColumnExprs = new ArrayList<>();
         for (ImportColumnDesc importColumnDesc : columnExprs) {
             String mappingColumnName = importColumnDesc.getColumnName();
@@ -946,7 +966,7 @@ public class Load {
         }
         // check whether the OlapTable has sequenceCol
         boolean hasSequenceCol = false;
-        if (tbl instanceof OlapTable && ((OlapTable)tbl).hasSequenceCol()) {
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).hasSequenceCol()) {
             hasSequenceCol = true;
         }
 
@@ -1103,12 +1123,16 @@ public class Load {
         LOG.debug("after init column, exprMap: {}", exprsByName);
     }
 
-    public static void rewriteColumns(List<ImportColumnDesc> columnExprs) {
+    public static void rewriteColumns(LoadTaskInfo.ImportColumnDescs columnDescs) {
+        if (columnDescs.isColumnDescsRewrited) {
+            return;
+        }
+
         Map<String, Expr> derivativeColumns = new HashMap<>();
         // find and rewrite the derivative columns
         // e.g. (v1,v2=v1+1,v3=v2+1) --> (v1, v2=v1+1, v3=v1+1+1)
         // 1. find the derivative columns
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
+        for (ImportColumnDesc importColumnDesc : columnDescs.descs) {
             if (!importColumnDesc.isColumn()) {
                 if (importColumnDesc.getExpr() instanceof SlotRef) {
                     String columnName = ((SlotRef) importColumnDesc.getExpr()).getColumnName();
@@ -1122,6 +1146,7 @@ public class Load {
             }
         }
 
+        columnDescs.isColumnDescsRewrited = true;
     }
 
     private static void recursiveRewrite(Expr expr, Map<String, Expr> derivativeColumns) {
@@ -1568,7 +1593,7 @@ public class Load {
         return false;
     }
 
-    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException {
+    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException, AnalysisException {
         // get load job and check state
         Database db = Catalog.getCurrentCatalog().getDb(dbName);
         if (db == null) {
@@ -1586,8 +1611,9 @@ public class Load {
                     loadJobs.addAll(labelToLoadJobs.get(labelValue));
                 }
             } else {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(labelValue)) {
+                    if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
                     }
                 }
@@ -1604,7 +1630,7 @@ public class Load {
         }
     }
 
-    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
+    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
         // get params
         String dbName = stmt.getDbName();
         String label = stmt.getLabel();
@@ -1630,9 +1656,10 @@ public class Load {
                     matchLoadJobs.addAll(labelToLoadJobs.get(label));
                 }
             } else {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(label)) {
-                        matchLoadJobs.addAll(entry.getValue());
+                    if (matcher.match(entry.getKey())) {
+                        loadJobs.addAll(entry.getValue());
                     }
                 }
             }
@@ -1771,12 +1798,7 @@ public class Load {
             clearJob(job, srcState);
         }
 
-        if (job.getBrokerDesc() != null) {
-            if (srcState == JobState.ETL) {
-                // Cancel job id
-                Catalog.getCurrentCatalog().getPullLoadJobMgr().cancelJob(job.getId());
-            }
-        }
+        Preconditions.checkState(job.getBrokerDesc() == null);
         LOG.info("cancel load job success. job: {}", job);
         return true;
     }
@@ -1886,7 +1908,7 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states) {
+                                                            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1897,6 +1919,11 @@ public class Load {
 
             long start = System.currentTimeMillis();
             LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            PatternMatcher matcher = null;
+            if (labelValue != null && !accurateMatch) {
+                matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            }
+
             for (LoadJob loadJob : loadJobs) {
                 // filter first
                 String label = loadJob.getLabel();
@@ -1908,7 +1935,7 @@ public class Load {
                             continue;
                         }
                     } else {
-                        if (!label.contains(labelValue)) {
+                        if (!matcher.match(label)) {
                             continue;
                         }
                     }
@@ -1925,14 +1952,14 @@ public class Load {
                 if (tableNames.isEmpty()) {
                     // forward compatibility
                     if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                                           PrivPredicate.LOAD)) {
+                            PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
                         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                                                                tblName, PrivPredicate.LOAD)) {
+                                tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }
@@ -2004,8 +2031,8 @@ public class Load {
 
                 // task info
                 jobInfo.add("cluster:" + loadJob.getHadoopCluster()
-                                    + "; timeout(s):" + loadJob.getTimeoutSecond()
-                                    + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
+                        + "; timeout(s):" + loadJob.getTimeoutSecond()
+                        + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
 
                 // error msg
                 if (loadJob.getState() == JobState.CANCELLED) {
@@ -2222,7 +2249,7 @@ public class Load {
             properties.remove("path");
 
             // check if broker info is invalid
-            BlobStorage blobStorage = new BlobStorage(brokerName, properties);
+            BlobStorage blobStorage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
             Status st = blobStorage.checkPathExist(path);
             if (!st.ok()) {
                 throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
@@ -2330,7 +2357,7 @@ public class Load {
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                              info.getDataSize(), info.getRowCount());
+                            info.getDataSize(), info.getRowCount());
                 }
             }
 
@@ -2349,7 +2376,7 @@ public class Load {
                             continue;
                         }
                         updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                               partitionLoadInfo.getVersionHash(), jobId);
+                                partitionLoadInfo.getVersionHash(), jobId);
 
                         // update table row count
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -2446,7 +2473,7 @@ public class Load {
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                              info.getDataSize(), info.getRowCount());
+                            info.getDataSize(), info.getRowCount());
                 }
             }
         } else {
@@ -2590,8 +2617,7 @@ public class Load {
             while (iter.hasNext()) {
                 Map.Entry<Long, LoadJob> entry = iter.next();
                 LoadJob job = entry.getValue();
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.label_keep_max_second
-                        && (job.getState() == JobState.FINISHED || job.getState() == JobState.CANCELLED)) {
+                if (job.isExpired(currentTimeMs)) {
                     long dbId = job.getDbId();
                     String label = job.getLabel();
                     // Remove job from idToLoadJob
@@ -2652,7 +2678,7 @@ public class Load {
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
-                                                                  dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
+                        dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
                 try {
                     dppScheduler.deleteEtlOutputPath(outputPath);
                 } catch (Exception e) {
@@ -2696,7 +2722,7 @@ public class Load {
     }
 
     public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
-            List<String> failedMsg) {
+                                      List<String> failedMsg) {
         boolean result = true;
         JobState srcState = null;
 
@@ -2855,7 +2881,7 @@ public class Load {
                 }
 
                 updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                       partitionLoadInfo.getVersionHash(), jobId);
+                        partitionLoadInfo.getVersionHash(), jobId);
 
                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
@@ -2889,7 +2915,7 @@ public class Load {
         long partitionId = partition.getId();
         partition.updateVisibleVersionAndVersionHash(version, versionHash);
         LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
-                 version, versionHash, jobId, partitionId);
+                version, versionHash, jobId, partitionId);
     }
 
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
@@ -2961,8 +2987,8 @@ public class Load {
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                              pushTask.getVersion(), pushTask.getVersionHash(),
-                                              pushTask.getPushType(), pushTask.getTaskType());
+                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getPushType(), pushTask.getTaskType());
             }
         }
 

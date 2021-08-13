@@ -25,9 +25,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <boost/filesystem.hpp>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 
 #include "env/env.h"
 #include "gutil/strings/strcat.h"
@@ -47,6 +47,7 @@
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
+#include "util/histogram.h"
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
@@ -62,20 +63,31 @@ using strings::Substitute;
 
 namespace doris {
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "tablet_meta"}}));
+
 static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSharedPtr& b) {
     return a->creation_time() < b->creation_time();
 }
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-    : _tablets_shards_size(tablet_map_lock_shard_size),
-      _tablets_shards_mask(tablet_map_lock_shard_size - 1),
-      _last_update_stat_ms(0) {
+        : _mem_tracker(MemTracker::CreateTracker(-1, "TabletMeta", nullptr, false, false, MemTrackerLevel::OVERVIEW)),
+          _tablets_shards_size(tablet_map_lock_shard_size),
+          _tablets_shards_mask(tablet_map_lock_shard_size - 1),
+          _last_update_stat_ms(0) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
     for (auto& tablets_shard : _tablets_shards) {
         tablets_shard.lock = std::unique_ptr<RWMutex>(new RWMutex());
     }
+    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
+                         [this]() { return _mem_tracker->consumption(); });
+}
+
+TabletManager::~TabletManager() {
+    _mem_tracker->Release(_mem_tracker->consumption());
+    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
 OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
@@ -83,7 +95,8 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
                                                bool force) {
     OLAPStatus res = OLAP_SUCCESS;
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
-            << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash << ", force=" << force;
+                << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+                << ", force=" << force;
 
     TabletSharedPtr existed_tablet = nullptr;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
@@ -185,9 +198,14 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     tablet_map[tablet_id].table_arr.push_back(tablet);
     tablet_map[tablet_id].table_arr.sort(_cmp_tablet_by_create_time);
     _add_tablet_to_partition(*tablet);
+    // TODO: remove multiply 2 of tablet meta mem size
+    // Because table schema will copy in tablet, there will be double mem cost
+    // so here multiply 2
+    _mem_tracker->Consume(tablet->tablet_meta()->mem_size() * 2);
 
     VLOG_NOTICE << "add tablet to map successfully."
-            << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+                << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+
     return res;
 }
 
@@ -257,7 +275,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 
     // set alter type to schema-change. it is useless
     TabletSharedPtr tablet = _internal_create_tablet_unlocked(
-            AlterTabletType::SCHEMA_CHANGE, request, is_schema_change, base_tablet.get(), stores);
+            request, is_schema_change, base_tablet.get(), stores);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to create tablet. tablet_id=" << request.tablet_id;
         DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
@@ -271,7 +289,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 }
 
 TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
-        const AlterTabletType alter_type, const TCreateTabletReq& request,
+        const TCreateTabletReq& request,
         const bool is_schema_change, const Tablet* base_tablet,
         const std::vector<DataDir*>& data_dirs) {
     // If in schema-change state, base_tablet must also be provided.
@@ -306,40 +324,33 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             LOG(WARNING) << "tablet init failed. tablet:" << tablet->full_name();
             break;
         }
-        // TODO(lingbin): is it needed? because all type of create_tablet will be true.
-        // 1. !is_schema_change: not in schema-change state;
-        // 2. request.base_tablet_id > 0: in schema-change state;
-        if (!is_schema_change || (request.__isset.base_tablet_id && request.base_tablet_id > 0)) {
-            // Create init version if this is not a restore mode replica and request.version is set
-            // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
-            // if (!in_restore_mode && request.__isset.version) {
-            // create initial rowset before add it to storage engine could omit many locks
-            res = _create_initial_rowset_unlocked(request, tablet.get());
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
-                break;
-            }
-            TRACE("create initial rowset");
+
+        // Create init version if this is not a restore mode replica and request.version is set
+        // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
+        // if (!in_restore_mode && request.__isset.version) {
+        // create initial rowset before add it to storage engine could omit many locks
+        res = _create_initial_rowset_unlocked(request, tablet.get());
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
+            break;
         }
+        TRACE("create initial rowset");
+
         if (is_schema_change) {
-            if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
-                LOG(INFO) << "request for alter-tablet v2, do not add alter task to tablet";
-                // if this is a new alter tablet, has to set its state to not ready
-                // because schema change handler depends on it to check whether history data
-                // convert finished
-                tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
-            } else {
-                // add alter task to new tablet if it is a new tablet during schema change
-                tablet->add_alter_task(base_tablet->tablet_id(), base_tablet->schema_hash(),
-                                       std::vector<Version>(), alter_type);
-            }
-            // 有可能出现以下2种特殊情况：
-            // 1. 因为操作系统时间跳变，导致新生成的表的creation_time小于旧表的creation_time时间
-            // 2. 因为olap engine代码中统一以秒为单位，所以如果2个操作(比如create一个表,
-            //    然后立即alter该表)之间的时间间隔小于1s，则alter得到的新表和旧表的creation_time会相同
-            //
-            // 当出现以上2种情况时，为了能够区分alter得到的新表和旧表，这里把新表的creation_time设置为
-            // 旧表的creation_time加1
+            // if this is a new alter tablet, has to set its state to not ready
+            // because schema change handler depends on it to check whether history data
+            // convert finished
+            tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
+            // The following two special situations may occur:
+            // 1. Because the operating system time jumps, the creation_time of the newly generated table
+            //    is less than the creation_time of the old table
+            // 2. Because the unit of second is unified in the olap engine code,
+            //    if two operations (such as creating a table, and then immediately altering the table)
+            //    is less than 1s, then the creation_time of the new table and the old table obtained by alter will be the same
+            // 
+            // When the above two situations occur, in order to be able to distinguish between the new tablet
+            // obtained by alter and the old tablet, the creation_time of the new tablet is set to
+            // the creation_time of the old tablet increased by 1
             if (tablet->creation_time() <= base_tablet->creation_time()) {
                 LOG(WARNING) << "new tablet's create time is less than or equal to old tablet"
                              << "new_tablet_create_time=" << tablet->creation_time()
@@ -470,91 +481,30 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, SchemaHash 
         return OLAP_SUCCESS;
     }
 
-    // Try to get schema change info, we can drop tablet directly if it is not
-    // in schema-change state.
-    AlterTabletTaskSharedPtr alter_task = to_drop_tablet->alter_task();
-    if (alter_task == nullptr) {
-        return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    }
-
-    AlterTabletState alter_state = alter_task->alter_state();
-    TTabletId related_tablet_id = alter_task->related_tablet_id();
-    TSchemaHash related_schema_hash = alter_task->related_schema_hash();
-    ;
-
-    TabletSharedPtr related_tablet = _get_tablet_unlocked(related_tablet_id, related_schema_hash);
-    if (related_tablet == nullptr) {
-        // TODO(lingbin): in what case, can this happen?
-        LOG(WARNING) << "drop tablet directly when related tablet not found. "
-                     << " tablet_id=" << related_tablet_id
-                     << " schema_hash=" << related_schema_hash;
-        return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    }
-
-    // Check whether the tablet we want to delete is in schema-change state
-    bool is_schema_change_finished = (alter_state == ALTER_FINISHED || alter_state == ALTER_FAILED);
-
-    // Check whether the tablet we want to delete is base-tablet
-    bool is_dropping_base_tablet = false;
-    if (to_drop_tablet->creation_time() < related_tablet->creation_time()) {
-        is_dropping_base_tablet = true;
-    }
-
-    if (is_dropping_base_tablet && !is_schema_change_finished) {
-        LOG(WARNING) << "fail to drop tablet. it is in schema-change state. tablet="
-                     << to_drop_tablet->full_name();
-        return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
-    }
-
-    // When the code gets here, there are two possibilities:
-    // 1. The tablet currently being deleted is a base-tablet, and the corresponding
-    //    schema-change process has finished;
-    // 2. The tablet we are currently trying to drop is not base-tablet(i.e. a tablet
-    //    generated from its base-tablet due to schema-change). For example, the current
-    //    request is triggered by cancel alter). In this scenario, the corresponding
-    //    schema-change task may still in process.
-
-    // Drop specified tablet and clear schema-change info
-    // NOTE: must first break the hard-link and then drop the tablet.
-    // Otherwise, if first drop tablet, then break link. If BE restarts during execution,
-    // after BE restarts, the tablet is no longer in metadata, but because the hard-link
-    // is still there, the corresponding file may never be deleted from disk.
-    related_tablet->obtain_header_wrlock();
-    // should check the related tablet_id in alter task is current tablet to be dropped
-    // For example: A related to B, BUT B related to C.
-    // If drop A, should not clear B's alter task
-    OLAPStatus res = OLAP_SUCCESS;
-    AlterTabletTaskSharedPtr related_alter_task = related_tablet->alter_task();
-    if (related_alter_task != nullptr && related_alter_task->related_tablet_id() == tablet_id &&
-        related_alter_task->related_schema_hash() == schema_hash) {
-        related_tablet->delete_alter_task();
-        related_tablet->save_meta();
-    }
-    related_tablet->release_header_lock();
-    res = _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to drop tablet which in schema change. tablet="
-                     << to_drop_tablet->full_name();
-        return res;
-    }
-
-    LOG(INFO) << "finish to drop tablet. res=" << res;
-    return res;
+    return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
 }
 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
-    for (int32 i = 0; i < _tablets_shards_size; i++) {
+    if (tablet_info_vec.empty()) { // This is a high probability event
+        return res;
+    }
+    std::vector<std::set<size_t>> local_tmp_vector(_tablets_shards_size);
+    for (size_t idx = 0; idx < tablet_info_vec.size(); ++idx) {
+        local_tmp_vector[tablet_info_vec[idx].tablet_id & _tablets_shards_mask].insert(idx);
+    }
+    for (int32 i = 0; i < _tablets_shards_size; ++i) {
+        if (local_tmp_vector[i].empty()) {
+            continue;
+        }
         WriteLock wlock(_tablets_shards[i].lock.get());
-        for (const TabletInfo& tablet_info : tablet_info_vec) {
+        for (size_t idx : local_tmp_vector[i]) {
+            const TabletInfo& tablet_info = tablet_info_vec[idx];
             TTabletId tablet_id = tablet_info.tablet_id;
-            if ((tablet_id & _tablets_shards_mask) != i) {
-                continue;
-            }
             TSchemaHash schema_hash = tablet_info.schema_hash;
             VLOG_NOTICE << "drop_tablet begin. tablet_id=" << tablet_id
-                    << ", schema_hash=" << schema_hash;
+                        << ", schema_hash=" << schema_hash;
             TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
             if (dropped_tablet == nullptr) {
                 LOG(WARNING) << "dropping tablet not exist. "
@@ -632,6 +582,7 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const string& path,
                                                             TTabletId* tablet_id,
                                                             TSchemaHash* schema_hash) {
+    // the path like: /data/14/10080/964828783/
     static re2::RE2 normal_re("/data/\\d+/(\\d+)/(\\d+)($|/)");
     // match tablet schema hash data path, for example, the path is /data/1/16791/29998
     // 1 is shard id , 16791 is tablet id, 29998 is schema hash
@@ -651,6 +602,7 @@ bool TabletManager::get_tablet_id_and_schema_hash_from_path(const string& path,
 }
 
 bool TabletManager::get_rowset_id_from_path(const string& path, RowsetId* rowset_id) {
+    // the path like: /data/14/10080/964828783/02000000000000969144d8725cb62765f9af6cd3125d5a91_0.dat
     static re2::RE2 re("/data/\\d+/\\d+/\\d+/([A-Fa-f0-9]+)_.*");
     string id_str;
     bool ret = RE2::PartialMatch(path, re, &id_str);
@@ -679,7 +631,8 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         CompactionType compaction_type, DataDir* data_dir,
-        std::vector<TTabletId>& tablet_submitted_compaction) {
+        const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+        std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
     int64_t now_ms = UnixMillis();
     const string& compaction_type_str =
             compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
@@ -691,32 +644,12 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& tablet_map : tablets_shard.tablet_map) {
             for (const TabletSharedPtr& tablet_ptr : tablet_map.second.table_arr) {
-                std::vector<TTabletId>::iterator it_tablet =
-                        find(tablet_submitted_compaction.begin(), tablet_submitted_compaction.end(),
-                             tablet_ptr->tablet_id());
-                if (it_tablet != tablet_submitted_compaction.end()) {
-                    continue;
-                }
-                AlterTabletTaskSharedPtr cur_alter_task = tablet_ptr->alter_task();
-                if (cur_alter_task != nullptr && cur_alter_task->alter_state() != ALTER_FINISHED &&
-                    cur_alter_task->alter_state() != ALTER_FAILED) {
-                    TabletSharedPtr related_tablet =
-                            _get_tablet_unlocked(cur_alter_task->related_tablet_id(),
-                                                 cur_alter_task->related_schema_hash());
-                    if (related_tablet != nullptr &&
-                        tablet_ptr->creation_time() > related_tablet->creation_time()) {
-                        // Current tablet is newly created during schema-change or rollup, skip it
-                        continue;
-                    }
-                }
-                // A not-ready tablet maybe a newly created tablet under schema-change, skip it
-                if (tablet_ptr->tablet_state() == TABLET_NOTREADY) {
+                if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
                     continue;
                 }
 
-                if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash() ||
-                    !tablet_ptr->is_used() || !tablet_ptr->init_succeeded() ||
-                    !tablet_ptr->can_do_compaction()) {
+                auto search = tablet_submitted_compaction.find(tablet_ptr->tablet_id());
+                if (search != tablet_submitted_compaction.end()) {
                     continue;
                 }
 
@@ -726,27 +659,29 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
                 }
                 if (now_ms - last_failure_ms <=
                     config::min_compaction_failure_interval_sec * 1000) {
-                    VLOG_CRITICAL << "Too often to check compaction, skip it. "
-                            << "compaction_type=" << compaction_type_str
-                            << ", last_failure_time_ms=" << last_failure_ms
-                            << ", tablet_id=" << tablet_ptr->tablet_id();
+                    VLOG_DEBUG    << "Too often to check compaction, skip it. "
+                                  << "compaction_type=" << compaction_type_str
+                                  << ", last_failure_time_ms=" << last_failure_ms
+                                  << ", tablet_id=" << tablet_ptr->tablet_id();
                     continue;
                 }
 
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     MutexLock lock(tablet_ptr->get_base_lock(), TRY_LOCK);
                     if (!lock.own_lock()) {
+                        LOG(INFO) << "can not get base lock: " << tablet_ptr->tablet_id();
                         continue;
                     }
                 } else {
                     MutexLock lock(tablet_ptr->get_cumulative_lock(), TRY_LOCK);
                     if (!lock.own_lock()) {
+                        LOG(INFO) << "can not get cumu lock: " << tablet_ptr->tablet_id();
                         continue;
                     }
                 }
 
-                uint32_t current_compaction_score =
-                        tablet_ptr->calc_compaction_score(compaction_type);
+                uint32_t current_compaction_score = tablet_ptr->calc_compaction_score(
+                        compaction_type, cumulative_compaction_policy);
 
                 double scan_frequency = 0.0;
                 if (config::compaction_tablet_scan_frequency_factor != 0) {
@@ -769,27 +704,20 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 
     if (best_tablet != nullptr) {
         VLOG_CRITICAL << "Found the best tablet for compaction. "
-                << "compaction_type=" << compaction_type_str
-                << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
-                << ", compaction_score=" << compaction_score
-                << ", tablet_scan_frequency=" << tablet_scan_frequency
-                << ", highest_score=" << highest_score;
-        // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
-        // biggest in history(like peak), but it is really just the value at current moment.
-        if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(compaction_score);
-        } else {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    compaction_score);
-        }
+                      << "compaction_type=" << compaction_type_str
+                      << ", tablet_id=" << best_tablet->tablet_id() << ", path=" << data_dir->path()
+                      << ", compaction_score=" << compaction_score
+                      << ", tablet_scan_frequency=" << tablet_scan_frequency
+                      << ", highest_score=" << highest_score;
+        *score = compaction_score;
     }
     return best_tablet;
 }
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                                 TSchemaHash schema_hash, const string& meta_binary,
-                                                bool update_meta, bool force, bool restore, bool check_path) {
-    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
+                                                bool update_meta, bool force, bool restore,
+                                                bool check_path) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
@@ -860,6 +788,8 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 
     RETURN_NOT_OK_LOG(tablet->init(),
                       strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
+
+    WriteLock wlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
@@ -902,9 +832,9 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     tablet_meta->set_shard_id(shard);
     string meta_binary;
     tablet_meta->serialize(&meta_binary);
-    RETURN_NOT_OK_LOG(
-            load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore, true),
-            strings::Substitute("fail to load tablet. header_path=$0", header_path));
+    RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force,
+                                            restore, true),
+                      strings::Substitute("fail to load tablet. header_path=$0", header_path));
 
     return OLAP_SUCCESS;
 }
@@ -944,9 +874,10 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
+OLAPStatus TabletManager::build_all_report_tablets_info(
+        std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
-    LOG(INFO) << "begin to report all tablets info";
+    LOG(INFO) << "begin to build all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
@@ -954,7 +885,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
-
+    HistogramStat tablet_version_num_hist;
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
         for (const auto& item : tablets_shard.tablet_map) {
@@ -976,6 +907,9 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
                     expire_txn_map.erase(find);
                 }
                 t_tablet.tablet_infos.push_back(tablet_info);
+                if (tablet_ptr->tablet_id() == tablet_id) {
+                    tablet_version_num_hist.add(tablet_ptr->version_count());
+                }
             }
 
             if (!t_tablet.tablet_infos.empty()) {
@@ -983,7 +917,9 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             }
         }
     }
-    LOG(INFO) << "success to report all tablets info. tablet_count=" << tablets_info->size();
+    DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
+            tablet_version_num_hist);
+    LOG(INFO) << "success to build all report tablets info. tablet_count=" << tablets_info->size();
     return OLAP_SUCCESS;
 }
 
@@ -1008,7 +944,6 @@ OLAPStatus TabletManager::start_trash_sweep() {
             }
 
             for (const auto& tablet : all_tablets) {
-                tablet->delete_expired_inc_rowsets();
                 tablet->delete_expired_stale_rowset();
             }
             all_tablets.clear();
@@ -1111,6 +1046,8 @@ OLAPStatus TabletManager::start_trash_sweep() {
                 break;
             }
         }
+        // >= 200 means there may be more tablets need to be handled
+        // So continue
     } while (clean_num >= 200);
     return OLAP_SUCCESS;
 } // start_trash_sweep
@@ -1228,9 +1165,17 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
             }
         }
     }
+    int counter = 0;
+    MonotonicStopWatch watch;
+    watch.start();
     for (TabletSharedPtr tablet : related_tablets) {
-        tablet->do_tablet_meta_checkpoint();
+        if (tablet->do_tablet_meta_checkpoint()) {
+            ++counter;
+        }
     }
+    int64_t cost = watch.elapsed_time() / 1000 / 1000;
+    LOG(INFO) << "finish to do meta checkpoint on dir: " << data_dir->path()
+              << ", number: " << counter << ", cost(ms): " << cost;
     return;
 }
 
@@ -1253,8 +1198,8 @@ void TabletManager::_build_tablet_stat() {
                 stat.__set_data_size(tablet->tablet_footprint());
                 stat.__set_row_num(tablet->num_rows());
                 VLOG_NOTICE << "building tablet stat. tablet_id=" << item.first
-                        << ", data_size=" << tablet->tablet_footprint()
-                        << ", row_num=" << tablet->num_rows();
+                            << ", data_size=" << tablet->tablet_footprint()
+                            << ", row_num=" << tablet->num_rows();
                 break;
             }
 
@@ -1423,11 +1368,13 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
     }
 
     dropped_tablet->deregister_tablet_from_dir();
+    _mem_tracker->Release(dropped_tablet->tablet_meta()->mem_size() * 2);
     return OLAP_SUCCESS;
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash) {
-    VLOG_NOTICE << "begin to get tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+    VLOG_NOTICE << "begin to get tablet. tablet_id=" << tablet_id
+                << ", schema_hash=" << schema_hash;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map_t::iterator it = tablet_map.find(tablet_id);
     if (it != tablet_map.end()) {
@@ -1435,7 +1382,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
             CHECK(tablet != nullptr) << "tablet is nullptr. tablet_id=" << tablet_id;
             if (tablet->equal(tablet_id, schema_hash)) {
                 VLOG_NOTICE << "get tablet success. tablet_id=" << tablet_id
-                        << ", schema_hash=" << schema_hash;
+                            << ", schema_hash=" << schema_hash;
                 return tablet;
             }
         }
@@ -1460,7 +1407,7 @@ void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
     }
 }
 
-void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo> &tablets_info,
+void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo>& tablets_info,
                                                      int64_t num) {
     for (const auto& tablets_shard : _tablets_shards) {
         ReadLock rlock(tablets_shard.lock.get());
@@ -1494,25 +1441,38 @@ TabletManager::tablets_shard& TabletManager::_get_tablets_shard(TTabletId tablet
 }
 
 void TabletManager::get_tablets_distribution_on_different_disks(
-                    std::map<int64_t, std::map<DataDir*, int64_t>> &tablets_num_on_disk,
-                    std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> &tablets_info_on_disk) {
+        std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
+        std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk) {
     std::vector<DataDir*> data_dirs = StorageEngine::instance()->get_stores();
-    ReadLock rlock(&_partition_tablet_map_lock);
-    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = _partition_tablet_map.begin();
-    for (; partition_iter != _partition_tablet_map.end(); partition_iter++) {
+    std::map<int64_t, std::set<TabletInfo>> partition_tablet_map;
+    {
+        // When drop tablet, '_partition_tablet_map_lock' is locked in 'tablet_shard_lock'.
+        // To avoid locking 'tablet_shard_lock' in '_partition_tablet_map_lock', we lock and
+        // copy _partition_tablet_map here.
+        ReadLock rlock(&_partition_tablet_map_lock);
+        partition_tablet_map = _partition_tablet_map;
+    }
+    std::map<int64_t, std::set<TabletInfo>>::iterator partition_iter = partition_tablet_map.begin();
+    for (; partition_iter != partition_tablet_map.end(); ++partition_iter) {
         std::map<DataDir*, int64_t> tablets_num;
         std::map<DataDir*, std::vector<TabletSize>> tablets_info;
-        for(int i = 0; i < data_dirs.size(); i++) {
+        for (int i = 0; i < data_dirs.size(); i++) {
             tablets_num[data_dirs[i]] = 0;
         }
         int64_t partition_id = partition_iter->first;
         std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
-        for(; tablet_info_iter != (partition_iter->second).end(); tablet_info_iter++) {
-            TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
+        for (; tablet_info_iter != (partition_iter->second).end(); ++tablet_info_iter) {
+            // get_tablet() will hold 'tablet_shard_lock'
+            TabletSharedPtr tablet =
+                    get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
+            if (tablet == nullptr) {
+                continue;
+            }
             DataDir* data_dir = tablet->data_dir();
             size_t tablet_footprint = tablet->tablet_footprint();
             tablets_num[data_dir]++;
-            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash, tablet_footprint);
+            TabletSize tablet_size(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash,
+                                   tablet_footprint);
             tablets_info[data_dir].push_back(tablet_size);
         }
         tablets_num_on_disk[partition_id] = tablets_num;

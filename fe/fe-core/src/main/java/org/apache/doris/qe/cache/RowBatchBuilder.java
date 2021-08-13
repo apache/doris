@@ -17,11 +17,15 @@
 
 package org.apache.doris.qe.cache;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
+
+import com.google.common.collect.Lists;
+import com.google.protobuf.ByteString;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,14 +34,15 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
- *  According to the query partition range and cache hit, the rowbatch to update the cache is constructed
+ * According to the query partition range and cache hit, the rowbatch to update the cache is constructed
  */
 public class RowBatchBuilder {
     private static final Logger LOG = LogManager.getLogger(RowBatchBuilder.class);
 
-    private CacheBeProxy.UpdateCacheRequest updateRequest;
+    private InternalService.PUpdateCacheRequest updateRequest;
     private CacheAnalyzer.CacheMode cacheMode;
     private int keyIndex;
     private Type keyType;
@@ -63,8 +68,8 @@ public class RowBatchBuilder {
     }
 
     public void buildPartitionIndex(ArrayList<Expr> resultExpr,
-                               List<String> columnLabel, Column partColumn,
-                               List<PartitionRange.PartitionSingle> newSingleList) {
+                                    List<String> columnLabel, Column partColumn,
+                                    List<PartitionRange.PartitionSingle> newSingleList) {
         if (cacheMode != CacheAnalyzer.CacheMode.Partition) {
             return;
         }
@@ -95,11 +100,21 @@ public class RowBatchBuilder {
         }
     }
 
-    public CacheBeProxy.UpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
+    public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
         if (updateRequest == null) {
-            updateRequest = new CacheBeProxy.UpdateCacheRequest(sql);
+            updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
+                    .setSqlKey(CacheProxy.getMd5(sql))
+                    .setCacheType(InternalService.CacheType.SQL_CACHE).build();
         }
-        updateRequest.addValue(partitionKey, lastVersion, lastestTime, rowList);
+        updateRequest = updateRequest.toBuilder()
+                .addValues(InternalService.PCacheValue.newBuilder()
+                        .setParam(InternalService.PCacheParam.newBuilder()
+                                .setPartitionKey(partitionKey)
+                                .setLastVersion(lastVersion)
+                                .setLastVersionTime(lastestTime)
+                                .build()).setDataSize(dataSize).addAllRows(
+                                rowList.stream().map(row -> ByteString.copyFrom(row))
+                                        .collect(Collectors.toList()))).build();
         return updateRequest;
     }
 
@@ -115,7 +130,7 @@ public class RowBatchBuilder {
             if (i == index) {
                 byte[] content = Arrays.copyOfRange(buf.array(), buf.position(), buf.position() + len);
                 String str = new String(content);
-                key.init(type, str.toString());
+                key.init(type, str);
             }
         }
         return key;
@@ -124,9 +139,11 @@ public class RowBatchBuilder {
     /**
      * Rowbatch split to Row
      */
-    public CacheBeProxy.UpdateCacheRequest buildPartitionUpdateRequest(String sql) {
+    public InternalService.PUpdateCacheRequest buildPartitionUpdateRequest(String sql) {
         if (updateRequest == null) {
-            updateRequest = new CacheBeProxy.UpdateCacheRequest(sql);
+            updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
+                    .setSqlKey(CacheProxy.getMd5(sql))
+                    .setCacheType(InternalService.CacheType.PARTITION_CACHE).build();
         }
         HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
         List<byte[]> partitionRowList;
@@ -142,7 +159,7 @@ public class RowBatchBuilder {
                 partitionRowList.add(row);
                 partRowMap.put(cacheKey.realValue(), partitionRowList);
             } else {
-                partRowMap.get(cacheKey).add(row);
+                partRowMap.get(cacheKey.realValue()).add(row);
             }
         }
 
@@ -150,9 +167,21 @@ public class RowBatchBuilder {
             Long key = entry.getKey();
             PartitionRange.PartitionSingle partition = cachePartMap.get(key);
             partitionRowList = entry.getValue();
-            updateRequest.addValue(key, partition.getPartition().getVisibleVersion(),
-                    partition.getPartition().getVisibleVersionTime(), partitionRowList);
+            int data_size = 0;
+            for (byte[] buf : partitionRowList) {
+                data_size += buf.length;
+            }
+            updateRequest = updateRequest.toBuilder()
+                    .addValues(InternalService.PCacheValue.newBuilder()
+                            .setParam(InternalService.PCacheParam.newBuilder()
+                                    .setPartitionKey(key)
+                                    .setLastVersion(partition.getPartition().getVisibleVersion())
+                                    .setLastVersionTime(partition.getPartition().getVisibleVersionTime())
+                                    .build()).setDataSize(dataSize).addAllRows(
+                                    partitionRowList.stream().map(row -> ByteString.copyFrom(row))
+                                            .collect(Collectors.toList()))).build();
         }
         return updateRequest;
     }
 }
+

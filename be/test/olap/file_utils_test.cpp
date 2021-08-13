@@ -18,12 +18,12 @@
 #include "util/file_utils.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <set>
 #include <vector>
 
 #include "agent/status.h"
-#include "boost/filesystem.hpp"
 #include "common/configbase.h"
 #include "env/env.h"
 #include "gmock/gmock.h"
@@ -47,13 +47,19 @@ class FileUtilsTest : public testing::Test {
 public:
     // create a mock cgroup folder
     virtual void SetUp() {
-        ASSERT_FALSE(boost::filesystem::exists(_s_test_data_path));
+        ASSERT_FALSE(std::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
-        ASSERT_TRUE(boost::filesystem::create_directory(_s_test_data_path));
+        ASSERT_TRUE(std::filesystem::create_directory(_s_test_data_path));
+    }
+    void save_string_file(const std::filesystem::path& filename, const std::string& content) {
+        std::ofstream file;
+        file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+        file.open(filename, std::ios_base::binary);
+        file.write(content.c_str(), content.size());
     }
 
     // delete the mock cgroup folder
-    virtual void TearDown() { ASSERT_TRUE(boost::filesystem::remove_all(_s_test_data_path)); }
+    virtual void TearDown() { ASSERT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
 
     static std::string _s_test_data_path;
 };
@@ -64,11 +70,11 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     FileHandler src_file_handler;
     std::string src_file_name = _s_test_data_path + "/abcd12345.txt";
     // create a file using open
-    ASSERT_FALSE(boost::filesystem::exists(src_file_name));
+    ASSERT_FALSE(std::filesystem::exists(src_file_name));
     OLAPStatus op_status = src_file_handler.open_with_mode(
             src_file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
     ASSERT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
-    ASSERT_TRUE(boost::filesystem::exists(src_file_name));
+    ASSERT_TRUE(std::filesystem::exists(src_file_name));
 
     char* large_bytes2[(1 << 12)];
     memset(large_bytes2, 0, sizeof(char) * ((1 << 12)));
@@ -98,8 +104,8 @@ TEST_F(FileUtilsTest, TestRemove) {
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
 
-    boost::filesystem::save_string_file("./file_test/s1", "123");
-    boost::filesystem::save_string_file("./file_test/123/s2", "123");
+    save_string_file("./file_test/s1", "123");
+    save_string_file("./file_test/123/s2", "123");
 
     ASSERT_TRUE(FileUtils::check_exist("./file_test"));
     ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
@@ -107,7 +113,7 @@ TEST_F(FileUtilsTest, TestRemove) {
 
     // remove
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
-    boost::filesystem::save_string_file("./file_test/abc/123/s2", "123");
+    save_string_file("./file_test/abc/123/s2", "123");
 
     ASSERT_FALSE(FileUtils::remove("./file_test").ok());
     ASSERT_FALSE(FileUtils::remove("./file_test/abc/").ok());
@@ -127,8 +133,8 @@ TEST_F(FileUtilsTest, TestRemove) {
     // remove paths
     ASSERT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
     ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
-    boost::filesystem::save_string_file("./file_test/s1", "123");
-    boost::filesystem::save_string_file("./file_test/s2", "123");
+    save_string_file("./file_test/s1", "123");
+    save_string_file("./file_test/s2", "123");
 
     std::vector<std::string> ps;
     ps.push_back("./file_test/123/456/789");
@@ -222,9 +228,9 @@ TEST_F(FileUtilsTest, TestListDirsFiles) {
     ASSERT_EQ(5, dirs.size());
     ASSERT_EQ(0, files.size());
 
-    boost::filesystem::save_string_file("./file_test/f1", "just test");
-    boost::filesystem::save_string_file("./file_test/f2", "just test");
-    boost::filesystem::save_string_file("./file_test/f3", "just test");
+    save_string_file("./file_test/f1", "just test");
+    save_string_file("./file_test/f2", "just test");
+    save_string_file("./file_test/f3", "just test");
 
     dirs.clear();
     files.clear();

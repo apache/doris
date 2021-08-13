@@ -37,10 +37,10 @@ Users can modify the schema of existing tables through the Schema Change operati
 This document mainly describes how to create a Schema Change job, as well as some considerations and frequently asked questions about Schema Change.
 ## Glossary
 
-* Base Table：When each table is created, it corresponds to a base table. The base table stores the complete data of this table. Rollups are usually created based on the data in the base table (and can also be created from other rollups).
-* Index：Materialized index. Rollup or Base Table are both called materialized indexes.
-* Transaction：Each import task is a transaction, and each transaction has a unique incrementing Transaction ID.
-* Rollup：Roll-up tables based on base tables or other rollups.
+* Base Table: When each table is created, it corresponds to a base table. The base table stores the complete data of this table. Rollups are usually created based on the data in the base table (and can also be created from other rollups).
+* Index: Materialized index. Rollup or Base Table are both called materialized indexes.
+* Transaction: Each import task is a transaction, and each transaction has a unique incrementing Transaction ID.
+* Rollup: Roll-up tables based on base tables or other rollups.
 
 ## Basic Principles
 
@@ -118,7 +118,7 @@ In the case that the job status is not FINISHED or CANCELLED, you can cancel the
 ## Best Practice
 
 Schema Change can make multiple changes to multiple indexes in one job. For example:
-Source Schema：
+Source Schema:
 
 ```
 +-----------+-------+------+------+------+---------+-------+
@@ -224,8 +224,8 @@ At the same time, columns that already exist in the Base table are not allowed t
 
 ### FE Configurations
 
-* `alter_table_timeout_second`：The default timeout for the job is 86400 seconds.
+* `alter_table_timeout_second`: The default timeout for the job is 86400 seconds.
 
 ### BE Configurations
 
-* `alter_tablet_worker_count`：Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the Schema Change job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Rollup job.
+* `alter_tablet_worker_count`: Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the Schema Change job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Rollup job.

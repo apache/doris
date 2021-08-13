@@ -26,20 +26,8 @@ namespace doris {
 std::ostream& operator<<(std::ostream& os, __int128 const& value) {
     std::ostream::sentry s(os);
     if (s) {
-        unsigned __int128 tmp = value < 0 ? -value : value;
-        char buffer[48];
-        char* d = std::end(buffer);
-        do {
-            --d;
-            *d = "0123456789"[tmp % 10];
-            tmp /= 10;
-        } while (tmp != 0);
-        if (value < 0) {
-            --d;
-            *d = '-';
-        }
-        int len = std::end(buffer) - d;
-        if (os.rdbuf()->sputn(d, len) != len) {
+        std::string value_str = fmt::format("{}", value);
+        if (os.rdbuf()->sputn(value_str.data(), value_str.size()) != value_str.size()) {
             os.setstate(std::ios_base::badbit);
         }
     }

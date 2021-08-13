@@ -73,7 +73,6 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
-    case TYPE_DECIMAL:
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
@@ -168,7 +167,7 @@ class FromRowBatchConverter : public arrow::TypeVisitor {
 public:
     FromRowBatchConverter(const RowBatch& batch, const std::shared_ptr<arrow::Schema>& schema,
                           arrow::MemoryPool* pool)
-            : _batch(batch), _schema(schema), _pool(pool) {
+            : _batch(batch), _schema(schema), _pool(pool), _cur_field_idx(-1) {
         // obtain local time zone
         time_t ts = 0;
         struct tm t;
@@ -218,7 +217,7 @@ public:
                     //char* tmp_val = reinterpret_cast<char*>(0x01);
                     ARROW_RETURN_NOT_OK(builder.Append(""));
                 } else {
-                    ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
+                    ARROW_RETURN_NOT_OK(builder.Append(string_val->ptr, string_val->len));
                 }
                 break;
             }
@@ -231,18 +230,9 @@ public:
                 break;
             }
             case TYPE_LARGEINT: {
-                char buf[48];
-                int len = 48;
-                char* v = LargeIntValue::to_string(
-                        reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
-                std::string temp(v, len);
-                ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
-                break;
-            }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(cell_ptr);
-                std::string decimal_str = decimal_val->to_string();
-                ARROW_RETURN_NOT_OK(builder.Append(std::move(decimal_str)));
+                auto string_temp = LargeIntValue::to_string(
+                        reinterpret_cast<const PackedInt128*>(cell_ptr)->value);
+                ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
             default: {

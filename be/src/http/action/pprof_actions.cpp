@@ -28,6 +28,7 @@
 
 #include "agent/utils.h"
 #include "common/config.h"
+#include "common/object_pool.h"
 #include "gutil/strings/substitute.h"
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
@@ -281,18 +282,18 @@ void SymbolAction::handle(HttpRequest* req) {
     }
 }
 
-Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
+Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool) {
     if (!config::pprof_profile_dir.empty()) {
         FileUtils::create_dir(config::pprof_profile_dir);
     }
 
-    http_server->register_handler(HttpMethod::GET, "/pprof/heap", new HeapAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/growth", new GrowthAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/profile", new ProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", new PmuProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/contention", new ContentionAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", new CmdlineAction());
-    auto action = new SymbolAction(exec_env->bfd_parser());
+    http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/growth", pool.add(new GrowthAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/profile", pool.add(new ProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", pool.add(new PmuProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/contention", pool.add(new ContentionAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", pool.add(new CmdlineAction()));
+    auto action = pool.add(new SymbolAction(exec_env->bfd_parser()));
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::HEAD, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::POST, "/pprof/symbol", action);

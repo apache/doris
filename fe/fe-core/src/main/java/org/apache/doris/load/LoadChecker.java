@@ -39,11 +39,8 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.HadoopLoadEtlTask;
 import org.apache.doris.task.HadoopLoadPendingTask;
-import org.apache.doris.task.InsertLoadEtlTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
-import org.apache.doris.task.MiniLoadEtlTask;
-import org.apache.doris.task.MiniLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -172,9 +169,6 @@ public class LoadChecker extends MasterDaemon {
                     case HADOOP:
                         task = new HadoopLoadPendingTask(job);
                         break;
-                    case MINI:
-                        task = new MiniLoadPendingTask(job);
-                        break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
                         break;
@@ -199,12 +193,6 @@ public class LoadChecker extends MasterDaemon {
                 switch (etlJobType) {
                     case HADOOP:
                         task = new HadoopLoadEtlTask(job);
-                        break;
-                    case MINI:
-                        task = new MiniLoadEtlTask(job);
-                        break;
-                    case INSERT:
-                        task = new InsertLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());

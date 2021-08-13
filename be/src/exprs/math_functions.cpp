@@ -27,7 +27,6 @@
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/tuple_row.h"
 #include "util/string_parser.hpp"
@@ -106,16 +105,6 @@ DoubleVal MathFunctions::pi(FunctionContext* ctx) {
 
 DoubleVal MathFunctions::e(FunctionContext* ctx) {
     return DoubleVal(M_E);
-}
-
-DecimalVal MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalVal& val) {
-    if (val.is_null) {
-        return DecimalVal::null();
-    } else if (val.sign) {
-        return negative_decimal(ctx, val);
-    } else {
-        return positive_decimal(ctx, val);
-    }
 }
 
 DecimalV2Val MathFunctions::abs(FunctionContext* ctx, const doris_udf::DecimalV2Val& val) {
@@ -576,10 +565,6 @@ DoubleVal MathFunctions::positive_double(FunctionContext* ctx, const DoubleVal& 
     return val;
 }
 
-DecimalVal MathFunctions::positive_decimal(FunctionContext* ctx, const DecimalVal& val) {
-    return val;
-}
-
 DecimalV2Val MathFunctions::positive_decimal(FunctionContext* ctx, const DecimalV2Val& val) {
     return val;
 }
@@ -596,18 +581,6 @@ DoubleVal MathFunctions::negative_double(FunctionContext* ctx, const DoubleVal& 
         return val;
     }
     return DoubleVal(-val.val);
-}
-
-DecimalVal MathFunctions::negative_decimal(FunctionContext* ctx, const DecimalVal& val) {
-    if (val.is_null) {
-        return val;
-    }
-    const DecimalValue& dv1 = DecimalValue::from_decimal_val(val);
-    LOG(INFO) << dv1.to_string();
-    DecimalVal result;
-    LOG(INFO) << (-dv1).to_string();
-    (-dv1).to_decimal_val(&result);
-    return result;
 }
 
 DecimalV2Val MathFunctions::negative_decimal(FunctionContext* ctx, const DecimalV2Val& val) {
@@ -659,7 +632,6 @@ LEAST_FNS();
 #define LEAST_NONNUMERIC_FNS()                                     \
     LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
-    LEAST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue);    \
     LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
 LEAST_NONNUMERIC_FNS();
@@ -703,7 +675,6 @@ GREATEST_FNS();
 #define GREATEST_NONNUMERIC_FNS()                                     \
     GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
-    GREATEST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue);    \
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
 GREATEST_NONNUMERIC_FNS();
@@ -744,23 +715,6 @@ void* MathFunctions::greatest_double(Expr* e, TupleRow* row) {
         }
     }
     return &e->children()[result_idx]->_result.double_val;
-}
-
-void* MathFunctions::greatest_decimal(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        DecimalValue* arg = reinterpret_cast<DecimalValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
-        }
-        if (*arg > *reinterpret_cast<DecimalValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.decimal_val;
 }
 
 void* MathFunctions::greatest_string(Expr* e, TupleRow* row) {
@@ -832,23 +786,6 @@ void* MathFunctions::least_double(Expr* e, TupleRow* row) {
         }
     }
     return &e->children()[result_idx]->_result.double_val;
-}
-
-void* MathFunctions::least_decimal(Expr* e, TupleRow* row) {
-    DCHECK_GE(e->get_num_children(), 1);
-    int32_t num_args = e->get_num_children();
-    int result_idx = 0;
-    // NOTE: loop index starts at 0, so If frist arg is NULL, we can return early..
-    for (int i = 0; i < num_args; ++i) {
-        DecimalValue* arg = reinterpret_cast<DecimalValue*>(e->children()[i]->get_value(row));
-        if (arg == NULL) {
-            return NULL;
-        }
-        if (*arg < *reinterpret_cast<DecimalValue*>(e->children()[result_idx]->get_value(row))) {
-            result_idx = i;
-        }
-    }
-    return &e->children()[result_idx]->_result.decimal_val;
 }
 
 void* MathFunctions::least_decimalv2(Expr* e, TupleRow* row) {

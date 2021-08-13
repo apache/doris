@@ -20,6 +20,7 @@
 
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"

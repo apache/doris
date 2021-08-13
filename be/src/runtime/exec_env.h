@@ -22,7 +22,9 @@
 #include "olap/options.h"
 
 namespace doris {
-
+namespace vectorized {
+class VDataStreamMgr;
+}
 class BfdParser;
 class BrokerMgr;
 class BrpcStubCache;
@@ -55,6 +57,7 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
+class FoldConstantMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -128,6 +131,7 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
+    FoldConstantMgr* fold_constant_mgr() { return _fold_constant_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
@@ -140,6 +144,9 @@ public:
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
+    // The root tracker should be set before calling ExecEnv::init();
+    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
+
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -147,6 +154,9 @@ private:
     Status _init_mem_tracker();
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
     void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
+
+    void _register_metrics();
+    void _deregister_metrics();
 
 private:
     bool _is_init;
@@ -173,6 +183,7 @@ private:
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
+    FoldConstantMgr* _fold_constant_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;

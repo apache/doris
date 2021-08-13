@@ -33,7 +33,7 @@ void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender
     } else {
         query_statistics = iter->second;
     }
-    query_statistics->merge_pb(statistics);
+    query_statistics->from_pb(statistics);
 }
 
 QueryStatisticsRecvr::~QueryStatisticsRecvr() {

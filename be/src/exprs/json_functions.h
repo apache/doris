@@ -20,6 +20,7 @@
 
 #include <rapidjson/document.h>
 
+#include "fmt/format.h"
 #include "runtime/string_value.h"
 
 namespace doris {
@@ -44,6 +45,9 @@ struct JsonPath {
     JsonPath(const std::string& key_, int idx_, bool is_valid_)
             : key(key_), idx(idx_), is_valid(is_valid_) {}
 
+    JsonPath(std::string&& key_, int idx_, bool is_valid_)
+            : key(std::move(key_)), idx(idx_), is_valid(is_valid_) {}
+
     std::string to_string() const {
         std::stringstream ss;
         if (!is_valid) {
@@ -61,9 +65,7 @@ struct JsonPath {
     }
 
     std::string debug_string() const {
-        std::stringstream ss;
-        ss << "key: " << key << ", idx: " << idx << ", valid: " << is_valid;
-        return ss.str();
+        return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
     }
 };
 
@@ -81,8 +83,8 @@ public:
                                                 const doris_udf::StringVal& path);
 
     static rapidjson::Value* get_json_object(FunctionContext* context,
-                                             const std::string& json_string,
-                                             const std::string& path_string,
+                                             const std::string_view& json_string,
+                                             const std::string_view& path_string,
                                              const JsonFunctionType& fntype,
                                              rapidjson::Document* document);
 

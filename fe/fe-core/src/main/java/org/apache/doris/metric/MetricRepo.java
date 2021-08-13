@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
@@ -26,31 +27,38 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.codahale.metrics.Gauge;
 import com.codahale.metrics.Histogram;
 import com.codahale.metrics.MetricRegistry;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedMap;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BinaryOperator;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
 
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
-    private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
+    public static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
     public static volatile boolean isInit = false;
     public static final SystemMetrics SYSTEM_METRICS = new SystemMetrics();
@@ -59,6 +67,7 @@ public final class MetricRepo {
     public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
+    public static LongCounterMetric COUNTER_QUERY_BEGIN;
     public static LongCounterMetric COUNTER_QUERY_ALL;
     public static LongCounterMetric COUNTER_QUERY_ERR;
     public static LongCounterMetric COUNTER_QUERY_TABLE;
@@ -117,10 +126,32 @@ public final class MetricRepo {
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load"))
-                    .addLabel(new MetricLabel("type", jobType.name()))
-                    .addLabel(new MetricLabel("state", state.name()));
+                        .addLabel(new MetricLabel("type", jobType.name()))
+                        .addLabel(new MetricLabel("state", state.name()));
                 PALO_METRIC_REGISTER.addPaloMetrics(gauge);
             }
+        }
+
+        //  routine load jobs
+        RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+        for (RoutineLoadJob.JobState jobState : RoutineLoadJob.JobState.values()) {
+            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
+                    MetricUnit.NOUNIT, "routine load job statistics") {
+                @Override
+                public Long getValue() {
+                    if (!Catalog.getCurrentCatalog().isMaster()) {
+                        return 0L;
+                    }
+                    Set<RoutineLoadJob.JobState> states = Sets.newHashSet();
+                    states.add(jobState);
+                    List<RoutineLoadJob> jobs = routineLoadManager.getRoutineLoadJobByState(states);
+                    return Long.valueOf(jobs.size());
+                }
+            };
+            gauge.addLabel(new MetricLabel("job", "load"))
+                    .addLabel(new MetricLabel("type", "ROUTINE_LOAD"))
+                    .addLabel(new MetricLabel("state", jobState.name()));
+            PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
 
         // running alter job
@@ -129,7 +160,7 @@ public final class MetricRepo {
             if (jobType != JobType.SCHEMA_CHANGE && jobType != JobType.ROLLUP) {
                 continue;
             }
-            
+
             GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     MetricUnit.NOUNIT, "job statistics") {
                 @Override
@@ -211,6 +242,8 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
         COUNTER_QUERY_ALL = new LongCounterMetric("query_total", MetricUnit.REQUESTS, "total query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
+        COUNTER_QUERY_BEGIN = new LongCounterMetric("query_begin", MetricUnit.REQUESTS, "query begin");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_BEGIN);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", MetricUnit.REQUESTS, "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
         COUNTER_LOAD_ADD = new LongCounterMetric("load_add", MetricUnit.REQUESTS, "total load submit");
@@ -272,6 +305,16 @@ public final class MetricRepo {
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
+
+        METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"), (Gauge<Integer>) () -> {
+            try{
+                return ((QeProcessorImpl)QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+                        .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
+            } catch (Throwable ex) {
+                LOG.warn("Get max_instances_num_per_user error", ex);
+                return -2;
+            }
+        });
 
         // init system metrics
         initSystemMetrics();

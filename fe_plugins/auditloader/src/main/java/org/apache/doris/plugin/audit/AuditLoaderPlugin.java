@@ -62,8 +62,6 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isClosed = false;
     private volatile boolean isInit = false;
 
-    // the max stmt length to be loaded in audit table.
-    private static final int MAX_STMT_LENGTH = 4096;
     // the max auditEventQueue size to store audit_event
     private static final int MAX_AUDIT_EVENT_SIZE = 4096;
 
@@ -160,7 +158,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.feIp).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        int maxLen = Math.min(MAX_STMT_LENGTH, event.stmt.getBytes().length);
+        int maxLen = Math.min(conf.max_stmt_length, event.stmt.getBytes().length);
         String stmt = new String(event.stmt.getBytes(), 0, maxLen).replace("\t", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         auditBuffer.append(stmt).append("\n");
@@ -194,6 +192,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public static final String PROP_PASSWORD = "password";
         public static final String PROP_DATABASE = "database";
         public static final String PROP_TABLE = "table";
+        // the max stmt length to be loaded in audit table.
+        public static final String MAX_STMT_LENGTH = "max_stmt_length";
 
         public long maxBatchSize = 50 * 1024 * 1024;
         public long maxBatchIntervalSec = 60;
@@ -204,6 +204,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public String table = "doris_audit_tbl__";
         // the identity of FE which run this plugin
         public String feIdentity = "";
+        public int max_stmt_length = 4096;
 
         public void init(Map<String, String> properties) throws PluginException {
             try {
@@ -227,6 +228,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 }
                 if (properties.containsKey(PROP_TABLE)) {
                     table = properties.get(PROP_TABLE);
+                }
+                if (properties.containsKey(MAX_STMT_LENGTH)) {
+                    max_stmt_length = Integer.parseInt(properties.get(MAX_STMT_LENGTH));
                 }
             } catch (Exception e) {
                 throw new PluginException(e.getMessage());

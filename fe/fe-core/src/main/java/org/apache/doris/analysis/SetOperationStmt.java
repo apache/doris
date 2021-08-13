@@ -179,6 +179,14 @@ public class SetOperationStmt extends QueryStmt {
         }
     }
 
+    @Override
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
+        for (SetOperand op : operands) {
+            op.getQueryStmt().getTableRefs(analyzer, tblRefs, parentViewNameSet);
+        }
+    }
+
     /**
      * Propagates DISTINCT from left to right, and checks that all
      * set operands are set compatible, adding implicit casts if necessary.
@@ -514,6 +522,41 @@ public class SetOperationStmt extends QueryStmt {
 
         for (SetOperand op: operands) {
             op.getQueryStmt().materializeRequiredSlots(analyzer);
+        }
+    }
+
+    @Override
+    public void collectExprs(Map<String, Expr> exprMap) {
+        for (SetOperand op : operands) {
+            op.getQueryStmt().collectExprs(exprMap);
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElement : orderByElements) {
+                Expr expr = orderByElement.getExpr();
+                // see SelectStmt.collectExprs comments
+                if (containAlias(expr)) {
+                    continue;
+                }
+                registerExprId(expr);
+                exprMap.put(expr.getId().toString(), expr);
+            }
+        }
+    }
+
+    @Override
+    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {
+        for (SetOperand op : operands) {
+            op.getQueryStmt().putBackExprs(rewrittenExprMap);
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElement : orderByElements) {
+                Expr expr = orderByElement.getExpr();
+                if (expr.getId() == null) {
+                    orderByElement.setExpr(expr);
+                } else {
+                    orderByElement.setExpr(rewrittenExprMap.get(expr.getId().toString()));
+                }
+            }
         }
     }
 

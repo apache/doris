@@ -461,6 +461,9 @@ string SimpleItoaWithCommas(uint32 i);
 string SimpleItoaWithCommas(int64 i);
 string SimpleItoaWithCommas(uint64 i);
 
+char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size);
+char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);
+
 // ----------------------------------------------------------------------
 // ItoaKMGT()
 //    Description: converts an integer to a string

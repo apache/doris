@@ -19,9 +19,7 @@
 
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/date_time/posix_time/posix_time_types.hpp>
-#include <boost/foreach.hpp>
-#include <boost/unordered_map.hpp>
+#include <unordered_map>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -107,8 +105,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     _average_thread_tokens = profile()->add_sampling_counter(
             "AverageThreadTokens",
-            boost::bind<int64_t>(boost::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
-                                 _runtime_state->resource_pool()));
+            std::bind<int64_t>(std::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
+                               _runtime_state->resource_pool()));
 
     // if (_exec_env->process_mem_tracker() != NULL) {
     //     // we have a global limit
@@ -131,8 +129,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         bytes_limit = _exec_env->process_mem_tracker()->limit();
     }
     // NOTE: this MemTracker only for olap
-    _mem_tracker = MemTracker::CreateTracker(bytes_limit, "fragment mem-limit",
-                                             _exec_env->process_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(bytes_limit,
+                                             "PlanFragmentExecutor:" + print_id(_query_id) + ":" +
+                                                     print_id(params.fragment_instance_id),
+                                             _exec_env->process_mem_tracker(), true, false, MemTrackerLevel::TASK);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
     LOG(INFO) << "Using query memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
@@ -162,14 +162,18 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                     _plan);
     }
 
+
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
-    BOOST_FOREACH (ExecNode* exch_node, exch_nodes) {
+    for (ExecNode* exch_node : exch_nodes) {
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
-        static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+        if (_runtime_state->enable_vectorized_exec()) {
+        } else {
+            static_cast<ExchangeNode *>(exch_node)->set_num_senders(num_senders);
+        }
     }
 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
@@ -197,7 +201,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -241,16 +245,19 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (!_report_status_cb.empty() && config::status_report_interval > 0) {
-        boost::unique_lock<boost::mutex> l(_report_thread_lock);
+    if (_is_report_success && _report_status_cb && config::status_report_interval > 0) {
+        std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
         _report_thread_active = true;
     }
-
-    Status status = open_internal();
+    Status status = Status::OK();
+    if (_runtime_state->enable_vectorized_exec()) {
+    } else {
+        status = open_internal();
+    }
 
     if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
@@ -326,7 +333,7 @@ Status PlanFragmentExecutor::open_internal() {
         _collect_query_statistics();
         Status status;
         {
-            boost::lock_guard<boost::mutex> l(_status_lock);
+            std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
         status = _sink->close(runtime_state(), status);
@@ -353,8 +360,8 @@ void PlanFragmentExecutor::_collect_query_statistics() {
 
 void PlanFragmentExecutor::report_profile() {
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
-    DCHECK(!_report_status_cb.empty());
-    boost::unique_lock<boost::mutex> l(_report_thread_lock);
+    DCHECK(_report_status_cb);
+    std::unique_lock<std::mutex> l(_report_thread_lock);
     // tell Open() that we started
     _report_thread_started_cv.notify_one();
 
@@ -363,24 +370,20 @@ void PlanFragmentExecutor::report_profile() {
     // updates at once so its better for contention as well as smoother progress
     // reporting.
     int report_fragment_offset = rand() % config::status_report_interval;
-    boost::system_time timeout =
-            boost::get_system_time() + boost::posix_time::seconds(report_fragment_offset);
     // We don't want to wait longer than it takes to run the entire fragment.
-    _stop_report_thread_cv.timed_wait(l, timeout);
-    bool is_report_profile_interval = _is_report_success && config::status_report_interval > 0;
+    _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
     while (_report_thread_active) {
-        if (is_report_profile_interval) {
-            boost::system_time timeout = boost::get_system_time() +
-                                         boost::posix_time::seconds(config::status_report_interval);
-            // timed_wait can return because the timeout occurred or the condition variable
+        if (config::status_report_interval > 0) {
+            // wait_for can return because the timeout occurred or the condition variable
             // was signaled.  We can't rely on its return value to distinguish between the
             // two cases (e.g. there is a race here where the wait timed out but before grabbing
             // the lock, the condition variable was signaled).  Instead, we will use an external
             // flag, _report_thread_active, to coordinate this.
-            _stop_report_thread_cv.timed_wait(l, timeout);
+            _stop_report_thread_cv.wait_for(l,
+                                            std::chrono::seconds(config::status_report_interval));
         } else {
-            // Artificial triggering, such as show proc "/current_queries".
-            _stop_report_thread_cv.wait(l);
+            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting reporting thread.";
+            break;
         }
 
         if (VLOG_FILE_IS_ON) {
@@ -403,13 +406,13 @@ void PlanFragmentExecutor::report_profile() {
 }
 
 void PlanFragmentExecutor::send_report(bool done) {
-    if (_report_status_cb.empty()) {
+    if (!_report_status_cb) {
         return;
     }
 
     Status status;
     {
-        boost::lock_guard<boost::mutex> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         status = _status;
     }
 
@@ -430,7 +433,11 @@ void PlanFragmentExecutor::send_report(bool done) {
     // This will send a report even if we are cancelled.  If the query completed correctly
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
-    _report_status_cb(status, profile(), done || !status.ok());
+    if (_is_report_success) {
+        _report_status_cb(status, profile(), done || !status.ok());
+    } else {
+        _report_status_cb(status, nullptr, done || !status.ok());
+    }
 }
 
 void PlanFragmentExecutor::stop_report_thread() {
@@ -439,7 +446,7 @@ void PlanFragmentExecutor::stop_report_thread() {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_report_thread_lock);
+        std::lock_guard<std::mutex> l(_report_thread_lock);
         _report_thread_active = false;
     }
 
@@ -493,7 +500,7 @@ void PlanFragmentExecutor::update_status(const Status& new_status) {
     }
 
     {
-        boost::lock_guard<boost::mutex> l(_status_lock);
+        std::lock_guard<std::mutex> l(_status_lock);
         // if current `_status` is ok, set it to `new_status` to record the error.
         if (_status.ok()) {
             if (new_status.is_mem_limit_exceeded()) {
@@ -559,7 +566,7 @@ void PlanFragmentExecutor::close() {
             if (_prepared) {
                 Status status;
                 {
-                    boost::lock_guard<boost::mutex> l(_status_lock);
+                    std::lock_guard<std::mutex> l(_status_lock);
                     status = _status;
                 }
                 _sink->close(runtime_state(), status);
@@ -568,7 +575,7 @@ void PlanFragmentExecutor::close() {
             }
         }
 
-        {
+        if (_is_report_success) {
             std::stringstream ss;
             // Compute the _local_time_percent before pretty_print the runtime_profile
             // Before add this operation, the print out like that:

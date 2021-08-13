@@ -65,9 +65,6 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
     case TYPE_DATETIME:
         return compare_large<DateTimeValue>;
 
-    case TYPE_DECIMAL:
-        return compare_large<DecimalValue>;
-
     case TYPE_DECIMALV2:
         return compare_large<DecimalV2Value>;
 
@@ -174,8 +171,7 @@ inline int get_olap_size(PrimitiveType type) {
         return 8;
     }
 
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL: {
+    case TYPE_DECIMALV2: {
         return 12;
     }
 
@@ -206,6 +202,9 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
 
     case TExprOpcode::NE:
         return opposite ? FILTER_IN : FILTER_NOT_IN;
+
+    case TExprOpcode::EQ_FOR_NULL:
+        return FILTER_IN;
 
     default:
         VLOG_CRITICAL << "TExprOpcode: " << type;

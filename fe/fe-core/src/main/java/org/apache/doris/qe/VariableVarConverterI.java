@@ -20,5 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.common.DdlException;
 
 public interface VariableVarConverterI {
-    public String convert(String value) throws DdlException;
+    public Long encode(String value) throws DdlException;
+
+    public String decode(Long value) throws DdlException;
 }

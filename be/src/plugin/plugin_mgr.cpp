@@ -17,8 +17,6 @@
 
 #include "plugin/plugin_mgr.h"
 
-#include <boost/foreach.hpp>
-
 #include "common/config.h"
 #include "gutil/strings/substitute.h"
 
@@ -117,7 +115,7 @@ Status PluginMgr::get_plugin_list(int type, std::vector<std::shared_ptr<Plugin>>
 
     std::lock_guard<std::mutex> l(_lock);
 
-    BOOST_FOREACH (const PluginLoaderMap::value_type& iter, _plugins[type]) {
+    for (const PluginLoaderMap::value_type& iter : _plugins[type]) {
         plugin_list->push_back(iter.second->plugin());
     }
 
@@ -152,7 +150,7 @@ Status PluginMgr::register_builtin_plugin(const std::string& name, int type,
 
 Status PluginMgr::get_all_plugin_info(std::vector<TPluginInfo>* plugin_info_list) {
     for (int i = 0; i < PLUGIN_TYPE_MAX; ++i) {
-        BOOST_FOREACH (const PluginLoaderMap::value_type& iter, _plugins[i]) {
+        for (const PluginLoaderMap::value_type& iter : _plugins[i]) {
             TPluginInfo info;
             info.__set_plugin_name(iter.second->name());
             info.__set_type(iter.second->type());

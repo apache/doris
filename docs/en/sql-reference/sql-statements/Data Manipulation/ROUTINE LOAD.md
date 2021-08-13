@@ -61,7 +61,8 @@ FROM data_source
     [columns_mapping],
     [where_predicates],
     [delete_on_predicates]
-    [partitions]
+    [partitions],
+    [preceding_predicates]
     ```
 
     1. column_separator:
@@ -115,6 +116,10 @@ FROM data_source
     5. delete_on_predicates:
 
         Only used when merge type is MERGE
+
+    6. preceding_predicates
+
+        Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
 
 5. job_properties
 
@@ -238,6 +243,9 @@ FROM data_source
 
         2) OFFSET_END: Subscribe from the end.
 
+        3) Timestamp, the format must be like: "2021-05-11 10:00:00", the system will automatically locate the offset of the first message greater than or equal to the timestamp.
+           Note that the offset of the timestamp format cannot be mixed with the number type, only one of them can be selected.
+
         If not specified, all partitions under topic are subscribed by default fromSET_END.
 
         Example:
@@ -245,6 +253,9 @@ FROM data_source
         ```
         "kafka_partitions" = "0,1,2,3",
         "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
+
+        "kafka_partitions" = "0,1",
+        "kafka_offsets" = "2021-05-11 10:00:00, 2021-05-11 11:00:00"
         ```
 
     4. property
@@ -300,9 +311,12 @@ FROM data_source
 
             2) OFFSET_END: Subscribe from the end.
 
+            3) Timestamp, the format is the same as kafka_offsets
+
             Example:
 
             `"property.kafka_default_offsets" = "OFFSET_BEGINNING"`
+            `"property.kafka_default_offsets" = "2021-05-11 10:00:00"`
 
 8. load data format sample
 
@@ -412,7 +426,7 @@ FROM data_source
         "kafka_offsets" = "0,0,0"
         );
     ```
-      It support two kinds data style：
+      It support two kinds data style:
       1）{"category":"a9jadhx","author":"test","price":895}
         2）[
                 {"category":"a9jadhx","author":"test","price":895},
@@ -438,8 +452,7 @@ FROM data_source
     PARTITION p20200511 VALUES [("20200511"), ("20200512")))
     DISTRIBUTED BY HASH(`category`,`author`,`timestamp`) BUCKETS 4
     PROPERTIES (
-    "storage_type" = "COLUMN",
-     "replication_num" = "1"
+    "replication_num" = "1"
     );
     
     CREATE ROUTINE LOAD example_db.test1 ON example_tbl
@@ -470,7 +483,7 @@ FROM data_source
       {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
     ]
 
-   Tips：
+   Tips:
      1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
      2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
@@ -527,6 +540,43 @@ FROM data_source
             "kafka_partitions" = "0,1,2,3",
             "kafka_offsets" = "101,0,0,200"
         );
+
+    8. Filter original data
+
+        CREATE ROUTINE LOAD example_db.test_job ON example_tbl
+        COLUMNS TERMINATED BY ",",
+        COLUMNS(k1,k2,source_sequence,v1,v2),
+        PRECEDING FILTER k1 > 2
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "30",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200"
+        ) FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2,3",
+            "kafka_offsets" = "101,0,0,200"
+        );
+
+    9. Start consumption from the specified point in time
+
+       CREATE ROUTINE LOAD example_db.test_job ON example_tbl
+       PROPERTIES
+       (
+           "desired_concurrent_number"="3",
+           "max_batch_interval" = "30",
+           "max_batch_rows" = "300000",
+           "max_batch_size" = "209715200"
+       ) FROM KAFKA
+       (
+           "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+           "kafka_topic" = "my_topic",
+           "property.kafka_default_offsets" = "2021-10-10 11:00:00"
+       );
+
 ## keyword
 
     CREATE, ROUTINE, LOAD

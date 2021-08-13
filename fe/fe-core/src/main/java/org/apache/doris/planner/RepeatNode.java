@@ -37,6 +37,8 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -51,6 +53,8 @@ import java.util.stream.Collectors;
  * It will add some new rows and a column of groupingId according to grouping sets info.
  */
 public class RepeatNode extends PlanNode {
+
+    private static final Logger LOG = LogManager.getLogger(RepeatNode.class);
 
     private List<Set<Integer>> repeatSlotIdList;
     private Set<Integer> allSlotId;
@@ -96,8 +100,11 @@ public class RepeatNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         avgRowSize = 0;
-        cardinality = 0;
         numNodes = 1;
+        cardinality = 0;
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Sort: cardinality=" + cardinality);
+        }
     }
 
     @Override
@@ -128,7 +135,7 @@ public class RepeatNode extends PlanNode {
                 ((SlotRef) slot).getDesc().setIsNullable(true);
             }
         }
-        outputTupleDesc.computeMemLayout();
+        outputTupleDesc.computeStatAndMemLayout();
 
         List<Set<SlotId>> groupingIdList = new ArrayList<>();
         List<Expr> exprList = groupByClause.getGroupingExprs();
@@ -163,7 +170,7 @@ public class RepeatNode extends PlanNode {
         for (TupleId id : tupleIds) {
             analyzer.getTupleDesc(id).setIsMaterialized(true);
         }
-        computeMemLayout(analyzer);
+        computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
         createDefaultSmap(analyzer);
     }
@@ -182,13 +189,16 @@ public class RepeatNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
         output.append(detailPrefix + "repeat: repeat ");
         output.append(repeatSlotIdList.size() - 1);
         output.append(" lines ");
         output.append(repeatSlotIdList);
-        output.append("\n" );
+        output.append("\n");
         if (CollectionUtils.isNotEmpty(outputTupleDesc.getSlots())) {
             output.append(detailPrefix + "generate: ");
             output.append(outputTupleDesc.getSlots().stream().map(slot -> "`" + slot.getColumn().getName() + "`")

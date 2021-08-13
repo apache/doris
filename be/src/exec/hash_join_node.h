@@ -20,8 +20,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
@@ -62,12 +62,13 @@ protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
+    friend class IRuntimeFilter;
+
     boost::scoped_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _hash_tbl_iterator;
-    bool _is_push_down;
 
     // for right outer joins, keep track of what's been joined
-    typedef boost::unordered_set<TupleRow*> BuildTupleRowSet;
+    typedef std::unordered_set<TupleRow*> BuildTupleRowSet;
     BuildTupleRowSet _joined_build_rows;
 
     TJoinOp::type _join_op;
@@ -105,7 +106,8 @@ private:
     // is responsible for.
     boost::scoped_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
-    bool _probe_eos;      // if true, probe child has no more rows to process
+    int _probe_counter;
+    bool _probe_eos; // if true, probe child has no more rows to process
     TupleRow* _current_probe_row;
 
     // _build_tuple_idx[i] is the tuple index of child(1)'s tuple[i] in the output row
@@ -115,11 +117,6 @@ private:
     // byte size of result tuple row (sum of the tuple ptrs, not the tuple data).
     // This should be the same size as the probe tuple row.
     int _result_tuple_row_size;
-
-    // Function declaration for codegen'd function.  Signature must match
-    // HashJoinNode::ProcessBuildBatch
-    typedef void (*ProcessBuildBatchFn)(HashJoinNode*, RowBatch*);
-    ProcessBuildBatchFn _process_build_batch_fn;
 
     // HashJoinNode::process_probe_batch() exactly
     typedef int (*ProcessProbeBatchFn)(HashJoinNode*, RowBatch*, RowBatch*, int);
@@ -137,6 +134,8 @@ private:
     RuntimeProfile::Counter* _probe_rows_counter;    // num probe rows
     RuntimeProfile::Counter* _build_buckets_counter; // num buckets in hash table
     RuntimeProfile::Counter* _hash_tbl_load_factor_counter;
+    RuntimeProfile::Counter* _hash_table_list_min_size;
+    RuntimeProfile::Counter* _hash_table_list_max_size;
 
     // Supervises ConstructHashTable in a separate thread, and
     // returns its status in the promise parameter.
@@ -161,7 +160,7 @@ private:
     int process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch, int max_added_rows);
 
     // Construct the build hash table, adding all the rows in 'build_batch'
-    void process_build_batch(RowBatch* build_batch);
+    Status process_build_batch(RuntimeState* state, RowBatch* build_batch);
 
     // Write combined row, consisting of probe_row and build_row, to out_row.
     // This is replaced by codegen.
@@ -174,6 +173,15 @@ private:
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
+
+    std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+
+    // RELEASE_CONTEXT_COUNTER should be power of 2
+    // GCC will optimize the modulo operation to &(release_context_counter - 1)
+    // build_expr_context and probe_expr_context will free local alloc after this probe calculations
+    static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 5;
+    static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
+                  "should be power of 2");
 };
 
 } // namespace doris

@@ -51,6 +51,9 @@ public:
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._stream_load_executor = new StreamLoadExecutor(&_env);
+
+        config::routine_load_thread_pool_size = 5;
+        config::max_consumer_num_per_group = 3;
     }
 
     void TearDown() override {

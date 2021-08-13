@@ -39,11 +39,11 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -103,6 +103,7 @@ public class StreamLoadScanNode extends LoadScanNode {
             rangeDesc.setStripOuterArray(taskInfo.isStripOuterArray());
             rangeDesc.setNumAsString(taskInfo.isNumAsString());
             rangeDesc.setFuzzyParse(taskInfo.isFuzzyParse());
+            rangeDesc.setReadJsonByLine(taskInfo.isReadJsonByLine());
         }
         rangeDesc.splittable = false;
         switch (taskInfo.getFileType()) {
@@ -123,36 +124,51 @@ public class StreamLoadScanNode extends LoadScanNode {
         srcTupleDesc = analyzer.getDescTbl().createTupleDescriptor("StreamLoadScanNode");
 
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
-        List<ImportColumnDesc> columnExprDescs = taskInfo.getColumnExprDescs();
-        if (mergeType == LoadTask.MergeType.MERGE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
-        }  else if (mergeType == LoadTask.MergeType.DELETE) {
-            columnExprDescs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
-        }
-        if (taskInfo.hasSequenceCol()) {
-            columnExprDescs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+        LoadTaskInfo.ImportColumnDescs columnExprDescs = taskInfo.getColumnExprDescs();
+        if (!columnExprDescs.isColumnDescsRewrited) {
+            if (mergeType == LoadTask.MergeType.MERGE) {
+                columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(deleteCondition));
+            } else if (mergeType == LoadTask.MergeType.DELETE) {
+                columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
+            }
+            if (taskInfo.hasSequenceCol()) {
+                columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+            }
         }
 
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
                 exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
-        initWhereExpr(taskInfo.getWhereExpr(), analyzer);
+        initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);
+        initAndSetWhereExpr(taskInfo.getWhereExpr(), this.desc, analyzer);
 
-        computeStats(analyzer);
         createDefaultSmap(analyzer);
 
         if (taskInfo.getColumnSeparator() != null) {
-            String sep = taskInfo.getColumnSeparator().getColumnSeparator();
+            String sep = taskInfo.getColumnSeparator().getSeparator();
+            params.setColumnSeparatorStr(sep);
+            params.setColumnSeparatorLength(sep.getBytes(Charset.forName("UTF-8")).length);
             params.setColumnSeparator(sep.getBytes(Charset.forName("UTF-8"))[0]);
         } else {
             params.setColumnSeparator((byte) '\t');
+            params.setColumnSeparatorLength(1);
+            params.setColumnSeparatorStr("\t");
         }
-        params.setLineDelimiter((byte) '\n');
+        if (taskInfo.getLineDelimiter() != null) {
+            String sep = taskInfo.getLineDelimiter().getSeparator();
+            params.setLineDelimiterStr(sep);
+            params.setLineDelimiterLength(sep.getBytes(Charset.forName("UTF-8")).length);
+            params.setLineDelimiter(sep.getBytes(Charset.forName("UTF-8"))[0]);
+        } else {
+            params.setLineDelimiter((byte) '\n');
+            params.setLineDelimiterLength(1);
+        }
         params.setDestTupleId(desc.getId().asInt());
         brokerScanRange.setParams(params);
 
         brokerScanRange.setBrokerAddresses(Lists.newArrayList());
+        computeStats(analyzer);
     }
 
     @Override
@@ -175,7 +191,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     public int getNumInstances() { return 1; }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         return "StreamLoadScanNode";
     }
 }

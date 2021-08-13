@@ -53,7 +53,7 @@ UNION
 SELECT null, null, SUM( k3 ) FROM t
 ```
 
-This is an example of real query：
+This is an example of real query:
 
 ```
 mysql> SELECT * FROM t;
@@ -98,7 +98,7 @@ mysql> SELECT k1, k2, SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k
 SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY ROLLUP(a,b,c)
 ```
 
-This statement is equivalent to GROUPING SETS as followed：
+This statement is equivalent to GROUPING SETS as followed:
 
 ```
 GROUPING SETS (
@@ -140,7 +140,7 @@ Indicates whether a specified column expression in a `GROUP BY` list is aggregat
 
 Each `GROUPING_ID` argument must be an element of the `GROUP BY` list. `GROUPING_ID ()` returns an **integer** bitmap whose lowest N bits may be lit. A lit **bit** indicates the corresponding argument is not a grouping column for the given output row. The lowest-order **bit** corresponds to argument N, and the N-1th lowest-order **bit** corresponds to argument 1. If the column is a grouping column the bit is 0 else is 1.
 
-For example：
+For example:
 
 ```
 mysql> select * from t;
@@ -158,7 +158,7 @@ mysql> select * from t;
 +------+------+------+
 ```
 
-grouping sets result：
+grouping sets result:
 
 ```
 mysql> SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );
@@ -218,7 +218,7 @@ First of all, a GROUP BY clause is essentially a special case of GROUPING SETS, 
    GROUP BY a
 is equivalent to:
    GROUP BY GROUPING SETS((a))
-also，
+also,
    GROUP BY a,b,c
 is equivalent to:
    GROUP BY GROUPING SETS((a,b,c))
@@ -260,7 +260,7 @@ Presto supports composition, but not nesting.
 
 ## 2. Object
 
-Support `GROUPING SETS`， `ROLLUP` and `CUBE ` syntax，implements 1.1, 1.2, 1.3 1.4, 1.5, not support the combination
+Support `GROUPING SETS`,  `ROLLUP` and `CUBE ` syntax, implements 1.1, 1.2, 1.3 1.4, 1.5, not support the combination
  and nesting of GROUPING SETS in current version.
 
 ### 2.1 GROUPING SETS Syntax
@@ -275,7 +275,7 @@ GROUP BY GROUPING SETS ( groupSet [ , groupSet [ , ... ] ] )
 groupSet ::= { ( expr  [ , expr [ , ... ] ] )}
 
 <expr>
-Expression，column name.
+Expression, column name.
 ```
 
 ### 2.2 ROLLUP Syntax
@@ -288,7 +288,7 @@ GROUP BY ROLLUP ( expr  [ , expr [ , ... ] ] )
 [ ... ]
 
 <expr>
-Expression，column name.
+Expression, column name.
 ```
 
 ### 2.3 CUBE Syntax
@@ -301,7 +301,7 @@ GROUP BY CUBE ( expr  [ , expr [ , ... ] ] )
 [ ... ]
 
 <expr>
-Expression，column name.
+Expression, column name.
 ```
 
 ## 3. Implementation
@@ -310,20 +310,20 @@ Expression，column name.
 
 For `GROUPING SET`  is equivalent to the `UNION` of  `GROUP BY` . So we can expand input rows, and run an GROUP BY on these rows.
 
-For example：
+For example:
 
 ```
 SELECT a, b FROM src GROUP BY a, b GROUPING SETS ((a, b), (a), (b), ());
 ```
 
-Data in table src :
+Data in table src:
 
 ```
 1, 2
 3, 4
 ```
 
-Base on  GROUPING SETS , we can expend the input to：
+Base on  GROUPING SETS , we can expend the input to:
 
 ```
 1, 2       (GROUPING_ID: a, b -> 00 -> 0)
@@ -341,7 +341,7 @@ And then use those row as input, then GROUP BY  a, b, GROUPING_ID
 
 ### 3.2 Example
 
-Table t：
+Table t:
 
 ```
 mysql> select * from t;
@@ -360,15 +360,15 @@ mysql> select * from t;
 8 rows in set (0.01 sec)
 ```
 
-for the query：
+for the query:
 
 ```
 SELECT k1, k2, GROUPING_ID(k1,k2), SUM(k3) FROM t GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ());
 ```
 
-First，expand the input，every row expand into 4 rows ( the size of GROUPING SETS), and insert GROUPING_ID column
+First, expand the input, every row expand into 4 rows ( the size of GROUPING SETS), and insert GROUPING_ID column
 
-e.g.  a, A, 1 expanded to：
+e.g.  a, A, 1 expanded to:
 
 ```
 +------+------+------+-------------------------+

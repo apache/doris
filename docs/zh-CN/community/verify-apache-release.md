@@ -72,7 +72,7 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 ``` shell
 wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
-tar zxvf apache -rat -0.13 -bin.tar.gz
+tar zxvf apache-rat-0.13-bin.tar.gz
 ```
 
 假设源码目录名称为 apache-doris-a.b.c-incubating-src，可以使用以下命令进行验证。

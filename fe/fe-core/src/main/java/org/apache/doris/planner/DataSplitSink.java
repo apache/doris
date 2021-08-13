@@ -334,7 +334,7 @@ public class DataSplitSink extends DataSink {
             Column partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
             PrimitiveType columnType = partitionColumn.getDataType();
 
-            Range<PartitionKey> range = rangePartitionInfo.getRange(partitionId);
+            Range<PartitionKey> range = rangePartitionInfo.getItem(partitionId).getItems();
             // start key
             EtlPartitionKey startPartitionKey = null;
             PartitionKey startKey = range.lowerEndpoint();

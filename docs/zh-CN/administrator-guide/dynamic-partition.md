@@ -30,6 +30,8 @@ under the License.
 
 目前实现了动态添加分区及动态删除分区的功能。
 
+动态分区只支持 Range 分区。
+
 ## 名词解释
 
 * FE：Frontend，Doris 的前端节点。负责元数据管理和请求接入。
@@ -108,7 +110,7 @@ under the License.
 * `dynamic_partition.buckets`
 
     动态创建的分区所对应的分桶数量。
-  
+
 * `dynamic_partition.replication_num`
 
     动态创建的分区所对应的副本数量，如果不填写，则默认为该表创建时指定的副本数量。
@@ -120,7 +122,87 @@ under the License.
 * `dynamic_partition.start_day_of_month`
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
-  
+
+* `dynamic_partition.create_history_partition`
+
+    默认为 false。当置为 true 时，Doris 会自动创建所有分区，具体创建规则见下文。同时，FE 的参数 `max_dynamic_partition_num` 会限制总分区数量，以避免一次性创建过多分区。当期望创建的分区个数大于 `max_dynamic_partition_num` 值时，操作将被禁止。
+
+    当不指定 `start` 属性时，该参数不生效。
+
+* `dynamic_partition.history_partition_num`
+   
+   当 `create_history_partition` 为 `true` 时，该参数用于指定创建历史分区数量。默认值为 -1， 即未设置。
+
+* `dynamic_partition.hot_partition_num`
+
+    指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。
+
+    我们举例说明。假设今天是 2021-05-20，按天分区，动态分区的属性设置为：hot_partition_num=2, end=3, start=-3。则系统会自动创建以下分区，并且设置 `storage_medium` 和 `storage_cooldown_time` 参数：
+
+    ```
+    p20210517：["2021-05-17", "2021-05-18") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
+    p20210518：["2021-05-18", "2021-05-19") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
+    p20210519：["2021-05-19", "2021-05-20") storage_medium=SSD storage_cooldown_time=2021-05-21 00:00:00
+    p20210520：["2021-05-20", "2021-05-21") storage_medium=SSD storage_cooldown_time=2021-05-22 00:00:00
+    p20210521：["2021-05-21", "2021-05-22") storage_medium=SSD storage_cooldown_time=2021-05-23 00:00:00
+    p20210522：["2021-05-22", "2021-05-23") storage_medium=SSD storage_cooldown_time=2021-05-24 00:00:00
+    p20210523：["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
+    ```
+
+#### 创建历史分区规则
+
+当 `create_history_partition` 为 `true`，即开启创建历史分区功能时，Doris 会根据 `dynamic_partition.start` 和 `dynamic_partition.history_partition_num` 来决定创建历史分区的个数。
+
+假设需要创建的历史分区数量为 `expect_create_partition_num`，根据不同的设置具体数量如下：
+
+1. `create_history_partition` = `true`  
+   - `dynamic_partition.history_partition_num` 未设置，即 -1.  
+        `expect_create_partition_num` = `end` - `start`; 
+
+   - `dynamic_partition.history_partition_num` 已设置   
+        `expect_create_partition_num` = `end` - max(`start`, `-histoty_partition_num`);
+
+2. `create_history_partition` = `false`  
+    不会创建历史分区，`expect_create_partition_num` = `end` - 0;
+
+当 `expect_create_partition_num` 大于 `max_dynamic_partition_num`（默认500）时，禁止创建过多分区。
+
+**举例说明：**
+
+1. 假设今天是 2021-05-20，按天分区，动态分区的属性设置为：`create_history_partition=true, end=3, start=-3, history_partition_num=1`，则系统会自动创建以下分区：
+
+    ``` 
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+2. `history_partition_num=5`，其余属性与 1 中保持一直，则系统会自动创建以下分区：
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+3. `history_partition_num=-1` 即不设置历史分区数量，其余属性与 1 中保持一直，则系统会自动创建以下分区：
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
 ### 注意事项 
  
 动态分区使用过程中，如果因为一些意外情况导致 `dynamic_partition.start` 和 `dynamic_partition.end` 之间的某些分区丢失，那么当前时间与 `dynamic_partition.end` 之间的丢失分区会被重新创建，`dynamic_partition.start`与当前时间之间的丢失分区不会重新创建。
@@ -257,7 +339,7 @@ ALTER TABLE tbl1 SET
 );
 ```
 
-某些属性的修改可能会可能会产生冲突。假设之前分区粒度为 DAY，并且已经创建了如下分区：
+某些属性的修改可能会产生冲突。假设之前分区粒度为 DAY，并且已经创建了如下分区：
 
 ```
 p20200519: ["2020-05-19", "2020-05-20")
@@ -312,7 +394,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
     
 * dynamic\_partition\_check\_interval\_seconds
 
-    动态分区线程的执行频率，默认为3600(1个小时)，即每1个小时进行一次调度。可以通过修改 fe.conf 中的参数并重启 FE 生效。也可以在运行时执行以下命令修改：
+    动态分区线程的执行频率，默认为600(10分钟)，即每10分钟进行一次调度。可以通过修改 fe.conf 中的参数并重启 FE 生效。也可以在运行时执行以下命令修改：
     
     MySQL 协议：
 
@@ -344,6 +426,6 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
 1. 创建动态分区表后提示 ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
-	由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
+    由于动态分区的总开关，也就是 FE 的配置 ```dynamic_partition_enable``` 为 false，导致无法创建动态分区表。
 
-        这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
+    这时候请修改 FE 的配置文件，增加一行 ```dynamic_partition_enable=true```，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。

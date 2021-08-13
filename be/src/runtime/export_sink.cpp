@@ -23,7 +23,10 @@
 
 #include "exec/broker_writer.h"
 #include "exec/local_file_writer.h"
+#include "exec/s3_writer.h"
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
@@ -42,7 +45,9 @@ ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
           _t_output_expr(t_exprs),
           _bytes_written_counter(nullptr),
           _rows_written_counter(nullptr),
-          _write_timer(nullptr) {}
+          _write_timer(nullptr) {
+    _name = "ExportSink";
+}
 
 ExportSink::~ExportSink() {}
 
@@ -184,19 +189,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 }
                 break;
             }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                (*ss) << decimal_str;
-                break;
-            }
             case TYPE_DECIMALV2: {
                 const DecimalV2Value decimal_val(
                         reinterpret_cast<const PackedInt128*>(item)->value);
@@ -259,6 +252,14 @@ Status ExportSink::open_file_writer() {
                 _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(broker_writer->open());
         _file_writer.reset(broker_writer);
+        break;
+    }
+    case TFileType::FILE_S3: {
+        S3Writer* s3_writer =
+                new S3Writer(_t_export_sink.properties,
+                             _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
+        RETURN_IF_ERROR(s3_writer->open());
+        _file_writer.reset(s3_writer);
         break;
     }
     default: {

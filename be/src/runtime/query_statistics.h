@@ -65,10 +65,10 @@ public:
         statistics->set_returned_rows(returned_rows);
     }
 
-    void merge_pb(const PQueryStatistics& statistics) {
-        scan_rows += statistics.scan_rows();
-        scan_bytes += statistics.scan_bytes();
-        cpu_ms += statistics.cpu_ms();
+    void from_pb(const PQueryStatistics& statistics) {
+        scan_rows = statistics.scan_rows();
+        scan_bytes = statistics.scan_bytes();
+        cpu_ms = statistics.cpu_ms();
     }
 
 private:

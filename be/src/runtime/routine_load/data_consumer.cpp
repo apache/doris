@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/strings/split.h"
 #include "runtime/small_file_mgr.h"
 #include "service/backend_options.h"
@@ -32,6 +33,7 @@
 
 namespace doris {
 
+static const std::string PROP_GROUP_ID = "group.id";
 // init kafka consumer will only set common configs such as
 // brokers, groupid
 Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
@@ -44,13 +46,8 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     RdKafka::Conf* conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
 
     // conf has to be deleted finally
-    auto conf_deleter = [conf]() { delete conf; };
-    DeferOp delete_conf(std::bind<void>(conf_deleter));
+    Defer delete_conf{[conf]() { delete conf; }};
 
-    std::stringstream ss;
-    ss << BackendOptions::get_localhost() << "_";
-    std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
-    LOG(INFO) << "init kafka consumer with group id: " << group_id;
 
     std::string errstr;
     auto set_conf = [&conf, &errstr](const std::string& conf_key, const std::string& conf_val) {
@@ -74,7 +71,6 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
     };
 
     RETURN_IF_ERROR(set_conf("metadata.broker.list", ctx->kafka_info->brokers));
-    RETURN_IF_ERROR(set_conf("group.id", group_id));
     RETURN_IF_ERROR(set_conf("enable.partition.eof", "false"));
     RETURN_IF_ERROR(set_conf("enable.auto.offset.store", "false"));
     // TODO: set it larger than 0 after we set rd_kafka_conf_set_stats_cb()
@@ -107,6 +103,18 @@ Status KafkaDataConsumer::init(StreamLoadContext* ctx) {
         }
         _custom_properties.emplace(item.first, item.second);
     }
+
+    // if not specified group id, generate a random one.
+    // ATTN: In the new version, we have set a group.id on the FE side for jobs that have not set a groupid,
+    // but in order to ensure compatibility, we still do a check here.
+    if (_custom_properties.find(PROP_GROUP_ID) == _custom_properties.end()) {
+        std::stringstream ss;
+        ss << BackendOptions::get_localhost() << "_";
+        std::string group_id = ss.str() + UniqueId::gen_uid().to_string();
+        RETURN_IF_ERROR(set_conf(PROP_GROUP_ID, group_id));
+        _custom_properties.emplace(PROP_GROUP_ID, group_id);
+    }
+    LOG(INFO) << "init kafka consumer with group id: " << _custom_properties[PROP_GROUP_ID];
 
     if (conf->set("event_cb", &_k_event_cb, errstr) != RdKafka::Conf::CONF_OK) {
         std::stringstream ss;
@@ -146,11 +154,10 @@ Status KafkaDataConsumer::assign_topic_partitions(
               << " assign topic partitions: " << topic << ", " << ss.str();
 
     // delete TopicPartition finally
-    auto tp_deleter = [&topic_partitions]() {
+    Defer delete_tp{[&topic_partitions]() {
         std::for_each(topic_partitions.begin(), topic_partitions.end(),
                       [](RdKafka::TopicPartition* tp1) { delete tp1; });
-    };
-    DeferOp delete_tp(std::bind<void>(tp_deleter));
+    }};
 
     // assign partition
     RdKafka::ErrorCode err = _k_consumer->assign(topic_partitions);
@@ -238,8 +245,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
     // create topic conf
     RdKafka::Conf* tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
-    auto conf_deleter = [tconf]() { delete tconf; };
-    DeferOp delete_conf(std::bind<void>(conf_deleter));
+    Defer delete_conf{[tconf]() { delete tconf; }};
 
     // create topic
     std::string errstr;
@@ -250,8 +256,8 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    auto topic_deleter = [topic]() { delete topic; };
-    DeferOp delete_topic(std::bind<void>(topic_deleter));
+
+    Defer delete_topic{[topic]() { delete topic; }};
 
     // get topic metadata
     RdKafka::Metadata* metadata = nullptr;
@@ -263,8 +269,8 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
-    auto meta_deleter = [metadata]() { delete metadata; };
-    DeferOp delete_meta(std::bind<void>(meta_deleter));
+
+    Defer delete_meta{[metadata]() { delete metadata; }};
 
     // get partition ids
     RdKafka::Metadata::TopicMetadataIterator it;
@@ -296,6 +302,48 @@ Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids
     return Status::OK();
 }
 
+// get offsets of each partition for times.
+// The input parameter "times" holds <partition, timestamps>
+// The output parameter "offsets" returns <partition, offsets>
+//
+// The returned offset for each partition is the earliest offset whose
+// timestamp is greater than or equal to the given timestamp in the
+// corresponding partition.
+// See librdkafka/rdkafkacpp.h##offsetsForTimes()
+Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>& times,
+        std::vector<PIntegerPair>* offsets) {
+    // create topic partition
+    std::vector<RdKafka::TopicPartition*> topic_partitions;
+    for (const auto& entry : times) {
+        RdKafka::TopicPartition* tp1 =
+                RdKafka::TopicPartition::create(_topic, entry.key(), entry.val());
+        topic_partitions.push_back(tp1);
+    }
+    // delete TopicPartition finally
+    Defer delete_tp{[&topic_partitions]() {
+        std::for_each(topic_partitions.begin(), topic_partitions.end(),
+                      [](RdKafka::TopicPartition* tp1) { delete tp1; });
+    }};
+
+    // get offsets for times
+    RdKafka::ErrorCode err = _k_consumer->offsetsForTimes(topic_partitions, 5000);
+    if (err != RdKafka::ERR_NO_ERROR) {
+        std::stringstream ss;
+        ss << "failed to get offsets for times: " << RdKafka::err2str(err);
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
+    }
+
+    for (const auto& topic_partition : topic_partitions) {
+        PIntegerPair pair;
+        pair.set_key(topic_partition->partition());
+        pair.set_val(topic_partition->offset());
+        offsets->push_back(pair);
+    }
+
+    return Status::OK();
+}
+
 Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
     std::unique_lock<std::mutex> l(_lock);
     if (!_init) {
@@ -314,7 +362,9 @@ Status KafkaDataConsumer::reset() {
 }
 
 Status KafkaDataConsumer::commit(std::vector<RdKafka::TopicPartition*>& offset) {
-    RdKafka::ErrorCode err = _k_consumer->commitSync(offset);
+    // Use async commit so that it will not block for a long time.
+    // Commit failure has no effect on Doris, subsequent tasks will continue to commit the new offset
+    RdKafka::ErrorCode err = _k_consumer->commitAsync(offset);
     if (err != RdKafka::ERR_NO_ERROR) {
         std::stringstream ss;
         ss << "failed to commit kafka offset : " << RdKafka::err2str(err);
@@ -337,7 +387,12 @@ bool KafkaDataConsumer::match(StreamLoadContext* ctx) {
         return false;
     }
     for (auto& item : ctx->kafka_info->properties) {
-        if (_custom_properties.find(item.first) == _custom_properties.end()) {
+        std::unordered_map<std::string, std::string>::const_iterator itr =_custom_properties.find(item.first);
+        if (itr == _custom_properties.end()) {
+            return false;
+        }
+
+        if (itr->second != item.second) {
             return false;
         }
     }

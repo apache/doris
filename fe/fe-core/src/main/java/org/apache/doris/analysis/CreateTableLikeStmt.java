@@ -45,7 +45,7 @@ public class CreateTableLikeStmt extends DdlStmt {
         this.existedTableName = existedTableName;
     }
 
-    public boolean isSetIfNotExists() {
+    public boolean isIfNotExists() {
         return ifNotExists;
     }
 

@@ -37,6 +37,9 @@ public enum AlterOpType {
     ALTER_OTHER,
     ENABLE_FEATURE,
     REPLACE_TABLE,
+    MODIFY_DISTRIBUTION,
+    MODIFY_TABLE_COMMENT,
+    MODIFY_COLUMN_COMMENT,
     INVALID_OP; // INVALID_OP must be the last one
 
     // true means 2 operations have no conflict.
@@ -54,6 +57,8 @@ public enum AlterOpType {
         COMPATIBILITY_MATRIX[DROP_ROLLUP.ordinal()][DROP_ROLLUP.ordinal()] = true;
         // schema change, such as add/modify/drop columns can be processed in batch
         COMPATIBILITY_MATRIX[SCHEMA_CHANGE.ordinal()][SCHEMA_CHANGE.ordinal()] = true;
+        // can modify multi column comments at same time
+        COMPATIBILITY_MATRIX[MODIFY_COLUMN_COMMENT.ordinal()][MODIFY_COLUMN_COMMENT.ordinal()] = true;
     }
 
     public boolean needCheckCapacity() {

@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -132,6 +133,8 @@ public class BinaryPredicate extends Predicate implements Writable {
 
         public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
 
+        public boolean isUnNullSafeEquivalence() { return this == EQ; };
+
         public boolean isUnequivalence() { return this == NE; }
     }
 
@@ -167,19 +170,19 @@ public class BinaryPredicate extends Predicate implements Writable {
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
             if (t.isNull()) continue; // NULL is handled through type promotion.
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.EQ.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.NE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.LE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.GE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
-            functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
         }
     }
@@ -278,9 +281,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
-    private Type getCmpType() {
+    private Type getCmpType() throws AnalysisException {
         PrimitiveType t1 = getChild(0).getType().getResultType().getPrimitiveType();
         PrimitiveType t2 = getChild(1).getType().getResultType().getPrimitiveType();
+
+        for (Expr e : getChildren()) {
+            if (e.getType().getPrimitiveType() == PrimitiveType.HLL) {
+                throw new AnalysisException("Hll type dose not support operand: " + toSql());
+            }
+            if (e.getType().getPrimitiveType() == PrimitiveType.BITMAP) {
+                throw new AnalysisException("Bitmap type dose not support operand: " + toSql());
+            }
+        }
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
             return Type.DATETIME;
@@ -297,10 +309,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
             return Type.DECIMALV2;
-        }
-        if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMAL)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMAL)) {
-            return Type.DECIMAL;
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
@@ -456,7 +464,28 @@ public class BinaryPredicate extends Predicate implements Writable {
         Preconditions.checkState(slotIsleft != null);
         return slotIsleft;
     }
-    
+
+    public Range<LiteralExpr> convertToRange() {
+        Preconditions.checkState(getChild(0) instanceof SlotRef);
+        Preconditions.checkState(getChild(1) instanceof LiteralExpr);
+        LiteralExpr literalExpr = (LiteralExpr) getChild(1);
+        switch (op) {
+            case EQ:
+                return Range.singleton(literalExpr);
+            case GE:
+                return Range.atLeast(literalExpr);
+            case GT:
+                return Range.greaterThan(literalExpr);
+            case LE:
+                return Range.atMost(literalExpr);
+            case LT:
+                return Range.lessThan(literalExpr);
+            case NE:
+            default:
+                return null;
+        }
+    }
+
     //    public static enum Operator2 {
     //        EQ("=", FunctionOperator.EQ, FunctionOperator.FILTER_EQ),
     //        NE("!=", FunctionOperator.NE, FunctionOperator.FILTER_NE),
@@ -594,7 +623,39 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public void setSelectivity() {
+        switch(op) {
+            case EQ:
+            case EQ_FOR_NULL: {
+                Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
+                boolean singlePredicate = isSingleColumnPredicate(slotRefRef, null);
+                if (singlePredicate) {
+                    long distinctValues = slotRefRef.getRef().getNumDistinctValues();
+                    if (distinctValues != -1) {
+                        selectivity = 1.0 / distinctValues;
+                    }
+                }
+                break;
+            } default: {
+                // Reference hive
+                selectivity = 1.0 / 3.0;
+                break;
+            }
+        }
+
+        return;
+    }
+
+    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
+    }
+
+    @Override
+    public boolean isNullable() {
+        if (op == Operator.EQ_FOR_NULL) {
+            return false;
+        }
+        return hasNullableChild();
     }
 }

@@ -52,7 +52,7 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
@@ -433,15 +433,12 @@ public class PartitionCacheTest {
         cp.addBackend(bd2);
         cp.addBackend(bd3);
         
-        PUniqueId key1 = new PUniqueId();
-        key1.hi = 1L;
-        key1.lo = 1L;
+        Types.PUniqueId key1 = Types.PUniqueId.newBuilder().setHi(1L).setLo(1L).build();
         Backend bk = cp.findBackend(key1);
         Assert.assertNotNull(bk);
         Assert.assertEquals(bk.getId(),3);
-        
-        key1.hi = 669560558156283345L;
-        key1.lo = 1L; 
+
+        key1 = key1.toBuilder().setHi(669560558156283345L).build();
         bk = cp.findBackend(key1);
         Assert.assertNotNull(bk);
         Assert.assertEquals(bk.getId(),1);
@@ -542,7 +539,7 @@ public class PartitionCacheTest {
 
             cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
-            Assert.assertEquals(sql, "(`date` >= 20200114) AND (`date` <= 20200115)");
+            Assert.assertEquals(sql, "`date` >= 20200114 AND `date` <= 20200115");
         } catch (Exception e) {
             LOG.warn("ex={}", e);
             Assert.fail(e.getMessage());
@@ -581,7 +578,7 @@ public class PartitionCacheTest {
             hitRange = range.buildDiskPartitionRange(newRangeList);
             cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
-            Assert.assertEquals(sql,"(`eventdate` >= '2020-01-14') AND (`eventdate` <= '2020-01-15')");
+            Assert.assertEquals(sql,"`eventdate` >= '2020-01-14' AND `eventdate` <= '2020-01-15'");
         } catch(Exception e){
             LOG.warn("ex={}",e);
             Assert.fail(e.getMessage());
@@ -706,7 +703,7 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(newRangeList);
 
             sql = ca.getRewriteStmt().getWhereClause().toSql();
-            Assert.assertEquals(sql, "(`eventdate` >= '2020-01-13') AND (`eventdate` <= '2020-01-15')");
+            Assert.assertEquals(sql, "`eventdate` >= '2020-01-13' AND `eventdate` <= '2020-01-15'");
 
             List<PartitionRange.PartitionSingle> updateRangeList = range.buildUpdatePartitionRange();
             Assert.assertEquals(updateRangeList.size(), 2);
@@ -752,7 +749,7 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("MultiPredicate={}", sql);                
-            Assert.assertEquals(sql,"((`eventdate` > '2020-01-13') AND (`eventdate` < '2020-01-16')) AND (`eventid` = 1)");
+            Assert.assertEquals(sql,"`eventdate` > '2020-01-13' AND `eventdate` < '2020-01-16' AND `eventid` = 1");
         } catch(Exception e){
             LOG.warn("multi ex={}",e);
             Assert.fail(e.getMessage());
@@ -794,8 +791,8 @@ public class PartitionCacheTest {
             cache.rewriteSelectStmt(newRangeList);
             sql = ca.getRewriteStmt().getWhereClause().toSql();
             LOG.warn("Join rewrite={}", sql);                
-            Assert.assertEquals(sql,"((`appevent`.`eventdate` >= '2020-01-14')" +
-                    " AND (`appevent`.`eventdate` <= '2020-01-15')) AND (`eventid` = 1)");
+            Assert.assertEquals(sql,"`appevent`.`eventdate` >= '2020-01-14'" +
+                    " AND `appevent`.`eventdate` <= '2020-01-15' AND `eventid` = 1");
         } catch(Exception e){
             LOG.warn("Join ex={}",e);
             Assert.fail(e.getMessage());
@@ -840,7 +837,7 @@ public class PartitionCacheTest {
             LOG.warn("Sub rewrite={}", sql);                
             Assert.assertEquals(sql,"SELECT <slot 7> `eventdate` AS `eventdate`, <slot 8> sum(`pv`) AS `sum(``pv``)` FROM (" + 
                 "SELECT <slot 3> `eventdate` AS `eventdate`, <slot 4> count(`userid`) AS `pv` FROM `testCluster:testDb`.`appevent` WHERE " + 
-                "((`eventdate` > '2020-01-13') AND (`eventdate` < '2020-01-16')) AND (`eventid` = 1) GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
+                "`eventdate` > '2020-01-13' AND `eventdate` < '2020-01-16' AND `eventid` = 1 GROUP BY `eventdate`) tbl GROUP BY `eventdate`");
         } catch(Exception e){
             LOG.warn("sub ex={}",e);
             Assert.fail(e.getMessage());

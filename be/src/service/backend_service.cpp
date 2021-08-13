@@ -24,6 +24,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <boost/shared_ptr.hpp>
+#include <map>
 #include <memory>
 
 #include "common/config.h"
@@ -45,6 +46,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
+#include "runtime/stream_load/stream_load_context.h"
 #include "service/backend_options.h"
 #include "util/arrow/row_batch.h"
 #include "util/blocking_queue.hpp"
@@ -208,6 +210,40 @@ void BackendService::get_tablet_stat(TTabletStatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_tablet_stat(&result);
 }
 
+int64_t BackendService::get_trash_used_capacity() {
+    int64_t result = 0;
+
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    }
+    return result;
+}
+
+void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        TDiskTrashInfo diskTrashInfo;
+
+        diskTrashInfo.__set_root_path(root_path_info.path);
+
+        diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
+
+        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        diskTrashInfo.__set_trash_used_capacity(
+                StorageEngine::instance()->get_file_or_directory_size(trash_path));
+
+        diskTrashInfos.push_back(diskTrashInfo);
+    }
+}
+
 void BackendService::submit_routine_load_task(TStatus& t_status,
                                               const std::vector<TRoutineLoadTask>& tasks) {
     for (auto& task : tasks) {
@@ -312,4 +348,32 @@ void BackendService::close_scanner(TScanCloseResult& result_, const TScanClosePa
     result_.status = t_status;
 }
 
+void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
+                                            const int64_t last_stream_record_time) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
+        std::map<std::string, std::string> records;
+        auto st = stream_load_recorder->get_batch(std::to_string(last_stream_record_time),
+                                                  config::stream_load_record_batch_size, &records);
+        if (st.ok()) {
+            LOG(INFO) << "get_batch stream_load_record rocksdb successfully. records size: "
+                      << records.size()
+                      << ", last_stream_load_timestamp: " << last_stream_record_time;
+            std::map<std::string, TStreamLoadRecord> stream_load_record_batch;
+            std::map<std::string, std::string>::iterator it = records.begin();
+            for (; it != records.end(); ++it) {
+                TStreamLoadRecord stream_load_item;
+                StreamLoadContext::parse_stream_load_record(it->second, stream_load_item);
+                stream_load_record_batch.emplace(it->first.c_str(), stream_load_item);
+            }
+            result.__set_stream_load_record(stream_load_record_batch);
+        }
+    } else {
+        LOG(WARNING) << "stream_load_recorder is null.";
+    }
+}
+
+void BackendService::clean_trash() {
+    StorageEngine::instance()->start_trash_sweep(nullptr, true);
+}
 } // namespace doris

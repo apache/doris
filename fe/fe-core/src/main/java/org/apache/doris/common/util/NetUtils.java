@@ -17,14 +17,19 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.util.Enumeration;
 import java.util.List;
 
 public class NetUtils {
+    private static final Logger LOG = LogManager.getLogger(NetUtils.class);
 
     // Target format is "host:port"
     public static InetSocketAddress createSocketAddr(String target) {
@@ -56,5 +61,17 @@ public class NetUtils {
                 hosts.add(addr);
             }
         }
+    }
+
+    public static String getHostnameByIp(String ip) {
+        String hostName;
+        try {
+            InetAddress address = InetAddress.getByName(ip);
+            hostName = address.getHostName();
+        } catch (UnknownHostException e) {
+            LOG.info("unknown host for {}", ip, e);
+            hostName = "unknown";
+        }
+        return hostName;
     }
 }

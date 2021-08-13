@@ -39,8 +39,8 @@ The implications of the results are as follows:
 1. Key: Configuration item name
 2. Value: Configuration item value
 3. Type: Configuration item type
-4. IsMutable：  是否可以通过 ADMIN SET CONFIG 命令设置
-5. MasterOnly： 是否仅适用于 Master FE
+4. IsMutable: 是否可以通过 ADMIN SET CONFIG 命令设置
+5. MasterOnly: 是否仅适用于 Master FE
 6. Comment: Configuration Item Description
 
 ## example

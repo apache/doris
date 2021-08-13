@@ -57,6 +57,8 @@ public class QueryState {
         infoMessage = null;
         serverStatus = 0;
         isQuery = false;
+        affectedRows = 0;
+        warningRows = 0;
     }
 
     public MysqlStateType getStateType() {
@@ -68,6 +70,9 @@ public class QueryState {
     }
 
     public void setOk() {
+        if (stateType == MysqlStateType.OK) {
+            return;
+        }
         setOk(0, 0, null);
     }
 

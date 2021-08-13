@@ -43,6 +43,7 @@ import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -111,7 +112,7 @@ public class BDBEnvironment {
         replicationConfig.setConfigParam(ReplicationConfig.FEEDER_TIMEOUT, Config.bdbje_heartbeat_timeout_second + " s");
 
         if (isElectable) {
-            replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
+            replicationConfig.setReplicaAckTimeout(Config.bdbje_replica_ack_timeout_second, TimeUnit.SECONDS);
             replicationConfig.setConfigParam(ReplicationConfig.REPLICA_MAX_GROUP_COMMIT, "0");
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
         } else {
@@ -339,13 +340,11 @@ public class BDBEnvironment {
         
         if (names != null) {
             for (String name : names) {
-                // We don't count epochDB
-                if (name.equals("epochDB")) {
-                    continue;
+                if (StringUtils.isNumeric(name)) {
+                    ret.add(Long.parseLong(name));
+                } else {
+                    LOG.debug("get database names, skipped {}", name);
                 }
-                
-                long db = Long.parseLong(name);
-                ret.add(db);
             }
         }
         

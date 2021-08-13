@@ -22,7 +22,7 @@
 #include <unistd.h>
 
 #include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 #include "util/logging.h"
 
@@ -32,10 +32,10 @@ const int NUM_THREADS = 5;
 int g_thread_counters[NUM_THREADS];
 
 // Per-thread mutex to ensure visibility of counters after thread pool terminates
-boost::mutex g_thread_mutexes[NUM_THREADS];
+std::mutex g_thread_mutexes[NUM_THREADS];
 
 void count(int thread_id, const int& i) {
-    boost::lock_guard<boost::mutex> l(g_thread_mutexes[thread_id]);
+    std::lock_guard<std::mutex> l(g_thread_mutexes[thread_id]);
     g_thread_counters[thread_id] += i;
 }
 
@@ -62,7 +62,7 @@ TEST(ThreadPoolTest, BasicTest) {
     int count = 0;
 
     for (int i = 0; i < NUM_THREADS; ++i) {
-        boost::lock_guard<boost::mutex> l(g_thread_mutexes[i]);
+        std::lock_guard<std::mutex> l(g_thread_mutexes[i]);
         LOG(INFO) << "Counter " << i << ": " << g_thread_counters[i];
         count += g_thread_counters[i];
     }

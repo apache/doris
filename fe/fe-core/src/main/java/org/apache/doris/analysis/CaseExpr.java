@@ -113,7 +113,7 @@ public class CaseExpr extends Expr {
         StringBuilder output = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {
-            output.append(children.get(childIdx++).toSql());
+            output.append(' ').append(children.get(childIdx++).toSql());
         }
         while (childIdx + 2 <= children.size()) {
             output.append(" WHEN " + children.get(childIdx++).toSql());
@@ -375,4 +375,31 @@ public class CaseExpr extends Expr {
         return false;
     }
 
+    @Override
+    public boolean isNullable() {
+        int loopStart;
+        int loopEnd = children.size();
+        if (hasCaseExpr) {
+            loopStart = 2;
+        } else {
+            loopStart = 1;
+        }
+        if (hasElseExpr) {
+            --loopEnd;
+        }
+        for (int i = loopStart; i < loopEnd; i += 2) {
+            Expr thenExpr = children.get(i);
+            if (thenExpr.isNullable()) {
+                return true;
+            }
+        }
+        if (hasElseExpr) {
+            if (children.get(children.size() - 1).isNullable()) {
+                return true;
+            }
+        } else {
+            return true;
+        }
+        return false;
+    }
 }

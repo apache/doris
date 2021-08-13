@@ -28,7 +28,7 @@ public class InfoSchemaDbTest {
         Database db = new InfoSchemaDb();
 
         Assert.assertFalse(db.createTable(null));
-        Assert.assertFalse(db.createTableWithLock(null, false, false));
+        Assert.assertFalse(db.createTableWithLock(null, false, false).first);
         db.dropTable("authors");
         db.write(null);
         Assert.assertNull(db.getTable("authors"));

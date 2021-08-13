@@ -95,6 +95,8 @@ public:
 
     virtual RuntimeProfile* profile() { return _profile; }
 
+    RuntimeState* state() { return _state; }
+
 private:
     class Channel;
 
@@ -116,9 +118,6 @@ private:
     const RowDescriptor& _row_desc;
 
     int _current_channel_idx; // index of current channel to send to if _random == true
-
-    // If true, this sender has been closed. Not valid to call Send() anymore.
-    bool _closed;
 
     TPartitionType::type _part_type;
     bool _ignore_not_found;
@@ -148,6 +147,9 @@ private:
 
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput;
+
+    // Used to counter send bytes under local data exchange
+    RuntimeProfile::Counter* _local_bytes_send_counter;
 
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;

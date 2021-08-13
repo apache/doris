@@ -67,7 +67,7 @@ Apache RAT is recommended to verify license header, which can download as follow
 
 ``` shell
 wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
-tar zxvf apache -rat -0.13 -bin.tar.gz
+tar zxvf apache-rat-0.13-bin.tar.gz
 ```
 
 Given your source dir is apache-doris-a.b.c-incubating-src, you can check with following command.

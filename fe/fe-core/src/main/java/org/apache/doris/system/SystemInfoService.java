@@ -23,18 +23,15 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
-
-import org.apache.commons.validator.routines.InetAddressValidator;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -44,8 +41,11 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.validator.routines.InetAddressValidator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -772,7 +772,7 @@ public class SystemInfoService {
         // host -> BE list
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
         for (Backend backend : srcBackends) {
-            if (backendMaps.containsKey(backend.getHost())){
+            if (backendMaps.containsKey(backend.getHost())) {
                 backendMaps.get(backend.getHost()).add(backend);
             } else {
                 List<Backend> list = Lists.newArrayList();
@@ -781,11 +781,16 @@ public class SystemInfoService {
             }
         }
 
+
         // if more than one backend exists in same host, select a backend at random
         List<Backend> backends = Lists.newArrayList();
         for (List<Backend> list : backendMaps.values()) {
-            Collections.shuffle(list);
-            backends.add(list.get(0));
+            if (FeConstants.runningUnitTest) {
+                backends.addAll(list);
+            } else {
+                Collections.shuffle(list);
+                backends.add(list.get(0));
+            }
         }
 
         Collections.shuffle(backends);
@@ -904,7 +909,7 @@ public class SystemInfoService {
         }
     }
 
-    public long saveBackends(DataOutputStream dos, long checksum) throws IOException {
+    public long saveBackends(CountingDataOutputStream dos, long checksum) throws IOException {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef;
         int backendCount = idToBackend.size();
         checksum ^= backendCount;

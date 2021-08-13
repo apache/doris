@@ -49,7 +49,7 @@ None
 
     Specify the log type. The following types are supported:
     
-    * `fe.audit.log`：FE 审计日志
+    * `fe.audit.log`: Audit log of Frontend.
 
 * `file`
 

@@ -29,7 +29,7 @@ under the License.
 ## description
 
 Use CREATE TABLE ... LIKE to create an empty table based on the definition of another table, including any column attributes, table partitions and table properties defined in the original table:
-Syntax：
+Syntax:
 
 ```
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name

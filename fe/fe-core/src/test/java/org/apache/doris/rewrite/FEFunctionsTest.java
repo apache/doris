@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
 
+import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -304,17 +305,6 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void addDecimalTest() throws AnalysisException {
-        DecimalLiteral actualResult = FEFunctions.addDecimal(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
-        DecimalLiteral expectedResult = new DecimalLiteral("5.5");
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.addDecimal(new DecimalLiteral("-2.2"), new DecimalLiteral("3.3"));
-        expectedResult = new DecimalLiteral("1.1");
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-    @Test
     public void addDecimalV2Test() throws AnalysisException {
         DecimalLiteral actualResult = FEFunctions.addDecimalV2(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
         DecimalLiteral expectedResult = new DecimalLiteral("5.5");
@@ -355,17 +345,6 @@ public class FEFunctionsTest {
 
         actualResult = FEFunctions.subtractDouble(new FloatLiteral(-1.1), new FloatLiteral(1.1));
         expectedResult = new FloatLiteral(-2.2);
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-    @Test
-    public void subtractDecimalTest() throws AnalysisException {
-        DecimalLiteral actualResult = FEFunctions.subtractDecimal(new DecimalLiteral("2.2"), new DecimalLiteral("3.3"));
-        DecimalLiteral expectedResult = new DecimalLiteral("-1.1");
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.subtractDecimal(new DecimalLiteral("5.5"), new DecimalLiteral("3.3"));
-        expectedResult = new DecimalLiteral("2.2");
         Assert.assertEquals(expectedResult, actualResult);
     }
 
@@ -422,22 +401,6 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void multiplyDecimalTest() throws AnalysisException {
-        DecimalLiteral actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
-        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
-        expectedResult = new DecimalLiteral("11.0");
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.multiplyDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-1.1"));
-        expectedResult = new DecimalLiteral("1.21");
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-
-    @Test
     public void multiplyDecimalV2Test() throws AnalysisException {
         DecimalLiteral actualResult = FEFunctions.multiplyDecimalV2(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
         DecimalLiteral expectedResult = new DecimalLiteral("1.1");
@@ -479,17 +442,6 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void divideDecimalTest() throws AnalysisException {
-        DecimalLiteral actualResult = FEFunctions.divideDecimal(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
-        DecimalLiteral expectedResult = new DecimalLiteral("1.1");
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.divideDecimal(new DecimalLiteral("-1.1"), new DecimalLiteral("-10.0"));
-        expectedResult = new DecimalLiteral("0.11");
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-    @Test
     public void divideDecimalV2Test() throws AnalysisException {
         DecimalLiteral actualResult = FEFunctions.divideDecimalV2(new DecimalLiteral("1.1"), new DecimalLiteral("1.0"));
         DecimalLiteral expectedResult = new DecimalLiteral("1.1");
@@ -508,6 +460,17 @@ public class FEFunctionsTest {
         Assert.assertEquals(31556995543L, FEFunctions.timeDiff(d2, d1).getLongValue());
         Assert.assertEquals(31559414743L, FEFunctions.timeDiff(d3, d1).getLongValue());
         Assert.assertEquals(2419200, FEFunctions.timeDiff(d3, d2).getLongValue());
+    }
+
+    @Test
+    public void timeNowTest() throws AnalysisException {
+        String curTimeString = FEFunctions.curTime().toSqlImpl().replace("'", "");
+        String currentTimestampString = FEFunctions.currentTimestamp().toSqlImpl().replace("'", "");
+
+        String nowTimestampString = new DateTime().toString("yyyy-MM-dd HH:mm:ss");
+        Assert.assertTrue(nowTimestampString.compareTo(currentTimestampString) >= 0);
+        String nowTimeString = nowTimestampString.substring(nowTimestampString.indexOf(" ") + 1);
+        Assert.assertTrue(nowTimeString.compareTo(curTimeString) >= 0);
     }
 
     @Test

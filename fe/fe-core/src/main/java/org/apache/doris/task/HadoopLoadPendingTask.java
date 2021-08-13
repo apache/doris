@@ -305,7 +305,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
                 // begin keys
                 // is max partition
-                Range<PartitionKey> range = rangePartitionInfo.getRange(partitionId);
+                Range<PartitionKey> range = rangePartitionInfo.getItem(partitionId).getItems();
                 boolean isMaxPartition = range.upperEndpoint().isMaxValue();
 
                 // start keys
@@ -552,9 +552,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case BITMAP:
                     columnType = "BITMAP";
                     break;
-                case DECIMAL:
-                    columnType = "DECIMAL";
-                    break;
                 case DECIMALV2:
                     columnType = "DECIMAL";
                     break;
@@ -584,7 +581,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             }
 
             // decimal precision scale
-            if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
+            if (type == PrimitiveType.DECIMALV2) {
                 dppColumn.put("precision", column.getPrecision());
                 dppColumn.put("scale", column.getScale());
             }

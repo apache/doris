@@ -20,8 +20,8 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h" // for TJoinOp

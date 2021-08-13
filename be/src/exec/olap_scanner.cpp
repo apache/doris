@@ -17,11 +17,12 @@
 
 #include "olap_scanner.h"
 
-#include <cstring>
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
@@ -43,23 +44,29 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _tuple_desc(parent->_tuple_desc),
           _profile(parent->runtime_profile()),
           _string_slots(parent->_string_slots),
+          _collection_slots(parent->_collection_slots),
+          _id(-1),
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _tuple_idx(parent->_tuple_idx),
-          _direct_conjunct_size(parent->_direct_conjunct_size) {
-    _reader.reset(new Reader());
-    DCHECK(_reader.get() != NULL);
-
+          _direct_conjunct_size(parent->_direct_conjunct_size),
+          _reader(new Reader()),
+          _version(-1),
+          _mem_tracker(MemTracker::CreateTracker(
+                  runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
+                  runtime_state->fragment_mem_tracker(), true, true, MemTrackerLevel::VERBOSE)) {
     _rows_read_counter = parent->rows_read_counter();
     _rows_pushed_cond_filtered_counter = parent->_rows_pushed_cond_filtered_counter;
 }
 
 OlapScanner::~OlapScanner() {}
 
-Status OlapScanner::prepare(const TPaloScanRange& scan_range,
-                            const std::vector<OlapScanRange*>& key_ranges,
-                            const std::vector<TCondition>& filters) {
+Status OlapScanner::prepare(
+        const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
+        const std::vector<TCondition>& filters,
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                bloom_filters) {
     // Get olap table
     TTabletId tablet_id = scan_range.tablet_id;
     SchemaHash schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
@@ -90,7 +97,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
             OLAPStatus acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_params.rs_readers);
+                    _tablet->capture_rs_readers(rd_version, &_params.rs_readers, _mem_tracker);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -104,7 +111,7 @@ Status OlapScanner::prepare(const TPaloScanRange& scan_range,
 
     {
         // Initialize _params
-        RETURN_IF_ERROR(_init_params(key_ranges, filters));
+        RETURN_IF_ERROR(_init_params(key_ranges, filters, bloom_filters));
     }
 
     return Status::OK();
@@ -116,6 +123,8 @@ Status OlapScanner::open() {
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
     }
+
+    _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _reader->init(_params);
     if (res != OLAP_SUCCESS) {
@@ -129,8 +138,10 @@ Status OlapScanner::open() {
 }
 
 // it will be called under tablet read lock because capture rs readers need
-Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
-                                 const std::vector<TCondition>& filters) {
+Status OlapScanner::_init_params(
+        const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
+        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                bloom_filters) {
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.tablet = _tablet;
@@ -142,6 +153,8 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
     for (auto& filter : filters) {
         _params.conditions.push_back(filter);
     }
+    std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
+              std::inserter(_params.bloom_filters, _params.bloom_filters.begin()));
 
     // Range
     for (auto key_range : key_ranges) {
@@ -166,12 +179,13 @@ Status OlapScanner::_init_params(const std::vector<OlapScanRange*>& key_ranges,
              _params.rs_readers[0]->rowset()->start_version() == 0 &&
              !_params.rs_readers[0]->rowset()->rowset_meta()->is_segments_overlapping()) ||
             (_params.rs_readers.size() == 2 &&
-             _params.rs_readers[1]->rowset()->rowset_meta()->num_rows() == 0 &&
+             _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
+        // we need to fetch all key columns to do the right aggregation on storage engine side.
         for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
             _params.return_columns.push_back(i);
         }
@@ -247,9 +261,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    auto tracker = MemTracker::CreateTracker(state->fragment_mem_tracker()->limit(), "OlapScanner");
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
-
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
@@ -330,6 +342,43 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     }
                 }
 
+                // Copy collection slot
+                for (auto desc : _collection_slots) {
+                    CollectionValue* slot = tuple->get_collection_slot(desc->tuple_offset());
+
+                    TypeDescriptor item_type = desc->type().children.at(0);
+                    size_t item_size = item_type.get_slot_size() * slot->length();
+
+                    size_t nulls_size = slot->length();
+                    uint8_t* data = batch->tuple_data_pool()->allocate(item_size + nulls_size);
+
+                    // copy null_signs
+                    memory_copy(data, slot->null_signs(), nulls_size);
+                    memory_copy(data + nulls_size, slot->data(), item_size);
+
+                    slot->set_null_signs(reinterpret_cast<bool*>(data));
+                    slot->set_data(reinterpret_cast<char*>(data + nulls_size));
+
+                    if (!item_type.is_string_type()) {
+                        continue;
+                    }
+
+                    // when string type, copy every item
+                    for (int i = 0; i < slot->length(); ++i) {
+                        int item_offset = nulls_size + i * item_type.get_slot_size();
+                        if (slot->is_null_at(i)) {
+                            continue;
+                        }
+                        StringValue* dst_item_v =
+                                reinterpret_cast<StringValue*>(data + item_offset);
+                        if (dst_item_v->len != 0) {
+                            char* string_copy = reinterpret_cast<char*>(
+                                    batch->tuple_data_pool()->allocate(dst_item_v->len));
+                            memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
+                            dst_item_v->ptr = string_copy;
+                        }
+                    }
+                }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately
                 mem_pool->clear();
@@ -355,9 +404,10 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                             config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
                             VLOG_CRITICAL << "Stop Using PushDown Conjuncts. "
-                                    << "PushDownReturnRate: " << pushdown_return_rate << "%"
-                                    << " MaxPushDownReturnRate: "
-                                    << config::doris_max_pushdown_conjuncts_return_rate << "%";
+                                          << "PushDownReturnRate: " << pushdown_return_rate << "%"
+                                          << " MaxPushDownReturnRate: "
+                                          << config::doris_max_pushdown_conjuncts_return_rate
+                                          << "%";
                         }
                     }
                 }
@@ -400,20 +450,12 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             slot->len = slice->size;
             break;
         }
-        case TYPE_DECIMAL: {
-            DecimalValue* slot = tuple->get_decimal_slot(slot_desc->tuple_offset());
-
-            // TODO(lingbin): should remove this assign, use set member function
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
-            *slot = DecimalValue(int_value, frac_value);
-            break;
-        }
         case TYPE_DECIMALV2: {
             DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+            auto packed_decimal = *reinterpret_cast<const decimal12_t*>(ptr);
 
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            int64_t int_value = packed_decimal.integer;
+            int32_t frac_value = packed_decimal.fraction;
             if (!slot->from_olap_decimal(int_value, frac_value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
@@ -429,15 +471,19 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_DATE: {
             DateTimeValue* slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
-            uint64_t value = 0;
-            value = *(unsigned char*)(ptr + 2);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr + 1);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr);
+
+            uint24_t date = *reinterpret_cast<const uint24_t*>(ptr);
+            uint64_t value = uint32_t(date);
+
             if (!slot->from_olap_date(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
+            break;
+        }
+        case TYPE_ARRAY: {
+            CollectionValue* array_v = reinterpret_cast<CollectionValue*>(ptr);
+            CollectionValue* slot = tuple->get_collection_slot(slot_desc->tuple_offset());
+            slot->shallow_copy(array_v);
             break;
         }
         default: {
@@ -479,9 +525,10 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
     COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
+    COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_vec_del_cond_filtered);
+
     COUNTER_UPDATE(_parent->_conditions_filtered_counter,
                    _reader->stats().rows_conditions_filtered);
-
     COUNTER_UPDATE(_parent->_key_range_filtered_counter, _reader->stats().rows_key_range_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);

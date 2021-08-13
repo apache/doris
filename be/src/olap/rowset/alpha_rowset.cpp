@@ -22,6 +22,7 @@
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "util/hash_util.hpp"
+#include <util/file_utils.h>
 
 namespace doris {
 
@@ -29,7 +30,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema, std::string rowset_path,
                          RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
 
-OLAPStatus AlphaRowset::do_load(bool use_cache) {
+OLAPStatus AlphaRowset::do_load(bool use_cache, std::shared_ptr<MemTracker>) {
     for (auto& segment_group : _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -171,7 +172,7 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
     if (largest_segment_group == nullptr ||
         largest_segment_group->current_num_rows_per_row_block() == 0) {
-        LOG(WARNING) << "failed to get largest_segment_group. is null: "
+        VLOG_NOTICE << "failed to get largest_segment_group. is null: "
                      << (largest_segment_group == nullptr) << ". version: " << start_version()
                      << "-" << end_version() << ". tablet: " << rowset_meta()->tablet_id();
         ranges->emplace_back(start_key.to_tuple());
@@ -278,6 +279,24 @@ bool AlphaRowset::check_path(const std::string& path) {
         }
     }
     return valid_paths.find(path) != valid_paths.end();
+}
+
+bool AlphaRowset::check_file_exist() {
+    for (auto& segment_group : _segment_groups) {
+        for (int i = 0; i < segment_group->num_segments(); ++i) {
+            std::string data_path = segment_group->construct_data_file_path(i);
+            if (!FileUtils::check_exist(data_path)) {
+                LOG(WARNING) << "data file not existed: " << data_path << " for rowset_id: " << rowset_id();
+                return false;
+            }
+            std::string index_path = segment_group->construct_index_file_path(i);
+            if (!FileUtils::check_exist(index_path)) {
+                LOG(WARNING) << "index file not existed: " << index_path << " for rowset_id: " << rowset_id();
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 OLAPStatus AlphaRowset::init() {

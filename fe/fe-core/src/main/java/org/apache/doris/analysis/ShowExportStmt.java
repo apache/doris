@@ -194,7 +194,7 @@ public class ShowExportStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like below: "
-                    + " job_id = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\"");
+                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\"");
         }
     }
 

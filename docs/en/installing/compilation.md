@@ -35,33 +35,57 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-	`$ docker pull apachedoris/doris-dev:build-env`
+	`$ docker pull apache/incubator-doris:build-env-1.3`
 
 	Check mirror download completed:
 
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
+    apache/incubator-doris   build-env-1.3           49f68cecbc1a        4 days ago          3.76GB
     ```
 
-Note: For different versions of Oris, you need to download the corresponding mirror version.
+Note: For different versions of Doris, you need to download the corresponding mirror version.
 
 | image version | commit id | release version |
 |---|---|---|
-| apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-| apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+| apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
+| apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
+| apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
+| apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
+
+**note**:
+
+> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.
+
+> 2. In the docker image of build-env-1.3, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
+>
+>   Switch to JDK 8:
+>   
+>   ```
+>   $ alternatives --set java java-1.8.0-openjdk.x86_64
+>   $ alternatives --set javac java-1.8.0-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+>   ```
+>   
+>   Switch to JDK 11:
+>   
+>   ```
+>   $ alternatives --set java java-11-openjdk.x86_64
+>   $ alternatives --set javac java-11-openjdk.x86_64
+>   $ export JAVA_HOME=/usr/lib/jvm/java-11
+>   ```
 
 2. Running Mirror
 
-	`$ docker run -it apachedoris/doris-dev:build-env`
+	`$ docker run -it apache/incubator-doris:build-env-1.3`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3
     ```
 
 3. Download source code
@@ -92,19 +116,51 @@ You can also create a Doris development environment mirror yourself, referring s
 You can try to compile Doris directly in your own Linux environment.
 
 1. System Dependence
+    * Before commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
-    `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
-
-    If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
-
-   `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+       `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+ Bison 3.0+`
     
-    If you are using CentOS you can use the following command to install the dependencies
-   
-   `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
+       If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+    
+       `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python autopoint pkg-config`
+    
+       If you are using CentOS you can use the following command to install the dependencies
+    
+       `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
+    
+    * After commit [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) will use the dependencies as follows:
 
-    After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
-
+       `GCC 10+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.19.2+ Bison 3.0+`
+    
+       If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
+    
+       ```
+       sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
+       sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+       sudo apt update
+       sudo apt install gcc-10 g++-10 
+       sudo apt-get install autoconf automake libtool autopoint
+       ```
+        If you are using CentOS you can use the following command to install the dependencies
+    
+       ```
+       sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk
+       sudo yum install centos-release-scl
+       sudo yum install devtoolset-10
+       scl enable devtoolset-10 bash
+       ```
+       If devtoolset-10 is not found in current repo. Oracle has already rebuilt the devtoolset-10 packages. You can use this repo file:
+       ```
+       [ol7_software_collections]
+       name=Software Collection packages for Oracle Linux 7 ($basearch)
+       baseurl=http://yum.oracle.com/repo/OracleLinux/OL7/SoftwareCollections/$basearch/
+       gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+       gpgcheck=1
+       enabled=1
+       ```
+       After installation, set environment variables `PATH`, `JAVA_HOME`, etc.
+       Doris 0.14.0 will use gcc7 env to compile.
+    
 2. Compile Doris
 
     ```
@@ -117,7 +173,6 @@ You can try to compile Doris directly in your own Linux environment.
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
     If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
-	
 ## Special statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.

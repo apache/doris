@@ -48,7 +48,7 @@ The general process of publication is as follows:
 	5. send result email to general@incubator.apache.org
 5. Finalizing and posting a release
 	1. Upload the signature package to [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris) and generate relevant links
-	2. Publish download links on Doris website and GitHub
+	2. Publish download links on Doris website and GitHub, clean up old version packages on svn
 	3. Send Announce mail to general@incubator.apache.org
 
 
@@ -65,7 +65,7 @@ If you are a new Release Manager, you can read up on the process from the follow
 
 Release manager needs Mr. A to sign his own public key before publishing and upload it to the public key 
 server. Then he can use this public key to sign the package ready for publication.
-If your key already exists in [key] (https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
+If your key already exists in [key](https://dist.apache.org/repos/dist/dev/initiator/doris/keys), you can skip this step.
 
 
 #### Installation and configuration of signature software GnuPG
@@ -223,7 +223,7 @@ You can also upload the contents of the above public-key.txt through the followi
 http://keys.gnupg.net
 ```
 
-After successful upload, you can query the website and enter 0x33DBF2E0:
+After successfully upload, you can query the website and enter 0x33DBF2E0:
 
 http://keys.gnupg.net
 
@@ -256,7 +256,7 @@ OpenPGP Public Key Primary Fingerprint:
 #### Generating keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
@@ -305,7 +305,7 @@ After the entire branch is stable, the release can be prepared.
 1. Download the compiled image
 
          ```
-         docker pull apachedoris/doris-dev:build-env-1.2
+         docker pull apache/incubator-doris:build-env-1.2
          ```
 
 2. Use official documents to compile the new branch, see [Docker Development Mirror Compilation](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -340,7 +340,7 @@ $ git tag
 
 ### Packing Signature
 
-The following steps also need to log into user accounts directly through terminals such as SecureCRT, and can not be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
+The following steps also need to log into user accounts directly through terminals such as SecureCRT, and cannot be transferred through Su - user or ssh, otherwise the password input box will not show and error will be reported.
 
 ```
 $ git checkout 0.9.0-rc01
@@ -513,12 +513,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apachedoris/doris-dev:build-env
+$ docker pull apache/incubator-doris:build-env-1.3
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apachedoris/doris-dev:build-env
+$ docker run -it apache/incubator-doris:build-env-1.3
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.
@@ -643,9 +643,36 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
 2. Doris Official Website Download Page
 
+The download page is a markdown file, the address is as follows.
 ```
-http://doris.apache.org /downloads.html
+docs/zh-CN/downloads/downloads.md
+docs/en/downloads/downloads.md
 ```
+1. You need to change the download package address of the last released version to the apache archive address (see below).
+2. Add the download information of the new version.
+
+#### clean up the old release package from svn
+
+1. clean up old release package 
+
+Since svn only needs to save the latest version of the package, when a new version is released, the old version of the package should be cleaned up from svn.
+
+```
+https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/dev/incubator/doris/
+```
+
+Keep only the latest version of the package in these two addresses.
+
+2. Change the download link of the old version package on the download page to the address of the archive page
+
+```
+Download page: http://doris.apache.org/downloads.html
+Archive page: http://archive.apache.org/dist/incubator/doris
+```
+
+Apache will have a synchronization mechanism to archive historical release versions. For details, see: [how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
+So even if the old package is removed from svn, it can still be found on the archive page.
 
 ### Send Announce e-mail to general@incubator.apache.org
 

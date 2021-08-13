@@ -425,7 +425,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
                     float value = float_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%f", value);
+                    // Because the decimal type currently only supports (27, 9).
+                    // Therefore, we use %.9f to give priority to the progress of the decimal type.
+                    // Cannot use %f directly, this will cause 4000.9 to be converted to 4000.8999
+                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;
@@ -436,8 +439,8 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 if (double_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
-                    float value = double_array->Value(_current_line_of_batch);
-                    wbytes = sprintf((char*)tmp_buf, "%f", value);
+                    double value = double_array->Value(_current_line_of_batch);
+                    wbytes = sprintf((char*)tmp_buf, "%.9f", value);
                     fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                 }
                 break;

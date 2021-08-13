@@ -29,7 +29,7 @@
 #include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
-#include "exprs/decimal_operators.h"
+#include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
@@ -51,7 +51,7 @@ public:
         UserFunctionCache::instance()->init(
                 "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
-        DecimalOperators::init();
+        DecimalV2Operators::init();
     }
 
 protected:
@@ -66,6 +66,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
+    std::vector<doris::ExprContext*> _pre_filter;
 };
 
 TEST_F(OrcScannerTest, normal) {
@@ -405,7 +406,8 @@ TEST_F(OrcScannerTest, normal) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter,
+                       &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();
@@ -528,7 +530,8 @@ TEST_F(OrcScannerTest, normal2) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter,
+                       &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();
@@ -561,7 +564,7 @@ TEST_F(OrcScannerTest, normal3) {
         TTypeNode node;
         node.__set_type(TTypeNodeType::SCALAR);
         TScalarType scalar_type;
-        scalar_type.__set_type(TPrimitiveType::DECIMAL);
+        scalar_type.__set_type(TPrimitiveType::DECIMALV2);
         scalar_type.__set_precision(64);
         scalar_type.__set_scale(64);
         node.__set_scalar_type(scalar_type);
@@ -607,14 +610,14 @@ TEST_F(OrcScannerTest, normal3) {
             cast_expr.__set_num_children(1);
             cast_expr.__set_output_scale(-1);
             cast_expr.__isset.fn = true;
-            cast_expr.fn.name.function_name = "casttodecimal";
+            cast_expr.fn.name.function_name = "casttodecimalv2";
             cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
             cast_expr.fn.arg_types.push_back(varchar_type);
             cast_expr.fn.ret_type = decimal_type;
             cast_expr.fn.has_var_args = false;
-            cast_expr.fn.__set_signature("cast_to_decimal_val(VARCHAR(*))");
+            cast_expr.fn.__set_signature("cast_to_decimalv2_val(VARCHAR(*))");
             cast_expr.fn.__isset.scalar_fn = true;
-            cast_expr.fn.scalar_fn.symbol = "doris::DecimalOperators::cast_to_decimal_val";
+            cast_expr.fn.scalar_fn.symbol = "doris::DecimalV2Operators::cast_to_decimalv2_val";
 
             TExprNode slot_ref;
             slot_ref.node_type = TExprNodeType::SLOT_REF;
@@ -737,14 +740,14 @@ TEST_F(OrcScannerTest, normal3) {
             cast_expr.__set_num_children(1);
             cast_expr.__set_output_scale(-1);
             cast_expr.__isset.fn = true;
-            cast_expr.fn.name.function_name = "casttodecimal";
+            cast_expr.fn.name.function_name = "casttodecimalv2";
             cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
             cast_expr.fn.arg_types.push_back(varchar_type);
             cast_expr.fn.ret_type = decimal_type;
             cast_expr.fn.has_var_args = false;
-            cast_expr.fn.__set_signature("cast_to_decimal_val(VARCHAR(*))");
+            cast_expr.fn.__set_signature("cast_to_decimalv2_val(VARCHAR(*))");
             cast_expr.fn.__isset.scalar_fn = true;
-            cast_expr.fn.scalar_fn.symbol = "doris::DecimalOperators::cast_to_decimal_val";
+            cast_expr.fn.scalar_fn.symbol = "doris::DecimalV2Operators::cast_to_decimalv2_val";
 
             TExprNode slot_ref;
             slot_ref.node_type = TExprNodeType::SLOT_REF;
@@ -877,7 +880,8 @@ TEST_F(OrcScannerTest, normal3) {
     rangeDesc.file_type = TFileType::FILE_LOCAL;
     ranges.push_back(rangeDesc);
 
-    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, _pre_filter,
+                       &_counter);
     ASSERT_TRUE(scanner.open().ok());
 
     auto tracker = std::make_shared<MemTracker>();
@@ -887,7 +891,7 @@ TEST_F(OrcScannerTest, normal3) {
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
-              "(0.123456789 1.12 -1.1234500000 0.12345 0.000 1 2020-01-14 14:12:19 2020-02-10 "
+              "(0.123456789 1.12 -1.12345 0.12345 0 1 2020-01-14 14:12:19 2020-02-10 "
               "-0.0014)");
     scanner.close();
 }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import scala.Tuple2;
-
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import com.google.common.base.Strings;
@@ -31,8 +29,6 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.metadata.CompressionCodecName;
@@ -58,6 +54,8 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.util.SerializableConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -77,6 +75,8 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 
+import scala.Tuple2;
+
 // This class is a Spark-based data preprocessing program,
 // which will make use of the distributed compute framework of spark to
 // do ETL job/sort/preaggregate jobs in spark job
@@ -89,7 +89,7 @@ import java.util.Set;
 // 3. process aggregation if needed
 // 4. write data to parquet file
 public final class SparkDpp implements java.io.Serializable {
-    private static final Logger LOG = LogManager.getLogger(SparkDpp.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SparkDpp.class);
 
     private static final String NULL_FLAG = "\\N";
     private static final String DPP_RESULT_FILE = "dpp_result.json";

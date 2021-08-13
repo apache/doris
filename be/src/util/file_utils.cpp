@@ -24,9 +24,9 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <boost/filesystem.hpp>
-#include <boost/system/error_code.hpp>
+#include <filesystem>
 #include <iomanip>
+#include <memory>
 #include <sstream>
 
 #include "env/env.h"
@@ -45,10 +45,10 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
         return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", path));
     }
 
-    boost::filesystem::path p(path);
+    std::filesystem::path p(path);
 
     std::string partial_path;
-    for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
+    for (std::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
         partial_path = partial_path + it->string() + "/";
         bool is_dir = false;
 
@@ -84,10 +84,10 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
-    boost::filesystem::path boost_path(file_path);
-    boost::system::error_code ec;
-    boost::filesystem::remove_all(boost_path, ec);
-    if (ec != boost::system::errc::success) {
+    std::filesystem::path boost_path(file_path);
+    std::error_code ec;
+    std::filesystem::remove_all(boost_path, ec);
+    if (ec) {
         std::stringstream ss;
         ss << "remove all(" << file_path << ") failed, because: " << ec;
         return Status::InternalError(ss.str());
@@ -241,16 +241,15 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
     }
 
     const int64_t BUF_SIZE = 8192;
-    char* buf = new char[BUF_SIZE];
-    DeferOp free_buf(std::bind<void>(std::default_delete<char[]>(), buf));
+    std::unique_ptr<char[]> buf = std::make_unique<char[]>(BUF_SIZE);
     int64_t src_length = src_file.length();
     int64_t offset = 0;
     while (src_length > 0) {
         int64_t to_read = BUF_SIZE < src_length ? BUF_SIZE : src_length;
-        if (OLAP_SUCCESS != (src_file.pread(buf, to_read, offset))) {
+        if (OLAP_SUCCESS != (src_file.pread(buf.get(), to_read, offset))) {
             return Status::InternalError("Internal Error");
         }
-        if (OLAP_SUCCESS != (dest_file.pwrite(buf, to_read, offset))) {
+        if (OLAP_SUCCESS != (dest_file.pwrite(buf.get(), to_read, offset))) {
             return Status::InternalError("Internal Error");
         }
 

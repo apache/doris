@@ -22,6 +22,7 @@
 #include "exec/decompressor.h"
 #include "exec/local_file_reader.h"
 #include "exec/parquet_reader.h"
+#include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "exprs/expr.h"
@@ -31,6 +32,19 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
+#include "exec/parquet_reader.h"
+#include "exprs/expr.h"
+#include "exec/text_converter.h"
+#include "exec/text_converter.hpp"
+#include "exec/local_file_reader.h"
+#include "exec/broker_reader.h"
+#include "exec/buffered_reader.h"
+#include "exec/decompressor.h"
+#include "exec/parquet_reader.h"
+
+#if defined(__x86_64__)
+    #include "exec/hdfs_file_reader.h"
+#endif
 
 namespace doris {
 
@@ -38,8 +52,9 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
+                               const std::vector<ExprContext*>& pre_filter_ctxs,
                                ScannerCounter* counter)
-        : BaseScanner(state, profile, params, counter),
+        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
           _ranges(ranges),
           _broker_addresses(broker_addresses),
           // _splittable(params.splittable),
@@ -115,15 +130,29 @@ Status ParquetScanner::open_next_reader() {
             file_reader.reset(new LocalFileReader(range.path, range.start_offset));
             break;
         }
+        case TFileType::FILE_HDFS: {
+#if defined(__x86_64__)
+            file_reader.reset(new HdfsFileReader(
+                    range.hdfs_params, range.path, range.start_offset));
+            break;
+#else
+            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
+        }
         case TFileType::FILE_BROKER: {
             int64_t file_size = 0;
             // for compatibility
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
+            break;
+        }
+        case TFileType::FILE_S3: {
+            file_reader.reset(new BufferedReader(_profile,
+                    new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
 #if 0

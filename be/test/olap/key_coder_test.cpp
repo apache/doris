@@ -178,7 +178,7 @@ TEST_F(KeyCoderTest, test_date) {
 TEST_F(KeyCoderTest, test_decimal) {
     auto key_coder = get_key_coder(OLAP_FIELD_TYPE_DECIMAL);
 
-    decimal12_t val1(1, 100000000);
+    decimal12_t val1 = {1, 100000000};
     std::string buf1;
 
     key_coder->encode_ascending(&val1, sizeof(decimal12_t), &buf1);
@@ -189,19 +189,19 @@ TEST_F(KeyCoderTest, test_decimal) {
     ASSERT_EQ(check_val, val1);
 
     {
-        decimal12_t val2(-1, -100000000);
+        decimal12_t val2 = {-1, -100000000};
         std::string buf2;
         key_coder->encode_ascending(&val2, sizeof(decimal12_t), &buf2);
         ASSERT_TRUE(memcmp(buf1.c_str(), buf2.c_str(), buf1.size()) > 0);
     }
     {
-        decimal12_t val2(1, 100000001);
+        decimal12_t val2 = {1, 100000001};
         std::string buf2;
         key_coder->encode_ascending(&val2, sizeof(decimal12_t), &buf2);
         ASSERT_TRUE(memcmp(buf1.c_str(), buf2.c_str(), buf1.size()) < 0);
     }
     {
-        decimal12_t val2(0, 0);
+        decimal12_t val2 = {0, 0};
         std::string buf2;
         key_coder->encode_ascending(&val2, sizeof(decimal12_t), &buf2);
         ASSERT_TRUE(memcmp(buf1.c_str(), buf2.c_str(), buf1.size()) > 0);

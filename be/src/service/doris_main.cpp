@@ -20,11 +20,11 @@
 #include <unistd.h>
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <boost/unordered_map.hpp>
+#include <condition_variable>
+#include <mutex>
+#include <unordered_map>
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
@@ -52,12 +52,9 @@
 #include "service/http_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/logging.h"
-#include "util/network_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 static void help(const char*);

@@ -218,6 +218,21 @@ public class CreateTableLikeTest {
         String newTblName8 = "testMysqlTbl_like";
         String existedTblName8 = "testMysqlTbl";
         checkCreateMysqlTableLike(createNonOlapTableSql, createTableLikeSql8, newDbName8, existedDbName8, newTblName8, existedTblName8);
+
+        // 9. test if not exist
+        String createTableLikeSql9 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
+        try {
+            createTableLike(createTableLikeSql9);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("already exists"));
+        }
+        createTableLikeSql9 = "create table if not exists test.testMysqlTbl_like like test.testMysqlTbl";
+        try {
+            createTableLike(createTableLikeSql9);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
     }
 
     @Test

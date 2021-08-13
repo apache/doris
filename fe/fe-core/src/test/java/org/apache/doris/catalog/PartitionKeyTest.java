@@ -45,6 +45,9 @@ public class PartitionKeyTest {
     private static Column largeInt;
     private static Column date;
     private static Column datetime;
+    private static Column charString;
+    private static Column varchar;
+    private static Column bool;
     
     private Catalog catalog;
 
@@ -60,6 +63,9 @@ public class PartitionKeyTest {
         largeInt = new Column("largeint", PrimitiveType.LARGEINT);
         date = new Column("date", PrimitiveType.DATE);
         datetime = new Column("datetime", PrimitiveType.DATETIME);
+        charString = new Column("char", PrimitiveType.CHAR);
+        varchar = new Column("varchar", PrimitiveType.VARCHAR);
+        bool = new Column("bool", PrimitiveType.BOOLEAN);
 
         allColumns = Arrays.asList(tinyInt, smallInt, int32, bigInt, largeInt, date, datetime);
     }
@@ -146,6 +152,48 @@ public class PartitionKeyTest {
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
+
+        // case11
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+                Arrays.asList(charString, varchar));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+                Arrays.asList(charString, varchar));
+        Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
+
+        // case12
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+                Arrays.asList(charString, varchar));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("shijiazhuang"), new PartitionValue("tianjin")),
+                Arrays.asList(charString, varchar));
+        Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
+
+        // case13
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+                Arrays.asList(charString, varchar));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("tianjin")),
+                Arrays.asList(charString, varchar));
+        Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
+
+        // case14
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+                Arrays.asList(bool));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+                Arrays.asList(bool));
+        Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
+
+        // case15
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+                Arrays.asList(bool));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+                Arrays.asList(bool));
+        Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
+
+        // case16
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+                Arrays.asList(bool));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+                Arrays.asList(bool));
+        Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
     }
 
     @Test
@@ -175,7 +223,15 @@ public class PartitionKeyTest {
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         keys.add(new PartitionValue("2014-12-27 11:12:13"));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
-  
+        keys.add(new PartitionValue("beijing"));
+        columns.add(new Column("column12", ScalarType.createType(PrimitiveType.VARCHAR), true, null, "", ""));
+        keys.add(new PartitionValue("shanghai"));
+        columns.add(new Column("column13", ScalarType.createType(PrimitiveType.CHAR), true, null, "", ""));
+        keys.add(new PartitionValue("true"));
+        columns.add(new Column("column14", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
+        keys.add(new PartitionValue("false"));
+        columns.add(new Column("column15", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
+
         PartitionKey key = PartitionKey.createPartitionKey(keys, columns);
         key.write(dos);
 

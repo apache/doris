@@ -34,9 +34,9 @@ This document focuses on how to create a Rollup job, as well as some considerati
 
 ## Glossary
 
-* Base Table：When each table is created, it corresponds to a base table. The base table stores the complete data of this table. Rollups are usually created based on the data in the base table (and can also be created from other rollups).
-* Index：Materialized index. Rollup or Base Table are both called materialized indexes.
-* Transaction：Each import task is a transaction, and each transaction has a unique incrementing Transaction ID.
+* Base Table: When each table is created, it corresponds to a base table. The base table stores the complete data of this table. Rollups are usually created based on the data in the base table (and can also be created from other rollups).
+* Index: Materialized index. Rollup or Base Table are both called materialized indexes.
+* Transaction: Each import task is a transaction, and each transaction has a unique incrementing Transaction ID.
 
 ## Basic Principles
 
@@ -181,8 +181,8 @@ In the case that the job status is not FINISHED or CANCELLED, you can cancel the
 
 ### FE Configurations
 
-* `alter_table_timeout_second`：The default timeout for the job is 86400 seconds.
+* `alter_table_timeout_second`: The default timeout for the job is 86400 seconds.
 
 ### BE Configurations
 
-* `alter_tablet_worker_count`：Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the rollup job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Schema Change job.
+* `alter_tablet_worker_count`: Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the rollup job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Schema Change job.

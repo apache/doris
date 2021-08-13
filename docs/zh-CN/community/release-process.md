@@ -48,7 +48,7 @@ Apache 的发布必须至少是 IPMC 成员，拥有 apache 邮箱的committer�
 	5. 发 Result 邮件到 general@incubator.apache.org
 5. 完成工作
 	1. 上传签名的软件包到 [Apache release repo](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接
-	2. 在 Doris 官网和 github 发布下载链接
+	2. 在 Doris 官网和 github 发布下载链接，并且清理 svn 上的旧版本包
 	3. 发送 Announce 邮件到 general@incubator.apache.org
 
 
@@ -246,7 +246,7 @@ OpenPGP Public Key Primary Fingerprint:
 #### 生成 keys
 
 ```
-svn co //dist.apache.org/repos/dist/dev/incubator/doris/
+svn co https://dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
 gpg --list-sigs [用户 ID] >> doris/KEYS
 gpg --armor --export [用户 ID] >> doris/KEYS
@@ -294,7 +294,7 @@ $ git checkout -b branch-0.9
 1. 下载编译镜像
 
 	```
-	docker pull apachedoris/doris-dev:build-env-1.2
+	docker pull apache/incubator-doris:build-env-1.2
 	```
 
 2. 使用官方文档编译新分支，编译方式见[Docker 开发镜像编译](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -497,12 +497,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apachedoris/doris-dev:build-env
+$ docker pull apache/incubator-doris:build-env-1.3
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apachedoris/doris-dev:build-env
+$ docker run -it apache/incubator-doris:build-env-1.3
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.
@@ -628,9 +628,36 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 
 2、Doris 官网下载页面
 
+下载页面是一个 markdown 文件，地址如下。
 ```
-http://doris.apache.org/downloads.html
+docs/zh-CN/downloads/downloads.md
+docs/en/downloads/downloads.md
 ```
+1. 需要将上一次发布版本的下载包地址改为 apache 的归档地址（见后）。
+2. 增加新版本的下载信息。
+
+#### svn 上清理旧版本的包
+
+1. svn 上删除旧版本的包
+
+由于 svn 只需要保存最新版本的包，所以当有新版本发布的时候，旧版本的包就应该从 svn 上清理。
+
+```
+https://dist.apache.org/repos/dist/release/incubator/doris/
+https://dist.apache.org/repos/dist/dev/incubator/doris/
+```
+保持这两个地址中，只有最新版本的包即可。
+
+2. 将 Doris 官网的下载页面中，旧版本包的下载地址改为归档页面的地址 
+
+```
+下载页面: http://doris.apache.org/downloads.html
+归档页面: http://archive.apache.org/dist/incubator/doris
+```
+
+Apache 会有同步机制去将历史的发布版本进行一个归档，具体操作见：[how to archive](https://www.apache.org/legal/release-policy.html#how-to-archive)
+所以即使旧的包从 svn 上清除，还是可以在归档页面中找到。
+
 ### 发 Announce 邮件到 general@incubator.apache.org
 
 Title:

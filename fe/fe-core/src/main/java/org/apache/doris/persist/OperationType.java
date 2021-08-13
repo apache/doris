@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+
 public class OperationType {
     public static final short OP_INVALID = -1;
     public static final short OP_SAVE_NEXTID = 0;
@@ -63,6 +66,7 @@ public class OperationType {
     public static final short OP_BATCH_ADD_ROLLUP = 123;
     public static final short OP_BATCH_DROP_ROLLUP = 124;
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
+    public static final short OP_MODIFY_COMMENT = 126;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -140,10 +144,13 @@ public class OperationType {
 
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
+    @Deprecated
+    // use OP_BATCH_REMOVE_TXNS instead
     public static final short OP_DELETE_TRANSACTION_STATE = 101;
     public static final short OP_FINISHING_ROLLUP = 102;
     public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
     public static final short OP_SAVE_TRANSACTION_ID = 104;
+    public static final short OP_BATCH_REMOVE_TXNS = 105;
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
@@ -164,10 +171,18 @@ public class OperationType {
     public static final short OP_END_LOAD_JOB = 231;
     // update job info, used by spark load
     public static final short OP_UPDATE_LOAD_JOB = 232;
+    // fetch stream load record
+    public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
+    // create sync job
+    public static final short OP_CREATE_SYNC_JOB = 234;
+    // update sync job state
+    public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
     public static final short OP_DROP_SMALL_FILE = 252;
+    public static final short OP_CREATE_ENCRYPTKEY = 253;
+    public static final short OP_DROP_ENCRYPTKEY = 254;
 
     // dynamic partition 261~265
     public static final short OP_DYNAMIC_PARTITION = 261;
@@ -176,6 +191,9 @@ public class OperationType {
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
     // set table in memory
     public static final short OP_MODIFY_IN_MEMORY = 267;
+
+    // set table default distribution bucket num
+    public static final short OP_MODIFY_DISTRIBUTION_BUCKET_NUM = 268;
 
     // plugin 270~275
     public static final short OP_INSTALL_PLUGIN = 270;
@@ -188,4 +206,26 @@ public class OperationType {
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
+
+    public static final short OP_SET_LDAP_PASSWORD = 290;
+
+    // get opcode name by op codeStri
+    public static String getOpName(short opCode) {
+        try {
+            Field[] fields = OperationType.class.getDeclaredFields();
+            for (Field field : fields) {
+                if (!Modifier.isStatic(field.getModifiers())) {
+                    continue;
+                }
+                short s = field.getShort(null);
+                if (s != opCode) {
+                    continue;
+                }
+                return field.getName();
+            }
+        } catch (Exception e) {
+            return "Not Found: " + e.getMessage();
+        }
+        return "Not Found";
+    }
 }

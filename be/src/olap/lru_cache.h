@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "olap/olap_common.h"
+#include "runtime/mem_tracker.h"
 #include "util/metrics.h"
 #include "util/mutex.h"
 #include "util/slice.h"
@@ -49,7 +50,7 @@ class CacheKey;
 
 // Create a new cache with a specified name and a fixed size capacity.  This implementation
 // of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity);
+extern Cache* new_lru_cache(const std::string& name, size_t capacity, std::shared_ptr<MemTracker> parent_tracekr = nullptr);
 
 class CacheKey {
 public:
@@ -312,6 +313,7 @@ private:
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t charge, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
+    void _prune_one(LRUHandle* old);
 
     // Initialized before use.
     size_t _capacity = 0;
@@ -321,9 +323,11 @@ private:
     size_t _usage = 0;
 
     // Dummy head of LRU list.
-    // lru.prev is newest entry, lru.next is oldest entry.
     // Entries have refs==1 and in_cache==true.
-    LRUHandle _lru;
+    // _lru_normal.prev is newest entry, _lru_normal.next is oldest entry.
+    LRUHandle _lru_normal;
+    // _lru_durable.prev is newest entry, _lru_durable.next is oldest entry.
+    LRUHandle _lru_durable;
 
     HandleTable _table;
 
@@ -336,7 +340,7 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, std::shared_ptr<MemTracker> parent);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
@@ -352,7 +356,6 @@ public:
 
 private:
     void update_cache_metrics() const;
-
 private:
     static inline uint32_t _hash_slice(const CacheKey& s);
     static uint32_t _shard(uint32_t hash);
@@ -361,6 +364,7 @@ private:
     LRUCache _shards[kNumShards];
     std::atomic<uint64_t> _last_id;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity = nullptr;
     IntGauge* capacity = nullptr;
     IntGauge* usage = nullptr;

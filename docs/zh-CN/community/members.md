@@ -28,41 +28,44 @@ under the License.
 
 ## Mentors (3)
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|wave	|dave2wave	|Dave Fisher	|
-|shaofengshi	|shaofengshi|	Shao Feng Shi	|
-|ningjiang	|WillemJiang	|Willem Ning Jiang|
+| Apache ID                                                    | Github 用户名 | 公开名          |
+| ------------------------------------------------------------ | --------------- | --------------------- |
+| [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
+| [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
+| [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
 
-## PPMC (9)
-(the listing below excludes mentors)
+我们要感谢以下提交者，他们帮助Apache Doris (incubating) 取得了今天的进展。此列表可能已过时，正式列表位于 [Apache 的网站上](https://people.apache.org/committers-by-project.html#doris) 。
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|lingbin|	lingbin	|Bin Ling	|
-|lichaoyong	|chaoyli	|Chaoyong Li	|
-|zhaoc	|imay	|Chun Zhao	|
-|lide	|lide-reed, doris-ci	|De Li	|
-|chenhao	|chenhao7253886	|Hao Chen	|
-|morningman	|morningman	|Mingyu Chen|
-|maruyue	|maruyue|	Ruyue Ma	|
-|sijie	|sijie	|Sijie Guo	|
-|zshao	|zshao	|Zheng Shao|
+## PPMC (18)
 
-## Committers (13)
+(如下列表不包含 mentors)
 
-|Apache ID|Github Username	|Public Name|
-|--------|-----------|----------|
-|lingbin|	lingbin	|Bin Ling	|
-|lichaoyong	|chaoyli	|Chaoyong Li	|
-|zhaoc	|imay	|Chun Zhao	|
-|lide	|lide-reed, doris-ci	|De Li	|
-|chenhao	|chenhao7253886	|Hao Chen	|
-|morningman	|morningman	|Mingyu Chen|
-|maruyue	|maruyue|	Ruyue Ma	|
-|sijie	|sijie	|Sijie Guo	|
-|zshao	|zshao	|Zheng Shao|
-|kangkaisen|kangkaisen|Kaisen Kang|
-|lingmiao|EmmyMiao87|Ling Miao|
-|gaodayue|gaodayue|Dayue Gao|
-|liuhangyuan|HangyuanLiu|Hangyuan Liu|
+| Apache ID                                                    | Github 用户名     | 公开名   |
+| :----------------------------------------------------------- | :------------------ | :------------ |
+| [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
+| [lichaoyong](https://people.apache.org/committer-index.html#lichaoyong) | chaoyli             | Chaoyong Li   |
+| [zhaoc](https://people.apache.org/committer-index.html#zhaoc)    | imay                | Chun Zhao     |
+| [caiconghui](https://people.apache.org/committer-index.html#caiconghui) | caiconghui          | Conghui Cai   |
+| [gaodayue](https://people.apache.org/committer-index.html#gaodayue) | gaodayue            | Dayue Gao     |
+| [lide](https://people.apache.org/committer-index.html#lide)      | lide-reed, doris-ci | De Li         |
+| [liuhangyuan](https://people.apache.org/committer-index.html#liuhangyuan) | HangyuanLiu         | Hangyuan Liu  |
+| [chenhao](https://people.apache.org/committer-index.html#chenhao) | chenhao7253886      | Hao Chen      |
+| [kangkaisen](https://people.apache.org/committer-index.html#kangkaisen) | kangkaisen          | Kaisen Kang   |
+| [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
+| [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
+| [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
+| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo |
+| [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao               | Zheng Shao    |
+| [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
+
+
+## Committers (22)
+
+(如下列表不包含上述 PPMC 成员)
+
+| Apache ID                                                    | Github 用户名  | 公开名    |
+| :----------------------------------------------------------- | :--------------- | :------------- |
+| [wangbo](https://people.apache.org/committer-index.html#wangbo)  | wangbo           | Bo Wang        |
+| [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
+| [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
+| [wyf](https://people.apache.org/committer-index.html#wyf)        | wuyunfeng        | Yunfeng Wu     |

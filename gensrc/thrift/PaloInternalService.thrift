@@ -138,6 +138,17 @@ struct TQueryOptions {
   30: optional i32 max_pushdown_conditions_per_column
   // whether enable spilling to disk
   31: optional bool enable_spilling = false;
+  // whether enable parallel merge in exchange node
+  32: optional bool enable_enable_exchange_node_parallel_merge = false;
+
+  // Time in ms to wait until runtime filters are delivered.
+  33: optional i32 runtime_filter_wait_time_ms = 1000
+
+  // if the right table is greater than this value in the hash join,  we will ignore IN filter
+  34: optional i32 runtime_filter_max_in_num = 1024;
+
+  // whether enable vectorized engine 
+  41: optional bool enable_vectorized_engine = false
 }
     
 
@@ -155,6 +166,27 @@ struct TPlanFragmentDestination {
   // ... which is being executed on this server
   2: required Types.TNetworkAddress server
   3: optional Types.TNetworkAddress brpc_server
+}
+
+struct TRuntimeFilterTargetParams {
+  1: required Types.TUniqueId target_fragment_instance_id
+  // The address of the instance where the fragment is expected to run
+  2: required Types.TNetworkAddress target_fragment_instance_addr
+}
+
+struct TRuntimeFilterParams {
+  // Runtime filter merge instance address
+  1: optional Types.TNetworkAddress runtime_filter_merge_addr
+
+  // Runtime filter ID to the instance address of the fragment,
+  // that is expected to use this runtime filter
+  2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
+
+  // Runtime filter ID to the runtime filter desc
+  3: optional map<i32, PlanNodes.TRuntimeFilterDesc> rid_to_runtime_filter
+
+  // Number of Runtime filter producers
+  4: optional map<i32, i32> runtime_filter_builder_num
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment
@@ -189,6 +221,8 @@ struct TPlanFragmentExecParams {
   9: optional i32 sender_id
   10: optional i32 num_senders
   11: optional bool send_query_statistics_with_every_batch
+  // Used to merge and send runtime filter
+  12: optional TRuntimeFilterParams runtime_filter_params
 }
 
 // Global query parameters assigned by the coordinator.
@@ -213,6 +247,18 @@ enum PaloInternalServiceVersion {
   V1
 }
 
+struct TTxnParams {
+  1: optional bool need_txn
+  2: optional string auth_code_uuid
+  3: optional i64 thrift_rpc_timeout_ms
+  4: optional string db
+  5: optional string tbl
+  6: optional string user_ip
+  7: optional i64 txn_id
+  8: optional Types.TUniqueId fragment_instance_id
+  9: optional i64 db_id
+  10: optional double max_filter_ratio
+}
 
 // ExecPlanFragment
 
@@ -263,11 +309,12 @@ struct TExecPlanFragmentParams {
   14: optional TLoadErrorHubInfo load_error_hub_info
 
   // The total number of fragments on same BE host
-  15: optional i32 fragment_num_on_host;
+  15: optional i32 fragment_num_on_host
 
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
   16: optional bool is_simplified_param
+  17: optional TTxnParams txn_conf
 }
 
 struct TExecPlanFragmentResult {
@@ -288,6 +335,15 @@ struct TCancelPlanFragmentResult {
   1: optional Status.TStatus status
 }
 
+// fold constant expr
+struct TExprMap {
+  1: required map<string, Exprs.TExpr> expr_map
+}
+
+struct TFoldConstantParams {
+  1: required map<string, map<string, Exprs.TExpr>> expr_map
+  2: required TQueryGlobals query_globals
+}
 
 // TransmitData
 struct TTransmitDataParams {

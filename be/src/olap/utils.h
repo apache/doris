@@ -23,7 +23,7 @@
 #include <sys/time.h>
 #include <zlib.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -137,8 +137,8 @@ OLAPStatus gen_timestamp_string(std::string* out_string);
 
 // 将file移到回收站，回收站位于storage_root/trash, file可以是文件或目录
 // 移动的同时将file改名：storage_root/trash/20150619154308/file
-OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
-                         const boost::filesystem::path& file_path);
+OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
+                         const std::filesystem::path& file_path);
 
 enum ComparatorEnum {
     COMPARATOR_LESS = 0,

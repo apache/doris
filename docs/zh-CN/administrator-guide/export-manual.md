@@ -39,7 +39,7 @@ under the License.
 
 ## 原理
 
-用户提交一个 Export 作业后。Doris 会统计这个作业涉及的所有 Tablet。然后对这些 Tablet 进行分组，每组生成一个特殊的查询计划。该查询计划会读取所包含的 Tablet 上的数据，然后通过 Broker 将数据写到远端存储指定的路径中。
+用户提交一个 Export 作业后。Doris 会统计这个作业涉及的所有 Tablet。然后对这些 Tablet 进行分组，每组生成一个特殊的查询计划。该查询计划会读取所包含的 Tablet 上的数据，然后通过 Broker 将数据写到远端存储指定的路径中，也可以通过S3协议直接导出到支持S3协议的远端存储上。
 
 总体的调度方式如下:
 
@@ -106,10 +106,12 @@ Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
 ```
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
+[WHERE [expr]]
 TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
     "column_separator"=",",
+    "columns":"col1,col2"
     "exec_mem_limit"="2147483648",
     "timeout" = "3600"
 )
@@ -120,8 +122,9 @@ WITH BROKER "hdfs"
 );
 ```
 
-* `column_separator`：列分隔符。默认为 `\t`。
-* `line_delimiter`：行分隔符。默认为 `\n`。
+* `column_separator`：列分隔符。默认为 `\t`。支持不可见字符，比如 '\x07'。
+* columns：要导出的列，使用英文状态逗号隔开，如果不填这个参数默认是导出表的所有列
+* `line_delimiter`：行分隔符。默认为 `\n`。支持不可见字符，比如 '\x07'。
 * `exec_mem_limit`： 表示 Export 作业中，一个查询计划在单个 BE 上的内存使用限制。默认 2GB。单位字节。
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。

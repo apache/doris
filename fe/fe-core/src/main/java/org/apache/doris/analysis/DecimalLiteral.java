@@ -130,7 +130,6 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
                 buffer.putLong(value.longValue());
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 buffer = ByteBuffer.allocate(12);
                 buffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -157,7 +156,17 @@ public class DecimalLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-        return this.value.compareTo(((DecimalLiteral) expr).value);
+        if (expr instanceof DecimalLiteral) {
+            return this.value.compareTo(((DecimalLiteral) expr).value);
+        } else {
+            try {
+                DecimalLiteral decimalLiteral = new DecimalLiteral(expr.getStringValue());
+                return this.compareLiteral(decimalLiteral);
+            } catch (AnalysisException e) {
+                throw new ClassCastException("Those two values cannot be compared: " + value
+                        + " and " + expr.toSqlImpl());
+            }
+        }
     }
 
     @Override
@@ -224,7 +233,7 @@ public class DecimalLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDecimal() || targetType.isDecimalV2()) {
+        if (targetType.isDecimalV2()) {
             return this;
         } else if (targetType.isFloatingPointType()) {
             return new FloatLiteral(value.doubleValue(), targetType);

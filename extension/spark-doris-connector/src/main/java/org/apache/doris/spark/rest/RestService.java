@@ -31,18 +31,26 @@ import static org.apache.doris.spark.util.ErrorMessages.ILLEGAL_ARGUMENT_MESSAGE
 import static org.apache.doris.spark.util.ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE;
 import static org.apache.doris.spark.util.ErrorMessages.SHOULD_NOT_HAPPEN_MESSAGE;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.io.Serializable;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Base64;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.ArrayList;
 import java.util.Set;
+import java.util.HashSet;
 
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.spark.cfg.ConfigurationOptions;
 import org.apache.doris.spark.cfg.Settings;
@@ -109,36 +117,37 @@ public class RestService implements Serializable {
                 .build();
 
         request.setConfig(requestConfig);
-
         String user = cfg.getProperty(DORIS_REQUEST_AUTH_USER, "");
         String password = cfg.getProperty(DORIS_REQUEST_AUTH_PASSWORD, "");
-
-        CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-        credentialsProvider.setCredentials(
-                AuthScope.ANY,
-                new UsernamePasswordCredentials(user, password));
-        HttpClientContext context = HttpClientContext.create();
-        context.setCredentialsProvider(credentialsProvider);
         logger.info("Send request to Doris FE '{}' with user '{}'.", request.getURI(), user);
-
         IOException ex = null;
         int statusCode = -1;
 
         for (int attempt = 0; attempt < retries; attempt++) {
-            CloseableHttpClient httpClient = HttpClients.createDefault();
             logger.debug("Attempt {} to request {}.", attempt, request.getURI());
             try {
-                CloseableHttpResponse response = httpClient.execute(request, context);
-                statusCode = response.getStatusLine().getStatusCode();
-                if (statusCode != HttpStatus.SC_OK) {
+                String response;
+                if (request instanceof HttpGet){
+                    response = getConnectionGet(request.getURI().toString(), user, password,logger);
+                } else {
+                    response = getConnectionPost(request,user, password,logger);
+                }
+                if (response == null) {
                     logger.warn("Failed to get response from Doris FE {}, http code is {}",
                             request.getURI(), statusCode);
                     continue;
                 }
-                String res = EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8);
                 logger.trace("Success get response from Doris FE: {}, response is: {}.",
-                        request.getURI(), res);
-                return res;
+                        request.getURI(), response);
+                ObjectMapper mapper = new ObjectMapper();
+                Map map = mapper.readValue(response, Map.class);
+                //Handle the problem of inconsistent data format returned by http v1 and v2
+                if (map.containsKey("code") && map.containsKey("msg")) {
+                    Object data = map.get("data");
+                    return mapper.writeValueAsString(data);
+                } else {
+                    return response;
+                }
             } catch (IOException e) {
                 ex = e;
                 logger.warn(CONNECT_FAILED_MESSAGE, request.getURI(), e);
@@ -149,6 +158,54 @@ public class RestService implements Serializable {
         throw new ConnectedFailedException(request.getURI().toString(), statusCode, ex);
     }
 
+    private static String getConnectionGet(String request,String user, String passwd,Logger logger) throws IOException {
+        URL realUrl = new URL(request);
+        // open connection
+        HttpURLConnection connection = (HttpURLConnection)realUrl.openConnection();
+        String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        connection.setRequestProperty("Authorization", "Basic " + authEncoding);
+
+        connection.connect();
+        return parseResponse(connection,logger);
+    }
+
+    private static String parseResponse(HttpURLConnection connection,Logger logger) throws IOException {
+        if (connection.getResponseCode() != HttpStatus.SC_OK) {
+            logger.warn("Failed to get response from Doris  {}, http code is {}",
+                    connection.getURL(), connection.getResponseCode());
+            throw new IOException("Failed to get response from Doris");
+        }
+        String result = "";
+        BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), "utf-8"));
+        String line;
+        while ((line = in.readLine()) != null) {
+            result += line;
+        }
+        if (in != null) {
+            in.close();
+        }
+        return result;
+    }
+
+    private static String getConnectionPost(HttpRequestBase request,String user, String passwd,Logger logger) throws IOException {
+        URL url = new URL(request.getURI().toString());
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setInstanceFollowRedirects(false);
+        conn.setRequestMethod(request.getMethod());
+        String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        conn.setRequestProperty("Authorization", "Basic " + authEncoding);
+        InputStream content = ((HttpPost)request).getEntity().getContent();
+        String res = IOUtils.toString(content);
+        conn.setDoOutput(true);
+        conn.setDoInput(true);
+        PrintWriter out = new PrintWriter(conn.getOutputStream());
+        // send request params
+        out.print(res);
+        // flush
+        out.flush();
+        // read response
+        return parseResponse(conn,logger);
+    }
     /**
      * parse table identifier to array.
      * @param tableIdentifier table identifier string

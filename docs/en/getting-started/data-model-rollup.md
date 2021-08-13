@@ -76,9 +76,9 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
-    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
 )
-AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
+AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
 ... /* ignore Partition and Distribution */
 ;
 ```
@@ -240,10 +240,10 @@ In some multi-dimensional analysis scenarios, users are more concerned with how 
 |---|---|---|---|
 | user_id | BIGINT | Yes | user id|
 | username | VARCHAR (50) | Yes | User nickname|
-| City | VARCHAR (20) | No | User City|
+| city | VARCHAR (20) | No | User City|
 | age | SMALLINT | No | User Age|
 | sex | TINYINT | No | User Gender|
-| Phone | LARGEINT | No | User Phone|
+| phone | LARGEINT | No | User Phone|
 | address | VARCHAR (500) | No | User Address|
 | register_time | DATETIME | No | user registration time|
 
@@ -253,16 +253,16 @@ This is a typical user base information table. There is no aggregation requireme
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) COMMENT `User City',
-"Age" SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
+`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
+`city` VARCHAR (20) COMMENT `User City',
+`age` SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
 `sex` TINYINT COMMENT "用户性别",
 `phone` LARGEINT COMMENT "用户电话",
-'address ` VARCHAR (500) COMMENT'25143;',
-'register 'or'time' DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
+`address` VARCHAR (500) COMMENT'25143;',
+`register_time` DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
 )
-Unique Key ("User", "User", "Name")
-... /* 省略 Partition 和 Distribution 信息 */
+Unique Key (`user_id`, `username`)
+... /* ignore Partition and Distribution  */
 ;
 ```
 
@@ -285,16 +285,15 @@ And table-building statements:
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
 `user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) REPLACE COMMENT `User City',
-What do you say when you are young?
+`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
+`city` VARCHAR (20) REPLACE COMMENT `User City',
 `sex` TINYINT REPLACE COMMENT "用户性别",
-"phone" LARGEINT REPLACE COMMENT "25143;"
+`phone` LARGEINT REPLACE COMMENT "25143;"
 `address` VARCHAR(500) REPLACE COMMENT "用户地址",
-'register 'or'time' DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
+`register_time` DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
-... /* 省略 Partition 和 Distribution 信息 */
+AGGREGATE KEY(`user_id`, `username`)
+... /* ignore Partition and Distribution */
 ;
 ```
 
@@ -473,11 +472,11 @@ We use the prefix index of ** 36 bytes ** of a row of data as the prefix index o
 
 When our query condition is the prefix of ** prefix index **, it can greatly speed up the query speed. For example, in the first example, we execute the following queries:
 
-`SELECT * FROM table WHERE user_id=1829239 and age=20；`
+`SELECT * FROM table WHERE user_id=1829239 and age=20;`
 
 The efficiency of this query is much higher than that of ** the following queries:
 
-`SELECT * FROM table WHERE age=20；`
+`SELECT * FROM table WHERE age=20;`
 
 Therefore, when constructing tables, ** correctly choosing column order can greatly improve query efficiency **.
 
@@ -523,7 +522,7 @@ The ROLLUP table is preferred because the prefix index of ROLLUP matches better.
 * The query execution plan can be obtained by `EXPLAIN your_sql;` command, and in the execution plan, whether ROLLUP has been hit or not can be checked.
 * Base tables and all created ROLLUP can be displayed by `DESC tbl_name ALL;` statement.
 
-In this document, you can see [Query how to hit Rollup] (hit-the-rollup)
+In this document, you can see [Query how to hit Rollup](hit-the-rollup)
 
 ## Limitations of aggregation model
 
@@ -633,5 +632,5 @@ Duplicate model has no limitation of aggregation model. Because the model does n
 Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
-2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP can not be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
+2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).

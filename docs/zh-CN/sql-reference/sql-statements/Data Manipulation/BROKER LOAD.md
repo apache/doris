@@ -43,8 +43,8 @@ under the License.
     (
     data_desc1[, data_desc2, ...]
     )
-    WITH BROKER broker_name
-    [broker_properties]
+    WITH [BROKER broker_name | S3]
+    [load_properties]
     [opt_properties];
 
     1. load_label
@@ -68,10 +68,12 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
             [WHERE predicate]
             [DELETE ON label=true]
             [ORDER BY source_sequence]
+            [read_properties]
 
         说明：
             file_path: 
@@ -103,6 +105,10 @@ under the License.
             当需要跳过导入文件中的某一列时，将该列指定为 table 中不存在的列名即可。
             语法：
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
             
             SET:
 
@@ -127,11 +133,39 @@ under the License.
             
             只适用于UNIQUE_KEYS,相同key列下，保证value列按照source_sequence进行REPLACE, source_sequence可以是数据源中的列，也可以是表结构中的一列。
 
+            read_properties:
+
+            用于指定一些特殊参数。
+            语法：
+            [PROPERTIES ("key"="value", ...)]
+        
+            可以指定如下参数：
+                
+              line_delimiter： 用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
+
+              fuzzy_parse： 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json格式。
+            
+              jsonpaths: 导入json方式分为：简单模式和匹配模式。
+              简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
+              {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
+              匹配模式：用于json数据相对复杂，需要通过jsonpaths参数匹配对应的value。
+            
+              strip_outer_array: 布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。例如：
+                [
+                  {"k1" : 1, "v1" : 2},
+                  {"k1" : 3, "v1" : 4}
+                ]
+              当strip_outer_array为true，最后导入到doris中会生成两行数据。
+           
+              json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+           
+              num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
     3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
 
-    4. broker_properties
+    4. load_properties
 
         用于提供通过 broker 访问数据源的信息。不同的 broker，以及不同的访问方式，需要提供的信息不同。
 
@@ -175,6 +209,30 @@ under the License.
             fs.s3a.access.key：AmazonS3的access key
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
+        5. 如果使用S3协议直接连接远程存储时需要指定如下属性
+
+            (
+                "AWS_ENDPOINT" = "",
+                "AWS_ACCESS_KEY" = "",
+                "AWS_SECRET_KEY"="",
+                "AWS_REGION" = ""
+            )
+        6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
+            (
+                "fs.defaultFS" = "",
+                "hdfs_user"="",
+                "kerb_principal" = "",
+                "kerb_ticket_cache_path" = "",
+                "kerb_token" = ""
+            )
+            fs.defaultFS: hdfs集群defaultFS
+            hdfs_user: 连接hdfs集群时使用的用户名
+            namenode HA：
+            通过配置 namenode HA，可以在 namenode 切换时，自动识别到新的 namenode
+            dfs.nameservices: 指定 hdfs 服务的名字，自定义，如："dfs.nameservices" = "my_ha"
+            dfs.ha.namenodes.xxx：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 dfs.nameservices 中自定义的名字，如 "dfs.ha.namenodes.my_ha" = "my_nn"
+            dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
+            dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
         
     4. opt_properties
 
@@ -478,7 +536,63 @@ under the License.
          ORDER BY source_sequence
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
+
+    14. 先过滤原始数据，在进行列的映射、转换和过滤操作
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
          
+     15. 导入json文件中数据  指定FORMAT为json， 默认是通过文件后缀判断，设置读取数据的参数
+
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (k1, k2, k3)
+        properties("fuzzy_parse"="true", "strip_outer_array"="true")
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+
+    16. LOAD WITH HDFS, 普通HDFS集群
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+        );
+    17. LOAD WITH HDFS, 带ha的HDFS集群
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+            "dfs.nameservices"="my_ha",
+            "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+            "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+            "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+            "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        );
+
 ## keyword
 
     BROKER,LOAD

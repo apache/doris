@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
 #define DORIS_BE_RUNTIME_RAW_VALUE_H
 
-#include <boost/functional/hash.hpp>
 #include <string>
 
 #include "common/logging.h"
@@ -154,10 +153,6 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const DateTimeValue*>(v1) <
                *reinterpret_cast<const DateTimeValue*>(v2);
 
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) <
-               *reinterpret_cast<const DecimalValue*>(v2);
-
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
                reinterpret_cast<const PackedInt128*>(v2)->value;
@@ -208,10 +203,6 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) ==
                *reinterpret_cast<const DateTimeValue*>(v2);
-
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) ==
-               *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -273,9 +264,6 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_DATETIME:
         return HashUtil::hash(v, 16, seed);
 
-    case TYPE_DECIMAL:
-        return HashUtil::hash(v, 40, seed);
-
     case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
 
@@ -330,9 +318,6 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_DATE:
     case TYPE_DATETIME:
         return HashUtil::fnv_hash(v, 16, seed);
-
-    case TYPE_DECIMAL:
-        return ((DecimalValue*)v)->hash(seed);
 
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
@@ -395,13 +380,6 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         char* end = date_val->to_string(buf);
 
         return HashUtil::zlib_crc_hash(buf, end - buf - 1, seed);
-    }
-    case TYPE_DECIMAL: {
-        const DecimalValue* dec_val = (const DecimalValue*)v;
-        int64_t int_val = dec_val->int_value();
-        int32_t frac_val = dec_val->frac_value();
-        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
-        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
     }
 
     case TYPE_DECIMALV2: {

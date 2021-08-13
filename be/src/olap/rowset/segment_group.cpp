@@ -359,7 +359,7 @@ OLAPStatus SegmentGroup::load(bool use_cache) {
         return OLAP_SUCCESS;
     }
     OLAPStatus res = OLAP_ERR_INDEX_LOAD_ERROR;
-    boost::lock_guard<boost::mutex> guard(_index_load_lock);
+    std::lock_guard<std::mutex> guard(_index_load_lock);
 
     if (_index_loaded) {
         return OLAP_SUCCESS;
@@ -620,8 +620,8 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
         string file_path = construct_index_file_path(_num_segments - 1);
         StorageEngine* engine = StorageEngine::instance();
         if (engine != nullptr) {
-            boost::filesystem::path tablet_path(_rowset_path_prefix);
-            boost::filesystem::path data_dir_path =
+            std::filesystem::path tablet_path(_rowset_path_prefix);
+            std::filesystem::path data_dir_path =
                     tablet_path.parent_path().parent_path().parent_path().parent_path();
             std::string data_dir_string = data_dir_path.string();
             DataDir* data_dir = engine->get_store(data_dir_string);
@@ -704,7 +704,7 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
     }
 
     VLOG_NOTICE << "finalize_segment. file_name=" << _current_file_handler.file_name()
-            << ", file_length=" << file_length;
+                << ", file_length=" << file_length;
 
     if ((res = _current_file_handler.close()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("close file error. [err=%m]");
@@ -729,9 +729,6 @@ const TabletSchema& SegmentGroup::get_tablet_schema() {
 }
 
 int SegmentGroup::get_num_zone_map_columns() {
-    if (_schema->keys_type() != KeysType::AGG_KEYS) {
-        return _schema->num_columns();
-    }
     return _schema->num_key_columns();
 }
 
@@ -811,8 +808,8 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
                          << ", to=" << new_data_file_name << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         } else {
-            VLOG_NOTICE << "link data file from " << old_data_file_name << " to " << new_data_file_name
-                    << " successfully";
+            VLOG_NOTICE << "link data file from " << old_data_file_name << " to "
+                        << new_data_file_name << " successfully";
         }
         success_links->push_back(new_data_file_name);
         std::string new_index_file_name =
@@ -831,7 +828,7 @@ OLAPStatus SegmentGroup::convert_from_old_files(const std::string& snapshot_path
             return OLAP_ERR_OS_ERROR;
         } else {
             VLOG_NOTICE << "link index file from " << old_index_file_name << " to "
-                    << new_index_file_name << " successfully";
+                        << new_index_file_name << " successfully";
         }
         success_links->push_back(new_index_file_name);
     }
@@ -856,7 +853,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
             success_links->push_back(old_data_file_name);
         }
         VLOG_NOTICE << "create hard link. from=" << new_data_file_name << ", "
-                << "to=" << old_data_file_name;
+                    << "to=" << old_data_file_name;
         std::string new_index_file_name =
                 construct_index_file_path(_rowset_path_prefix, segment_id);
         std::string old_index_file_name = construct_old_index_file_path(snapshot_path, segment_id);
@@ -870,7 +867,7 @@ OLAPStatus SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
             success_links->push_back(old_index_file_name);
         }
         VLOG_NOTICE << "create hard link. from=" << new_index_file_name << ", "
-                << "to=" << old_index_file_name;
+                    << "to=" << old_index_file_name;
     }
     return OLAP_SUCCESS;
 }

@@ -25,8 +25,7 @@ namespace doris {
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::string& label,
                                            const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, label, parent_tracker),
-          _cumulative_rowset_size_threshold(config::cumulative_compaction_budgeted_bytes) {}
+        : Compaction(tablet, label, parent_tracker) {}
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
@@ -42,7 +41,7 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
     }
     TRACE("got cumulative compaction lock");
 
-    // 1.calculate cumulative point
+    // 1. calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
     VLOG_CRITICAL << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
@@ -83,7 +82,7 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
     // 5. set cumulative point
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
-    LOG(INFO) << "after cumulative compaction, current cumulative point is "
+    VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
               << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 6. add metric to cumulative compaction

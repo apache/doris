@@ -60,12 +60,12 @@ If you need to delete the current load error hub, you can set type to null.
 1) When using the Mysql type, the error information generated when importing will be inserted into the specified MySQL library table, and then the error information can be viewed directly through the show load warnings statement.
 
 Hub of Mysql type needs to specify the following parameters:
-host：mysql host
-port：mysql port
-user：mysql user
-password：mysql password
+host: mysql host
+port: mysql port
+user: mysql user
+password: mysql password
 database mysql database
-table：mysql table
+table: mysql table
 
 2) When the Broker type is used, the error information generated when importing will form a file and be written to the designated remote storage system through the broker. Make sure that the corresponding broker is deployed
 Hub of Broker type needs to specify the following parameters:

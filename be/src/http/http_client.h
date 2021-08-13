@@ -66,6 +66,12 @@ public:
         curl_easy_setopt(_curl, CURLOPT_COPYPOSTFIELDS, post_body.c_str());
     }
 
+    // Currently, only fake SSL configurations are supported
+    void use_untrusted_ssl() {
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
+
     // TODO(zc): support set header
     // void set_header(const std::string& key, const std::string& value) {
     // _cntl.http_request().SetHeader(key, value);

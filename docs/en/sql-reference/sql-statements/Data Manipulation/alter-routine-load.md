@@ -72,9 +72,11 @@ Syntax:
     
     1. `kafka_partitions`
     2. `kafka_offsets`
-    3. Custom property, such as `property.group.id`
+    3. `kafka_broker_list`
+    4. `kafka_topic`
+    5. Custom property, such as `property.group.id`
     
-    Notice：
+    Notice:
     
     1. `kafka_partitions` and `kafka_offsets` are used to modify the offset of the kafka partition to be consumed, and can only modify the currently consumed partition. Cannot add partition.
 
@@ -90,7 +92,7 @@ Syntax:
     );
     ```
 
-2.  Modify `desired_concurrent_number` to 10, modify partition offset, and modify group id。
+2.  Modify `desired_concurrent_number` to 10, modify partition offset, and modify group id.
 
     ```
     ALTER ROUTINE LOAD FOR db1.label1

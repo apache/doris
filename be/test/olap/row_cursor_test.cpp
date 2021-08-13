@@ -21,6 +21,7 @@
 
 #include "common/object_pool.h"
 #include "olap/row.h"
+#include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -310,8 +311,11 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     scan_keys.push_back("char_exceed_length");
     scan_keys.push_back("varchar_exceed_length");
 
+    std::vector<uint32_t> columns{0, 1};
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
+
     RowCursor row;
-    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys);
+    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys, schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 34);
     ASSERT_EQ(row.get_variable_len(), 39);
@@ -463,7 +467,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     int32_t l_int = 10;
     int128_t l_largeint = (int128_t)(1) << 100;
     double l_double = 8.8;
-    decimal12_t l_decimal(11, 22);
+    decimal12_t l_decimal = {11, 22};
     Slice l_varchar("beijing");
     left.set_field_content(0, reinterpret_cast<char*>(&l_char), _mem_pool.get());
     left.set_field_content(1, reinterpret_cast<char*>(&l_int), _mem_pool.get());
@@ -483,7 +487,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;
-    decimal12_t r_decimal(22, 22);
+    decimal12_t r_decimal = {22, 22};
     Slice r_varchar("shenzhen");
     right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
     right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
@@ -544,7 +548,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
     int32_t r_int = 10;
     int128_t r_largeint = (int128_t)(1) << 100;
     double r_double = 5.5;
-    decimal12_t r_decimal(22, 22);
+    decimal12_t r_decimal = {22, 22};
     right.set_field_content(0, reinterpret_cast<char*>(&r_char), _mem_pool.get());
     right.set_field_content(1, reinterpret_cast<char*>(&r_int), _mem_pool.get());
     right.set_field_content(2, reinterpret_cast<char*>(&r_largeint), _mem_pool.get());

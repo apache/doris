@@ -17,13 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
-
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import com.clearspring.analytics.util.Lists;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -33,9 +40,13 @@ import org.junit.rules.ExpectedException;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 
 public class DynamicPartitionTableTest {
@@ -50,6 +61,7 @@ public class DynamicPartitionTableTest {
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
         FeConstants.runningUnitTest = true;
+        Config.disable_storage_medium_check = true;
 
         UtFrameUtils.createMinDorisCluster(runningDir);
 
@@ -69,6 +81,11 @@ public class DynamicPartitionTableTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void alterTable(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
     }
 
     @Test
@@ -468,16 +485,21 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable emptyDynamicTable = (OlapTable)Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("empty_dynamic_partition");
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("empty_dynamic_partition");
         Assert.assertTrue(emptyDynamicTable.getAllPartitions().size() == 4);
 
-        int partitionCount = 0;
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
-        while (partitionCount < 4) {
+        List<String> partNames = Lists.newArrayList();
+        while (partitionIterator.hasNext()) {
             String partitionName = partitionIterator.next().getName();
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
-            Date partitionDate = sdf.parse(partitionName.substring(1));
+            partNames.add(partitionName.substring(1));
+        }
+        Collections.sort(partNames);
 
+        int partitionCount = 0;
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        for (String partName : partNames) {
+            Date partitionDate = sdf.parse(partName);
             Date date = new Date();
             Calendar calendar = new GregorianCalendar();
             calendar.setTime(date);
@@ -490,5 +512,670 @@ public class DynamicPartitionTableTest {
 
             partitionCount++;
         }
+    }
+
+    @Test
+    public void testFillHistoryDynamicPartition() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`histo_dynamic_partition` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("histo_dynamic_partition");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        List<String> partNames = Lists.newArrayList();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            partNames.add(partitionName.substring(1));
+        }
+        Collections.sort(partNames);
+
+        int partitionCount = -3;
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd");
+        for (String partName : partNames) {
+            Date partitionDate = sdf.parse(partName);
+            Date date = new Date();
+            Calendar calendar = new GregorianCalendar();
+            calendar.setTime(date);
+            calendar.add(calendar.DATE, partitionCount);
+            date = calendar.getTime();
+
+            Assert.assertEquals(partitionDate.getYear(), date.getYear());
+            Assert.assertEquals(partitionDate.getMonth(), date.getMonth());
+            Assert.assertEquals(partitionDate.getDay(), date.getDay());
+
+            partitionCount++;
+        }
+    }
+
+    @Test(expected = DdlException.class)
+    public void testFillHistoryDynamicPartition2() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`histo_dynamic_partition2` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3000\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        // exceed the max dynamic partition limit
+        Config.max_dynamic_partition_num = 1000;
+        createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testFillHistoryDynamicPartition3() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start and history_partition_num are not set, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Provide start or history_partition_num property when creating history partition",
+                () -> createTable(createOlapTblStmt));
+
+        String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"1000\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start is not set, but history_partition_num is set too large, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt2));
+
+        String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.start\" = \"-1000\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start is set but too small,history_partition_num is not set, can not create history partition
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> createTable(createOlapTblStmt3));
+
+        String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition3` (\n" +
+                "  `k1` date NULL COMMENT \"\"\n" +
+                ")\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.start\" = \"-10\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"5\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\"\n" +
+                ");";
+        // start and history_partition_num are set, create ok
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt4));
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTable("dynamic_partition3");
+        Assert.assertEquals(9, tbl.getPartitionNames().size());
+
+        // alter dynamic partition property of table dynamic_partition3
+        // start too small
+        String alter1 = "alter table test.dynamic_partition3 set ('dynamic_partition.start' = '-1000', 'dynamic_partition.history_partition_num' = '1000')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> alterTable(alter1));
+
+        // end too large
+        String alter2 = "alter table test.dynamic_partition3 set ('dynamic_partition.end' = '1000')";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Too many dynamic partitions", () -> alterTable(alter2));
+
+        // history_partition_num too large, but because start is -10, so modify ok
+        String alter3 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '1000')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter3));
+        Assert.assertEquals(14, tbl.getPartitionNames().size());
+
+        // set start and history_partition_num properly.
+        String alter4 = "alter table test.dynamic_partition3 set ('dynamic_partition.history_partition_num' = '100', 'dynamic_partition.start' = '-20')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alter4));
+        Assert.assertEquals(24, tbl.getPartitionNames().size());
+    }
+
+    @Test
+    public void testFillHistoryDynamicPartitionWithHistoryPartitionNum() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`history_dynamic_partition_day` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.history_partition_num\" = \"10\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("history_dynamic_partition_day");
+        Map<String, String> tableProperties = emptyDynamicTable.getTableProperty().getProperties();
+        Assert.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
+        // never delete the old partitions
+        Assert.assertEquals(Integer.parseInt(tableProperties.get("dynamic_partition.start")), Integer.MIN_VALUE);
+    }
+
+    @Test
+    public void testAllTypeDynamicPartition() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`hour_dynamic_partition` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("hour_dynamic_partition");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(11, partitionName.length());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`week_dynamic_partition` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"week\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("week_dynamic_partition");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(8, partitionName.length());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`month_dynamic_partition` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"month\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("month_dynamic_partition");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(7, partitionName.length());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_day` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_day");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(9, partitionName.length());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_week` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"week\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_week");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(8, partitionName.length());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_month` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"month\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_month");
+        Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
+
+        partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
+        while (partitionIterator.hasNext()) {
+            String partitionName = partitionIterator.next().getName();
+            Assert.assertEquals(7, partitionName.length());
+        }
+    }
+
+    @Test(expected = DdlException.class)
+    public void testHourDynamicPartitionWithIntType() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`int_dynamic_partition_hour` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testHotPartitionNum() throws Exception {
+        Database testDb = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        // 1. hour
+        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl1");
+        RangePartitionInfo partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        Map<Long, DataProperty> idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(7, idToDataProperty.size());
+        int count = 0;
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            if (count < 3) {
+                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            } else {
+                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            }
+            ++count;
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl2` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"0\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl2");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(7, idToDataProperty.size());
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl3` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"3\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl3");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(7, idToDataProperty.size());
+        count = 0;
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            if (count < 1) {
+                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            } else {
+                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            }
+            ++count;
+        }
+
+        // 2. day
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_day_tbl1` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"2\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_day_tbl1");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(4, idToDataProperty.size());
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        }
+
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_day_tbl2` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"4\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"2\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_day_tbl2");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(8, idToDataProperty.size());
+        count = 0;
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            if (count < 2) {
+                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            } else {
+                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            }
+            ++count;
+        }
+        // 3. week
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_week_tbl1` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"4\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"week\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_week_tbl1");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(8, idToDataProperty.size());
+        count = 0;
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            if (count < 3) {
+                Assert.assertEquals(TStorageMedium.HDD, dataProperty.getStorageMedium());
+            } else {
+                Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+            }
+            ++count;
+        }
+        // 4. month
+        createOlapTblStmt = "CREATE TABLE test.`hot_partition_month_tbl1` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"4\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"month\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"4\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        tbl = (OlapTable)testDb.getTable("hot_partition_month_tbl1");
+        partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
+        idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
+        Assert.assertEquals(8, idToDataProperty.size());
+        for (DataProperty dataProperty : idToDataProperty.values()) {
+            Assert.assertEquals(TStorageMedium.SSD, dataProperty.getStorageMedium());
+        }
+    }
+
+    @Test(expected = DdlException.class)
+    public void testHotPartitionNumAbnormal() throws Exception {
+        // dynamic_partition.hot_partition_num must larger than 0.
+        String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1` (\n" +
+                "  `k1` datetime NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "PARTITION BY RANGE(`k1`)\n" +
+                "()\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 3\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.create_history_partition\" = \"true\",\n" +
+                "\"dynamic_partition.time_unit\" = \"hour\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.hot_partition_num\" = \"-1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testRuntimeInfo() throws Exception {
+        DynamicPartitionScheduler scheduler = new DynamicPartitionScheduler("test", 10);
+        long tableId = 1001;
+        String key1 = "key1";
+        String value1 = "value1";
+        String key2 = "key2";
+        String value2 = "value2";
+        // add
+        scheduler.createOrUpdateRuntimeInfo(tableId, key1, value1);
+        scheduler.createOrUpdateRuntimeInfo(tableId, key2, value2);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value1);
+
+        // modify
+        String value3 = "value2";
+        scheduler.createOrUpdateRuntimeInfo(tableId, key1, value3);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == value3);
+
+        // remove
+        scheduler.removeRuntimeInfo(tableId);
+        Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == FeConstants.null_string);
     }
 }

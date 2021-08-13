@@ -20,20 +20,19 @@ package org.apache.doris;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
+import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
-
-import com.google.common.base.Charsets;
-import com.google.common.base.Strings;
 
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
@@ -42,6 +41,9 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Charsets;
+import com.google.common.base.Strings;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,6 +89,11 @@ public class PaloFe {
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
+            LdapConfig ldapConfig = new LdapConfig();
+            if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
+                ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
+            }
+
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
                 throw new IllegalArgumentException("Java version doesn't match");
@@ -103,6 +110,12 @@ public class PaloFe {
             LOG.info("Palo FE starting...");
 
             FrontendOptions.init();
+
+            if (Config.enable_bdbje_debug_mode) {
+                // Start in BDB Debug mode
+                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                return;
+            }
 
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);
@@ -129,6 +142,10 @@ public class PaloFe {
             } else {
                 org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
                 httpServer2.setPort(Config.http_port);
+                httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer2.setAcceptors(Config.jetty_server_acceptors);
+                httpServer2.setSelectors(Config.jetty_server_selectors);
+                httpServer2.setWorkers(Config.jetty_server_workers);
                 httpServer2.start(dorisHomeDir);
             }
 
@@ -152,12 +169,12 @@ public class PaloFe {
      *      Specify the helper node when joining a bdb je replication group
      * -b --bdb
      *      Run bdbje debug tools
-     *      
+     *
      *      -l --listdb
      *          List all database names in bdbje
      *      -d --db
      *          Specify a database in bdbje
-     *          
+     *
      *          -s --stat
      *              Print statistic of a database, including count, first key, last key
      *          -f --from
@@ -166,7 +183,7 @@ public class PaloFe {
      *              Specify the end scan key
      *          -m --metaversion
      *              Specify the meta version to decode log value
-     *              
+     *
      */
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new BasicParser();
@@ -205,7 +222,7 @@ public class PaloFe {
                     System.err.println("BDBJE database name is missing");
                     System.exit(-1);
                 }
-                
+
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
                     return new CommandLineOptions(false, "", bdbOpts);
@@ -235,7 +252,7 @@ public class PaloFe {
                             System.exit(-1);
                         }
                     }
-                    
+
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                     return new CommandLineOptions(false, "", bdbOpts);
                 }
@@ -301,4 +318,5 @@ public class PaloFe {
         }
     }
 }
+
 

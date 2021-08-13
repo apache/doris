@@ -27,17 +27,16 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+
 import java.io.File;
 import java.util.Map;
-
-import com.google.gson.annotations.SerializedName;
 
 /**
  * Spark resource for etl or query.
@@ -109,8 +108,9 @@ public class SparkResource extends Resource {
         this(name, Maps.newHashMap(), null, null, Maps.newHashMap());
     }
 
-    private SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
-                          Map<String, String> brokerProperties) {
+    // "public" for testing
+    public SparkResource(String name, Map<String, String> sparkConfigs, String workingDir, String broker,
+                         Map<String, String> brokerProperties) {
         super(name, ResourceType.SPARK);
         this.sparkConfigs = sparkConfigs;
         this.workingDir = workingDir;

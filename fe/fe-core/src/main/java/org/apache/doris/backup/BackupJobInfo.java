@@ -35,6 +35,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -59,8 +60,6 @@ import java.util.Map;
 import java.util.Set;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.annotations.Expose;
 import com.google.gson.annotations.SerializedName;
 import org.glassfish.jersey.internal.guava.Sets;
 
@@ -72,6 +71,7 @@ import org.glassfish.jersey.internal.guava.Sets;
 public class BackupJobInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupJobInfo.class);
 
+    @SerializedName("name")
     public String name;
     @SerializedName("database")
     public String dbName;
@@ -87,7 +87,7 @@ public class BackupJobInfo implements Writable {
     // include other objects: view, external table
     @SerializedName("new_backup_objects")
     public NewBackupObjects newBackupObjects = new NewBackupObjects();
-    public boolean success = true;
+    public boolean success;
     @SerializedName("backup_result")
     public String successJson = "succeed";
 
@@ -96,7 +96,6 @@ public class BackupJobInfo implements Writable {
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
-    @Expose(serialize = false, deserialize = false)
     public Map<String, String> tblAlias = Maps.newHashMap();
 
     public void initBackupJobInfoAfterDeserialize() {
@@ -274,10 +273,13 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BriefBackupJobInfo {
+        @SerializedName("name")
         public String name;
+        @SerializedName("database")
         public String database;
         @SerializedName("backup_time")
         public long backupTime;
+        @SerializedName("content")
         public BackupContent content;
         @SerializedName("olap_table_list")
         public List<BriefBackupOlapTable> olapTableList = Lists.newArrayList();
@@ -309,12 +311,14 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BriefBackupOlapTable {
+        @SerializedName("name")
         public String name;
         @SerializedName("partition_names")
         public List<String> partitionNames;
     }
 
     public static class NewBackupObjects {
+        @SerializedName("views")
         public List<BackupViewInfo> views = Lists.newArrayList();
         @SerializedName("odbc_tables")
         public List<BackupOdbcTableInfo> odbcTables = Lists.newArrayList();
@@ -323,7 +327,9 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupOlapTableInfo {
+        @SerializedName("id")
         public long id;
+        @SerializedName("partitions")
         public Map<String, BackupPartitionInfo> partitions = Maps.newHashMap();
 
         public boolean containsPart(String partName) {
@@ -349,10 +355,13 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupPartitionInfo {
+        @SerializedName("id")
         public long id;
+        @SerializedName("version")
         public long version;
         @SerializedName("version_hash")
         public long versionHash;
+        @SerializedName("indexes")
         public Map<String, BackupIndexInfo> indexes = Maps.newHashMap();
 
         public BackupIndexInfo getIdx(String idxName) {
@@ -361,13 +370,14 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupIndexInfo {
+        @SerializedName("id")
         public long id;
         @SerializedName("schema_hash")
         public int schemaHash;
+        @SerializedName("tablets")
         public Map<Long, List<String>> tablets = Maps.newHashMap();
         @SerializedName("tablets_order")
         public List<Long> tabletsOrder = Lists.newArrayList();
-        @Expose(serialize = false, deserialize = false)
         public List<BackupTabletInfo> sortedTabletInfoList = Lists.newArrayList();
 
         public List<String> getTabletFiles(long tabletId) {
@@ -388,7 +398,9 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupTabletInfo {
+        @SerializedName("id")
         public long id;
+        @SerializedName("files")
         public List<String> files;
 
         public BackupTabletInfo(long id, List<String> files) {
@@ -398,11 +410,14 @@ public class BackupJobInfo implements Writable {
     }
 
     public static class BackupViewInfo {
+        @SerializedName("id")
         public long id;
+        @SerializedName("name")
         public String name;
     }
 
     public static class BackupOdbcTableInfo {
+        @SerializedName("id")
         public long id;
         @SerializedName("doris_table_name")
         public String dorisTableName;
@@ -412,15 +427,20 @@ public class BackupJobInfo implements Writable {
         public String linkedOdbcTableName;
         @SerializedName("resource_name")
         public String resourceName;
+        @SerializedName("host")
         public String host;
+        @SerializedName("port")
         public String port;
+        @SerializedName("user")
         public String user;
+        @SerializedName("driver")
         public String driver;
         @SerializedName("odbc_type")
         public String odbcType;
     }
 
     public static class BackupOdbcResourceInfo {
+        @SerializedName("name")
         public String name;
     }
 
@@ -624,8 +644,7 @@ public class BackupJobInfo implements Writable {
          *   }
          * }
          */
-        Gson gson = new Gson();
-        BackupJobInfo jobInfo = gson.fromJson(json, BackupJobInfo.class);
+        BackupJobInfo jobInfo = GsonUtils.GSON.fromJson(json, BackupJobInfo.class);
         jobInfo.initBackupJobInfoAfterDeserialize();
         return jobInfo;
     }
@@ -644,16 +663,16 @@ public class BackupJobInfo implements Writable {
     // Only return basic info, table and partitions
     public String getBrief() {
         BriefBackupJobInfo briefBackupJobInfo = BriefBackupJobInfo.fromBackupJobInfo(this);
-        Gson gson = new GsonBuilder().setPrettyPrinting().create();
+        Gson gson = GsonUtils.GSON_PRETTY_PRINTING;
         return gson.toJson(briefBackupJobInfo);
     }
 
     public String toJson(boolean prettyPrinting) {
         Gson gson;
         if (prettyPrinting) {
-            gson = new GsonBuilder().setPrettyPrinting().create();
+            gson = GsonUtils.GSON_PRETTY_PRINTING;
         } else {
-            gson = new Gson();
+            gson = GsonUtils.GSON;
         }
         return gson.toJson(this);
     }

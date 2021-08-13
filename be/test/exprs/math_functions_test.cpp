@@ -23,6 +23,7 @@
 #include <string>
 
 #include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
 

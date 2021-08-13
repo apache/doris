@@ -638,6 +638,7 @@ public class TableRef implements ParseNode, Writable {
         return null;
     }
 
+    public boolean isAnalyzed() { return isAnalyzed; }
     public boolean isResolved() {
         return !getClass().equals(TableRef.class);
     }

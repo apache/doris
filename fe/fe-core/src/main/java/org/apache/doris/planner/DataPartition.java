@@ -24,12 +24,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -93,6 +95,10 @@ public class DataPartition {
         return type != TPartitionType.UNPARTITIONED;
     }
 
+    public boolean isBucketShuffleHashPartition() {
+        return type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
+    }
+
     public TPartitionType getType() {
         return type;
     }
@@ -125,6 +131,9 @@ public class DataPartition {
     public String getExplainString(TExplainLevel explainLevel) {
         StringBuilder str = new StringBuilder();
         str.append(type.toString());
+        if (explainLevel == TExplainLevel.BRIEF) {
+            return str.toString();
+        }
         if (!partitionExprs.isEmpty()) {
             List<String> strings = Lists.newArrayList();
             for (Expr expr : partitionExprs) {

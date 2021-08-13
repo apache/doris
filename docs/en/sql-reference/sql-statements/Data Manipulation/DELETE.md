@@ -40,7 +40,7 @@ under the License.
         2) When the selected key column does not exist in a rollup, delete cannot be performed.
         3) The relationship between conditions can only be "and".
         If you want to achieve the "or" relationship, you need to divide the conditions into two DELETE statements.
-        4) If it is a RANGE partitioned table, you can specify the partition. If not specified, and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single partition table, you do not need to specify it.
+        4) If it is a partitioned table, you can specify the partition. If not specified, and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single partition table, you do not need to specify it.
     
     Notice:
         This statement may reduce query efficiency for a period of time after execution.

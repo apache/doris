@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.SystemIdGenerator;
 
 import java.io.DataInput;
@@ -39,8 +40,8 @@ public class InfoSchemaDb extends Database {
     }
 
     @Override
-    public boolean createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
-        return false;
+    public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
+        return Pair.create(false, false);
     }
 
     @Override

@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -34,12 +33,18 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.RewriteAliasFunctionRule;
+import org.apache.doris.rewrite.RewriteEncryptKeyRule;
+import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
+import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -145,7 +150,10 @@ public class Analyzer {
     private boolean isUDFAllowed = true;
     // timezone specified for some operation, such as broker load
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-    
+
+    // The runtime filter that is expected to be used
+    private final List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
+
     public void setIsSubquery() {
         isSubquery = true;
         globalState.containsSubquery = true;
@@ -159,6 +167,10 @@ public class Analyzer {
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
     public String getTimezone() { return timezone; }
+
+    public void putAssignedRuntimeFilter(RuntimeFilter rf) { assignedRuntimeFilters.add(rf); }
+    public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
+    public void clearAssignedRuntimeFilters() { assignedRuntimeFilters.clear(); }
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
@@ -195,8 +207,8 @@ public class Analyzer {
         private final Map<TupleId, List<ExprId>> eqJoinConjuncts = Maps.newHashMap();
 
         // set of conjuncts that have been assigned to some PlanNode
-        private final Set<ExprId> assignedConjuncts =
-            Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+        private Set<ExprId> assignedConjuncts =
+                Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
 
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
@@ -255,7 +267,13 @@ public class Analyzer {
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
-            exprRewriter_ = new ExprRewriter(rules);
+            rules.add(RewriteFromUnixTimeRule.INSTANCE);
+            rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
+            rules.add(RewriteEncryptKeyRule.INSTANCE);
+            rules.add(RewriteAliasFunctionRule.INSTANCE);
+            List<ExprRewriteRule> onceRules = Lists.newArrayList();
+            onceRules.add(ExtractCommonFactorsRule.INSTANCE);
+            exprRewriter_ = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
@@ -440,13 +458,40 @@ public class Analyzer {
         result.setAliases(aliases, ref.hasExplicitAlias());
 
         // Register all legal aliases.
-        for (String alias: aliases) {
+        for (String alias : aliases) {
             // TODO(zc)
             // aliasMap_.put(alias, result);
             tupleByAlias.put(alias, result);
         }
         tableRefMap_.put(result.getId(), ref);
 
+        return result;
+    }
+
+    /**
+     * Create an new tuple descriptor for the given table, register all table columns.
+     * Using this method requires external table read locks in advance.
+     */
+    public TupleDescriptor registerOlapTable(Table table, TableName tableName, List<String> partitions) {
+        TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
+        BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
+        TupleDescriptor result = globalState.descTbl.createTupleDescriptor();
+        result.setTable(table);
+        result.setRef(tableRef);
+        result.setAliases(tableRef.getAliases(), ref.hasExplicitAlias());
+        for (Column col : table.getBaseSchema(true)) {
+            SlotDescriptor slot = globalState.descTbl.addSlotDescriptor(result);
+            slot.setIsMaterialized(true);
+            slot.setColumn(col);
+            slot.setIsNullable(col.isAllowNull());
+            String key = tableRef.aliases_[0] + "." + col.getName();
+            slotRefMap.put(key, slot);
+        }
+        globalState.descTbl.computeStatAndMemLayout();
+        tableRefMap_.put(result.getId(), ref);
+        for (String alias : tableRef.getAliases()) {
+            tupleByAlias.put(alias, result);
+        }
         return result;
     }
 
@@ -509,7 +554,13 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
         }
 
-        TableName tblName = new TableName(database.getFullName(), table.getName());
+        // tableName.getTbl() stores the table name specified by the user in the from statement.
+        // In the case of case-sensitive table names, the value of tableName.getTbl() is the same as table.getName().
+        // However, since the system view is not case-sensitive, table.getName() gets the lowercase view name,
+        // which may not be the same as the user's reference to the table name, causing the table name not to be found
+        // in registerColumnRef(). So here the tblName is constructed using tableName.getTbl()
+        // instead of table.getName().
+        TableName tblName = new TableName(dbName, tableName.getTbl());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {
@@ -544,6 +595,10 @@ public class Analyzer {
         return globalState.descTbl.getTupleDesc(id);
     }
 
+    public SlotDescriptor getSlotDesc(SlotId id) {
+        return globalState.descTbl.getSlotDesc(id);
+    }
+
     /**
      * Given a "table alias"."column alias", return the SlotDescriptor
      *
@@ -570,10 +625,6 @@ public class Analyzer {
         if (newTblName == null) {
             d = resolveColumnRef(colName);
         } else {
-            if (InfoSchemaDb.isInfoSchemaDb(newTblName.getDb())
-                    || (newTblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
-                newTblName = new TableName(newTblName.getDb(), newTblName.getTbl().toLowerCase());
-            }
             d = resolveColumnRef(newTblName, colName);
         }
         /*
@@ -831,6 +882,14 @@ public class Analyzer {
     }
 
     /**
+     * register expr id
+     * @param expr
+     */
+    void registerExprId(Expr expr) {
+        expr.setId(globalState.conjunctIdGenerator.getNextId());
+    }
+
+    /**
      * Register individual conjunct with all tuple and slot ids it references
      * and with the global conjunct list.
      */
@@ -926,6 +985,16 @@ public class Analyzer {
         registerConjunct(p);
     }
 
+    public Set<ExprId> getAssignedConjuncts() {
+        return Sets.newHashSet(globalState.assignedConjuncts);
+    }
+
+    public void setAssignedConjuncts(Set<ExprId> assigned) {
+        if (assigned != null) {
+            globalState.assignedConjuncts = Sets.newHashSet(assigned);
+        }
+    }
+
     /**
      * Return all unassigned registered conjuncts that are fully bound by the given
      * (logical) tuple ids, can be evaluated by 'tupleIds' and are not tied to an
@@ -933,7 +1002,7 @@ public class Analyzer {
      */
     public List<Expr> getUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
-        for (Expr e: getUnassignedConjuncts(tupleIds, true)) {
+        for (Expr e : getUnassignedConjuncts(tupleIds, true)) {
             if (canEvalPredicate(tupleIds, e)) result.add(e);
         }
         return result;
@@ -1237,13 +1306,21 @@ public class Analyzer {
                 }
                 final Expr newConjunct = conjunct.getResultValue();
                 if (newConjunct instanceof BoolLiteral) {
-                    final BoolLiteral value = (BoolLiteral)newConjunct;
+                    final BoolLiteral value = (BoolLiteral) newConjunct;
                     if (!value.getValue()) {
                         if (fromHavingClause) {
                             hasEmptyResultSet_ = true;
                         } else {
                             hasEmptySpjResultSet_ = true;
                         }
+                    }
+                    markConjunctAssigned(conjunct);
+                }
+                if (newConjunct instanceof NullLiteral) {
+                    if (fromHavingClause) {
+                        hasEmptyResultSet_ = true;
+                    } else {
+                        hasEmptySpjResultSet_ = true;
                     }
                     markConjunctAssigned(conjunct);
                 }
@@ -1570,6 +1647,24 @@ public class Analyzer {
     public void setChangeResSmap(ExprSubstitutionMap changeResSmap) {
         this.changeResSmap = changeResSmap;
     }
+
+    // Load plan and query plan are the same framework
+    // Some Load method in doris access through http protocol, which will cause the session may be empty.
+    // In order to avoid the occurrence of null pointer exceptions, a check will be added here
+    public boolean safeIsEnableJoinReorderBasedCost() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+    }
+    
+    public boolean safeIsEnableFoldConstantByBe() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return globalState.context.getSessionVariable().isEnableFoldConstantByBe();
+    }
+
     /**
      * Returns true if predicate 'e' can be correctly evaluated by a tree materializing
      * 'tupleIds', otherwise false:
@@ -1756,7 +1851,7 @@ public class Analyzer {
      * materialization decision be cost-based?
      */
     public void markRefdSlots(Analyzer analyzer, PlanNode planRoot,
-                               List<Expr> outputExprs, AnalyticInfo analyticInfo) {
+                              List<Expr> outputExprs, AnalyticInfo analyticInfo) {
         if (planRoot == null) {
             return;
         }
@@ -1793,5 +1888,39 @@ public class Analyzer {
                 }
             }
         }
+    }
+
+    /**
+     * Column conduction, can slot a value-transfer to slot b
+     * <p>
+     * TODO(zxy) Use value-transfer graph to check
+     */
+    public boolean hasValueTransfer(SlotId a, SlotId b) {
+        return a.equals(b);
+    }
+
+    /**
+     * Returns sorted slot IDs with value transfers from 'srcSid'.
+     * Time complexity: O(V) where V = number of slots
+     * <p>
+     * TODO(zxy) Use value-transfer graph to check
+     */
+    public List<SlotId> getValueTransferTargets(SlotId srcSid) {
+        List<SlotId> result = new ArrayList<>();
+        result.add(srcSid);
+        return result;
+    }
+
+    /**
+     * Returns true if any of the given slot ids or their value-transfer targets belong
+     * to an outer-joined tuple.
+     */
+    public boolean hasOuterJoinedValueTransferTarget(List<SlotId> sids) {
+        for (SlotId srcSid : sids) {
+            for (SlotId dstSid : getValueTransferTargets(srcSid)) {
+                if (isOuterJoined(getTupleId(dstSid))) return true;
+            }
+        }
+        return false;
     }
 }

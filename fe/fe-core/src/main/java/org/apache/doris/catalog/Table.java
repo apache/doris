@@ -232,6 +232,23 @@ public class Table extends MetaObject implements Writable {
         return createTime;
     }
 
+    public long getUpdateTime() {
+        return -1L;
+    }
+
+    public long getRowCount() {
+        return 0;
+    }
+
+    public long getAvgRowLength() {
+        return 0;
+    }
+
+    public long getDataLength() {
+        return 0;
+    }
+
+
     public TTableDescriptor toThrift() {
         return null;
     }
@@ -334,24 +351,48 @@ public class Table extends MetaObject implements Writable {
     }
 
     public String getEngine() {
-        if (this instanceof OlapTable) {
-            return "Doris";
-        } else if (this instanceof OdbcTable) {
-            return "Odbc";
-        } else if (this instanceof MysqlTable) {
-            return "MySQL";
-        } else if (this instanceof SchemaTable) {
-            return "MEMORY";
-        } else {
-            return null;
+        switch (type) {
+            case MYSQL:
+                return "MySQL";
+            case ODBC:
+                return "Odbc";
+            case OLAP:
+                return "Doris";
+            case SCHEMA:
+                return "MEMORY";
+            case INLINE_VIEW:
+                return "InlineView";
+            case VIEW:
+                return "View";
+            case BROKER:
+                return "Broker";
+            case ELASTICSEARCH:
+                return "ElasticSearch";
+            case HIVE:
+                return "Hive";
+            default:
+                return null;
         }
     }
 
     public String getMysqlType() {
-        if (this instanceof View) {
-            return "VIEW";
+        switch (type) {
+            case OLAP:
+                return "BASE TABLE";
+            case SCHEMA:
+                return "SYSTEM VIEW";
+            case INLINE_VIEW:
+            case VIEW:
+                return "VIEW";
+            case MYSQL:
+            case ODBC:
+            case BROKER:
+            case ELASTICSEARCH:
+            case HIVE:
+                return "EXTERNAL TABLE";
+            default:
+                return null;
         }
-        return "BASE TABLE";
     }
 
     public String getComment() {

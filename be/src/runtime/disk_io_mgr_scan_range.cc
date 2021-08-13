@@ -26,9 +26,9 @@ using std::vector;
 using std::list;
 using std::endl;
 
-using boost::lock_guard;
-using boost::unique_lock;
-using boost::mutex;
+using std::lock_guard;
+using std::unique_lock;
+using std::mutex;
 
 namespace doris {
 

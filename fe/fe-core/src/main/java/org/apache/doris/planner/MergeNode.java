@@ -24,14 +24,15 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
-
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TMergeNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -60,19 +61,9 @@ public class MergeNode extends PlanNode {
 
     protected final TupleId tupleId;
 
-    private final boolean isIntermediateMerge;
-
-    protected MergeNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId.asList(), "MERGE");
-       // this.rowTupleIds.add(tupleId);
-        this.tupleId = tupleId;
-        this.isIntermediateMerge = false;
-    }
-
     protected MergeNode(PlanNodeId id, MergeNode node) {
         super(id, node, "MERGE");
         this.tupleId = node.tupleId;
-        this.isIntermediateMerge = true;
     }
 
     public void addConstExprList(List<Expr> exprs) {
@@ -135,6 +126,26 @@ public class MergeNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        cardinality = constExprLists.size();
+        for (PlanNode child : children) {
+            // ignore missing child cardinality info in the hope it won't matter enough
+            // to change the planning outcome
+            if (child.cardinality > 0) {
+                cardinality += child.cardinality;
+            }
+        }
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Merge: cardinality={}", Long.toString(cardinality));
+        }
+    }
+
+    @Override
+    protected void computeOldCardinality() {
         cardinality = constExprLists.size();
         for (PlanNode child : children) {
             // ignore missing child cardinality info in the hope it won't matter enough
@@ -171,7 +182,10 @@ public class MergeNode extends PlanNode {
     }
 
     @Override
-    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        if (detailLevel == TExplainLevel.BRIEF) {
+            return "";
+        }
         StringBuilder output = new StringBuilder();
         // A MergeNode may have predicates if a union is used inside an inline view,
         // and the enclosing select stmt has predicates referring to the inline view.
