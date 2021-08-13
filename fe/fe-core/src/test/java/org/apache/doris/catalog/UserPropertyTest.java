@@ -113,5 +113,15 @@ public class UserPropertyTest {
         userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
         Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
+
+        // sql block rule
+        properties.clear();
+        properties.add(Pair.create("sql_block_rules", ""));
+        userProperty.update(properties);
+        Assert.assertEquals(1, userProperty.getSqlBlockRules().length);
+        properties.clear();
+        properties.add(Pair.create("sql_block_rules", "test1, test2,test3"));
+        userProperty.update(properties);
+        Assert.assertEquals(3, userProperty.getSqlBlockRules().length);
     }
 }
