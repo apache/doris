@@ -98,7 +98,7 @@ set ldap_admin_password = 'ldap_admin_password';
 LDAP密码验证和组授权是Doris密码验证和授权的补充，开启LDAP功能并不能完全替代Doris的密码验证和授权，而是与Doris密码验证和授权并存。
 
 ### LDAP验证登录详解
-开启LDAP后，用户在Doris和DLAP中存在一下几种情况：  
+开启LDAP后，用户在Doris和DLAP中存在以下几种情况：
 
 |LDAP用户|Doris用户|密码|登录情况|登录Doris的用户|
 |--|--|--|--|--|
@@ -174,3 +174,4 @@ member: uid=jack,ou=aidp,dc=domain,dc=com
 * 目前Doris的LDAP功能只支持明文密码验证，即用户登录时，密码在client与fe之间、fe与LDAP服务之间以明文的形式传输。
 * 当前的LDAP验证只支持在mysql协议下进行密码验证，如果使用Http接口则无法使用LDAP用户进行验证。
 * 临时用户不具有用户属性。
+
