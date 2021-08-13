@@ -63,6 +63,17 @@ docs/package-lock.json
 fe/fe-common/.classpath
 rpc_data/
 
+manager/assembly/target
+manager/assembly/output/*
+manager/assembly/assembly.iml
+manager/dm-agent/target
+manager/dm-agent/dm-agent.iml
+manager/dm-common/target
+manager/dm-common/dm-common.iml
+manager/dm-server/target
+manager/dm-server/dm-server.iml
+manager/.idea/
+manager/manager.iml
 
 #ignore vscode project file
 .vscode
