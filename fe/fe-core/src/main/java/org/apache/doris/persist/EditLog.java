@@ -26,6 +26,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -843,6 +844,21 @@ public class EditLog {
                     catalog.getAlterInstance().replayReplaceTable(log);
                     break;
                 }
+                case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayCreate(rule);
+                    break;
+                }
+                case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayAlter(rule);
+                    break;
+                }
+                case OperationType.OP_DROP_SQL_BLOCK_RULE: {
+                    DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1445,5 +1461,17 @@ public class EditLog {
 
     public void logModifyComment(ModifyCommentOperationLog op) {
         logEdit(OperationType.OP_MODIFY_COMMENT, op);
+    }
+
+    public void logCreateSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_CREATE_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logAlterSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_ALTER_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logDropSqlBlockRule(List<String> ruleNames) {
+        logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
     }
 }

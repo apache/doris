@@ -220,6 +220,14 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
+    public String[] getSqlBlockRules(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return new String[]{};
+        }
+        return existProperty.getSqlBlockRules();
+    }
+
     public UserProperty getUserProperty(String qualifiedUserName) {
         return propertyMap.get(qualifiedUserName);
     }
