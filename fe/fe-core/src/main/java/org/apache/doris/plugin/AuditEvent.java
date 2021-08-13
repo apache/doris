@@ -79,6 +79,8 @@ public class AuditEvent {
     public String stmt = "";
     @AuditField(value = "CpuTimeMS")
     public long cpuTimeMs = -1;
+    @AuditField(value = "SqlHash")
+    public String sqlHash = "";
 
     public static class AuditEventBuilder {
 
@@ -168,6 +170,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setStmt(String stmt) {
             auditEvent.stmt = stmt;
+            return this;
+        }
+
+        public AuditEventBuilder setSqlHash(String sqlHash) {
+            auditEvent.sqlHash = sqlHash;
             return this;
         }
 
