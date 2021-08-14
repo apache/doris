@@ -84,7 +84,7 @@ Currently we only support routine load from the Kafka system. This section detai
 ### Usage restrictions
 
 1. Support unauthenticated Kafka access and Kafka clusters certified by SSL.
-2. The supported message format is csv text format. Each message is a line, and the end of the line does not contain a ** line break.
+2. The supported message format is csv text or json format. Each message is a line in csv format, and the end of the line does not contain a ** line break.
 3. Only Kafka 0.10.0.0 or above is supported.
 
 ### Create a routine load task
