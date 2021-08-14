@@ -91,9 +91,19 @@ public class RangePartitionPrunerTest {
             ")\n" +
             "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String sql2 = "CREATE TABLE test.`TestPartitionByDate` (\n" +
+            "\t`p_date` date NULL,\n" +
+            "\t`cost` int(11) SUM NULL \n" +
+            ")aggregate KEY(`p_date`)\n" +
+            "PARTITION BY RANGE(`p_date`)(\n" +
+            "\tPARTITION p20210801 VALUES [('2021-08-01'),('2021-08-02')),\n" +
+            "\tPARTITION p20210802 VALUES [('2021-08-02'),('2021-08-03'))\n" +
+            ")DISTRIBUTED BY HASH(`p_date`) BUCKETS 2\n" +
+            "PROPERTIES(\"replication_num\" = \"1\");";
         createTable(sql0);
         createTable(sql1);
-
+        createTable(sql2);
     }
 
     @AfterClass
@@ -361,4 +371,17 @@ public class RangePartitionPrunerTest {
         Assert.assertFalse(explainString.contains("`c` < 4"));
     }
 
+    @Test
+    public void testPartitionByDate() throws Exception {
+        String queryStr, explainString;
+
+        queryStr = "explain select * from test.TestPartitionByDate where p_date = '2021-08-01'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`p_date` = '2021-08-01 00:00:00'"));
+
+        queryStr = "explain select * from test.TestPartitionByDate where p_date >= '2021-08-01' and p_date < '2021-08-02'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`p_date` >= "));
+        Assert.assertFalse(explainString.contains("`p_date` < "));
+    }
 }
