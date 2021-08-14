@@ -36,7 +36,6 @@ under the License.
 expr：必填。值为整数（最大为bigint） 类型的列。
 p：必填。需要精确的百分位数。取值为 [0.0,1.0]。
 
-
 ## example
 ```
 MySQL > select `table`, percentile(cost_time,0.99) from log_statis group by `table`;
