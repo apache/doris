@@ -66,7 +66,7 @@ public class RangePartitionPrunerTest {
             "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String sql = "CREATE TABLE test.`prune1` (\n" +
+        String sql1 = "CREATE TABLE test.`prune1` (\n" +
             "  `a` int(11) NULL COMMENT \"\",\n" +
             "  `b` bigint(20) NULL COMMENT \"\",\n" +
             "  `c` tinyint(4) NULL COMMENT \"\",\n" +
@@ -92,7 +92,7 @@ public class RangePartitionPrunerTest {
             "DISTRIBUTED BY HASH(`a`) BUCKETS 2 \n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
         createTable(sql0);
-        createTable(sql);
+        createTable(sql1);
 
     }
 
@@ -276,81 +276,89 @@ public class RangePartitionPrunerTest {
 
     @Test
     public void testThreeColumnErase() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b = 0;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String queryStr, explainString;
+
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b = 0;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("`a` = 0"));
-    }
+        Assert.assertTrue(explainString.contains("`b` = 0"));  // (0,1,0) in p044
 
-    @Test
-    public void testErase2() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b <= 4;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p044
+        queryStr = "explain select * from test.`prune1` where a = 0 and b <= 4;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`a` = 0"));  // (1,0,0) in p044
+        Assert.assertTrue(explainString.contains("`b` <= 4"));  // (0,5,0) in p044
 
-    @Test
-    public void testErase3() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b < 4;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p024
+        queryStr = "explain select * from test.`prune1` where a = 0 and b < 4;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` < 4"));  // (0,4,-1) in p024
 
-    @Test
-    public void testErase4() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b < -4;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // empty
+        queryStr = "explain select * from test.`prune1` where a = 0 and b < -4;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` < -4"));
 
-    @Test
-    public void testErase5() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b <= 2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p024
+        queryStr = "explain select * from test.`prune1` where a = 0 and b <= 2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` <= 2"));  // (0,3,0) in p024
 
-    @Test
-    public void testErase6() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b < 2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b < 2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` < 2"));  // (0,2,-1) in p004
 
-    @Test
-    public void testErase7() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b <= 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b <= 1;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` <= 1"));  // (0,2,-1) in p004
 
-    @Test
-    public void testErase8() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b < 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b < 1;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` < 1"));  // (0,1,0) in p004
 
-    @Test
-    public void testErase9() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 1 and b < 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p044
+        queryStr = "explain select * from test.`prune1` where a = 1 and b < 1;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`a` = 1"));  // (0,4,4) in p044
+        Assert.assertTrue(explainString.contains("`b` < 1"));  // (0,4,4) in p044
 
-    @Test
-    public void testErase10() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b > 0  and b < 2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b > 0  and b < 2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertTrue(explainString.contains("`b` > 0"));  // (0,0,0) in p000
+        Assert.assertTrue(explainString.contains("`b` < 2"));  // (0,2,-1) in p044
 
-    @Test
-    public void testErase11() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b >= 0 and b < 2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p004
+        queryStr = "explain select * from test.`prune1` where a = 0 and b >= 0 and b < 2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertFalse(explainString.contains("`b` >= 0"));
+        Assert.assertTrue(explainString.contains("`b` < 2"));  // (0,2,-1) in p044
 
-    @Test
-    public void testErase12() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b >= 0 and b <= 2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-    }
+        // p000 ~ p024
+        queryStr = "explain select * from test.`prune1` where a = 0 and b >= 0 and b <= 2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertFalse(explainString.contains("`b` >= 0"));
+        Assert.assertTrue(explainString.contains("`b` <= 2"));  // (0,3,0) in p024
 
-    @Test
-    public void testErase13() throws Exception {
-        String queryStr = "explain select * from test.`prune1` where a = 0 and b = 0 and c < 4;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        // p000、p002
+        queryStr = "explain select * from test.`prune1` where a = 0 and b = 0 and c < 4;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`a` = 0"));
+        Assert.assertFalse(explainString.contains("`b` = 0"));
+        Assert.assertFalse(explainString.contains("`c` < 4"));
     }
 
 }
