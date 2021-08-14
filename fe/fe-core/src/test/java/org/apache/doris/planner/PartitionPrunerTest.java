@@ -35,10 +35,10 @@ import org.junit.Test;
 import java.io.File;
 import java.util.UUID;
 
-public class RangePartitionPrunerTest {
+public class PartitionPrunerTest {
 
 
-    private static final String runningDir = "fe/mocked/RangePartitionPrunerTest/" + UUID.randomUUID() + "/";
+    private static final String runningDir = "fe/mocked/" + PartitionPrunerTest.class.getSimpleName() + "/" + UUID.randomUUID() + "/";
 
     private static ConnectContext connectContext;
 
@@ -101,9 +101,22 @@ public class RangePartitionPrunerTest {
             "\tPARTITION p20210802 VALUES [('2021-08-02'),('2021-08-03'))\n" +
             ")DISTRIBUTED BY HASH(`p_date`) BUCKETS 2\n" +
             "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String sql3 = "CREATE TABLE test.`TestListPartition` (\n" +
+            "\t`p_date` date NOT NULL,\n" +
+            "\t`cost` int(11) SUM NULL \n" +
+            ")aggregate KEY(`p_date`)\n" +
+            "PARTITION BY LIST(`p_date`)(\n" +
+            "\tPARTITION p20210801 VALUES IN('2021-08-01'),\n" +
+            "\tPARTITION p20210802 VALUES IN('2021-08-02'),\n" +
+            "\tPARTITION p20210803 VALUES IN('2021-08-03')\n" +
+            ")DISTRIBUTED BY HASH(`p_date`) BUCKETS 2\n" +
+            "PROPERTIES(\"replication_num\" = \"1\");";
+
         createTable(sql0);
         createTable(sql1);
         createTable(sql2);
+        createTable(sql3);
     }
 
     @AfterClass
@@ -131,7 +144,7 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testPartitionPrune() throws Exception {
+    public void testRangePartitionPrune() throws Exception {
         // all
         String queryStr = "explain select * from test.`prune1`;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
@@ -187,7 +200,7 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testOneColumnErase() throws Exception {
+    public void testOneColumnRangeErase() throws Exception {
         String explainString;
 
         String gt0 = "explain select b from test.`prune0` where a > 0";
@@ -285,7 +298,7 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testThreeColumnErase() throws Exception {
+    public void testThreeColumnRangeErase() throws Exception {
         String queryStr, explainString;
 
         // p000 ~ p004
@@ -306,7 +319,7 @@ public class RangePartitionPrunerTest {
         Assert.assertFalse(explainString.contains("`a` = 0"));
         Assert.assertTrue(explainString.contains("`b` < 4"));  // (0,4,-1) in p024
 
-        // empty
+        // do not hit any partitions
         queryStr = "explain select * from test.`prune1` where a = 0 and b < -4;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("`a` = 0"));
@@ -372,7 +385,7 @@ public class RangePartitionPrunerTest {
     }
 
     @Test
-    public void testPartitionByDate() throws Exception {
+    public void testPartitionByRangeDateErase() throws Exception {
         String queryStr, explainString;
 
         queryStr = "explain select * from test.TestPartitionByDate where p_date = '2021-08-01'";
@@ -383,5 +396,35 @@ public class RangePartitionPrunerTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("`p_date` >= "));
         Assert.assertFalse(explainString.contains("`p_date` < "));
+
+        queryStr = "explain select * from test.TestPartitionByDate where p_date >= '2021-08-01 00:00:00' and p_date < '2021-08-02 00:00:00'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`p_date` >= "));
+        Assert.assertFalse(explainString.contains("`p_date` < "));
+    }
+
+    @Test
+    public void testListPartitionErase() throws Exception {
+        String queryStr, explainString;
+
+        queryStr = "explain select * from test.TestListPartition where p_date = '2021-08-01'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`p_date` = "));
+
+        queryStr = "explain select * from test.TestListPartition where p_date >= '2021-08-01' and p_date < '2021-08-02'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`p_date` >= "));
+        Assert.assertFalse(explainString.contains("`p_date` < "));
+
+        queryStr = "explain select * from test.TestListPartition where p_date >= '2021-08-01 00:00:00' and p_date <= '2021-08-03 00:00:00'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertFalse(explainString.contains("`p_date` >= "));
+        Assert.assertFalse(explainString.contains("`p_date` <= "));
+
+        // do not hit any partitions
+        queryStr = "explain select * from test.TestListPartition where p_date >= '2021-08-01 00:00:01' and p_date <= '2021-08-01 23:59:59'";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`p_date` >= "));
+        Assert.assertTrue(explainString.contains("`p_date` <= "));
     }
 }
