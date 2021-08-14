@@ -326,7 +326,8 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
             _row_batch_consumed_cv.notify_all();
             *eos = true;
-            LOG(INFO) << "OlapScanNode ReachedLimit.";
+            VLOG_QUERY << "OlapScanNode ReachedLimit. fragment id="
+                       << print_id(_runtime_state->fragment_instance_id());
         } else {
             *eos = false;
         }
@@ -1553,7 +1554,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            VLOG_QUERY << "Scan thread cancelled, cause query done, maybe reach limit."
+                       << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
         RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),
