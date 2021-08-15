@@ -879,11 +879,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     if (v.is_null) {
         return StringVal::null();
     }
-
     double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
-    bool negative = v_cent < 0;
-    int32_t frac_value = negative ? ((int64_t) (-v_cent * 100)) % 100 : ((int64_t)(v_cent * 100)) % 100;
-    return do_money_format<int64_t, 26>(context, (int64_t) v_cent , frac_value);
+    return do_money_format(context, fmt::format("{:.2f}", v_cent));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -893,7 +890,7 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value()));
+    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {

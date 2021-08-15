@@ -47,7 +47,7 @@ private:
 TEST_F(StringFunctionsTest, do_money_format_for_bigint_bench) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     StringVal expected =
-            AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
+            AnyValUtil::from_string(ctx, std::string("9,223,372,036,854,775,807.00"));
     BigIntVal bigIntVal(9223372036854775807);
     for (int i = 0; i < LOOP_LESS_OR_MORE(10, 10000000); i++) {
         StringVal result = StringFunctions::money_format(context, bigIntVal);
@@ -58,7 +58,7 @@ TEST_F(StringFunctionsTest, do_money_format_for_bigint_bench) {
 
 TEST_F(StringFunctionsTest, do_money_format_for_decimalv2_bench) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,085.85"));
+    StringVal expected = AnyValUtil::from_string(ctx, std::string("9,223,372,085.87"));
     DecimalV2Value dv1(std::string("9223372085.8678"));
     DecimalV2Val decimalV2Val;
     dv1.to_decimal_val(&decimalV2Val);
@@ -73,15 +73,15 @@ TEST_F(StringFunctionsTest, money_format_bigint) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     StringVal result = StringFunctions::money_format(context, doris_udf::BigIntVal(123456));
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("123,456.00"));
+    StringVal expected = AnyValUtil::from_string(ctx, std::string("123,456.00"));
     ASSERT_EQ(expected, result);
 
     result = StringFunctions::money_format(context, doris_udf::BigIntVal(-123456));
-    expected = AnyValUtil::from_string_temp(context, std::string("-123,456.00"));
+    expected = AnyValUtil::from_string(ctx, std::string("-123,456.00"));
     ASSERT_EQ(expected, result);
 
     result = StringFunctions::money_format(context, doris_udf::BigIntVal(9223372036854775807));
-    expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
+    expected = AnyValUtil::from_string(ctx, std::string("9,223,372,036,854,775,807.00"));
     ASSERT_EQ(expected, result);
     delete context;
 }
@@ -106,20 +106,25 @@ TEST_F(StringFunctionsTest, money_format_double) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
     StringVal result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.456));
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("1,234.46"));
+    StringVal expected = AnyValUtil::from_string(ctx, std::string("1,234.46"));
     ASSERT_EQ(expected, result);
 
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.45));
-    expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
+    expected = AnyValUtil::from_string(ctx, std::string("1,234.45"));
     ASSERT_EQ(expected, result);
 
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.4));
-    expected = AnyValUtil::from_string_temp(context, std::string("1,234.40"));
+    expected = AnyValUtil::from_string(ctx, std::string("1,234.40"));
     ASSERT_EQ(expected, result);
 
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
-    expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
+    expected = AnyValUtil::from_string(ctx, std::string("1,234.45"));
     ASSERT_EQ(expected, result);
+
+    result = StringFunctions::money_format(context, doris_udf::DoubleVal(-36854775807.039));
+    expected = AnyValUtil::from_string(ctx, std::string("-36,854,775,807.04"));
+    ASSERT_EQ(expected, result);
+    
     delete context;
 }
 
@@ -131,7 +136,7 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     dv1.to_decimal_val(&value1);
 
     StringVal result = StringFunctions::money_format(context, value1);
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("3,333,333,333.22"));
+    StringVal expected = AnyValUtil::from_string(ctx, std::string("3,333,333,333.22"));
     ASSERT_EQ(expected, result);
 
     DecimalV2Value dv2(std::string("-740740740.71604938271975308642"));
@@ -139,7 +144,7 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     dv2.to_decimal_val(&value2);
 
     result = StringFunctions::money_format(context, value2);
-    expected = AnyValUtil::from_string_temp(context, std::string("-740,740,740.72"));
+    expected = AnyValUtil::from_string(ctx, std::string("-740,740,740.72"));
     ASSERT_EQ(expected, result);
     delete context;
 }
@@ -147,38 +152,38 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
 TEST_F(StringFunctionsTest, split_part) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("hello")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("hello")),
               StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("word")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("word")),
               StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 2));
 
     ASSERT_EQ(StringVal::null(),
               StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 3));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string(" word")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string(" word")),
               StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 2));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("2019年9")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("2019年9")),
               StringFunctions::split_part(context, StringVal("2019年9月8日"), StringVal("月"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("bcd")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("bcd")),
               StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 2));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("bd")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("bd")),
               StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 3));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
 
     ASSERT_EQ(
-            AnyValUtil::from_string_temp(context, std::string("#123")),
+            AnyValUtil::from_string(ctx, std::string("#123")),
             StringFunctions::split_part(context, StringVal("abc###123###234"), StringVal("##"), 2));
 
     delete context;
@@ -285,36 +290,36 @@ TEST_F(StringFunctionsTest, null_or_empty) {
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::substring(context, StringVal("hello word"), 0, 5));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("hello")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("hello")),
               StringFunctions::substring(context, StringVal("hello word"), 1, 5));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("word")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("word")),
               StringFunctions::substring(context, StringVal("hello word"), 7, 4));
 
     ASSERT_EQ(StringVal::null(), StringFunctions::substring(context, StringVal::null(), 1, 0));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::substring(context, StringVal("hello word"), 1, 0));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string(" word")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string(" word")),
               StringFunctions::substring(context, StringVal("hello word"), -5, 5));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("hello word 你")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("hello word 你")),
               StringFunctions::substring(context, StringVal("hello word 你好"), 1, 12));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("好")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("好")),
               StringFunctions::substring(context, StringVal("hello word 你好"), 13, 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::substring(context, StringVal("hello word 你好"), 1, 0));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("rd 你好")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("rd 你好")),
               StringFunctions::substring(context, StringVal("hello word 你好"), -5, 5));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("h")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("h")),
               StringFunctions::substring(context, StringVal("hello word 你好"), 1, 1));
     delete context;
 }
@@ -323,14 +328,14 @@ TEST_F(StringFunctionsTest, reverse) {
     FunctionUtils fu;
     doris_udf::FunctionContext* context = fu.get_fn_ctx();
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("olleh")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("olleh")),
               StringFunctions::reverse(context, StringVal("hello")));
     ASSERT_EQ(StringVal::null(), StringFunctions::reverse(context, StringVal::null()));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
               StringFunctions::reverse(context, StringVal("")));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("好你olleh")),
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("好你olleh")),
               StringFunctions::reverse(context, StringVal("hello你好")));
 }
 
