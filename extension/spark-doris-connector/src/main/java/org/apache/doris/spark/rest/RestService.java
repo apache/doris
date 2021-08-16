@@ -49,33 +49,29 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.stream.Collectors;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.spark.cfg.ConfigurationOptions;
 import org.apache.doris.spark.cfg.Settings;
+import org.apache.doris.spark.cfg.SparkSettings;
 import org.apache.doris.spark.exception.ConnectedFailedException;
 import org.apache.doris.spark.exception.DorisException;
 import org.apache.doris.spark.exception.IllegalArgumentException;
 import org.apache.doris.spark.exception.ShouldNeverHappenException;
+import org.apache.doris.spark.rest.models.Backend;
+import org.apache.doris.spark.rest.models.BackendRow;
 import org.apache.doris.spark.rest.models.QueryPlan;
 import org.apache.doris.spark.rest.models.Schema;
 import org.apache.doris.spark.rest.models.Tablet;
+import org.apache.doris.spark.sql.DorisWriterOption;
 import org.apache.http.HttpStatus;
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpRequestBase;
-import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.BasicCredentialsProvider;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
 import org.codehaus.jackson.JsonParseException;
 import org.codehaus.jackson.map.JsonMappingException;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -91,6 +87,8 @@ public class RestService implements Serializable {
     private static final String API_PREFIX = "/api";
     private static final String SCHEMA = "_schema";
     private static final String QUERY_PLAN = "_query_plan";
+    private static final String BACKENDS = "/rest/v1/system?path=//backends";
+
 
     /**
      * send request to Doris FE and get response json string.
@@ -474,6 +472,65 @@ public class RestService implements Serializable {
         }
         logger.debug("Tablet size is set to {}.", tabletsSize);
         return tabletsSize;
+    }
+
+    /**
+     * choice a Doris BE node to request.
+     * @param options configuration of request
+     * @param logger slf4j logger
+     * @return the chosen one Doris BE node
+     * @throws IllegalArgumentException BE nodes is illegal
+     */
+    @VisibleForTesting
+    public static String randomBackend(SparkSettings sparkSettings , DorisWriterOption options , Logger logger) throws DorisException, IOException {
+        // set user auth
+        sparkSettings.setProperty(DORIS_REQUEST_AUTH_USER,options.user());
+        sparkSettings.setProperty(DORIS_REQUEST_AUTH_PASSWORD,options.password());
+        String feNodes = options.feHostPort();
+        String feNode = randomEndpoint(feNodes, logger);
+        String beUrl =   String.format("http://%s" + BACKENDS,feNode);
+        HttpGet httpGet = new HttpGet(beUrl);
+        String response = send(sparkSettings,httpGet, logger);
+        logger.info("Backend Info:{}",response);
+        List<BackendRow> backends = parseBackend(response, logger);
+        logger.trace("Parse beNodes '{}'.", backends);
+        if (backends == null || backends.isEmpty()) {
+            logger.error(ILLEGAL_ARGUMENT_MESSAGE, "beNodes", backends);
+            throw new IllegalArgumentException("beNodes", String.valueOf(backends));
+        }
+        Collections.shuffle(backends);
+        BackendRow backend = backends.get(0);
+        return backend.getIP() + ":" + backend.getHttpPort();
+    }
+
+
+
+    static List<BackendRow> parseBackend(String response, Logger logger) throws DorisException, IOException {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        Backend backend;
+        try {
+            backend = mapper.readValue(response, Backend.class);
+        } catch (com.fasterxml.jackson.core.JsonParseException e) {
+            String errMsg = "Doris BE's response is not a json. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (com.fasterxml.jackson.databind.JsonMappingException e) {
+            String errMsg = "Doris BE's response cannot map to schema. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (IOException e) {
+            String errMsg = "Parse Doris BE's response to json failed. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        }
+
+        if (backend == null) {
+            logger.error(SHOULD_NOT_HAPPEN_MESSAGE);
+            throw new ShouldNeverHappenException();
+        }
+        List<BackendRow> backendRows = backend.getRows().stream().filter(v -> v.getAlive()).collect(Collectors.toList());
+        logger.debug("Parsing schema result is '{}'.", backendRows);
+        return backendRows;
     }
 
     /**
