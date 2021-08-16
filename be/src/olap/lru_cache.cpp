@@ -494,8 +494,8 @@ void ShardedLRUCache::update_cache_metrics() const {
     usage->set_value(total_usage);
     lookup_count->set_value(total_lookup_count);
     hit_count->set_value(total_hit_count);
-    usage_ratio->set_value(total_capacity == 0 ? 0 : (total_usage / total_capacity));
-    hit_ratio->set_value(total_lookup_count == 0 ? 0 : (total_hit_count / total_lookup_count));
+    usage_ratio->set_value(total_capacity == 0 ? 0 : ((double) total_usage / total_capacity));
+    hit_ratio->set_value(total_lookup_count == 0 ? 0 : ((double) total_hit_count / total_lookup_count));
     
     _mem_tracker->Consume(total_usage - _mem_tracker->consumption());
 }
