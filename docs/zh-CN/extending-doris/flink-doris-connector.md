@@ -36,6 +36,21 @@ Flink Doris Connector 可以支持通过 Flink 读写 Doris 中存储的数据�
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
 
+**针对Flink 1.13.x版本适配问题**
+
+```xml
+    <properties>
+        <scala.version>2.12</scala.version>
+        <flink.version>1.11.2</flink.version>
+        <libthrift.version>0.9.3</libthrift.version>
+        <arrow.version>0.15.1</arrow.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.home>${basedir}/../../</doris.home>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+    </properties>
+```
+
+只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编辑即可
 
 ## 编译与安装
 
