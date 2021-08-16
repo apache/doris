@@ -26,7 +26,7 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector can support reading data stored in Doris through Flink.
+Flink Doris Connector can support read and write data stored in Doris through Flink.
 
 - You can map the `Doris` table to` DataStream` or `Table`.
 
@@ -40,6 +40,11 @@ Flink Doris Connector can support reading data stored in Doris through Flink.
 ## Build and Install
 
 Execute following command in dir `extension/flink-doris-connector/`:
+
+**Notice:**
+
+1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
+2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
 
 ```bash
 sh build.sh
