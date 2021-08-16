@@ -1007,9 +1007,10 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
 
         FieldType type = _schema->column(i)->type();
         OLAPStatus field_status = fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
-        if (field_status!= OLAP_SUCCESS){
-            LOG(WARNING)<<"fill field row failed in spark load, slot index: " << i << ", type: " << type;
+        if (field_status!= OLAP_SUCCESS) {
+            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i << ", type: " << type;
             return OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID;
+        }
     }
 
     return OLAP_SUCCESS;
