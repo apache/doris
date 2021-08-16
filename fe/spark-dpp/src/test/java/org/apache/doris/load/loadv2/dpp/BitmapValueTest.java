@@ -462,6 +462,30 @@ public class BitmapValueTest {
         Assert.assertFalse(bitmapValue.equals(bitmapValue1));
     }
 
+
+    @Test
+    public void testBitmapOrDeepCopy(){
+        // this test is added for issue #6452
+        // baseIndex bitmap == Roaring64Map
+        BitmapValue baseIndex1 = new BitmapValue();
+        baseIndex1.add(1L);
+        baseIndex1.add(2L);
+        //rollupIndex bitmap == Roaring64Map
+        BitmapValue rollup1 = new BitmapValue();
+        rollup1.add(3L);
+        rollup1.add(4L);
+        Assert.assertTrue(rollup1.getBitmapType() == BitmapValue.BITMAP_VALUE);
+        BitmapValue merge = new BitmapValue();
+        // or operator is supposed to deep copy Roaring64Map object
+        merge.or(baseIndex1);
+        merge.or(rollup1);
+        Assert.assertTrue(merge.getBitmapType() == BitmapValue.BITMAP_VALUE);
+
+        Assert.assertTrue(baseIndex1.cardinality() == 2L);
+        Assert.assertTrue(rollup1.cardinality() == 2L);
+        Assert.assertTrue(merge.cardinality() == 4L);
+    }
+
     @Test
     public void testToString() {
         BitmapValue empty = new BitmapValue();
