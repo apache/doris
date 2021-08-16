@@ -90,7 +90,8 @@ private:
     bool _eof;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema, std::shared_ptr<MemTracker> parent)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
+                                 std::shared_ptr<MemTracker> parent)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema.num_columns(), nullptr),
@@ -194,11 +195,13 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -233,6 +236,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             cids.insert(column_condition.first);
         }
     }
+
     // first filter data by bloom filter index
     // bloom filter index only use CondColumn
     RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
@@ -322,12 +326,14 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(_segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+            RETURN_IF_ERROR(
+                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker = MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+            iter_opts.mem_tracker =
+                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
