@@ -700,10 +700,10 @@ OLAPStatus Tablet::capture_rs_readers_by_range(const Version& spec_version,
 
 OLAPStatus Tablet::capture_rs_readers_by_rowsets(const std::vector<Version>& version_path,
                                                  std::vector<RowsetReaderSharedPtr>* rs_readers,
-                                                 const std::set<RowsetId>& segments,
+                                                 const std::set<RowsetId>& rowset_ids,
                                                  std::shared_ptr<MemTracker> parent_tracker) const {
     DCHECK(rs_readers != nullptr && rs_readers->empty());
-    if (segments.empty()) {
+    if (rowset_ids.empty()) {
         return capture_rs_readers(version_path, rs_readers, parent_tracker);
     }
     for (auto version : version_path) {
@@ -720,7 +720,7 @@ OLAPStatus Tablet::capture_rs_readers_by_rowsets(const std::vector<Version>& ver
                 return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
             }
         }
-        if (segments.find(it->second->rowset_id()) != segments.end()) {
+        if (rowset_ids.find(it->second->rowset_id()) != rowset_ids.end()) {
             RowsetReaderSharedPtr rs_reader;
             auto res = it->second->create_reader(parent_tracker, &rs_reader);
             if (res != OLAP_SUCCESS) {
