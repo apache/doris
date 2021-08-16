@@ -35,6 +35,7 @@ Flink Doris Connector can support read and write data stored in Doris through Fl
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
+| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
 
 **For Flink 1.13.x version adaptation issues**
 
