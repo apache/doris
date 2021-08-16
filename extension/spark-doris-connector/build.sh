@@ -51,6 +51,8 @@ ${MVN_CMD} clean package
 
 mkdir -p output/
 cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
+cp target/doris-spark-1.0.0-SNAPSHOT-javadoc.jar ./output/
+cp target/doris-spark-1.0.0-SNAPSHOT-sources.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Spark-Doris-Connector"
