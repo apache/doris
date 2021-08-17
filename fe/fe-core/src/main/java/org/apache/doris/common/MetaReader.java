@@ -102,6 +102,7 @@ public class MetaReader {
             checksum = catalog.loadSmallFiles(dis, checksum);
             checksum = catalog.loadPlugins(dis, checksum);
             checksum = catalog.loadDeleteHandler(dis, checksum);
+            checksum = catalog.loadSqlBlockRule(dis, checksum);
         }
 
         MetaFooter metaFooter = MetaFooter.read(imageFile);

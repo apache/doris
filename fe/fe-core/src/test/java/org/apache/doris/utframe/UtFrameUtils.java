@@ -197,7 +197,7 @@ public class UtFrameUtils {
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(be_thrift_port);
         be.setHttpPort(be_http_port);
-        be.setBeRpcPort(be_brpc_port);
+        be.setBrpcPort(be_brpc_port);
         Catalog.getCurrentSystemInfo().addBackend(be);
     }
 

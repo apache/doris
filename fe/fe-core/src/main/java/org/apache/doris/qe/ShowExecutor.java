@@ -31,6 +31,7 @@ import org.apache.doris.analysis.ShowBackupStmt;
 import org.apache.doris.analysis.ShowBrokerStmt;
 import org.apache.doris.analysis.ShowClusterStmt;
 import org.apache.doris.analysis.ShowCollationStmt;
+import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
@@ -48,7 +49,6 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
-import org.apache.doris.analysis.ShowEncryptKeysStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
@@ -68,16 +68,18 @@ import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowRoutineLoadTaskStmt;
 import org.apache.doris.analysis.ShowSmallFilesStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
+import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.analysis.ShowSyncJobStmt;
 import org.apache.doris.analysis.ShowTableIdStmt;
+import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
-import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
+import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -85,6 +87,7 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -150,6 +153,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -313,6 +317,12 @@ public class ShowExecutor {
             handleAdminShowDataSkew();
         } else if (stmt instanceof ShowSyncJobStmt) {
             handleShowSyncJobs();
+        } else if (stmt instanceof ShowSqlBlockRuleStmt) {
+            handleShowSqlBlockRule();
+        } else if (stmt instanceof ShowTableStatsStmt) {
+            handleShowTableStats();
+        } else if (stmt instanceof ShowColumnStatsStmt) {
+            handleShowColumnStats();
         } else {
             handleEmtpy();
         }
@@ -2087,7 +2097,27 @@ public class ShowExecutor {
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
+
+    private void handleShowTableStats() throws AnalysisException {
+        ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
+        List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
+                .showTableStatsList(showTableStatsStmt.getDbName(), showTableStatsStmt.getTableName());
+        resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
+    }
+
+    private void handleShowColumnStats() throws AnalysisException {
+        ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
+        List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
+                .showColumnStatsList(showColumnStatsStmt.getTableName());
+        resultSet = new ShowResultSet(showColumnStatsStmt.getMetaData(), results);
+    }
+
+    public void handleShowSqlBlockRule() throws AnalysisException {
+        ShowSqlBlockRuleStmt showStmt = (ShowSqlBlockRuleStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<SqlBlockRule> sqlBlockRules = Catalog.getCurrentCatalog().getSqlBlockRuleMgr().getSqlBlockRule(showStmt);
+        sqlBlockRules.forEach(rule -> rows.add(rule.getShowInfo()));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
 }
-
-
-
