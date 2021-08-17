@@ -1,7 +1,7 @@
 ---
 {
-    "title": "VARCHAR",
-    "language": "en"
+    "title": "STRING",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,12 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# VARCHAR
-## Description
-VARCHAR(M)
-A variable length string, M represents the length of a variable length string. The range of M is 1-65533.
-
-Note: Variable length strings are stored in UTF-8 encoding, so usually English characters occupies 1 byte, and Chinese characters occupies 3 bytes.
+# STRING
+## description
+    STRING
+    变长字符串，最大支持2147483643 字节（2GB-4）。用法类似VARCHAR。
+    
+    注意：变长字符串是以UTF-8编码存储的，因此通常英文字符占1个字节，中文字符占3个字节。
 
 ## keyword
-VARCHAR
+
+    STRING

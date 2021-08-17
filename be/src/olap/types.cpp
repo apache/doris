@@ -79,6 +79,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
     add_mapping<OLAP_FIELD_TYPE_OBJECT>();
 }
@@ -139,6 +140,7 @@ ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
 }
 
 // equal to get_scalar_type_info

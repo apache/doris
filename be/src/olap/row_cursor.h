@@ -34,6 +34,8 @@ class Field;
 // 代理一行数据的操作
 class RowCursor {
 public:
+    static const int DEFAULT_TEXT_LENGTH = 128;
+
     RowCursor();
 
     // 遍历销毁field指针
@@ -152,10 +154,11 @@ private:
                      const std::vector<uint32_t>& columns);
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
+    inline OLAPStatus _alloc_buf();
 
     OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
 
-    std::shared_ptr<Schema> _schema;
+    std::unique_ptr<Schema> _schema;
 
     char* _fixed_buf = nullptr; // point to fixed buf
     size_t _fixed_len;
@@ -163,6 +166,8 @@ private:
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
+    size_t _string_field_count;
+    char** _long_text_buf;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };

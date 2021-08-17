@@ -108,7 +108,8 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id, const TabletSchema& schem
     }
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_OBJECT:
-    case OLAP_FIELD_TYPE_HLL: {
+    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_STRING: {
         column_writer = new (std::nothrow) VarStringColumnWriter(column_id, stream_factory, column,
                                                                  num_rows_per_row_block, bf_fpp);
         break;
@@ -237,7 +238,8 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
         if (!is_null) {
             if (_column.type() == OLAP_FIELD_TYPE_CHAR ||
                 _column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                _column.type() == OLAP_FIELD_TYPE_HLL) {
+                _column.type() == OLAP_FIELD_TYPE_HLL ||
+                _column.type() == OLAP_FIELD_TYPE_STRING) {
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
             } else {

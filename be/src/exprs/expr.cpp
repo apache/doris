@@ -140,6 +140,7 @@ Expr::Expr(const TypeDescriptor& type)
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         _node_type = (TExprNodeType::STRING_LITERAL);
         break;
 
@@ -197,6 +198,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             _node_type = (TExprNodeType::STRING_LITERAL);
             break;
 
@@ -457,7 +459,8 @@ int Expr::compute_results_layout(const std::vector<Expr*>& exprs, std::vector<in
     for (int i = 0; i < exprs.size(); ++i) {
         data[i].expr_idx = i;
 
-        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR) {
+        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR
+         || exprs[i]->type().type == TYPE_STRING) {
             data[i].byte_size = 16;
             data[i].variable_length = true;
         } else {
@@ -704,7 +707,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         _constant_val.reset(new StringVal(get_string_val(context, NULL)));
         break;
     }

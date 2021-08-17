@@ -356,7 +356,8 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 break;
             }
             case TYPE_CHAR:
-            case TYPE_VARCHAR: {
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
                 if (_str_schema[index][1] != "byte_array") {
                     std::stringstream ss;
                     ss << "project field type is char/varchar, should use byte_array, but the "

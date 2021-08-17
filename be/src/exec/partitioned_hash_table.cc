@@ -234,7 +234,7 @@ uint32_t PartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_values,
         // non-string and null slots are already part of 'expr_values'.
         // if (build_expr_ctxs_[i]->root()->type().type != TYPE_STRING
         PrimitiveType type = build_exprs_[i]->type().type;
-        if (type != TYPE_CHAR && type != TYPE_VARCHAR) {
+        if (type != TYPE_CHAR && type != TYPE_VARCHAR && type != TYPE_STRING) {
             continue;
         }
 
