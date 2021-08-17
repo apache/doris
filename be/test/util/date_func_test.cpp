@@ -48,6 +48,31 @@ TEST_F(DateFuncTest, convert_double_to_string) {
 
     len = time_to_buffer_from_double(-331.21212, buffer);
     ASSERT_EQ(std::string("-00:05:31"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(-331, buffer);
+    ASSERT_EQ(std::string("-00:05:31"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(331, buffer);
+    ASSERT_EQ(std::string("00:05:31"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(0, buffer);
+    ASSERT_EQ(std::string("00:00:00"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(0.3131, buffer);
+    ASSERT_EQ(std::string("00:00:00"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(13020399, buffer);
+    ASSERT_EQ(std::string("838:59:59"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(-3020399, buffer);
+    ASSERT_EQ(std::string("-838:59:59"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(13020399, buffer);
+    ASSERT_EQ(std::string("838:59:59"), std::string(buffer, len));
+
+    len = time_to_buffer_from_double(-13020399, buffer);
+    ASSERT_EQ(std::string("-838:59:59"), std::string(buffer, len));
+
 }
 
 } // namespace doris

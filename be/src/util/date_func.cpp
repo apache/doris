@@ -53,12 +53,16 @@ uint24_t timestamp_from_date(const std::string& date_str) {
 
     return uint24_t(value);
 }
-
+// refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+// the time value between '-838:59:59' and '838:59:59'
 int32_t time_to_buffer_from_double(double time, char* buffer) {
     char *begin = buffer;
     if (time < 0) {
         time = -time;
         *buffer++ = '-';
+    }
+    if (time > 3020399) {
+        time = 3020399;
     }
     int64_t hour = (int64_t)(time / 3600);
     if (hour >= 100) {

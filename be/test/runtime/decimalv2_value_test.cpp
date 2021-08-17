@@ -37,31 +37,66 @@ namespace doris {
 
     TEST_F(DecimalV2ValueTest, string_to_decimal) {
         char buffer[100];
-
         DecimalV2Value value(std::string("1.23"));
         ASSERT_EQ("1.230", value.to_string(3));
+        ASSERT_EQ("1.23", value.to_string());
         int len = value.to_buffer(buffer, 3);
         ASSERT_EQ("1.230", std::string(buffer, len));
+        len = value.to_buffer(buffer, -1);
+        ASSERT_EQ("1.23", std::string(buffer, len));
 
         DecimalV2Value value1(std::string("-0.23"));
         ASSERT_EQ("-0.230", value1.to_string(3));
+        ASSERT_EQ("-0.23", value1.to_string());
         len = value1.to_buffer(buffer, 3);
         ASSERT_EQ("-0.230", std::string(buffer, len));
+        len = value1.to_buffer(buffer, -1);
+        ASSERT_EQ("-0.23", std::string(buffer, len));
 
         DecimalV2Value value2(std::string("1234567890123456789.0"));
         ASSERT_EQ("1234567890123456789.000", value2.to_string(3));
+        ASSERT_EQ("1234567890123456789", value2.to_string());
         len = value2.to_buffer(buffer, 3);
         ASSERT_EQ("1234567890123456789.000", std::string(buffer, len));
+        len = value2.to_buffer(buffer, -1);
+        ASSERT_EQ("1234567890123456789", std::string(buffer, len));
 
         DecimalV2Value value3(std::string("0"));
         ASSERT_EQ("0.000", value3.to_string(3));
+        ASSERT_EQ("0", value3.to_string());
         len = value3.to_buffer(buffer, 3);
         ASSERT_EQ("0.000", std::string(buffer, len));
+        len = value3.to_buffer(buffer, -1);
+        ASSERT_EQ("0", std::string(buffer, len));
 
-        DecimalV2Value value4(std::string("0.315700"));
-        ASSERT_EQ("0.3157", value4.to_string());
+        DecimalV2Value value4(std::string("22"));
+        ASSERT_EQ("22.00", value4.to_string(2));
+        ASSERT_EQ("22", value4.to_string());
+        len = value4.to_buffer(buffer, 2);
+        ASSERT_EQ("22.00", std::string(buffer, len));
         len = value4.to_buffer(buffer, -1);
-        ASSERT_EQ("0.3157", std::string(buffer, len));
+        ASSERT_EQ("22", std::string(buffer, len));
+
+        DecimalV2Value value5(std::string("-0"));
+        ASSERT_EQ("0", value5.to_string());
+        len = value5.to_buffer(buffer, -1);
+        ASSERT_EQ("0", std::string(buffer, len));
+
+        DecimalV2Value value6(std::string("999999999999999999.999999999"));
+        ASSERT_EQ("999999999999999999.999", value6.to_string(3));
+        ASSERT_EQ("999999999999999999.999999999", value6.to_string());
+        len = value6.to_buffer(buffer, 3);
+        ASSERT_EQ("999999999999999999.999", std::string(buffer, len));
+        len = value6.to_buffer(buffer, -1);
+        ASSERT_EQ("999999999999999999.999999999", std::string(buffer, len));
+
+        DecimalV2Value value7(std::string("-999999999999999999.999999999"));
+        ASSERT_EQ("-999999999999999999.999", value7.to_string(3));
+        ASSERT_EQ("-999999999999999999.999999999", value7.to_string());
+        len = value7.to_buffer(buffer, 3);
+        ASSERT_EQ("-999999999999999999.999", std::string(buffer, len));
+        len = value7.to_buffer(buffer, -1);
+        ASSERT_EQ("-999999999999999999.999999999", std::string(buffer, len));
     }
 
     TEST_F(DecimalV2ValueTest, negative_zero) {
