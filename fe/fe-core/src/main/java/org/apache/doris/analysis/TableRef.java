@@ -94,6 +94,7 @@ public class TableRef implements ParseNode, Writable {
     private ArrayList<String> joinHints;
     private ArrayList<String> sortHints;
     private ArrayList<String> commonHints; //The Hints is set by user
+    private List<String> esIndexList;
     private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -145,6 +146,10 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
+        this(name, alias, partitionNames, commonHints, null);
+    }
+
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints, List<String> esIndexList) {
         this.name = name;
         if (alias != null) {
             aliases_ = new String[] { alias };
@@ -154,6 +159,7 @@ public class TableRef implements ParseNode, Writable {
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
+        this.esIndexList = esIndexList;
         isAnalyzed = false;
     }
     // Only used to clone
@@ -171,6 +177,7 @@ public class TableRef implements ParseNode, Writable {
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
         commonHints = other.commonHints;
+        esIndexList = other.esIndexList;
 
         usingColNames =
                 (other.usingColNames != null) ? Lists.newArrayList(other.usingColNames) : null;
@@ -327,6 +334,10 @@ public class TableRef implements ParseNode, Writable {
 
     public String getSortColumn() {
         return sortColumn;
+    }
+
+    public List<String> getEsIndexList() {
+        return esIndexList;
     }
 
     protected void analyzeSortHints() throws AnalysisException {

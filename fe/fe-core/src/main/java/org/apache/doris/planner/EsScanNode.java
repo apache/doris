@@ -69,6 +69,9 @@ public class EsScanNode extends ScanNode {
     private List<TScanRangeLocations> shardScanRanges = Lists.newArrayList();
     private EsTable table;
 
+    // Just for getNodeExplainString
+    Set<String> allSelectedPhysicalIndexName = null;
+
     boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -208,8 +211,34 @@ public class EsScanNode extends ScanNode {
         int size = backendList.size();
         int beIndex = random.nextInt(size);
         List<TScanRangeLocations> result = Lists.newArrayList();
+        allSelectedPhysicalIndexName = Sets.newTreeSet();
+        List<String> esIndexList = desc.getRef().getEsIndexList();
         for (EsShardPartitions indexState : selectedIndex) {
+            Set<String> selectedPhysicalIndexName = Sets.newTreeSet();
+            if (esIndexList != null) {
+                for (String pattern : esIndexList) {
+                    boolean anyMatch = false;
+                    for (Map.Entry<String, List<String>> entry : indexState.getAliasesMap().entrySet()) {
+                        String physicalIndexName = entry.getKey();
+                        List<String> aliasesList = entry.getValue();
+                        if (isMatch(physicalIndexName, pattern) || aliasesList.stream().anyMatch(alias -> isMatch(alias, pattern))) {
+                            selectedPhysicalIndexName.add(physicalIndexName);
+                            anyMatch = true;
+                        }
+                    }
+                    if (!anyMatch) {
+                        throw new UserException("'" + pattern +"' do not match any ES index names.");
+                    }
+                }
+                allSelectedPhysicalIndexName.addAll(selectedPhysicalIndexName);
+            } else {
+                allSelectedPhysicalIndexName.addAll(indexState.getAliasesMap().keySet());
+            }
             for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
+                String indexName = shardRouting.get(0).getIndexName();
+                if(esIndexList != null && !selectedPhysicalIndexName.contains(indexName)) {
+                    continue;
+                }
                 // get backends
                 Set<Backend> colocatedBes = Sets.newHashSet();
                 int numBe = Math.min(3, size);
@@ -246,7 +275,7 @@ public class EsScanNode extends ScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
-                esScanRange.setIndex(shardRouting.get(0).getIndexName());
+                esScanRange.setIndex(indexName);
                 esScanRange.setType(table.getMappingType());
                 esScanRange.setShardId(shardRouting.get(0).getShardId());
                 // Scan range
@@ -330,6 +359,57 @@ public class EsScanNode extends ScanNode {
         output.append(prefix)
                 .append(String.format("ES index/type: %s/%s", indexName, typeName))
                 .append("\n");
+        output.append(prefix).append("PHYSICAL_INDEXES: ").append(allSelectedPhysicalIndexName).append("\n");
         return output.toString();
+    }
+
+    /**
+     * '*' matches any sequence of characters (including the empty sequence).
+     * @see <a href="https://leetcode.com/problems/wildcard-matching/">https://leetcode.com/problems/wildcard-matching/</a>
+     *
+     * @param str The name of physical index, or their aliases
+     * @param pattern What the user enters in the 'es_index'
+     */
+    private static boolean isMatch(String str, String pattern) {
+        int sRight = str.length(), pRight = pattern.length();
+        while (sRight > 0 && pRight > 0 && pattern.charAt(pRight - 1) != '*') {
+            if (str.charAt(sRight - 1) == pattern.charAt(pRight - 1)) {
+                --sRight;
+                --pRight;
+            } else {
+                return false;
+            }
+        }
+
+        if (pRight == 0) {
+            return sRight == 0;
+        }
+
+        int sIndex = 0, pIndex = 0;
+        int sRecord = -1, pRecord = -1;
+
+        while (sIndex < sRight && pIndex < pRight) {
+            if (pattern.charAt(pIndex) == '*') {
+                ++pIndex;
+                sRecord = sIndex;
+                pRecord = pIndex;
+            } else if (str.charAt(sIndex) == pattern.charAt(pIndex)) {
+                ++sIndex;
+                ++pIndex;
+            } else if (sRecord != -1 && sRecord + 1 < sRight) {
+                ++sRecord;
+                sIndex = sRecord;
+                pIndex = pRecord;
+            } else {
+                return false;
+            }
+        }
+
+        for (int i = pIndex; i < pRight; ++i) {
+            if (pattern.charAt(i) != '*') {
+                return false;
+            }
+        }
+        return true;
     }
 }

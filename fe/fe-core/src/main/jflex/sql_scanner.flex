@@ -181,6 +181,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("engines", new Integer(SqlParserSymbols.KW_ENGINES));
         keywordMap.put("enter", new Integer(SqlParserSymbols.KW_ENTER));
         keywordMap.put("errors", new Integer(SqlParserSymbols.KW_ERRORS));
+        keywordMap.put("es_index", new Integer(SqlParserSymbols.KW_ES_INDEX));
         keywordMap.put("events", new Integer(SqlParserSymbols.KW_EVENTS));
         keywordMap.put("except", new Integer(SqlParserSymbols.KW_EXCEPT));
         keywordMap.put("exclude", new Integer(SqlParserSymbols.KW_EXCLUDE));

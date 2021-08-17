@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -42,6 +43,8 @@ public class EsShardPartitions {
     private Map<Integer, List<EsShardRouting>> shardRoutings;
     private SinglePartitionDesc partitionDesc;
     private PartitionKey partitionKey;
+    // 物理索引 -> _alias1, _alias2, _alias3
+    private Map<String, List<String>> aliasesMap;
     private long partitionId = -1;
 
     public EsShardPartitions(String indexName) {
@@ -49,6 +52,7 @@ public class EsShardPartitions {
         this.shardRoutings = Maps.newHashMap();
         this.partitionDesc = null;
         this.partitionKey = null;
+        this.aliasesMap = Maps.newHashMap();
     }
 
     /**
@@ -90,6 +94,21 @@ public class EsShardPartitions {
                 LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
             }
             partitions.addShardRouting(i, singleShardRouting);
+        }
+
+        JSONObject indices = jsonObject.getJSONObject("indices");
+        for (String physicalIndexName: indices.keySet()) {
+            JSONObject indexJsonObject = indices.getJSONObject(physicalIndexName);
+            if (indexJsonObject.has("aliases")) {
+                JSONArray aliases = indexJsonObject.getJSONArray("aliases");
+                List<String> aliasesList = Lists.newArrayListWithCapacity(aliases.length());
+                for (int i = 0; i < aliases.length(); i++) {
+                    aliasesList.add(aliases.getString(i));
+                }
+                partitions.aliasesMap.put(physicalIndexName, aliasesList);
+            } else {
+                partitions.aliasesMap.put(physicalIndexName, Collections.emptyList());
+            }
         }
         return partitions;
     }
@@ -143,6 +162,10 @@ public class EsShardPartitions {
         this.partitionKey = partitionKey;
     }
 
+    public Map<String, List<String>> getAliasesMap() {
+        return aliasesMap;
+    }
+
     public long getPartitionId() {
         return partitionId;
     }
@@ -154,6 +177,6 @@ public class EsShardPartitions {
     @Override
     public String toString() {
         return "EsIndexState [indexName=" + indexName + ", partitionDesc=" + partitionDesc + ", partitionKey="
-                + partitionKey + "]";
+                + partitionKey + ", aliasesMap=" + aliasesMap +"]";
     }
 }
