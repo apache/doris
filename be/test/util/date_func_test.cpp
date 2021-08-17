@@ -31,8 +31,14 @@ TEST_F(DateFuncTest, convert_string_to_int) {
     uint64_t result1 = timestamp_from_datetime(std::string("2021-06-08 15:21:18"));
     ASSERT_EQ(20210608152118, result1);
 
+    uint64_t abnormal_result1 = timestamp_from_datetime(std::string("2021-22-08 15:21:18"));
+    ASSERT_EQ(14000101000000, abnormal_result1);
+
     uint24_t result2 = timestamp_from_date(std::string("2021-09-08"));
     ASSERT_EQ(std::string("2021-09-08"), result2.to_string());
+
+    uint24_t abnormal_result2 = timestamp_from_date(std::string("2021-25-08"));
+    ASSERT_EQ(std::string("1400-01-01"), abnormal_result2.to_string());
 }
 
 TEST_F(DateFuncTest, convert_double_to_string) {
@@ -42,12 +48,6 @@ TEST_F(DateFuncTest, convert_double_to_string) {
 
     len = time_to_buffer_from_double(-331.21212, buffer);
     ASSERT_EQ(std::string("-00:05:31"), std::string(buffer, len));
-
-    std::string result1 = time_str_from_double(2115731.3131);
-    ASSERT_EQ(std::string("587:42:11"), result1);
-
-    std::string result2 = time_str_from_double(-2115731.3131);
-    ASSERT_EQ(std::string("-587:42:11"), result2);
 }
 
 } // namespace doris

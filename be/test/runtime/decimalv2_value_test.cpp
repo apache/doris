@@ -43,15 +43,25 @@ namespace doris {
         int len = value.to_buffer(buffer, 3);
         ASSERT_EQ("1.230", std::string(buffer, len));
 
-        DecimalV2Value value1(std::string("0.23"));
-        ASSERT_EQ("0.230", value1.to_string(3));
+        DecimalV2Value value1(std::string("-0.23"));
+        ASSERT_EQ("-0.230", value1.to_string(3));
         len = value1.to_buffer(buffer, 3);
-        ASSERT_EQ("0.230", std::string(buffer, len));
+        ASSERT_EQ("-0.230", std::string(buffer, len));
 
         DecimalV2Value value2(std::string("1234567890123456789.0"));
         ASSERT_EQ("1234567890123456789.000", value2.to_string(3));
         len = value2.to_buffer(buffer, 3);
         ASSERT_EQ("1234567890123456789.000", std::string(buffer, len));
+
+        DecimalV2Value value3(std::string("0"));
+        ASSERT_EQ("0.000", value3.to_string(3));
+        len = value3.to_buffer(buffer, 3);
+        ASSERT_EQ("0.000", std::string(buffer, len));
+
+        DecimalV2Value value4(std::string("0.315700"));
+        ASSERT_EQ("0.3157", value4.to_string());
+        len = value4.to_buffer(buffer, -1);
+        ASSERT_EQ("0.3157", std::string(buffer, len));
     }
 
     TEST_F(DecimalV2ValueTest, negative_zero) {
