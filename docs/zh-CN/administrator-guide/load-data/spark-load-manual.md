@@ -344,6 +344,7 @@ CREATE EXTERNAL TABLE hive_t1
     k1 INT,
     K2 SMALLINT,
     k3 varchar(50),
+    v1 binary,
     uuid varchar(100)
 )
 ENGINE=hive
@@ -361,6 +362,7 @@ LOAD LABEL db1.label1
     INTO TABLE tbl1
     SET
     (
+        v1=bitmap_union(v1),
 		uuid=bitmap_dict(uuid)
     )
 )
@@ -411,6 +413,11 @@ WITH RESOURCE 'spark0'
 适用于doris表聚合列的数据类型为bitmap类型。
 在load命令中指定需要构建全局字典的字段即可，格式为：```doris字段名称=bitmap_dict(hive表字段名称)```
 需要注意的是目前只有在上游数据源为hive表时才支持全局字典的构建。
+
+#### binary（bitmap）类型列的导入
+适用于doris表聚合列的数据类型为bitmap类型，且数据源hive表中对应列的数据类型为binary（bitmap）类型。
+无需构建全局字典，在load命令中指定相应字段即可，格式为：```doris字段名称=bitmap_union(hive表字段名称)```
+同样，目前只有在上游数据源为hive表时才支持binary（bitmap）类型的数据导入。
 
 ### 查看导入
 
