@@ -1281,9 +1281,9 @@ int FastDoubleToBuffer(double value, char* buffer) {
 int FastFloatToBuffer(float value, char* buffer) {
     auto end = fmt::format_to(buffer, "{:.6g}", value);;
 #ifdef _MSC_VER // has no strtof()
-    if (strtod(str, nullptr) != value) {
+    if (strtod(buffer, nullptr) != value) {
 #else
-    if (strtof(str, &endptr) != value) {
+    if (strtof(buffer, nullptr) != value) {
 #endif
         end = fmt::format_to(buffer, "{:.8g}", value);
     }

@@ -25,6 +25,13 @@ namespace doris {
 class NumbersTest : public testing::Test {};
 
 TEST_F(NumbersTest, test_fast_float_to_buffer) {
+    char buffer1[100];
+    char buffer2[100];
+char* DoubleToBuffer(double i, char* buffer);
+char* FloatToBuffer(float i, char* buffer);
+
+int FastDoubleToBuffer(double i, char* buffer);
+int FastFloatToBuffer(float i, char* buffer);
     EXPECT_EQ(1, 1);
 }
 
