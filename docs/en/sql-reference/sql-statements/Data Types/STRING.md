@@ -1,6 +1,6 @@
 ---
 {
-    "title": "VARCHAR",
+    "title": "STRING",
     "language": "en"
 }
 ---
@@ -24,12 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# VARCHAR
+# STRING
 ## Description
-VARCHAR(M)
-A variable length string, M represents the length of a variable length string. The range of M is 1-65533.
+STRING (M)
+A variable length string, max legnth is 2147483643(2GB - 4).
 
 Note: Variable length strings are stored in UTF-8 encoding, so usually English characters occupies 1 byte, and Chinese characters occupies 3 bytes.
 
 ## keyword
-VARCHAR
+STRING

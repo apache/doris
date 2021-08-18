@@ -80,6 +80,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_HLL:
     case TYPE_VARCHAR:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         return pool->add(new StringVal);
 
     case TYPE_DECIMALV2:
@@ -161,6 +162,10 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         for (const auto& t : type.children) {
             out.children.push_back(column_type_to_type_desc(t));
         }
+        break;
+    case TYPE_STRING:
+        out.type = FunctionContext::TYPE_STRING;
+        out.len = type.len;
         break;
     default:
         DCHECK(false) << "Unknown type: " << type;

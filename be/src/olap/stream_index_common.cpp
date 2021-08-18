@@ -36,7 +36,8 @@ OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
 
     _null_supported = null_supported;
     if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
-        type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT) {
+        type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+        type == OLAP_FIELD_TYPE_STRING) {
         _ignored = true;
     } else {
         // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。

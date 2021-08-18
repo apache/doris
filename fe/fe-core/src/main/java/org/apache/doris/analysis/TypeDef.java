@@ -131,10 +131,10 @@ public class TypeDef implements ParseNode {
         String name;
         int maxLen;
         if (type == PrimitiveType.VARCHAR) {
-          name = "Varchar";
+          name = "VARCHAR";
           maxLen = ScalarType.MAX_VARCHAR_LENGTH;
         } else if (type == PrimitiveType.CHAR) {
-          name = "Char";
+          name = "CHAR";
           maxLen = ScalarType.MAX_CHAR_LENGTH;
         } else {
           Preconditions.checkState(false);

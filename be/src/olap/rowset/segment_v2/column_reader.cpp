@@ -679,7 +679,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 ((Slice*)_mem_value)->data = string_buffer;
             } else if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
                        _type_info->type() == OLAP_FIELD_TYPE_HLL ||
-                       _type_info->type() == OLAP_FIELD_TYPE_OBJECT) {
+                       _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
+                    _type_info->type() == OLAP_FIELD_TYPE_STRING) {
                 int32_t length = _default_value.length();
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
                 memory_copy(string_buffer, _default_value.c_str(), length);

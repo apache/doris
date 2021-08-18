@@ -156,7 +156,8 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
                                                              tcolumn.column_type.len);
     column->set_length(length);
     column->set_index_length(length);
-    if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
+    if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
+        tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {
             column->set_index_length(10);
         } else {

@@ -38,7 +38,8 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
-    static const int MAX_VARCHAR_LENGTH = 65355;
+    static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
+    static const int MAX_STRING_LENGTH = OLAP_STRING_MAX_LENGTH;
     static const int MAX_CHAR_LENGTH = 255;
     static const int MAX_CHAR_INLINE_LENGTH = 128;
 
@@ -93,6 +94,13 @@ struct TypeDescriptor {
         TypeDescriptor ret;
         ret.type = TYPE_VARCHAR;
         ret.len = len;
+        return ret;
+    }
+
+    static TypeDescriptor create_string_type() {
+        TypeDescriptor ret;
+        ret.type = TYPE_STRING;
+        ret.len = MAX_STRING_LENGTH;
         return ret;
     }
 
@@ -156,7 +164,7 @@ struct TypeDescriptor {
     void to_protobuf(PTypeDesc* ptype) const;
 
     inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT;
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_STRING;
     }
 
     inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
@@ -166,7 +174,7 @@ struct TypeDescriptor {
     inline bool is_datetime_type() const { return type == TYPE_DATETIME; }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT || type == TYPE_STRING;
     }
 
     inline bool is_complex_type() const {
@@ -183,6 +191,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             return 0;
 
         case TYPE_NULL:
@@ -221,6 +230,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             return sizeof(StringValue);
 
         case TYPE_NULL:

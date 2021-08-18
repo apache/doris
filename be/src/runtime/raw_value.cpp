@@ -72,6 +72,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_CHAR:
+    case TYPE_STRING:
         string_val = reinterpret_cast<const StringValue*>(value);
         stream->write(static_cast<char*>(string_val->ptr), string_val->len);
         return;
@@ -148,6 +149,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_HLL:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         string_val = reinterpret_cast<const StringValue*>(value);
         tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
         *stream << tmp;
@@ -213,10 +215,11 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_OBJECT:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         string_val = reinterpret_cast<const StringValue*>(value);
         std::stringstream ss;
-        ss << "ptr:" << (void*)string_val->ptr << " len" << string_val->len;
+        ss << "ptr:" << (void*)string_val->ptr << " len:" << string_val->len;
         tmp = ss.str();
         if (string_val->len <= 1000) {
             tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
@@ -294,7 +297,8 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
-    case TYPE_CHAR: {
+    case TYPE_CHAR: 
+    case TYPE_STRING: {
         const StringValue* src = reinterpret_cast<const StringValue*>(value);
         StringValue* dest = reinterpret_cast<StringValue*>(dst);
         dest->len = src->len;
@@ -373,7 +377,8 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
         *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
         break;
     case TYPE_VARCHAR:
-    case TYPE_CHAR: {
+    case TYPE_CHAR:
+    case TYPE_STRING: {
         DCHECK(buf != NULL);
         const StringValue* src = reinterpret_cast<const StringValue*>(value);
         StringValue* dest = reinterpret_cast<StringValue*>(dst);

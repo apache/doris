@@ -698,7 +698,8 @@ void Reader::_init_conditions_param(const ReaderParams& read_params) {
             predicate = new PREDICATE<StringValue>(index, value, opposite);                     \
             break;                                                                              \
         }                                                                                       \
-        case OLAP_FIELD_TYPE_VARCHAR: {                                                         \
+        case OLAP_FIELD_TYPE_VARCHAR:                                                           \
+        case OLAP_FIELD_TYPE_STRING: {                                                          \
             StringValue value;                                                                  \
             int32_t length = cond.length();                                                     \
             char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));      \
@@ -891,7 +892,8 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition, bool o
             }
             break;
         }
-        case OLAP_FIELD_TYPE_VARCHAR: {
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_STRING:{
             phmap::flat_hash_set<StringValue> values;
             for (auto& cond_val : condition.condition_values) {
                 StringValue value;
@@ -993,7 +995,7 @@ void Reader::_init_load_bf_columns(const ReaderParams& read_params) {
         return;
     }
     FieldType type = _tablet->tablet_schema().column(max_equal_index).type();
-    if (type != OLAP_FIELD_TYPE_VARCHAR || max_equal_index + 1 > _tablet->num_short_key_columns()) {
+    if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_STRING)|| max_equal_index + 1 > _tablet->num_short_key_columns()) {
         _load_bf_columns.erase(max_equal_index);
     }
 }
