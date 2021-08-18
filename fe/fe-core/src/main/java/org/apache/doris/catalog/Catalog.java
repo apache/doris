@@ -6356,7 +6356,7 @@ public class Catalog {
                 // When InfoSchemaDb id larger than 10000 and put it to idToDb,
                 // which may be overwrite the normal db meta in idToDb,
                 // so we ensure InfoSchemaDb id less than 10000.
-                Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
+                Preconditions.checkState(!isCheckpointThread() && db.getId() < NEXT_ID_INIT_VALUE, errMsg);
                 idToDb.put(db.getId(), db);
                 fullNameToDb.put(db.getFullName(), db);
                 cluster.addDb(dbName, db.getId());
