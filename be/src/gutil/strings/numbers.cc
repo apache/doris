@@ -1271,10 +1271,10 @@ int FloatToBuffer(float value, int width, char* buffer) {
 }
 
 int FastDoubleToBuffer(double i, char* buffer) {
-    return fmt::format_to(buffer, "{:.15g}", i) - buffer;
+    return fmt::format_to(buffer, "{:.17g}", i) - buffer;
 }
 int FastFloatToBuffer(float i, char* buffer) {
-    return fmt::format_to(buffer, "{:.6g}", i) - buffer;
+    return fmt::format_to(buffer, "{:.8g}", i) - buffer;
 }
 
 // ----------------------------------------------------------------------
