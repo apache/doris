@@ -48,8 +48,6 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
 
-PARALLEL=$[$(nproc)/4+1]
-
 # Check args
 usage() {
   echo "
@@ -92,7 +90,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)+1]
+PARALLEL=$[$(nproc)/4+1]
 BUILD_BE=
 BUILD_FE=
 BUILD_UI=
