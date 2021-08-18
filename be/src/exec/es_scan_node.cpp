@@ -645,7 +645,8 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
     }
 
     case TYPE_CHAR:
-    case TYPE_VARCHAR: {
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
         node_type = (TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
         string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
@@ -762,7 +763,8 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         int val_idx = cols_next_val_idx[i]++;
         switch (slot_desc->type().type) {
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             if (val_idx >= col.string_vals.size()) {
                 return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
             }

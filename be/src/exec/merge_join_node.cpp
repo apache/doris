@@ -103,6 +103,7 @@ Status MergeJoinNode::prepare(RuntimeState* state) {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
+        case TYPE_STRING:
             _cmp_func.push_back(compare_value<StringValue>);
             break;
 

@@ -50,6 +50,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new EqDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new EqStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -80,6 +81,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new NeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new NeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -110,6 +112,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LtDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new LtStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -140,6 +143,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new LeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new LeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -170,6 +174,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GtDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new GtStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -200,6 +205,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new GeDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new GeStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:
@@ -230,6 +236,7 @@ Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
             return new EqForNullDoubleValPred(node);
         case TPrimitiveType::CHAR:
         case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING:
             return new EqForNullStringValPred(node);
         case TPrimitiveType::DATE:
         case TPrimitiveType::DATETIME:

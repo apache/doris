@@ -182,6 +182,7 @@ string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type){
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
     case TYPE_HLL:
     case TYPE_OBJECT: {
         return (reinterpret_cast<StringValue*>(src))->to_string();
