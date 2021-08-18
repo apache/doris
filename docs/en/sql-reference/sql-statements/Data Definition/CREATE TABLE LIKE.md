@@ -32,13 +32,14 @@ Use CREATE TABLE ... LIKE to create an empty table based on the definition of an
 Syntax:
 
 ```
-    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name
+    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name [WITH ROLLUP r1,r2,r3,...|ALL] 
 ```
 
 Explain:
     1. The replicated table structures include Column Definition, Partitions, Table Properties, and so on
     2. The SELECT privilege is required on the original table.
     3. Support to copy external table such as MySQL.
+    4. Support to copy OLAP table rollup
 
 ## Example
     1. Under the test1 Database, create an empty table with the same table structure as table1, named table2
@@ -49,7 +50,23 @@ Explain:
 
         CREATE TABLE test2.table2 LIKE test1.table1
 
-    3. Under the test1 Database, create an empty table with the same table structure as MySQL's external table1, called table2
+    3. Under the test1 Database, create an empty table with the same table structure as table1, named table2. copy r1 and r2 rollup of table1 simultaneously
+
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+
+    4. Under the test1 Database, create an empty table with the same table structure as table1, named table2. copy all rollup of table1 simultaneously
+
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP ALL
+
+    5. Under the test2 Database, create an empty table with the same table structure as table1, named table2. copy r1 and r2 rollup of table1 simultaneously
+
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+
+    6. Under the test2 Database, create an empty table with the same table structure as table1, named table2. copy all rollup of table1 simultaneously
+
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP ALL
+    
+    7. Under the test1 Database, create an empty table with the same table structure as MySQL's external table1, called table2
 
         CREATE TABLE test1.table2 LIKE test1.table1
 
