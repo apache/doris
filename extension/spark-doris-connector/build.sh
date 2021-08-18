@@ -28,6 +28,7 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
+
 export DORIS_HOME=${ROOT}/../../
 
 # include custom environment variables
@@ -37,6 +38,8 @@ fi
 
 # check maven
 MVN_CMD=mvn
+
+
 if [[ ! -z ${CUSTOM_MVN} ]]; then
     MVN_CMD=${CUSTOM_MVN}
 fi
@@ -45,9 +48,14 @@ if ! ${MVN_CMD} --version; then
     exit 1
 fi
 export MVN_CMD
-
-${MVN_CMD} clean package
-
+if [ $1 == 3 ]
+then
+   ${MVN_CMD} clean package -f pom_3.0.xml
+fi
+if [ $1 == 2 ]
+then
+   ${MVN_CMD} clean package
+fi
 
 mkdir -p output/
 cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
