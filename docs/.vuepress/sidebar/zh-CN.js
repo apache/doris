@@ -585,6 +585,7 @@ module.exports = [
               "INT",
               "LARGEINT",
               "SMALLINT",
+              "STRING",
               "TINYINT",
               "VARCHAR",
             ],

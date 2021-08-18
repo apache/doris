@@ -57,7 +57,8 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
     switch (slot_desc->type().type) {
     case TYPE_HLL:
     case TYPE_VARCHAR:
-    case TYPE_CHAR: {
+    case TYPE_CHAR:
+    case TYPE_STRING: {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         str_slot->ptr = const_cast<char*>(data);
         str_slot->len = len;

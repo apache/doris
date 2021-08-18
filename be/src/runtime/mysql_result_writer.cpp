@@ -126,7 +126,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_VARCHAR:
-    case TYPE_CHAR: {
+    case TYPE_CHAR:
+    case TYPE_STRING: {
         const StringValue* string_val = (const StringValue*)(item);
 
         if (string_val->ptr == NULL) {

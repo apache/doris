@@ -33,7 +33,7 @@ public enum AlterOpType {
     // table property
     MODIFY_TABLE_PROPERTY,
     MODIFY_TABLE_PROPERTY_SYNC, // Some operations are performed synchronously, so we distinguish them by suffix _SYNC
-    // others operation, such as add/drop backend. currently we do not care about them
+    // others operation, such as add/drop backend. currently, we do not care about them
     ALTER_OTHER,
     ENABLE_FEATURE,
     REPLACE_TABLE,
