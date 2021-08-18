@@ -162,6 +162,28 @@ public:
         return result;
     };
 
+    // Note string value must be valid decimal string which contains two digits after the decimal point
+    static StringVal do_money_format(FunctionContext* context, const string& value) {
+        bool is_positive = (value[0] != '-');
+        int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+        StringVal result = StringVal::create_temp_string_val(context, result_len);
+        if (!is_positive) {
+            *result.ptr = '-';
+        }
+        for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+            *(result.ptr + j) = *(value.data() + i);
+            if (i - 1 < 0) break;
+            *(result.ptr + j - 1) = *(value.data() + i - 1);
+            if (i - 2 < 0) break;
+            *(result.ptr + j - 2) = *(value.data() + i - 2);
+            if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+                *(result.ptr + j - 3) = ',';
+            }
+        }
+        memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+        return result;
+    };
+
     static StringVal split_part(FunctionContext* context, const StringVal& content,
                                 const StringVal& delimiter, const IntVal& field);
 

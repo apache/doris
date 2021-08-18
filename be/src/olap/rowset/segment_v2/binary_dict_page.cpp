@@ -244,6 +244,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
     Slice* out = reinterpret_cast<Slice*>(dst->data());
+
     _batch->resize(*n);
 
     ColumnBlock column_block(_batch.get(), dst->column_block()->pool());

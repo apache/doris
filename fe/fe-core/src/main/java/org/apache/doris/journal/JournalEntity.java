@@ -24,6 +24,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EncryptKey;
@@ -66,6 +67,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
@@ -635,6 +637,21 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_REPLACE_TABLE: {
                 data = ReplaceTableOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
+                data = SqlBlockRule.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
+                data = SqlBlockRule.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_SQL_BLOCK_RULE: {
+                data = DropSqlBlockRuleOperationLog.read(in);
                 isRead = true;
                 break;
             }

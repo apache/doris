@@ -155,7 +155,7 @@ public:
 private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
     static constexpr bool _is_slice_type() {
-        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR;
+        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_STRING;
     }
 
     static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
@@ -201,6 +201,9 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         break;
     case OLAP_FIELD_TYPE_VARCHAR:
         res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, typeinfo));
+        break;
+    case OLAP_FIELD_TYPE_STRING:
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(bf_options, typeinfo));
         break;
     case OLAP_FIELD_TYPE_DATE:
         res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, typeinfo));

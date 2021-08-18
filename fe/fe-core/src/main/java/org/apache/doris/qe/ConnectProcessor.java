@@ -53,6 +53,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
 import com.google.common.base.Strings;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -143,7 +144,7 @@ public class ConnectProcessor {
         }
         
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-
+        
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
@@ -179,12 +180,22 @@ public class ConnectProcessor {
             ctx.getState().setError("Unsupported character set(UTF-8)");
             return;
         }
+        String sqlHash = DigestUtils.md5Hex(originStmt);
+        ctx.setSqlHash(sqlHash);
+        try {
+            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
+        } catch (AnalysisException e) {
+            LOG.warn(e.getMessage());
+            ctx.getState().setError(e.getMessage());
+            return;
+        }
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
             .setTimestamp(System.currentTimeMillis())
             .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
             .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase());
+            .setDb(ctx.getDatabase())
+            .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;

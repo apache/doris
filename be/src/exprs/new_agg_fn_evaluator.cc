@@ -267,6 +267,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -363,6 +364,7 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -603,7 +605,8 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
         SetDstSlot(&v, dst_slot_desc, dst);

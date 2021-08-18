@@ -86,6 +86,7 @@ public class HttpServer extends SpringBootServletInitializer {
         // To avoid some unexpected behavior.
         System.setProperty("spring.devtools.restart.enabled", "false");
         System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
+        System.setProperty("spring.banner.image.location", "doris-logo.png");
         properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)

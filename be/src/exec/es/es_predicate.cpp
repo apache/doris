@@ -79,6 +79,7 @@ std::string ExtLiteral::value_to_string() {
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         ss << get_string();
         break;
     case TYPE_DATE:
@@ -134,7 +135,7 @@ double ExtLiteral::get_double() {
 }
 
 std::string ExtLiteral::get_string() {
-    DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR);
+    DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR || _type == TYPE_STRING);
     return (reinterpret_cast<StringValue*>(_value))->to_string();
 }
 
@@ -331,7 +332,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             }
 
             PrimitiveType type = expr->type().type;
-            if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
+            if (type != TYPE_VARCHAR && type != TYPE_CHAR && type != TYPE_STRING) {
                 return Status::InternalError("build disjuncts failed: like value is not a string");
             }
             std::string col = slot_desc->col_name();

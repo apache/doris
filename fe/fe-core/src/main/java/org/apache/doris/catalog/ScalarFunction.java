@@ -161,6 +161,7 @@ public class ScalarFunction extends Function {
                 case VARCHAR:
                 case HLL:
                 case BITMAP:
+                case STRING:
                     beFn += "_string_val";
                     break;
                 case DATE:
