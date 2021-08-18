@@ -146,9 +146,9 @@ template <typename T>
 static char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
-        length = FastFloatToBuffer(data,pos + !dynamic_mode);
+        length = FastFloatToBuffer(data, pos + !dynamic_mode);
     } else if constexpr (std::is_same_v<T, double>) {
-        length = FastDoubleToBuffer(data,pos + !dynamic_mode);
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
     }
     if (!dynamic_mode) {
         int1store(pos++, length);

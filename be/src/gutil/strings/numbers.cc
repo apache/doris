@@ -1270,11 +1270,21 @@ int FloatToBuffer(float value, int width, char* buffer) {
     return snprintf_result;
 }
 
-int FastDoubleToBuffer(double i, char* buffer) {
-    return fmt::format_to(buffer, "{:.17g}", i) - buffer;
+int FastDoubleToBuffer(double value, char* buffer) {
+    auto end = fmt::format_to(buffer, "{:.15g}", value);
+    if (strtod(buffer, nullptr) != value) {
+        end = fmt::format_to(buffer, "{:.17g}", value);
+    }
+    return end - buffer;
 }
-int FastFloatToBuffer(float i, char* buffer) {
-    return fmt::format_to(buffer, "{:.8g}", i) - buffer;
+int FastFloatToBuffer(float value, char* buffer) {
+    auto end = fmt::format_to(buffer, "{:.6g}", value);;
+    float parsed_value;
+    safe_strtof(buffer, &parsed_value);
+    if (parsed_value != value) {
+        end = fmt::format_to(buffer, "{:.8g}", value);
+    }
+    return end - buffer;
 }
 
 // ----------------------------------------------------------------------
