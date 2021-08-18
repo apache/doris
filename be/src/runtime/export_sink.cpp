@@ -176,7 +176,8 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 break;
             }
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
 
                 if (string_val->ptr == NULL) {

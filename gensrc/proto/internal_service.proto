@@ -320,6 +320,7 @@ enum PColumnType {
     COLUMN_TYPE_FLOAT = 11;
     COLUMN_TYPE_DECIMAL = 12;
     COLUMN_TYPE_DECIMALV2 = 13;
+    COLUMN_TYPE_STRING = 14;
 }
 
 message PMinMaxFilter {

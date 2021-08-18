@@ -147,7 +147,7 @@ Status ODBCConnector::query() {
         DataBinding* column_data = new DataBinding;
         column_data->target_type = SQL_C_CHAR;
         auto type = _tuple_desc->slots()[i]->type().type;
-        column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_VARCHAR)
+        column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING)
                                              ? BIG_COLUMN_SIZE_BUFFER
                                              : SMALL_COLUMN_SIZE_BUFFER;
         column_data->target_value_ptr = malloc(sizeof(char) * column_data->buffer_length);
@@ -254,7 +254,8 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                     break;
                 }
                 case TYPE_VARCHAR:
-                case TYPE_CHAR: {
+                case TYPE_CHAR:
+                case TYPE_STRING: {
                     const auto* string_val = (const StringValue*)(item);
 
                     if (string_val->ptr == NULL) {

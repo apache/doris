@@ -112,7 +112,7 @@ void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
     column_9->set_name("column_9");
     column_9->set_type("VARCHAR");
     column_9->set_is_nullable(true);
-    column_9->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_9->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_9->set_aggregation("REPLACE");
     column_9->set_is_key(false);
 
@@ -165,7 +165,7 @@ void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
     column_2->set_type("VARCHAR");
     column_2->set_is_key(true);
     column_2->set_is_nullable(true);
-    column_2->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_2->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_2->set_index_length(20);
 
     ColumnPB* column_3 = tablet_schema_pb.add_column();
@@ -243,7 +243,7 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchema* tablet_schema) {
     column_6->set_name("column_6");
     column_6->set_type("VARCHAR");
     column_6->set_is_nullable(true);
-    column_6->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_6->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_6->set_aggregation("REPLACE");
     column_6->set_is_key(false);
 

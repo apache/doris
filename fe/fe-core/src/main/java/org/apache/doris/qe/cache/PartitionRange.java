@@ -174,6 +174,7 @@ public class PartitionRange {
                 case DECIMALV2:
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                 case LARGEINT:
                     LOG.info("PartitionCache not support such key type {}", type.toSql());
                     return false;

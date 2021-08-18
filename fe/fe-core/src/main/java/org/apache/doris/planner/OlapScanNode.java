@@ -524,7 +524,7 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
-                throw new UserException(tabletId + "have no alive replicas");
+                throw new UserException("tablet: " + tabletId + " have no alive replicas.");
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
