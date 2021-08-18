@@ -285,8 +285,8 @@ int MysqlRowBuffer::push_double(double data) {
 }
 
 int MysqlRowBuffer::push_time(double data) {
-    // 1 for string trail, 1 for length, 1 for sign, other for time str
-    int ret = reserve(3 + MAX_TIME_WIDTH);
+    // 1 for string trail, 1 for length, other for time str
+    int ret = reserve(2 + MAX_TIME_WIDTH);
 
     if (0 != ret) {
         LOG(ERROR) << "mysql row buffer reserve failed.";
