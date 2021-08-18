@@ -73,7 +73,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/2+1]
+PARALLEL=$[$(nproc)/4+1]
 CLEAN=
 RUN=
 if [ $# == 1 ] ; then
