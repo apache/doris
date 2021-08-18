@@ -1277,11 +1277,14 @@ int FastDoubleToBuffer(double value, char* buffer) {
     }
     return end - buffer;
 }
+
 int FastFloatToBuffer(float value, char* buffer) {
     auto end = fmt::format_to(buffer, "{:.6g}", value);;
-    float parsed_value;
-    safe_strtof(buffer, &parsed_value);
-    if (parsed_value != value) {
+#ifdef _MSC_VER // has no strtof()
+    if (strtod(str, nullptr) != value) {
+#else
+    if (strtof(str, &endptr) != value) {
+#endif
         end = fmt::format_to(buffer, "{:.8g}", value);
     }
     return end - buffer;
