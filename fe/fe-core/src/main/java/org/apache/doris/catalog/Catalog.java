@@ -6345,8 +6345,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
+                if (Catalog.getServingCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getServingCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());
@@ -6356,7 +6356,7 @@ public class Catalog {
                 // When InfoSchemaDb id larger than 10000 and put it to idToDb,
                 // which may be overwrite the normal db meta in idToDb,
                 // so we ensure InfoSchemaDb id less than 10000.
-                Preconditions.checkState(!isCheckpointThread() && db.getId() < NEXT_ID_INIT_VALUE, errMsg);
+                Preconditions.checkState(db.getId() < NEXT_ID_INIT_VALUE, errMsg);
                 idToDb.put(db.getId(), db);
                 fullNameToDb.put(db.getFullName(), db);
                 cluster.addDb(dbName, db.getId());
