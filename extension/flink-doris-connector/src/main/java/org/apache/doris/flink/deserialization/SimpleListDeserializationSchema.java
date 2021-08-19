@@ -17,15 +17,17 @@
 package org.apache.doris.flink.deserialization;
 
 
+import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 
 import java.util.List;
 
 
-public class SimpleListDeserializationSchema implements DorisDeserializationSchema {
+public class SimpleListDeserializationSchema implements DorisDeserializationSchema<List<?>> {
 
     @Override
-    public TypeInformation getProducedType() {
-        return TypeInformation.of(List.class);
+    public TypeInformation<List<?>> getProducedType() {
+        return TypeInformation.of(new TypeHint<List<?>>() {
+        });
     }
 }
