@@ -78,7 +78,7 @@ public class DorisSink extends RichSinkFunction<String> {
                 log.error("Stream Load fail{}:", loadResponse);
             }
         } else {
-            log.error("Stream Load 请求失败:{}", loadResponse);
+            log.error("Stream Load Request failed:{}", loadResponse);
         }
     }
 }
