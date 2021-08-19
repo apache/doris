@@ -1272,6 +1272,7 @@ int FloatToBuffer(float value, int width, char* buffer) {
 
 int FastDoubleToBuffer(double value, char* buffer) {
     auto end = fmt::format_to(buffer, "{:.15g}", value);
+    *end = '\0';
     if (strtod(buffer, nullptr) != value) {
         end = fmt::format_to(buffer, "{:.17g}", value);
     }
@@ -1279,7 +1280,8 @@ int FastDoubleToBuffer(double value, char* buffer) {
 }
 
 int FastFloatToBuffer(float value, char* buffer) {
-    auto end = fmt::format_to(buffer, "{:.6g}", value);;
+    auto end = fmt::format_to(buffer, "{:.6g}", value);
+    *end = '\0';
 #ifdef _MSC_VER // has no strtof()
     if (strtod(buffer, nullptr) != value) {
 #else
