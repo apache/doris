@@ -82,9 +82,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
             String tblName = tableName.getTbl();
             Table table = db.getTableOrAnalysisException(tblName);
-            if (table.getType() == Table.TableType.HIVE) {
-                throw new AnalysisException("Query from hive table is not supported, table: " + tblName);
-            }
         }
     }
 

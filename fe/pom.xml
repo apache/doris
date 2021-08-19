@@ -51,6 +51,7 @@ under the License.
         <grpc.version>1.30.0</grpc.version>
         <protobuf.version>3.14.0</protobuf.version>
         <skip.plugin>false</skip.plugin>
+        <hive.version>2.3.7</hive.version>
     </properties>
 
     <profiles>
@@ -584,6 +585,21 @@ under the License.
                 <groupId>org.apache.spark</groupId>
                 <artifactId>spark-sql_2.12</artifactId>
                 <version>2.4.6</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-metastore</artifactId>
+                <version>${hive.version}</version>
+                <scope>provided</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.hive</groupId>
+                <artifactId>hive-exec</artifactId>
+                <classifier>core</classifier>
+                <version>${hive.version}</version>
                 <scope>provided</scope>
             </dependency>
 
