@@ -36,7 +36,9 @@ public:
     // Requires MemInfo to be initialized for the '%' spec to work.
     // Returns 0 if mem_spec_str is empty or '-1'.
     // Returns -1 if parsing failed.
-    static int64_t parse_mem_spec(const std::string& mem_spec_str, bool* is_percent);
+    // if is_percent, return the percent of parent_limit.
+    // if parent_limit is -1, use MemInfo::physical_mem() as parent limit.
+    static int64_t parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit, bool* is_percent);
 };
 
 } // namespace doris
