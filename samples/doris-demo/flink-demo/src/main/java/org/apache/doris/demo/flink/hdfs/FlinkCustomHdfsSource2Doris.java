@@ -20,7 +20,7 @@ package org.apache.doris.demo.flink.hdfs;
 import com.alibaba.fastjson.JSON;
 import org.apache.doris.demo.flink.DorisStreamLoad;
 import org.apache.doris.demo.flink.User;
-import org.apache.doris.demo.flink.kafka.DorisSink;
+import org.apache.doris.demo.flink.DorisSink;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.configuration.Configuration;

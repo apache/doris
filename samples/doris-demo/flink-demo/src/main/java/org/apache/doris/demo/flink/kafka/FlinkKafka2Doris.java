@@ -17,6 +17,7 @@
 package org.apache.doris.demo.flink.kafka;
 
 
+import org.apache.doris.demo.flink.DorisSink;
 import org.apache.doris.demo.flink.DorisStreamLoad;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;

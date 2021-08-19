@@ -14,11 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package org.apache.doris.demo.flink.kafka;
+package org.apache.doris.demo.flink;
 
 import com.alibaba.fastjson.JSON;
-import org.apache.doris.demo.flink.DorisStreamLoad;
-import org.apache.doris.demo.flink.RespContent;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 import org.slf4j.Logger;
