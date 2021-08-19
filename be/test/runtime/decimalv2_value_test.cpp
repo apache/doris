@@ -97,7 +97,15 @@ namespace doris {
         ASSERT_EQ("-999999999999999999.999", std::string(buffer, len));
         len = value7.to_buffer(buffer, -1);
         ASSERT_EQ("-999999999999999999.999999999", std::string(buffer, len));
-    }
+
+        DecimalV2Value value8(std::string("100.001"));
+        ASSERT_EQ("100.00100", value8.to_string(5));
+        ASSERT_EQ("100.001", value8.to_string());
+        len = value8.to_buffer(buffer, 5);
+        ASSERT_EQ("100.00100", std::string(buffer, len));
+        len = value8.to_buffer(buffer, -1);
+        ASSERT_EQ("100.001", std::string(buffer, len));
+}
 
     TEST_F(DecimalV2ValueTest, negative_zero) {
         DecimalV2Value value(std::string("-0.00"));

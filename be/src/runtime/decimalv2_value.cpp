@@ -428,7 +428,7 @@ int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
     } else {
         auto f_frac = fmt::format_int(frac_val);
         if (f_frac.size() < scale) {
-            memset(buffer, scale - f_frac.size(), '0');
+            memset(buffer, '0', scale - f_frac.size());
             buffer = buffer + scale - f_frac.size();
         }
         memcpy(buffer, f_frac.data(), f_frac.size());
