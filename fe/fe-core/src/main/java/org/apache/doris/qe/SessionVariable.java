@@ -156,6 +156,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+    
+    public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -368,9 +370,10 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 1;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 1024;
-
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = false;
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
+    public boolean enableParallelOutfile = false;
 
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
@@ -771,12 +774,17 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
+<<<<<<< HEAD
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+=======
+    public boolean isEnableParallelOutfile() {
+        return enableParallelOutfile;
+>>>>>>> a5abd677c (Support concurrent export of query results)
     }
 
     // Serialize to thrift object

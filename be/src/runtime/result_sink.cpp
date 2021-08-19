@@ -78,6 +78,7 @@ Status ResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
         break;
+    // deprecated
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
         _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,

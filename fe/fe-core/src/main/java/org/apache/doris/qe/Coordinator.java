@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
@@ -47,6 +48,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.RuntimeFilterId;
@@ -446,7 +448,8 @@ public class Coordinator {
         // create result receiver
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
-        if (topParams.fragment.getSink() instanceof ResultSink) {
+        DataSink topDataSink = topParams.fragment.getSink();
+        if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(
                     topParams.instanceExecParams.get(0).instanceId,
@@ -456,16 +459,15 @@ public class Coordinator {
 
             LOG.info("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
 
-            // set the broker address for OUTFILE sink
-            ResultSink resultSink = (ResultSink) topParams.fragment.getSink();
-            if (resultSink.isOutputFileSink() && resultSink.needBroker()) {
-                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(resultSink.getBrokerName(),
-                        execBeAddr.getHostname());
-                resultSink.setBrokerAddr(broker.ip, broker.port);
-                LOG.info("OUTFILE through broker: {}:{}", broker.ip, broker.port);
+            if (topDataSink instanceof ResultFileSink
+                    && ((ResultFileSink) topDataSink).getStorageType() == StorageBackend.StorageType.BROKER) {
+                // set the broker address for OUTFILE sink
+                ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
+                    FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                            .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                topResultFileSink.setBrokerAddr(broker.ip, broker.port);
             }
-
-        } else {
+        }  else {
             // This is a load process.
             this.queryOptions.setIsReportSuccess(true);
             this.queryOptions.setEnableVectorizedEngine(false);
@@ -863,16 +865,17 @@ public class Coordinator {
                         params.instanceExecParams.size() + destParams.perExchNumSenders.get(exchId.asInt()));
             }
 
-            if (sink.getOutputPartition().isBucketShuffleHashPartition()) {
+            if (sink.getOutputPartition() != null
+                    && sink.getOutputPartition().isBucketShuffleHashPartition()) {
                 // the destFragment must be bucket shuffle
                 Preconditions.checkState(bucketShuffleJoinController.
                         isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is" +
-                        "Bucket Shffulle Partition, The destFragment must have bucket shuffle join node ");
+                        "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
                 TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
-               
+
                 // when left table is empty, it's bucketset is empty.
                 // set right table destination address to the address of left table
                 if (destParams.instanceExecParams.size() == 1 && destParams.instanceExecParams.get(0).bucketSeqSet.isEmpty()) {

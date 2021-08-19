@@ -414,9 +414,6 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
-                fragment = new PlanFragment(
-                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
-                break;
             case MYSQL:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
@@ -429,7 +426,7 @@ public class ExportJob implements Writable {
         scanNode.setFragmentId(fragment.getFragmentId());
         fragment.setSink(exportSink);
         try {
-            fragment.finalize(analyzer, false);
+            fragment.finalize(null);
         } catch (Exception e) {
             LOG.info("Fragment finalize failed. e= {}", e);
             throw new UserException("Fragment finalize failed");

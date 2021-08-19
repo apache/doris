@@ -33,6 +33,7 @@ enum TDataSinkType {
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK,
     ODBC_TABLE_SINK,
+    RESULT_FILE_SINK,
     VRESULT_SINK,
     VDATA_STREAM_SINK,
 }
@@ -77,6 +78,13 @@ struct TDataStreamSink {
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options
+}
+
+struct TResultFileSink {
+    1: optional TResultFileSinkOptions file_options;
+    2: optional Types.TStorageBackendType storage_backend_type;
+    3: optional Types.TPlanNodeId dest_node_id;
+    4: optional Types.TTupleId output_tuple_id;
 }
 
 struct TMysqlTableSink {
@@ -147,5 +155,6 @@ struct TDataSink {
   7: optional TOlapTableSink olap_table_sink
   8: optional TMemoryScratchSink memory_scratch_sink
   9: optional TOdbcTableSink odbc_table_sink
+  10: optional TResultFileSink result_file_sink
 }
 
