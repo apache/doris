@@ -1,6 +1,11 @@
 [TOC]
 
 ---
+## Doris Manager API文档
+
+### Doris Manager 接口文档
+
+Direct access after local service startup:http://localhost:port/swagger-ui.html#/
 
 ### Doris Manager Server 接口文档
 
@@ -484,3 +489,4 @@
     }
 }
 ```
+
