@@ -384,7 +384,7 @@ Status FileResultWriter::_send_result() {
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
-    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result.get()), "failed to send outfile result");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
     return Status::OK();
 }
 
