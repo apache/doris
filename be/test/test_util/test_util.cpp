@@ -20,7 +20,6 @@
 #include <common/configbase.h>
 #include <libgen.h>
 #include <linux/limits.h>
-#include <cstdlib>
 #include <strings.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -72,6 +71,44 @@ void InitConfig() {
         fprintf(stderr, "Init config file failed, path %s\n", conf_file.c_str());
         exit(-1);
     }
+}
+
+std::vector<std::string> split_str(const std::string& str, char separation) {
+    std::vector<std::string> tokens;
+    int pre = 0;
+    int now = 0;
+    for (char c : str) {
+        now++;
+        if (c == separation) {
+            tokens.emplace_back(str.substr(pre, now - pre - 1));
+            pre = now;
+        }
+    }
+    if (pre < now) tokens.emplace_back(str.substr(pre, now - pre));
+    return tokens;
+}
+
+bool equal_ignore_case(std::string lhs, std::string rhs) {
+    std::transform(lhs.begin(), lhs.end(), lhs.begin(), ::tolower);
+    std::transform(rhs.begin(), rhs.end(), rhs.begin(), ::tolower);
+    return lhs == rhs;
+}
+
+std::mt19937_64 rng_64(std::chrono::steady_clock::now().time_since_epoch().count());
+
+int rand_rng_int(int l, int r) {
+    std::uniform_int_distribution<int> u(l, r);
+    return u(rng_64);
+}
+char rand_rng_char() {
+    return (rand_rng_int(0, 1) ? 'a' : 'A') + rand_rng_int(0, 25);
+}
+std::string rand_rng_string(size_t length) {
+    string s;
+    while (length--) {
+        s += rand_rng_char();
+    }
+    return s;
 }
 
 } // namespace doris

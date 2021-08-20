@@ -123,4 +123,28 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPoo
     }
 }
 
+void set_column_value_by_type(FieldType fieldType, std::string src, char* target, MemPool* pool,
+                              size_t _length = 0) {
+    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+        char* src_value = &src[0];
+        int src_len = src.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = _length;
+        dest_slice->data = (char*)pool->allocate(dest_slice->size);
+        memcpy(dest_slice->data, src_value, src_len);
+        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+        char* src_value = &src[0];
+        int src_len = src.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = (char*)pool->allocate(src_len);
+        memcpy(dest_slice->data, src_value, src_len);
+    } else {
+        *(int*)target = std::stoi(src);
+    }
+}
+
 } // namespace doris
