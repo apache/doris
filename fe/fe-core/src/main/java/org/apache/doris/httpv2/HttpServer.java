@@ -21,14 +21,21 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.common.Config;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
+
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+import org.springframework.context.annotation.Bean;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
 @SpringBootApplication
 @EnableConfigurationProperties
@@ -74,6 +81,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
+        properties.put("spring.jackson.date-format", "yyyy-MM-dd HH:mm:ss");
         //enable jetty config
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
@@ -92,5 +100,17 @@ public class HttpServer extends SpringBootServletInitializer {
                 .sources(HttpServer.class)
                 .properties(properties)
                 .run(new String[]{});
+    }
+
+    @Bean
+    public Jackson2ObjectMapperBuilderCustomizer jacksonObjectMapperCustomization() {
+        return jacksonObjectMapperBuilder -> {
+            jacksonObjectMapperBuilder.timeZone(TimeZone.getDefault());
+            jacksonObjectMapperBuilder.serializerByType(Long.class, ToStringSerializer.instance);
+            jacksonObjectMapperBuilder.serializerByType(Long.TYPE, ToStringSerializer.instance);
+            jacksonObjectMapperBuilder.serializerByType(BigDecimal.class, ToStringSerializer.instance);
+            jacksonObjectMapperBuilder.serializerByType(BigInteger.class, ToStringSerializer.instance);
+
+        };
     }
 }
