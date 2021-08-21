@@ -76,8 +76,8 @@ public class CanalSyncChannel extends SyncChannel {
     private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
-    public CanalSyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
-        super(syncJob, db, table, columns, srcDataBase, srcTable);
+    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+        super(id, syncJob, db, table, columns, srcDataBase, srcTable);
         this.batchBuffer = new Data<>();
         this.lastBatchId = -1L;
         this.timeoutSecond = -1L;

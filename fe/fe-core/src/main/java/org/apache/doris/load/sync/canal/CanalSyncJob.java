@@ -109,8 +109,8 @@ public class CanalSyncJob extends SyncJob {
                         colNames.add(column.getName());
                     }
                 }
-                CanalSyncChannel syncChannel = new CanalSyncChannel(this, db, olapTable, colNames,
-                        channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
+                CanalSyncChannel syncChannel = new CanalSyncChannel(channelDescription.getChannelId(), this, db,
+                        (OlapTable) table, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
                 if (channelDescription.getPartitionNames() != null) {
                     syncChannel.setPartitions(channelDescription.getPartitionNames());
                 }

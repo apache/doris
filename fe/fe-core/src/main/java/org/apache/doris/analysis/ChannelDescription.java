@@ -60,6 +60,8 @@ public class ChannelDescription implements Writable {
     // column names of source table
     @SerializedName(value = "colNames")
     private final List<String> colNames;
+    @SerializedName(value = "id")
+    private long channelId;
 
     public ChannelDescription(String srcDatabase, String srcTableName, String targetTable, PartitionNames partitionNames, List<String> colNames) {
         this.srcDatabase = srcDatabase;
@@ -117,6 +119,14 @@ public class ChannelDescription implements Writable {
                 }
             }
         }
+    }
+
+    private void setChannelId(long channelId) {
+        this.channelId = channelId;
+    }
+
+    public long getChannelId() {
+        return this.channelId;
     }
 
     public String getTargetTable() {

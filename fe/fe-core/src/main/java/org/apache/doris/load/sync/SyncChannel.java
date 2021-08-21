@@ -18,7 +18,6 @@
 package org.apache.doris.load.sync;
 
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
@@ -46,8 +45,8 @@ public class SyncChannel {
     protected String srcTable;
     protected SyncChannelCallback callback;
 
-    public SyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
-        this.id = Catalog.getCurrentCatalog().getNextId();
+    public SyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+        this.id = id;
         this.jobId = syncJob.getId();
         this.db = db;
         this.tbl = table;
