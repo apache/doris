@@ -48,17 +48,18 @@ TEST_F(KafkaConsumerPipeTest, append_read) {
     ASSERT_TRUE(st.ok());
 
     char buf[1024];
-    size_t data_size = 1024;
+    int64_t data_size = 1024;
+    int64_t read_bytes = 0;
     bool eof = false;
-    st = k_pipe.read((uint8_t*)buf, &data_size, &eof);
+    st = k_pipe.read((uint8_t*)buf, data_size, &read_bytes, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(data_size, msg1.length() + msg2.length() + 2);
+    ASSERT_EQ(read_bytes, msg1.length() + msg2.length() + 2);
     ASSERT_EQ(eof, false);
 
     data_size = 1024;
-    st = k_pipe.read((uint8_t*)buf, &data_size, &eof);
+    st = k_pipe.read((uint8_t*)buf, data_size, &read_bytes, &eof);
     ASSERT_TRUE(st.ok());
-    ASSERT_EQ(data_size, 0);
+    ASSERT_EQ(read_bytes, 0);
     ASSERT_EQ(eof, true);
 }
 

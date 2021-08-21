@@ -114,6 +114,7 @@ Status PartialRowBatch::cur_row_get_cell(size_t idx, const ColumnSchema** cs,
 PartialRowWriter::PartialRowWriter(const scoped_refptr<Schema>& schema)
         : _schema(schema), _bit_set_size(_schema->cid_size()), _bit_nullable_size(0) {
     _temp_cells.resize(_schema->cid_size());
+    memset(&(_temp_cells[0]), 0, sizeof(CellInfo) * _temp_cells.size());
 }
 
 Status PartialRowWriter::start_batch(size_t row_capacity, size_t byte_capacity) {

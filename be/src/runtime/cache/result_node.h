@@ -108,7 +108,7 @@ private:
 
 typedef int64 PartitionKey;
 typedef std::list<PartitionRowBatch*> PartitionRowBatchList;
-typedef boost::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMap;
+typedef std::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMap;
 
 /**
 * Cache the result of one SQL, include many partition rowsets.
@@ -128,6 +128,8 @@ public:
     PCacheStatus update_partition(const PUpdateCacheRequest* request, bool& is_update_firstkey);
     PCacheStatus fetch_partition(const PFetchCacheRequest* request,
                                  PartitionRowBatchList& rowBatchList, bool& is_hit_firstkey);
+    PCacheStatus update_sql_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
+    PCacheStatus update_partition_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
 
     size_t prune_first();
     void clear();
@@ -177,7 +179,7 @@ public:
     }
 
 private:
-    mutable boost::shared_mutex _node_mtx;
+    mutable std::shared_mutex _node_mtx;
     UniqueId _sql_key;
     ResultNode* _prev;
     ResultNode* _next;

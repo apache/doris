@@ -38,6 +38,7 @@ extern const char* k_ut_diskstats_path;
 extern const char* k_ut_net_dev_path;
 extern const char* k_ut_fd_path;
 extern const char* k_ut_net_snmp_path;
+extern const char* k_ut_load_avg_path;
 
 TEST_F(SystemMetricsTest, normal) {
     std::string dir_path = GetCurrentRunningDir();
@@ -57,6 +58,9 @@ TEST_F(SystemMetricsTest, normal) {
     std::string net_snmp_path(dir_path);
     net_snmp_path += "/test_data/net_snmp_normal";
     k_ut_net_snmp_path = net_snmp_path.c_str();
+    std::string load_avg_path(dir_path);
+    load_avg_path += "/test_data/load_avg_normal";
+    k_ut_load_avg_path = load_avg_path.c_str();
 
     MetricRegistry registry("test");
     {
@@ -166,6 +170,20 @@ TEST_F(SystemMetricsTest, normal) {
         ASSERT_TRUE(tcp_in_errs != nullptr);
         ASSERT_STREQ("826271", tcp_retrans_segs->to_string().c_str());
         ASSERT_STREQ("12712", tcp_in_errs->to_string().c_str());
+
+        // load average
+        Metric* load_average_1_minutes =
+                entity->get_metric("load_average_1_minutes", "load_average");
+        ASSERT_TRUE(fd_metric != nullptr);
+        ASSERT_STREQ("1.090000", load_average_1_minutes->to_string().c_str());
+        Metric* load_average_5_minutes =
+                entity->get_metric("load_average_5_minutes", "load_average");
+        ASSERT_TRUE(fd_metric != nullptr);
+        ASSERT_STREQ("1.400000", load_average_5_minutes->to_string().c_str());
+        Metric* load_average_15_minutes =
+                entity->get_metric("load_average_15_minutes", "load_average");
+        ASSERT_TRUE(fd_metric != nullptr);
+        ASSERT_STREQ("2.020000", load_average_15_minutes->to_string().c_str());
     }
 }
 

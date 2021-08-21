@@ -25,12 +25,15 @@
 #include "codegen/doris_ir.h"
 #include "common/logging.h"
 #include "runtime/buffered_block_mgr2.h" // for BufferedBlockMgr2::Block
-// #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch_interface.hpp"
+
+namespace doris::vectorized {
+class Block;
+}
 
 namespace doris {
 
@@ -40,6 +43,7 @@ class Tuple;
 class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
+
 
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller

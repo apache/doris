@@ -47,7 +47,7 @@ private:
     template <typename AwsOutcome>
     std::string error_msg(const AwsOutcome& outcome);
     const std::map<std::string, std::string>& _properties;
-    std::unique_ptr<Aws::S3::S3Client> _client;
+    std::shared_ptr<Aws::S3::S3Client> _client;
 };
 
 } // end namespace doris

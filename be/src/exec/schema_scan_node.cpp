@@ -18,7 +18,6 @@
 #include "schema_scan_node.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/foreach.hpp>
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "exec/text_converter.hpp"
@@ -52,7 +51,7 @@ SchemaScanNode::~SchemaScanNode() {
 }
 
 Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (tnode.schema_scan_node.__isset.db) {
         _scanner_param.db = _pool->add(new std::string(tnode.schema_scan_node.db));
     }

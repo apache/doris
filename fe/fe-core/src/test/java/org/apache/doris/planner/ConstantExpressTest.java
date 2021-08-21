@@ -110,6 +110,18 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select curdate();",
                 "");
+
+        testConstantExpressResult(
+                "select current_timestamp();",
+                "");
+
+        testConstantExpressResult(
+                "select curtime();",
+                "");
+
+        testConstantExpressResult(
+                "select current_time();",
+                "");
     }
 
     @Test
@@ -212,5 +224,11 @@ public class ConstantExpressTest {
         sql = "select null in (null);";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("NULL"));
+    }
+
+    @Test
+    public void testTimestamp() throws Exception {
+        testConstantExpressResult("select timestamp('2021-07-24 00:00:00')",
+            "'2021-07-24 00:00:00'");
     }
 }

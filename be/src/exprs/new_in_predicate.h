@@ -272,44 +272,22 @@ public:
                                                    const doris_udf::DateTimeVal* args);
 
     static doris_udf::BooleanVal in_iterate(doris_udf::FunctionContext* context,
-                                            const doris_udf::DecimalVal& val, int num_args,
-                                            const doris_udf::DecimalVal* args);
-
-    static doris_udf::BooleanVal in_iterate(doris_udf::FunctionContext* context,
                                             const doris_udf::DecimalV2Val& val, int num_args,
                                             const doris_udf::DecimalV2Val* args);
-
-    static doris_udf::BooleanVal not_in_iterate(doris_udf::FunctionContext* context,
-                                                const doris_udf::DecimalVal& val, int num_args,
-                                                const doris_udf::DecimalVal* args);
 
     static doris_udf::BooleanVal not_in_iterate(doris_udf::FunctionContext* context,
                                                 const doris_udf::DecimalV2Val& val, int num_args,
                                                 const doris_udf::DecimalV2Val* args);
 
-    static void set_lookup_prepare_decimal_val(
-            doris_udf::FunctionContext* ctx, doris_udf::FunctionContext::FunctionStateScope scope);
-
     static void set_lookup_prepare_decimalv2_val(
             doris_udf::FunctionContext* ctx, doris_udf::FunctionContext::FunctionStateScope scope);
-
-    static void set_lookup_close_decimal_val(doris_udf::FunctionContext* ctx,
-                                             doris_udf::FunctionContext::FunctionStateScope scope);
 
     static void set_lookup_close_decimalv2_val(
             doris_udf::FunctionContext* ctx, doris_udf::FunctionContext::FunctionStateScope scope);
 
     static doris_udf::BooleanVal in_set_lookup(doris_udf::FunctionContext* context,
-                                               const doris_udf::DecimalVal& val, int num_args,
-                                               const doris_udf::DecimalVal* args);
-
-    static doris_udf::BooleanVal in_set_lookup(doris_udf::FunctionContext* context,
                                                const doris_udf::DecimalV2Val& val, int num_args,
                                                const doris_udf::DecimalV2Val* args);
-
-    static doris_udf::BooleanVal not_in_set_lookup(doris_udf::FunctionContext* context,
-                                                   const doris_udf::DecimalVal& val, int num_args,
-                                                   const doris_udf::DecimalVal* args);
 
     static doris_udf::BooleanVal not_in_set_lookup(doris_udf::FunctionContext* context,
                                                    const doris_udf::DecimalV2Val& val, int num_args,
@@ -334,7 +312,7 @@ private:
         bool contains_null;
 
         /// The set of all non-NULL constant values in the IN list.
-        /// Note: boost::unordered_set and std::binary_search performed worse based on the
+        /// Note: std::unordered_set and std::binary_search performed worse based on the
         /// in-predicate-benchmark
         std::set<SetType> val_set;
 

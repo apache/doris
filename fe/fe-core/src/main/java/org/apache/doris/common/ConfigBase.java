@@ -17,12 +17,12 @@
 
 package org.apache.doris.common;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -55,10 +55,23 @@ public class ConfigBase {
     private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;
 
-    public void init(String confFile) throws Exception {
-        confClass = this.getClass();
-        this.confFile = confFile;
-        initConf(confFile);
+    private static String ldapConfFile;
+    private static String ldapCustomConfFile;
+    public static Class<? extends ConfigBase> ldapConfClass;
+
+    private boolean isLdapConfig = false;
+
+    public void init(String configFile) throws Exception {
+        this.isLdapConfig = (this instanceof LdapConfig);
+        if (!isLdapConfig) {
+            confClass = this.getClass();
+            confFile = configFile;
+            initConf(confFile);
+        } else {
+            ldapConfClass = this.getClass();
+            ldapConfFile = configFile;
+            initConf(ldapConfFile);
+        }
     }
 
     public void initCustom(String customConfFile) throws Exception {
@@ -75,7 +88,7 @@ public class ConfigBase {
         Properties props = new Properties();
         props.load(new FileReader(confFile));
         replacedByEnv(props);
-        setFields(props);
+        setFields(props, isLdapConfig);
     }
     
     public static HashMap<String, String> dump() throws Exception { 
@@ -120,7 +133,7 @@ public class ConfigBase {
     // the "CONFIG_VALUE" should be replaced be env variable CONFIG_VALUE
     private void replacedByEnv(Properties props) throws Exception {
         // pattern to match string like "{CONFIG_VALUE}"
-        Pattern pattern = Pattern.compile("\\$\\{([^\\}]*)\\}");
+        Pattern pattern = Pattern.compile("\\$\\{([^}]*)\\}");
         for (String key : props.stringPropertyNames()) {
             String value = props.getProperty(key);
             Matcher m = pattern.matcher(value);
@@ -137,8 +150,9 @@ public class ConfigBase {
         }
     }
 
-    private static void setFields(Properties props) throws Exception {
-        Field[] fields = confClass.getFields();     
+    private static void setFields(Properties props, boolean isLdapConfig) throws Exception {
+        Class<? extends ConfigBase> theClass = isLdapConfig ? ldapConfClass : confClass;
+        Field[] fields = theClass.getFields();
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
@@ -159,7 +173,7 @@ public class ConfigBase {
             if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
                 Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
             }
-        }       
+        }
     }
 
     public static void setConfigField(Field f, String confVal) throws IllegalAccessException, Exception {
@@ -185,7 +199,9 @@ public class ConfigBase {
                 f.setDouble(null, Double.parseDouble(confVal));
                 break;
             case "boolean":
-                f.setBoolean(null, Boolean.parseBoolean(confVal));
+                if (isBoolean(confVal)) {
+                    f.setBoolean(null, Boolean.parseBoolean(confVal));
+                }
                 break;
             case "String":
                 f.set(null, confVal);
@@ -221,7 +237,9 @@ public class ConfigBase {
             case "boolean[]":
                 boolean[] ba = new boolean[sa.length];
                 for (int i = 0; i < ba.length; i++) {
-                    ba[i] = Boolean.parseBoolean(sa[i]);
+                    if (isBoolean(sa[i])) {
+                        ba[i] = Boolean.parseBoolean(sa[i]);
+                    }
                 }
                 f.set(null, ba);
                 break;
@@ -231,6 +249,13 @@ public class ConfigBase {
             default:
                 throw new Exception("unknown type: " + f.getType().getSimpleName());
         }
+    }
+
+    private static boolean isBoolean(String s) {
+        if (s.equalsIgnoreCase("true") || s.equalsIgnoreCase("false")) {
+            return true;
+        }
+        throw new IllegalArgumentException("type mismatch");
     }
 
     public static Map<String, Field> getAllMutableConfigs() {
@@ -282,7 +307,36 @@ public class ConfigBase {
             }
             String confVal;
             try {
-                confVal = String.valueOf(f.get(null));
+                switch (f.getType().getSimpleName()) {
+                    case "short":
+                    case "int":
+                    case "long":
+                    case "double":
+                    case "boolean":
+                    case "String":
+                        confVal = String.valueOf(f.get(null));
+                        break;
+                    case "short[]":
+                        confVal = Arrays.toString((short[])f.get(null));
+                        break;
+                    case "int[]":
+                        confVal = Arrays.toString((int[])f.get(null));
+                        break;
+                    case "long[]":
+                        confVal = Arrays.toString((long[])f.get(null));
+                        break;
+                    case "double[]":
+                        confVal = Arrays.toString((double[])f.get(null));
+                        break;
+                    case "boolean[]":
+                        confVal = Arrays.toString((boolean[])f.get(null));
+                        break;
+                    case "String[]":
+                        confVal = Arrays.toString((String[])f.get(null));
+                        break;
+                    default:
+                        throw new DdlException("unknown type: " + f.getType().getSimpleName());
+                }
             } catch (IllegalArgumentException | IllegalAccessException e) {
                 throw new DdlException("Failed to get config '" + confKey + "'. err: " + e.getMessage());
             }
@@ -314,14 +368,13 @@ public class ConfigBase {
         return anno.masterOnly();
     }
 
-    // overwrite configs to customConfFile.
     // use synchronized to make sure only one thread modify this file
-    public synchronized static void persistConfig(Map<String, String> customConf) throws IOException {
+    public synchronized static void persistConfig(Map<String, String> customConf, boolean resetPersist) throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else {
-            // clear the file content
+        } else if (resetPersist){
+            // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");
             }

@@ -1012,5 +1012,9 @@ public class LoadJob implements Writable {
         return false;
     }
 
-
+    // Return true if this job is finished for a long time
+    public boolean isExpired(long currentTimeMs) {
+        return (getState() == JobState.FINISHED || getState() == JobState.CANCELLED)
+            && (currentTimeMs - getLoadFinishTimeMs()) / 1000 > Config.label_keep_max_second;
+    }
 }

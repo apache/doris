@@ -80,8 +80,7 @@ struct AddBatchCounter {
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
-    ReusableClosure() : cid(INVALID_BTHREAD_ID) {
-    }
+    ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
     ~ReusableClosure() {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
@@ -198,6 +197,9 @@ public:
     void clear_all_batches();
 
 private:
+    void _cancel_with_msg(const std::string& msg);
+
+private:
     OlapTableSink* _parent = nullptr;
     int64_t _index_id = -1;
     int64_t _node_id = -1;
@@ -210,7 +212,9 @@ private:
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
+    static const int _min_rpc_timeout_ms = 1000; // The min query timeout is 1 second.
     int64_t _next_packet_seq = 0;
+    MonotonicStopWatch _timeout_watch;
 
     // user cancel or get some errors
     std::atomic<bool> _cancelled{false};
@@ -371,9 +375,6 @@ private:
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _sender_thread;
 
-    std::vector<DecimalValue> _max_decimal_val;
-    std::vector<DecimalValue> _min_decimal_val;
-
     std::vector<DecimalV2Value> _max_decimalv2_val;
     std::vector<DecimalV2Value> _min_decimalv2_val;
 
@@ -409,10 +410,10 @@ private:
     // the timeout of load channels opened by this tablet sink. in second
     int64_t _load_channel_timeout_s = 0;
 
-	// True if this sink has been closed once
-	bool _is_closed = false;
-	// Save the status of close() method
-	Status _close_status;
+    // True if this sink has been closed once
+    bool _is_closed = false;
+    // Save the status of close() method
+    Status _close_status;
 };
 
 } // namespace stream_load

@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 #define DORIS_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
 #include <deque>
 #include <list>
+#include <mutex>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -44,12 +44,18 @@ class PFetchDataResult;
 
 struct GetResultBatchCtx {
     brpc::Controller* cntl = nullptr;
+    // In version 0.15, we change brpc client from jprotobuf to grpc.
+    // And the response data is moved from rpc attachment to protobuf boby.
+    // This variables is for backwards compatibility when upgrading Doris.
+    // If set to true, the response data is still transferred as attachment.
+    // If set to false, the response data is transferred in protobuf body.
+    bool resp_in_attachment = true;
     PFetchDataResult* result = nullptr;
     google::protobuf::Closure* done = nullptr;
 
-    GetResultBatchCtx(brpc::Controller* cntl_, PFetchDataResult* result_,
+    GetResultBatchCtx(brpc::Controller* cntl_, bool resp_in_attachment_, PFetchDataResult* result_,
                       google::protobuf::Closure* done_)
-            : cntl(cntl_), result(result_), done(done_) {}
+            : cntl(cntl_), resp_in_attachment(resp_in_attachment_), result(result_), done(done_) {}
 
     void on_failure(const Status& status);
     void on_close(int64_t packet_seq, QueryStatistics* statistics = nullptr);
@@ -106,11 +112,11 @@ private:
     // blocking queue for batch
     ResultQueue _batch_queue;
     // protects all subsequent data in this block
-    boost::mutex _lock;
+    std::mutex _lock;
     // signal arrival of new batch or the eos/cancelled condition
-    boost::condition_variable _data_arrival;
+    std::condition_variable _data_arrival;
     // signal removal of data by stream consumer
-    boost::condition_variable _data_removal;
+    std::condition_variable _data_removal;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

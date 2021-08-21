@@ -47,8 +47,8 @@
 #include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
-#include "util/defer_op.h"
 #include "util/debug_util.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 #include "util/ref_count_closure.h"
 #include "util/thrift_client.h"
@@ -82,6 +82,7 @@ public:
               _num_data_bytes_sent(0),
               _packet_seq(0),
               _need_close(false),
+              _be_number(0),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
               _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
@@ -316,6 +317,7 @@ Status DataStreamSender::Channel::send_local_batch(bool eos) {
         if (eos) {
             recvr->remove_sender(_parent->_sender_id, _be_number);
         }
+        COUNTER_UPDATE(_parent->_local_bytes_send_counter, _batch->total_byte_size());
     }
     _batch->reset();
     return Status::OK();
@@ -327,6 +329,7 @@ Status DataStreamSender::Channel::send_local_batch(RowBatch* batch, bool use_mov
                                                                    _dest_node_id);
     if (recvr != nullptr) {
         recvr->add_batch(batch, _parent->_sender_id, use_move);
+        COUNTER_UPDATE(_parent->_local_bytes_send_counter, batch->total_byte_size());
     }
     return Status::OK();
 }
@@ -383,6 +386,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _profile(NULL),
           _serialize_batch_timer(NULL),
           _bytes_sent_counter(NULL),
+          _local_bytes_send_counter(NULL),
           _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
@@ -416,6 +420,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
 
 // We use the ParttitionRange to compare here. It should not be a member function of PartitionInfo
 // class becaurce there are some other member in it.
+// TODO: move this to dpp_sink
 static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo* v2) {
     return v1->range() < v2->range();
 }
@@ -468,9 +473,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
-                                             "DataStreamSender:" + print_id(state->fragment_instance_id()),
-                                             state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(
+            _profile, -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
+            state->instance_mem_tracker());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         // Randomize the order we open/transmit to channels to avoid thundering herd problems.
@@ -492,9 +497,10 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
-            boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                                 profile()->total_time_counter()),
+            std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
+                               profile()->total_time_counter()),
             "");
+    _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));
     }

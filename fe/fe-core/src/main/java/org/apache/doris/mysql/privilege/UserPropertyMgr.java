@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
@@ -122,6 +123,14 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getMaxConn();
     }
 
+    public long getMaxQueryInstances(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return Config.default_max_query_instances;
+        }
+        return existProperty.getMaxQueryInstances();
+    }
+
     public int getPropertyMapSize() {
         return propertyMap.size();
     }
@@ -209,6 +218,14 @@ public class UserPropertyMgr implements Writable {
         for (UserProperty userProperty : propertyMap.values()) {
             userProperty.getWhiteList().addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
         }
+    }
+
+    public String[] getSqlBlockRules(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return new String[]{};
+        }
+        return existProperty.getSqlBlockRules();
     }
 
     public UserProperty getUserProperty(String qualifiedUserName) {

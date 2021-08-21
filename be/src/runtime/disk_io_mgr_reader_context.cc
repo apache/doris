@@ -25,9 +25,9 @@ using std::vector;
 using std::list;
 using std::endl;
 
-using boost::lock_guard;
-using boost::unique_lock;
-using boost::mutex;
+using std::lock_guard;
+using std::unique_lock;
+using std::mutex;
 
 void DiskIoMgr::RequestContext::cancel(const Status& status) {
     DCHECK(!status.ok());
@@ -92,7 +92,7 @@ void DiskIoMgr::RequestContext::cancel(const Status& status) {
         }
     }
 
-    BOOST_FOREACH (const WriteRange::WriteDoneCallback& write_callback, write_callbacks) {
+    for (const WriteRange::WriteDoneCallback& write_callback : write_callbacks) {
         write_callback(_status);
     }
 

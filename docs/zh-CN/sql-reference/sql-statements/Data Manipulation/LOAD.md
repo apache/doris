@@ -33,6 +33,7 @@ under the License.
     2. Broker Load：使用 broker 进行进行数据导入。
     3. Mini Load：通过 http 协议上传文件进行批量数据导入。
     4. Stream Load：通过 http 协议进行流式数据导入。
+    5. S3 Load: 通过S3协议直接访问支持S3协议的存储系统进行数据导入, 导入的语法与Broker Load 基本相同。
 
     本帮助主要描述第一种导入方式，即 Hadoop Load 相关帮助信息。其余导入方式可以使用以下命令查看帮助：
 

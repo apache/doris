@@ -17,12 +17,13 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.ImportSequenceStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.ParseNode;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -43,16 +44,16 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -279,9 +280,12 @@ public class KafkaRoutineLoadJobTest {
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaPartitionOffsets", partitionIdToOffset);
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaBrokerList", serverAddress);
-        Deencapsulation.setField(createRoutineLoadStmt, "kafkaTopic", topicName);
+        RoutineLoadDataSourceProperties dsProperties = new RoutineLoadDataSourceProperties();
+        dsProperties.setKafkaPartitionOffsets(partitionIdToOffset);
+        Deencapsulation.setField(dsProperties, "kafkaBrokerList", serverAddress);
+        Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
+        Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
+
         long dbId = 1l;
         long tableId = 2L;
 

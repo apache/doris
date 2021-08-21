@@ -53,8 +53,8 @@ private:
     std::string _path;
     S3URI _uri;
     bool _sync_needed;
+    std::shared_ptr<Aws::S3::S3Client> _client;
     std::shared_ptr<Aws::Utils::TempFile> _temp_file;
-    std::unique_ptr<Aws::S3::S3Client> _client;
 };
 
 } // end namespace doris

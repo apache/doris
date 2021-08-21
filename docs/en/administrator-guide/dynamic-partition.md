@@ -30,6 +30,8 @@ Dynamic partition is a new feature introduced in Doris version 0.12. It's design
 
 At present, the functions of dynamically adding partitions and dynamically deleting partitions are realized.
 
+Dynamic partitioning is only supported for Range partitions.
+
 ## Noun Interpretation
 
 * FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
@@ -122,6 +124,86 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.start_day_of_month`
 
     When `time_unit` is` MONTH`, this parameter is used to specify the start date of each month. The value ranges from 1 to 28. 1 means the 1st of every month, and 28 means the 28th of every month. The default is 1, which means that every month starts at 1st. The 29, 30 and 31 are not supported at the moment to avoid ambiguity caused by lunar years or months.
+
+* `dynamic_partition.create_history_partition`
+
+    The default is false. When set to true, Doris will automatically create all partitions, as described in the creation rules below. At the same time, the parameter `max_dynamic_partition_num` of FE will limit the total number of partitions to avoid creating too many partitions at once. When the number of partitions expected to be created is greater than `max_dynamic_partition_num`, the operation will fail.
+
+    When the `start` attribute is not specified, this parameter has no effect.
+
+* `dynamic_partition.history_partition_num`
+
+   When `create_history_partition` is `true`, this parameter is used to specify the number of history partitions. The default value is -1, which means it is not set.
+
+* `dynamic_partition.hot_partition_num`
+
+    Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`.
+
+    Let us give an example. Suppose today is 2021-05-20, partition by day, and the properties of dynamic partition are set to: hot_partition_num=2, end=3, start=-3. Then the system will automatically create the following partitions, and set the `storage_medium` and `storage_cooldown_time` properties:
+
+    ```
+    p20210517: ["2021-05-17", "2021-05-18") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
+    p20210518: ["2021-05-18", "2021-05-19") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
+    p20210519: ["2021-05-19", "2021-05-20") storage_medium=SSD storage_cooldown_time=2021-05-21 00:00:00
+    p20210520: ["2021-05-20", "2021-05-21") storage_medium=SSD storage_cooldown_time=2021-05-22 00:00:00
+    p20210521: ["2021-05-21", "2021-05-22") storage_medium=SSD storage_cooldown_time=2021-05-23 00:00:00
+    p20210522: ["2021-05-22", "2021-05-23") storage_medium=SSD storage_cooldown_time=2021-05-24 00:00:00
+    p20210523: ["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
+    ```
+
+#### Create History Partition Rules
+
+When `create_history_partition` is `true`, i.e. history partition creation is enabled, Doris determines the number of history partitions to be created based on `dynamic_partition.start` and `dynamic_partition.history_partition_num`. 
+
+Assuming the number of history partitions to be created is `expect_create_partition_num`, the number is as follows according to different settings.
+
+1. `create_history_partition` = `true`  
+   - `dynamic_partition.history_partition_num` is not set, i.e. -1.  
+        `expect_create_partition_num` = `end` - `start`; 
+
+   - `dynamic_partition.history_partition_num` is set   
+        `expect_create_partition_num` = `end` - max(`start`, `-histoty_partition_num`);
+
+2. `create_history_partition` = `false`  
+    No history partition will be created, `expect_create_partition_num` = `end` - 0;
+
+When `expect_create_partition_num` is greater than `max_dynamic_partition_num` (default 500), creating too many partitions is prohibited.
+
+**Examples:** 
+
+1. Suppose today is 2021-05-20, partition by day, and the attributes of dynamic partition are set to `create_history_partition=true, end=3, start=-3, history_partition_num=1`, then the system will automatically create the following partitions.
+
+    ``` 
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+2. `history_partition_num=5` and keep the rest attributes as in 1, then the system will automatically create the following partitions.
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
+
+3. `history_partition_num=-1` i.e., if you do not set the number of history partitions and keep the rest of the attributes as in 1, the system will automatically create the following partitions.
+
+    ```
+    p20210517
+    p20210518
+    p20210519
+    p20210520
+    p20210521
+    p20210522
+    p20210523
+    ```
 
 ### Notice
 

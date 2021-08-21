@@ -336,11 +336,11 @@ TEST_F(BitShufflePageTest, TestBitShuffleDecimal12BlockEncoderSeekValue) {
     const uint32_t size = 1000;
     std::unique_ptr<decimal12_t[]> decimals(new decimal12_t[size]);
     for (int i = 0; i < size; i++) {
-        decimals.get()[i] = decimal12_t(i + 100, random());
+        decimals.get()[i] = {i + 100, random()};
     }
 
-    decimal12_t small_than_smallest = decimal12_t(99, 9);
-    decimal12_t bigger_than_biggest = decimal12_t(1111, 1);
+    decimal12_t small_than_smallest = {99, 9};
+    decimal12_t bigger_than_biggest = {1111, 1};
     test_seek_at_or_after_value_template<
             OLAP_FIELD_TYPE_DECIMAL, segment_v2::BitshufflePageBuilder<OLAP_FIELD_TYPE_DECIMAL>,
             segment_v2::BitShufflePageDecoder<OLAP_FIELD_TYPE_DECIMAL>>(

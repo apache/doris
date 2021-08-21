@@ -39,9 +39,8 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
@@ -65,16 +64,15 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -106,6 +104,19 @@ public class OlapScanNode extends ScanNode {
      * Query2: select k1, min(v1) from table group by k1
      * This aggregation function in query is min which different from the schema.
      * So the data stored in storage engine need to be merged firstly before returning to scan node.
+     *
+     * There are currently two places to modify this variable:
+     * 1. The turnOffPreAgg() method of SingleNodePlanner.
+     *      This method will only be called on the left deepest OlapScanNode the plan tree,
+     *      while other nodes are false by default (because the Aggregation operation is executed after Join,
+     *      we cannot judge whether other OlapScanNodes can close the pre-aggregation).
+     *      So even the Duplicate key table, if it is not the left deepest node, it will remain false too.
+     *
+     * 2. After MaterializedViewSelector selects the materialized view, the updateScanRangeInfoByNewMVSelector()\
+     *    method of OlapScanNode may be called to update this variable.
+     *      This call will be executed on all ScanNodes in the plan tree. In this step,
+     *      for the DuplicateKey table, the variable will be set to true.
+     *      See comment of "isPreAggregation" variable in MaterializedViewSelector for details.
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
@@ -121,13 +132,12 @@ public class OlapScanNode extends ScanNode {
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
-    private boolean isFinalized = false;
 
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
     // a bucket seq may map to many tablets, and each tablet has a TScanRangeLocations.
-    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -152,6 +162,11 @@ public class OlapScanNode extends ScanNode {
         this.canTurnOnPreAggr = canChangePreAggr;
     }
 
+    public void closePreAggregation(String reason) {
+        setIsPreAggregation(false, reason);
+        setCanTurnOnPreAggr(false);
+    }
+
     public boolean getForceOpenPreAgg() {
         return forceOpenPreAgg;
     }
@@ -162,6 +177,20 @@ public class OlapScanNode extends ScanNode {
 
     public Collection<Long> getSelectedPartitionIds() {
         return selectedPartitionIds;
+    }
+
+    /**
+     * The function is used to directly select the index id of the base table as the selectedIndexId.
+     * It makes sure that the olap scan node must scan the base data rather than scan the materialized view data.
+     *
+     * This function is mainly used to update stmt.
+     * Update stmt also needs to scan data like normal queries.
+     * But its syntax is different from ordinary queries,
+     *   so planner cannot use the logic of query to automatically match the best index id.
+     * So, here it need to manually specify the index id to scan the base table directly.
+     */
+    public void useBaseIndexId() {
+        this.selectedIndexId = olapTable.getBaseIndexId();
     }
 
     /**
@@ -217,8 +246,8 @@ public class OlapScanNode extends ScanNode {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
             if (sessionVariable.getTestMaterializedView()) {
                 throw new AnalysisException("The old scan range info is different from the new one when "
-                                                    + "test_materialized_view is true. "
-                                                    + scanRangeInfo);
+                        + "test_materialized_view is true. "
+                        + scanRangeInfo);
             }
             situation = "The key type of table is aggregated.";
             update = false;
@@ -227,12 +256,15 @@ public class OlapScanNode extends ScanNode {
 
         if (update) {
             this.selectedIndexId = selectedIndexId;
-            this.isPreAggregation = isPreAggregation;
-            this.reasonOfPreAggregation = reasonOfDisable;
+            setIsPreAggregation(isPreAggregation, reasonOfDisable);
             updateColumnType();
-            LOG.info("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using the new scan range info instead of the old one. {}, {}", situation ,scanRangeInfo);
+            }
         } else {
-            LOG.warn("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Using the old scan range info instead of the new one. {}, {}", situation, scanRangeInfo);
+            }
         }
     }
 
@@ -282,57 +314,117 @@ public class OlapScanNode extends ScanNode {
         super.init(analyzer);
 
         filterDeletedRows(analyzer);
+        computeColumnFilter();
         computePartitionInfo();
+        computeTupleState(analyzer);
+
+        /**
+         * Compute InAccurate cardinality before mv selector and tablet pruning.
+         * - Accurate statistical information relies on the selector of materialized views and bucket reduction.
+         * - However, Those both processes occur after the reorder algorithm is completed.
+         * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
+         * - So only an inaccurate cardinality can be calculated here.
+         */
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            computeInaccurateCardinality();
+        }
     }
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
-        if (isFinalized) {
-            return;
+        LOG.debug("OlapScanNode get scan range locations. Tuple: {}", desc);
+        /**
+         * If JoinReorder is turned on, it will be calculated init(), and this value is not accurate.
+         * In the following logic, cardinality will be accurately calculated again.
+         * So here we need to reset the value of cardinality.
+         */
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            cardinality = 0;
         }
-
-        LOG.debug("OlapScanNode finalize. Tuple: {}", desc);
         try {
             getScanRangeLocations();
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-
+        // Relatively accurate cardinality according to ScanRange in getScanRangeLocations
         computeStats(analyzer);
-        isFinalized = true;
+        computeNumNodes();
+    }
+
+    public void computeTupleState(Analyzer analyzer) {
+        for (TupleId id : tupleIds) {
+            analyzer.getDescTbl().getTupleDesc(id).computeStat();
+        }
     }
 
     @Override
     public void computeStats(Analyzer analyzer) {
+        super.computeStats(analyzer);
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality;
-            if (hasLimit()) {
-                cardinality = Math.min(cardinality, limit);
-            }
-            numNodes = scanBackendIds.size();
+            capCardinalityAtLimit();
         }
-        // even current node scan has no data,at least on backend will be assigned when the fragment actually execute
-        numNodes = numNodes <= 0 ? 1 : numNodes;
         // when node scan has no data, cardinality should be 0 instead of a invalid value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
     }
 
-    private Collection<Long> partitionPrune(RangePartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
-        Map<Long, Range<PartitionKey>> keyRangeById = null;
+    @Override
+    protected void computeNumNodes() {
+        if (cardinality > 0) {
+            numNodes = scanBackendIds.size();
+        }
+        // even current node scan has no data,at least on backend will be assigned when the fragment actually execute
+        numNodes = numNodes <= 0 ? 1 : numNodes;
+    }
+
+    /**
+     * Calculate inaccurate cardinality.
+     * cardinality: the value of cardinality is the sum of rowcount which belongs to selectedPartitionIds
+     * The cardinality here is actually inaccurate, it will be greater than the actual value.
+     * There are two reasons
+     * 1. During the actual execution, not all tablets belonging to the selected partition will be scanned.
+     * Some tablets may have been pruned before execution.
+     * 2. The base index may eventually be replaced by mv index.
+     * <p>
+     * There are three steps to calculate cardinality
+     * 1. Calculate how many rows were scanned
+     * 2. Apply conjunct
+     * 3. Apply limit
+     */
+    private void computeInaccurateCardinality() {
+        // step1: Calculate how many rows were scanned
+        cardinality = 0;
+        for (long selectedPartitionId : selectedPartitionIds) {
+            final Partition partition = olapTable.getPartition(selectedPartitionId);
+            final MaterializedIndex baseIndex = partition.getBaseIndex();
+            cardinality += baseIndex.getRowCount();
+        }
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+    }
+
+    private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
+        PartitionPruner partitionPruner = null;
+        Map<Long, PartitionItem> keyItemMap;
         if (partitionNames != null) {
-            keyRangeById = Maps.newHashMap();
+            keyItemMap = Maps.newHashMap();
             for (String partName : partitionNames.getPartitionNames()) {
-                Partition part = olapTable.getPartition(partName, partitionNames.isTemp());
-                if (part == null) {
+                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
-                keyRangeById.put(part.getId(), partitionInfo.getRange(part.getId()));
+                keyItemMap.put(partition.getId(), partitionInfo.getItem(partition.getId()));
             }
         } else {
-            keyRangeById = partitionInfo.getIdToRange(false);
+            keyItemMap = partitionInfo.getIdToItem(false);
         }
-        PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
-                partitionInfo.getPartitionColumns(), columnFilters);
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            partitionPruner = new RangePartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        } else if (partitionInfo.getType() == PartitionType.LIST) {
+            partitionPruner = new ListPartitionPruner(keyItemMap,
+                    partitionInfo.getPartitionColumns(), columnFilters);
+        }
         return partitionPruner.prune();
     }
 
@@ -340,13 +432,13 @@ public class OlapScanNode extends ScanNode {
             MaterializedIndex table,
             DistributionInfo distributionInfo) throws AnalysisException {
         DistributionPruner distributionPruner = null;
-        switch(distributionInfo.getType()) {
+        switch (distributionInfo.getType()) {
             case HASH: {
                 HashDistributionInfo info = (HashDistributionInfo) distributionInfo;
                 distributionPruner = new HashDistributionPruner(table.getTabletIdsInOrder(),
-                                                                info.getDistributionColumns(),
-                                                                columnFilters,
-                                                                info.getBucketNum());
+                        info.getDistributionColumns(),
+                        columnFilters,
+                        info.getBucketNum());
                 return distributionPruner.prune();
             }
             case RANDOM: {
@@ -389,7 +481,7 @@ public class OlapScanNode extends ScanNode {
                     visibleVersion, visibleVersionHash, localBeId, schemaHash);
             if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
-                         tabletId, visibleVersion, visibleVersionHash);
+                        tabletId, visibleVersion, visibleVersionHash);
                 if (LOG.isDebugEnabled()) {
                     for (Replica replica : tablet.getReplicas()) {
                         LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
@@ -410,8 +502,9 @@ public class OlapScanNode extends ScanNode {
             boolean collectedStat = false;
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
-                if (backend == null) {
-                    LOG.debug("replica {} not exists", replica.getBackendId());
+                if (backend == null || !backend.isAlive()) {
+                    LOG.debug("backend {} not exists or is not alive for replica {}",
+                            replica.getBackendId(), replica.getId());
                     continue;
                 }
                 String ip = backend.getHost();
@@ -431,7 +524,7 @@ public class OlapScanNode extends ScanNode {
                 scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
-                throw new UserException(tabletId + "have no alive replicas");
+                throw new UserException("tablet: " + tabletId + " have no alive replicas.");
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPaloScanRange(paloRange);
@@ -441,6 +534,12 @@ public class OlapScanNode extends ScanNode {
 
             result.add(scanRangeLocations);
         }
+        // FIXME(dhc): we use cardinality here to simulate ndv
+        if (tablets.size() == 0) {
+            desc.setCardinality(0);
+        } else {
+            desc.setCardinality(cardinality);
+        }
     }
 
     private void computePartitionInfo() throws AnalysisException {
@@ -448,8 +547,8 @@ public class OlapScanNode extends ScanNode {
         // Step1: compute partition ids
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);
         } else {
             selectedPartitionIds = null;
         }
@@ -491,6 +590,7 @@ public class OlapScanNode extends ScanNode {
 
     private void getScanRangeLocations() throws UserException {
         if (selectedPartitionIds.size() == 0) {
+            desc.setCardinality(0);
             return;
         }
         Preconditions.checkState(selectedIndexId != -1);
@@ -570,11 +670,15 @@ public class OlapScanNode extends ScanNode {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
         }
+        if (!runtimeFilters.isEmpty()) {
+            output.append(prefix).append("runtime filters: ");
+            output.append(getRuntimeFilterExplainString(false));
+        }
 
         output.append(prefix).append(String.format(
-                    "partitions=%s/%s",
-                    selectedPartitionNum,
-                    olapTable.getPartitions().size()));
+                "partitions=%s/%s",
+                selectedPartitionNum,
+                olapTable.getPartitions().size()));
 
         String indexName = olapTable.getIndexNameById(selectedIndexId);
         output.append("\n").append(prefix).append(String.format("rollup: %s", indexName));
@@ -582,7 +686,7 @@ public class OlapScanNode extends ScanNode {
         output.append("\n");
 
         output.append(prefix).append(String.format(
-                    "tabletRatio=%s/%s", selectedTabletsNum, totalTabletsNum));
+                "tabletRatio=%s/%s", selectedTabletsNum, totalTabletsNum));
         output.append("\n");
 
         // We print up to 10 tablet, and we print "..." if the number is more than 10
@@ -630,11 +734,11 @@ public class OlapScanNode extends ScanNode {
         }
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         msg.olap_scan_node =
-              new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
+                new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
-	msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
+        msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
     }
 
     // export some tablets
@@ -647,8 +751,7 @@ public class OlapScanNode extends ScanNode {
         olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
-        olapScanNode.isPreAggregation = false;
-        olapScanNode.isFinalized = true;
+        olapScanNode.setIsPreAggregation(false, "Export job");
         olapScanNode.result.addAll(locationsList);
 
         return olapScanNode;
@@ -690,7 +793,7 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    public TupleId getTupleId(){
+    public TupleId getTupleId() {
         Preconditions.checkNotNull(desc);
         return desc.getId();
     }
@@ -763,7 +866,7 @@ public class OlapScanNode extends ScanNode {
         return expr instanceof SlotRef;
     }
 
-    private void filterDeletedRows(Analyzer analyzer) throws AnalysisException{
+    private void filterDeletedRows(Analyzer analyzer) throws AnalysisException {
         if (!Util.showHiddenColumns() && olapTable.hasDeleteSign()) {
             SlotRef deleteSignSlot = new SlotRef(desc.getAliasAsName(), Column.DELETE_SIGN);
             deleteSignSlot.analyze(analyzer);
@@ -771,6 +874,30 @@ public class OlapScanNode extends ScanNode {
             Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
             conjunct.analyze(analyzer);
             conjuncts.add(conjunct);
+        }
+    }
+
+    /*
+    Although sometimes the scan range only involves one instance,
+        the data distribution cannot be set to UNPARTITION here.
+    The reason is that @coordicator will not set the scan range for the fragment,
+        when data partition of fragment is UNPARTITION.
+     */
+    public DataPartition constructInputPartitionByDistributionInfo() {
+        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())
+                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapTable.getPartitions().size() == 1) {
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            Preconditions.checkState(distributionInfo instanceof HashDistributionInfo);
+            List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            List<Expr> dataDistributeExprs = Lists.newArrayList();
+            for (Column column : distributeColumns) {
+                SlotRef slotRef = new SlotRef(desc.getRef().getName(), column.getName());
+                dataDistributeExprs.add(slotRef);
+            }
+            return DataPartition.hashPartitioned(dataDistributeExprs);
+        } else {
+            return DataPartition.RANDOM;
         }
     }
 }

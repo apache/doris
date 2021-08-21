@@ -48,11 +48,11 @@ const size_t PREFIX_LENGTH = 4;
 OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path), _db(nullptr) {}
 
 OlapMeta::~OlapMeta() {
-    for (auto handle : _handles) {
-        _db->DestroyColumnFamilyHandle(handle);
-        handle = nullptr;
-    }
     if (_db != nullptr) {
+        for (auto& handle : _handles) {
+            _db->DestroyColumnFamilyHandle(handle);
+            handle = nullptr;
+        }
         delete _db;
         _db = nullptr;
     }
@@ -100,6 +100,21 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key,
         return OLAP_ERR_META_GET;
     }
     return OLAP_SUCCESS;
+}
+
+bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
+                         std::string* value) {
+    DorisMetrics::instance()->meta_read_request_total->increment(1);
+    rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
+    int64_t duration_ns = 0;
+    bool is_exist = false;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        is_exist = _db->KeyMayExist(ReadOptions(), handle, Slice(key), value);
+    }
+    DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
+    
+    return is_exist;
 }
 
 OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key,

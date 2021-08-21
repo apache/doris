@@ -19,15 +19,18 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
-import org.apache.doris.qe.QueryDetail;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.collect.Lists;
 
@@ -65,10 +68,17 @@ public class ConnectContext {
     protected volatile boolean isKilled;
     // Db
     protected volatile String currentDb = "";
+    protected volatile long currentDbId = -1;
+    // Transaction
+    protected volatile TransactionEntry txnEntry = null;
     // cluster name
     protected volatile String clusterName = "";
     // username@host of current login user
     protected volatile String qualifiedUser;
+    // LDAP authenticated but the Doris account does not exist, set the flag, and the user login Doris as Temporary user.
+    protected volatile boolean isTempUser = false;
+    // Save the privs from the ldap groups.
+    protected volatile PaloRole ldapGroupsPrivs = null;
     // username@host combination for the Doris account
     // that the server used to authenticate the current client.
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
@@ -98,7 +108,15 @@ public class ConnectContext {
 
     protected String remoteIP;
 
+    // This is used to statistic the current query details.
+    // This property will only be set when the query starts to execute.
+    // So in the query planning stage, do not use any value in this attribute.
     protected QueryDetail queryDetail;
+
+    // If set to true, the nondeterministic function will not be rewrote to constant.
+    private boolean notEvalNondeterministicFunction = false;
+
+    private String sqlHash;
 
     public static ConnectContext get() {
         return threadLocalInfo.get();
@@ -114,6 +132,14 @@ public class ConnectContext {
 
     public boolean isSend() {
         return this.isSend;
+    }
+
+    public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
+        this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
+    }
+
+    public boolean notEvalNondeterministicFunction() {
+        return notEvalNondeterministicFunction;
     }
 
     public ConnectContext() {
@@ -141,9 +167,28 @@ public class ConnectContext {
         queryDetail = null;
     }
 
-    // Just for unit test
-    public void resetSessionVariables() {
-        sessionVariable = VariableMgr.newSessionVariable();
+    public boolean isTxnModel() {
+        return txnEntry != null && txnEntry.isTxnModel();
+    }
+    public boolean isTxnIniting() {
+        return txnEntry != null && txnEntry.isTxnIniting();
+    }
+    public boolean isTxnBegin() {
+        return txnEntry != null && txnEntry.isTxnBegin();
+    }
+    public void closeTxn() {
+        if (isTxnModel()) {
+            if (isTxnBegin()) {
+                try {
+                    Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
+                } catch (UserException e) {
+                    LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
+                            txnEntry.getTxnConf().getTxnId(), e);
+                }
+            }
+            txnEntry = null;
+        }
     }
 
     public long getStmtId() {
@@ -186,6 +231,18 @@ public class ConnectContext {
         threadLocalInfo.set(this);
     }
 
+    public long getCurrentDbId() {
+        return currentDbId;
+    }
+
+    public TransactionEntry getTxnEntry() {
+        return txnEntry;
+    }
+
+    public void setTxnEntry(TransactionEntry txnEntry) {
+        this.txnEntry = txnEntry;
+    }
+
     public TResourceInfo toResourceCtx() {
         return new TResourceInfo(qualifiedUser, sessionVariable.getResourceGroup());
     }
@@ -204,6 +261,16 @@ public class ConnectContext {
 
     public void setQualifiedUser(String qualifiedUser) {
         this.qualifiedUser = qualifiedUser;
+    }
+
+    public boolean getIsTempUser() { return isTempUser;}
+
+    public void setIsTempUser(boolean isTempUser) { this.isTempUser = isTempUser;}
+
+    public PaloRole getLdapGroupsPrivs() { return ldapGroupsPrivs; }
+
+    public void setLdapGroupsPrivs(PaloRole ldapGroupsPrivs) {
+        this.ldapGroupsPrivs = ldapGroupsPrivs;
     }
 
     // for USER() function
@@ -302,10 +369,20 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
+        Database database = Catalog.getCurrentCatalog().getDb(db);
+        if (database == null) {
+            currentDbId = -1;
+        } else {
+            currentDbId = database.getId();
+        }
     }
 
     public void setExecutor(StmtExecutor executor) {
         this.executor = executor;
+    }
+
+    public StmtExecutor getExecutor() {
+        return executor;
     }
 
     public void cleanup() {
@@ -337,6 +414,14 @@ public class ConnectContext {
 
     public void setCluster(String clusterName) {
         this.clusterName = clusterName;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
+    }
+
+    public void setSqlHash(String sqlHash) {
+        this.sqlHash = sqlHash;
     }
 
     // kill operation with no protect.
@@ -394,7 +479,7 @@ public class ConnectContext {
         }
         return threadInfo;
     }
-
+ 
     public class ThreadInfo {
         public List<String>  toRow(long nowMs) {
             List<String> row = Lists.newArrayList();

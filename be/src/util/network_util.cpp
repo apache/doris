@@ -25,7 +25,6 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
-#include <boost/foreach.hpp>
 #include <sstream>
 
 namespace doris {
@@ -102,7 +101,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 }
 
 bool find_first_non_localhost(const std::vector<std::string>& addresses, std::string* addr) {
-    BOOST_FOREACH (const std::string& candidate, addresses) {
+    for (const std::string& candidate : addresses) {
         if (candidate != LOCALHOST) {
             *addr = candidate;
             return true;

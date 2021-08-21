@@ -31,8 +31,8 @@
 #include "exec/s3_writer.h"
 
 namespace doris {
-static const std::string AK = "353b8de00d85438c8ea0818704b156d3";
-static const std::string SK = "ea15a18b4409479fa8cca029f78e8d77";
+static const std::string AK = "";
+static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
 static const std::string REGION = "bj";
 static const std::string BUCKET = "s3://yang-repo/";
@@ -42,7 +42,7 @@ public:
             : _aws_properties({{"AWS_ACCESS_KEY", AK},
                                {"AWS_SECRET_KEY", SK},
                                {"AWS_ENDPOINT", ENDPOINT},
-                               {"AWS_REGION", "bj"}}) {
+                               {"AWS_REGION", REGION}}) {
         _s3_base_path = BUCKET + "s3/" + gen_uuid();
     }
 
@@ -95,12 +95,14 @@ TEST_F(S3ReaderTest, normal) {
     ASSERT_EQ(_content.length(), reader->size());
     std::string verification_contents;
     verification_contents.resize(_content.length());
-    size_t total_read = _content.length();
+    int64_t total_read = 0;
     bool eof = false;
-    st = reader->read((uint8_t*)&verification_contents[0], &total_read, &eof);
+    st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(_content, verification_contents);
     ASSERT_EQ(_content.length(), total_read);
+    ASSERT_FALSE(eof);
+    st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
     ASSERT_TRUE(eof);
     int64_t t = 0;
     st = reader->tell(&t);
@@ -109,25 +111,14 @@ TEST_F(S3ReaderTest, normal) {
     st = reader->readat(_content.length(), _content.length(), (int64_t*)(&total_read),
                         (uint8_t*)&verification_contents[0]);
     LOG(INFO) << total_read;
-    ASSERT_TRUE(total_read==0);
+    ASSERT_TRUE(total_read == 0);
 }
 } // end namespace doris
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // doris::init_glog("be-test");
-    // doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     int ret = 0;
-    Aws::SDKOptions options;
-    options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
-    Aws::InitAPI(options);
     // ak sk is secret
     // ret = RUN_ALL_TESTS();
-    Aws::ShutdownAPI(options);
     return ret;
 }

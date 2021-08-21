@@ -41,16 +41,16 @@ S3Reader::S3Reader(const std::map<std::string, std::string>& properties, const s
           _uri(path),
           _cur_offset(start_offset),
           _file_size(0),
-          _closed(false) {
-    _client = create_client(_properties);
+          _closed(false),
+          _client(ClientFactory::instance().create(_properties)) {
     DCHECK(_client) << "init aws s3 client error.";
 }
 
 S3Reader::~S3Reader() {}
 
 Status S3Reader::open() {
-    CHECK_S3_CLIENT(_client);                                                 
-    if (!_uri.parse()) {                                             
+    CHECK_S3_CLIENT(_client);
+    if (!_uri.parse()) {
         return Status::InvalidArgument("s3 uri is invalid: " + _path);
     }
     Aws::S3::Model::HeadObjectRequest request;
@@ -68,28 +68,30 @@ Status S3Reader::open() {
         return Status::InternalError(out.str());
     }
 }
-Status S3Reader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
-    DCHECK_NE(*buf_len, 0);
-    RETURN_IF_ERROR(readat(_cur_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf));
-    if (*buf_len == 0 ) {
+
+Status S3Reader::read(uint8_t* buf, int64_t buf_len, int64_t* bytes_read, bool* eof) {
+    DCHECK_NE(buf_len, 0);
+    RETURN_IF_ERROR(readat(_cur_offset, buf_len, bytes_read, buf));
+    if (*bytes_read == 0) {
         *eof = true;
     } else {
         *eof = false;
     }
     return Status::OK();
 }
+
 Status S3Reader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     CHECK_S3_CLIENT(_client);
     if (position >= _file_size) {
         *bytes_read = 0;
         VLOG_FILE << "Read end of file: " + _path;
-        return Status::EndOfFile("Read end of file: " + _path);
+        return Status::OK();
     }
     Aws::S3::Model::GetObjectRequest request;
     request.WithBucket(_uri.get_bucket()).WithKey(_uri.get_key());
     string bytes = StrCat("bytes=", position, "-");
     if (position + nbytes < _file_size) {
-        string bytes = StrCat(bytes.c_str(), position + nbytes - 1);
+        bytes = StrCat(bytes.c_str(), position + nbytes - 1);
     }
     request.SetRange(bytes.c_str());
     auto response = _client->GetObject(request);
@@ -107,7 +109,8 @@ Status S3Reader::readat(int64_t position, int64_t nbytes, int64_t* bytes_read, v
     response.GetResult().GetBody().read((char*)out, *bytes_read);
     return Status::OK();
 }
-Status S3Reader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* length) {
+
+Status S3Reader::read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) {
     bool eof;
     int64_t file_size = size() - _cur_offset;
     if (file_size <= 0) {
@@ -115,26 +118,29 @@ Status S3Reader::read_one_message(std::unique_ptr<uint8_t[]>* buf, size_t* lengt
         *length = 0;
         return Status::OK();
     }
-    *length = file_size;
     buf->reset(new uint8_t[file_size]);
-    read(buf->get(), length, &eof);
+    read(buf->get(), file_size, length, &eof);
     return Status::OK();
 }
 
 int64_t S3Reader::size() {
     return _file_size;
 }
+
 Status S3Reader::seek(int64_t position) {
     _cur_offset = position;
     return Status::OK();
 }
+
 Status S3Reader::tell(int64_t* position) {
     *position = _cur_offset;
     return Status::OK();
 }
+
 void S3Reader::close() {
     _closed = true;
 }
+
 bool S3Reader::closed() {
     return _closed;
 }

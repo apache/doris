@@ -20,7 +20,10 @@ package org.apache.doris.analysis;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TBoolLiteral;
@@ -69,6 +72,11 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public Object getRealValue() {
+        return getValue();
+    }
+
+    @Override
     public boolean isMinValue() {
         return false;
     }
@@ -77,6 +85,9 @@ public class BoolLiteral extends LiteralExpr {
     public int compareLiteral(LiteralExpr expr) {
         if (expr instanceof NullLiteral) {
             return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
         }
         return Long.signum(getLongValue() - expr.getLongValue());
     }
@@ -89,6 +100,16 @@ public class BoolLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return value ? "1" : "0";
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        byte v = (byte) (value ? 1 : 0);
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put(v);
+        buffer.flip();
+        return buffer;
     }
 
     @Override

@@ -43,13 +43,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 /**
  * This class represents the olap tablet related metadata.
  */
 public class Tablet extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Tablet.class);
-    
+
     public enum TabletStatus {
         HEALTHY,
         REPLICA_MISSING, // not enough alive replica num.
@@ -62,6 +63,7 @@ public class Tablet extends MetaObject implements Writable {
         COLOCATE_MISMATCH, // replicas do not all locate in right colocate backends set.
         COLOCATE_REDUNDANT, // replicas match the colocate backends set, but redundant.
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
+        UNRECOVERABLE   // non of replicas are healthy
     }
 
     @SerializedName(value = "id")
@@ -375,25 +377,15 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public long getDataSize(boolean singleReplica) {
-        long dataSize = 0;
-        int count = 0;
-        for (Replica replica : getReplicas()) {
-            if (replica.getState() == ReplicaState.NORMAL
-                    || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                dataSize += replica.getDataSize();
-                count++;
-            }
-        }
-        if (count == 0) {
-            return 0;
-        }
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getDataSize);
+        return singleReplica ? Double.valueOf(s.average().getAsDouble()).longValue() : s.sum();
+    }
 
-        if (singleReplica) {
-            // get the avg replica size
-            dataSize /= count;
-        }
-
-        return dataSize;
+    public long getRowNum(boolean singleReplica) {
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getRowCount);
+        return singleReplica ? Double.valueOf(s.average().getAsDouble()).longValue() : s.sum();
     }
 
     /**
@@ -455,7 +447,9 @@ public class Tablet extends MetaObject implements Writable {
 
         // 1. alive replicas are not enough
         int aliveBackendsNum = aliveBeIdsInCluster.size();
-        if (alive < replicationNum && replicas.size() >= aliveBackendsNum
+        if (alive == 0) {
+            return Pair.create(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
+        } else if (alive < replicationNum && replicas.size() >= aliveBackendsNum
                 && aliveBackendsNum >= replicationNum && replicationNum > 1) {
             // there is no enough backend for us to create a new replica, so we have to delete an existing replica,
             // so there can be available backend for us to create a new replica.
@@ -473,7 +467,9 @@ public class Tablet extends MetaObject implements Writable {
         }
 
         // 2. version complete replicas are not enough
-        if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
+        if (aliveAndVersionComplete == 0) {
+            return Pair.create(TabletStatus.UNRECOVERABLE, Priority.VERY_HIGH);
+        } else if (aliveAndVersionComplete < (replicationNum / 2) + 1) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.HIGH);
         } else if (aliveAndVersionComplete < replicationNum) {
             return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);

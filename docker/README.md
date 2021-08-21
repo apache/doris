@@ -38,15 +38,6 @@ under the License.
     $ cp incubator-doris/docker/Dockerfile ./
     ```
 
-3. Download Oracle JDK(1.8+) RPM
-
-    You need to download the Oracle JDK RPM, which can be found [here][1].
-    And rename it to `jdk.rpm`.
-
-4. Download nodejs
-
-    Download node-v14.8.0-linux-x64.tar.xz, which can be found [here][2].
-
 After preparation, your workspace should like this:
 
 ```
@@ -63,8 +54,6 @@ After preparation, your workspace should like this:
 │   ├── env.sh
 │   ├── fe
 │   ├── ...
-├── jdk.rpm
-├── node-v14.8.0-linux-x64.tar.xz
 ```
 
 ### Build docker image
@@ -74,8 +63,7 @@ $ cd /to/your/workspace/
 $ docker build -t doris:v1.0  .
 ```
 
-> `doris` is docker image repository name and `v1.0` is tag name, you can change
-> them to whatever you like.
+> `doris` is docker image repository name and `v1.0` is tag name, you can change them to whatever you like.
 
 ### Use docker image
 
@@ -85,6 +73,7 @@ used to build this image before)
 
 ```console
 $ docker run -it -v /your/local/path/incubator-doris/:/root/incubator-doris/ doris:v1.0
+$ $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ doris:v1.0
 ```
 
 Then you can build source code inside the container.
@@ -94,5 +83,14 @@ $ cd /root/incubator-doris/
 $ sh build.sh
 ```
 
-[1]: https://www.oracle.com/technetwork/java/javase/downloads/index.html
-[2]: https://nodejs.org/dist/v14.8.0/
+**NOTICE**
+
+The default JDK version is openjdk 11, if you want to use openjdk 8, you can run the command:
+
+```console
+$ alternatives --set java java-1.8.0-openjdk.x86_64
+$ alternatives --set javac java-1.8.0-openjdk.x86_64
+$ export JAVA_HOME=/usr/lib/jvm/java-1.8.0
+```
+
+The version of jdk you used to run FE must be the same version you used to compile FE.

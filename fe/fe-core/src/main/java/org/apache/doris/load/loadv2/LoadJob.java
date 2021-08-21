@@ -32,6 +32,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -381,14 +382,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
         jobProperties.put(LoadStmt.STRICT_MODE, false);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, 1);
+        jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
     }
 
     public void isJobTypeRead(boolean jobTypeRead) {
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
     }
 
     /**
@@ -401,7 +402,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws DuplicatedRequestException
      */
     public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         writeLock();
         try {
             unprotectedExecute();
@@ -411,7 +412,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public void unprotectedExecute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException,
-            DuplicatedRequestException, LoadException {
+            DuplicatedRequestException, LoadException, QuotaExceedException, MetaNotFoundException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;
@@ -1190,5 +1191,30 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public int getLoadParallelism() {
         return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+    }
+
+    // Return true if this job is finished for a long time
+    public boolean isExpired(long currentTimeMs) {
+        if (!isCompleted()) {
+            return false;
+        }
+        long expireTime = Config.label_keep_max_second;
+        if (jobType == EtlJobType.INSERT) {
+            expireTime = Config.streaming_label_keep_max_second;
+        }
+
+        return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
+    }
+
+    public FailMsg getFailMsg() {
+        return failMsg;
+    }
+
+    public EtlStatus getLoadingStatus() {
+        return loadingStatus;
+    }
+
+    public LoadStatistic getLoadStatistic() {
+        return loadStatistic;
     }
 }

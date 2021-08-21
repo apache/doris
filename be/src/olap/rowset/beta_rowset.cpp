@@ -45,7 +45,7 @@ OLAPStatus BetaRowset::init() {
 }
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
-OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
+OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> parent) {
     // Open all segments under the current rowset
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
@@ -155,6 +155,17 @@ bool BetaRowset::check_path(const std::string& path) {
         valid_paths.insert(segment_file_path(_rowset_path, rowset_id(), i));
     }
     return valid_paths.find(path) != valid_paths.end();
+}
+
+bool BetaRowset::check_file_exist() {
+    for (int i = 0; i < num_segments(); ++i) {
+        std::string data_file = segment_file_path(_rowset_path, rowset_id(), i);
+        if (!FileUtils::check_exist(data_file)) {
+            LOG(WARNING) << "data file not existed: " << data_file << " for rowset_id: " << rowset_id();
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace doris

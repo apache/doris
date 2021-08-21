@@ -314,6 +314,12 @@ struct TTableStatus {
     5: optional i64 last_check_time
     6: optional i64 create_time
     7: optional string ddl_sql
+    8: optional i64 update_time
+    9: optional i64 check_time
+    10: optional string collation
+    11: optional i64 rows;
+    12: optional i64 avg_row_length
+    13: optional i64 data_length;
 }
 
 struct TListTableStatusResult {
@@ -445,6 +451,7 @@ struct TMasterOpRequest {
     17: optional Types.TUniqueId query_id // when this is a query, we translate this query id to master
     18: optional i64 insert_visible_timeout_ms // deprecated, move into session_variables
     19: optional map<string, string> session_variables
+    20: optional bool foldConstantByBe
 }
 
 struct TColumnDefinition {
@@ -496,6 +503,7 @@ struct TMiniLoadBeginRequest {
     11: optional i64 auth_code
     12: optional i64 create_timestamp
     13: optional Types.TUniqueId request_id
+    14: optional string auth_code_uuid
 }
 
 struct TIsMethodSupportedRequest {
@@ -526,12 +534,14 @@ struct TLoadTxnBeginRequest {
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
+    12: optional string auth_code_uuid
 }
 
 struct TLoadTxnBeginResult {
     1: required Status.TStatus status
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
+    4: optional i64 db_id
 }
 
 // StreamLoad request, used to load a streaming to engine
@@ -579,6 +589,8 @@ struct TStreamLoadPutRequest {
     30: optional bool num_as_string
     31: optional bool fuzzy_parse
     32: optional string line_delimiter
+    33: optional bool read_json_by_line
+    34: optional string auth_code_uuid
 }
 
 struct TStreamLoadPutResult {
@@ -630,6 +642,8 @@ struct TLoadTxnCommitRequest {
     10: optional i64 auth_code
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
+    13: optional string auth_code_uuid
+    14: optional i64 db_id
 }
 
 struct TLoadTxnCommitResult {
@@ -647,6 +661,8 @@ struct TLoadTxnRollbackRequest {
     8: optional string reason
     9: optional i64 auth_code
     10: optional TTxnCommitAttachment txnCommitAttachment
+    11: optional string auth_code_uuid
+    12: optional i64 db_id
 }
 
 struct TLoadTxnRollbackResult {
@@ -680,6 +696,24 @@ struct TFrontendPingFrontendResult {
     6: required string version
 }
 
+struct TPropertyVal {
+    1: optional string strVal
+    2: optional i32 intVal
+    3: optional i64 longVal
+    4: optional bool boolVal
+}
+
+struct TWaitingTxnStatusRequest {
+    1: optional i64 db_id
+    2: optional i64 txn_id
+    3: optional string label
+}
+
+struct TWaitingTxnStatusResult {
+    1: optional Status.TStatus status
+    2: optional i32 txn_status_id
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -711,6 +745,8 @@ service FrontendService {
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
+
+    TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 

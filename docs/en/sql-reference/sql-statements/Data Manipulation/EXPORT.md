@@ -37,7 +37,7 @@ under the License.
         [WHERE [expr]]
         TO export_path
         [opt_properties]
-        [broker];
+        [broker｜S3];
 
     1. table_name
        The table names to be exported currently support the export of tables with engine as OLAP and mysql.
@@ -58,16 +58,17 @@ under the License.
 
         The following parameters can be specified:
           column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
+          column: Specify the columns to be exported, separated by commas. If you do not fill in this parameter, the default is to export all the columns of the table.
           line_delimiter: Specifies the exported line separator, defaulting to\n. Supports invisible characters, such as'\x07'.
           exec_mem_limit: Exports the upper limit of memory usage for a single BE node, defaulting to 2GB in bytes.
           timeout: The time-out for importing jobs is 1 day by default, in seconds.
           tablet_num_per_task: The maximum number of tablets that each subtask can allocate.
 
-     6. broker
-        Broker used to specify export usage
+     6. broker|S3
+        Specify to use broker export or export through S3 protocol
           Grammar:
-          WITH BROKER broker_name ("key"="value"[,...])
-          Here you need to specify the specific broker name and the required broker attributes
+          WITH [BROKER broker_name| S3] ("key"="value"[,...])
+          Here you need to specify the specific broker name and the required broker attributes, If you use the S3 protocol, you do not need to specify the broker name
 
         For brokers corresponding to different storage systems, the input parameters are different. Specific parameters can be referred to: `help broker load', broker required properties.
         When exporting to local, you do not need to fill in this part.
@@ -91,6 +92,9 @@ under the License.
 
     6. Export all data in the testTbl table to hdfs, using the invisible character "\x07" as the column and row separator. 
        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy")
+
+    7. Export column k1, v1 from the testTbl to the local.
+       EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
 
 ## keyword
     EXPORT

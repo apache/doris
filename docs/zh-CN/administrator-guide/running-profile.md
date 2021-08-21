@@ -82,7 +82,7 @@ Query:
            - RowsReturned: 8.322K (8322)
            - MemoryUsed: 0.00 
            - RowsReturnedRate: 811
-```
+ ```
 这里列出了Fragment的ID；```hostname```指的是执行Fragment的BE节点；```Active：10s270ms```表示该节点的执行总时间；```non-child: 0.14%```表示执行节点自身的执行时间（不包含子节点的执行时间）占总时间的百分比；
 
 `PeakMemoryUsage`表示`EXCHANGE_NODE`内存使用的峰值；`RowsReturned`表示`EXCHANGE_NODE`结果返回的行数；`RowsReturnedRate`=`RowsReturned`/`ActiveTime`；这三个统计信息在其他`NODE`中的含义相同。
@@ -109,9 +109,15 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 #### `DataStreamSender`
    - BytesSent: 发送的总数据量 = 接受者 * 发送数据量
    - IgnoreRows: 过滤的行数
+   - LocalBytesSent: 数据在Exchange过程中，记录本机节点的自发自收数据量
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小
+
+#### `ODBC_TABLE_SINK`
+   - NumSentRows: 写入外表的总行数
+   - TupleConvertTime: 发送数据序列化为Insert语句的耗时
+   - ResultSendTime: 通过ODBC Driver写入的耗时
 
 #### `EXCHANGE_NODE`
   - BytesReceived: 通过网络接收的数据量大小
@@ -134,7 +140,7 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
   - MergeGetNext: MergeSort从多个sort_run获取下一个batch的耗时 (仅在落盘时计时）
   - MergeGetNextBatch: MergeSort提取下一个sort_run的batch的耗时 (仅在落盘时计时）
   - TotalMergesPerformed: 进行外排merge的次数
- 
+
 #### `AGGREGATION_NODE`
   - PartitionsCreated: 聚合查询拆分成Partition的个数
   - GetResultsTime: 从各个partition之中获取聚合结果的时间

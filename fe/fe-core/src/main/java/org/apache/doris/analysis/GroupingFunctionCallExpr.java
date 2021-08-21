@@ -49,6 +49,9 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
     public GroupingFunctionCallExpr(GroupingFunctionCallExpr other) {
         super(other);
         this.childrenReseted = other.childrenReseted;
+        if (this.childrenReseted) {
+            this.realChildren = Expr.cloneList(other.realChildren);
+        }
     }
 
     @Override

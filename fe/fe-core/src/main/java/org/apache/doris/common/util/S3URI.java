@@ -41,8 +41,10 @@ public class S3URI {
 
     private String scheme;
     private final String location;
+    private final String virtualBucket;
     private final String bucket;
     private final String key;
+    private boolean forceHosted;
 
     /**
      * Creates a new S3URI based on the bucket and key parsed from the location as defined in:
@@ -54,8 +56,13 @@ public class S3URI {
      * @param location fully qualified URI
      */
     public S3URI(String location) {
+        this(location, false);
+    }
+
+    public S3URI(String location, boolean forceHosted) {
         Preconditions.checkNotNull(location, "Location cannot be null.");
         this.location = location;
+        this.forceHosted = forceHosted;
         String[] schemeSplit = location.split(SCHEME_DELIM);
         Preconditions.checkState(schemeSplit.length == 2, "Invalid S3 URI: %s", location);
 
@@ -64,13 +71,24 @@ public class S3URI {
         String[] authoritySplit = schemeSplit[1].split(PATH_DELIM, 2);
         Preconditions.checkState(authoritySplit.length == 2, "Invalid S3 URI: %s", location);
         Preconditions.checkState(!authoritySplit[1].trim().isEmpty(), "Invalid S3 key: %s", location);
-        this.bucket = authoritySplit[0];
-
         // Strip query and fragment if they exist
         String path = authoritySplit[1];
         path = path.split(QUERY_DELIM)[0];
         path = path.split(FRAGMENT_DELIM)[0];
-        key = path;
+        if (forceHosted) {
+            this.virtualBucket = authoritySplit[0];
+            String[] paths = path.split("/", 2);
+            this.bucket = paths[0];
+            if (paths.length > 1) {
+                key = paths[1];
+            } else {
+                key = "";
+            }
+        } else {
+            this.virtualBucket = "";
+            this.bucket = authoritySplit[0];
+            key = path;
+        }
     }
 
     public List<String> expand(String path) {
@@ -83,6 +101,10 @@ public class S3URI {
 
     public String getBucketScheme() {
         return scheme + "://" + bucket;
+    }
+
+    public String getVirtualBucket() {
+        return virtualBucket;
     }
 
     /**

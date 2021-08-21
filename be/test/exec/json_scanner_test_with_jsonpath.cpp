@@ -359,6 +359,7 @@ void JsonScannerTest::init() {
 
 TEST_F(JsonScannerTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());
 

@@ -19,9 +19,8 @@
 
 #include <google/protobuf/stubs/common.h>
 
-#include <boost/thread/locks.hpp>
-#include <boost/thread/mutex.hpp>
 #include <deque>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -39,21 +38,20 @@ using std::vector;
 using std::pair;
 using std::make_pair;
 
-using boost::condition_variable;
-using boost::mutex;
+using std::condition_variable;
+using std::mutex;
 using boost::scoped_ptr;
-using boost::unique_lock;
-using boost::try_lock;
-using boost::try_mutex;
-using boost::lock_guard;
-using boost::mem_fn;
+using std::unique_lock;
+using std::try_lock;
+using std::lock_guard;
+using std::mem_fn;
 
 namespace doris {
 
 class ThreadClosure : public google::protobuf::Closure {
 public:
     void Run() { _cv.notify_one(); }
-    void wait(unique_lock<boost::mutex>& lock) { _cv.wait(lock); }
+    void wait(unique_lock<std::mutex>& lock) { _cv.wait(lock); }
 
 private:
     condition_variable _cv;
@@ -330,7 +328,7 @@ void DataStreamRecvr::SenderQueue::cancel() {
     //         _recvr->_bytes_received_time_series_counter);
 
     {
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
         }
@@ -343,7 +341,7 @@ void DataStreamRecvr::SenderQueue::close() {
         // If _is_cancelled is not set to true, there may be concurrent send
         // which add batch to _batch_queue. The batch added after _batch_queue
         // is clear will be memory leak
-        boost::lock_guard<boost::mutex> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         _is_cancelled = true;
 
         for (auto closure_pair : _pending_closures) {
@@ -368,13 +366,14 @@ Status DataStreamRecvr::create_merger(const TupleRowComparator& less_than) {
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_input_batch_suppliers.emplace_back(
-                bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], _1));
+                bind(mem_fn(&SenderQueue::get_batch), _sender_queues[i], std::placeholders::_1));
     }
     RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers));
     return Status::OK();
 }
 
-Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size, MemTracker* mem_tracker) {
+Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_than,
+                                               uint32_t batch_size, MemTracker* mem_tracker) {
     DCHECK(_is_merging);
     vector<SortedRunMerger::RunBatchSupplier> child_input_batch_suppliers;
 
@@ -403,13 +402,13 @@ Status DataStreamRecvr::create_parallel_merger(const TupleRowComparator& less_th
                 less_than, &_row_desc, _profile, mem_tracker, batch_size, false));
         vector<SortedRunMerger::RunBatchSupplier> input_batch_suppliers;
         for (int j = i; j < std::min((size_t)i + step, _sender_queues.size()); ++j) {
-            input_batch_suppliers.emplace_back(
-                    bind(mem_fn(&SenderQueue::get_batch), _sender_queues[j], _1));
+            input_batch_suppliers.emplace_back(bind(mem_fn(&SenderQueue::get_batch),
+                                                    _sender_queues[j], std::placeholders::_1));
         }
         child_merger->prepare(input_batch_suppliers);
 
-        child_input_batch_suppliers.emplace_back(
-                bind(mem_fn(&SortedRunMerger::get_batch), child_merger.get(), _1));
+        child_input_batch_suppliers.emplace_back(bind(mem_fn(&SortedRunMerger::get_batch),
+                                                      child_merger.get(), std::placeholders::_1));
         _child_mergers.emplace_back(std::move(child_merger));
     }
     RETURN_IF_ERROR(_merger->prepare(child_input_batch_suppliers, true));
@@ -424,7 +423,7 @@ void DataStreamRecvr::transfer_all_resources(RowBatch* transfer_batch) {
     if (!_child_mergers.empty()) {
         _merger->transfer_all_resources(transfer_batch);
     } else {
-        BOOST_FOREACH (SenderQueue* sender_queue, _sender_queues) {
+        for (SenderQueue* sender_queue : _sender_queues) {
             if (sender_queue->current_batch() != NULL) {
                 sender_queue->current_batch()->transfer_resource_ownership(transfer_batch);
             }
@@ -447,9 +446,8 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1,
-                                             "DataStreamRecvr:" + print_id(_fragment_instance_id),
-                                             parent_tracker);
+    _mem_tracker = MemTracker::CreateTracker(
+            _profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -463,8 +461,6 @@ DataStreamRecvr::DataStreamRecvr(
 
     // Initialize the counters
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
-    // _bytes_received_time_series_counter =
-    //     ADD_TIME_SERIES_COUNTER(_profile, "BytesReceived", _bytes_received_counter);
     _deserialize_row_batch_timer = ADD_TIMER(_profile, "DeserializeRowBatchTimer");
     _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");

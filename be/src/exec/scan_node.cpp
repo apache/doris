@@ -17,8 +17,6 @@
 
 #include "exec/scan_node.h"
 
-#include <boost/bind.hpp>
-
 namespace doris {
 
 const std::string ScanNode::_s_bytes_read_counter = "BytesRead";

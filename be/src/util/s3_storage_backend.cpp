@@ -61,7 +61,7 @@ namespace doris {
 
 S3StorageBackend::S3StorageBackend(const std::map<std::string, std::string>& prop)
         : _properties(prop) {
-    _client = create_client(_properties);
+    _client = ClientFactory::instance().create(_properties);
     DCHECK(_client) << "init aws s3 client error.";
 }
 

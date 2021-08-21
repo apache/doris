@@ -251,6 +251,7 @@ echo "Finished patching $RE2_SOURCE"
 cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p0 < $TP_PATCH_DIR/mysql-5.7.18.patch
+    patch -Rp0 < $TP_PATCH_DIR/mysql-5.7.18-boost.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -303,15 +304,6 @@ fi
 cd -
 echo "Finished patching $LZ4_SOURCE"
 
-# brpc patch to disable shared library
-cd $TP_SOURCE_DIR/$BRPC_SOURCE
-if [ ! -f $PATCHED_MARK ] && [ $BRPC_SOURCE == "incubator-brpc-0.9.5" ]; then
-    patch -p0 < $TP_PATCH_DIR/incubator-brpc-0.9.5.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $BRPC_SOURCE"
-
 # s2 patch to disable shared library
 cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
@@ -323,3 +315,11 @@ fi
 cd -
 echo "Finished patching $S2_SOURCE"
 
+# hdfs3 patch to fix compile error
+cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libhdfs3-master.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $HDFS3_SOURCE"

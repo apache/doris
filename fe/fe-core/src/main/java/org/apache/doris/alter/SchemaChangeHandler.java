@@ -49,7 +49,6 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
@@ -1215,9 +1214,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // 3. check partition key
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            if (partitionInfo.getType() == PartitionType.RANGE) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
+            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+                List<Column> partitionColumns = partitionInfo.getPartitionColumns();
                 for (Column partitionCol : partitionColumns) {
                     boolean found = false;
                     for (Column alterColumn : alterSchema) {
@@ -1907,7 +1905,8 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         olapTable.writeLock();
         try {
-            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE) {
+            if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
+                    olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA_CHANGE.");
             }
 
@@ -1917,7 +1916,7 @@ public class SchemaChangeHandler extends AlterHandler {
             schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
                 schemaChangeJob = getAlterJob(olapTable.getId());
-                Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());
+                Preconditions.checkNotNull(schemaChangeJob, "Table[" + tableName + "] is not under SCHEMA_CHANGE.");
                 if (schemaChangeJob.getState() == JobState.FINISHING
                         || schemaChangeJob.getState() == JobState.FINISHED
                         || schemaChangeJob.getState() == JobState.CANCELLED) {

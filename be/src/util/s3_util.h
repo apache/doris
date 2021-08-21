@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <aws/core/Aws.h>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -28,7 +30,19 @@ class S3Client;
 } // namespace Aws
 
 namespace doris {
+class ClientFactory {
+public:
+    ~ClientFactory();
 
+    static ClientFactory& instance();
+
+    std::shared_ptr<Aws::S3::S3Client> create(const std::map<std::string, std::string>& prop);
+
+private:
+    ClientFactory();
+
+    Aws::SDKOptions _aws_options;
+};
 std::unique_ptr<Aws::S3::S3Client> create_client(const std::map<std::string, std::string>& prop);
 
 } // end namespace doris

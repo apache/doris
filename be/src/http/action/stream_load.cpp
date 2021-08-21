@@ -39,6 +39,7 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/utils.h"
+#include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -48,6 +49,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/stream_load/stream_load_recorder.h"
 #include "util/byte_buffer.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -143,7 +145,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
                          << ", errmsg=" << ctx->status.get_error_msg();
         }
     }
-    ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
+    ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && ctx->status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         if (ctx->need_rollback) {
@@ -159,10 +161,15 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // add new line at end
     str = str + '\n';
     HttpChannel::send_reply(req, str);
-
+#ifndef BE_TEST
+    if (config::enable_stream_load_record) {
+        str = ctx->prepare_stream_load_record(str);
+        _sava_stream_load_record(ctx, str);
+    }
+#endif
     // update statstics
     streaming_load_requests_total->increment(1);
-    streaming_load_duration_ms->increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_duration_ms->increment(ctx->load_cost_millis);
     streaming_load_bytes->increment(ctx->receive_bytes);
     streaming_load_current_processing->increment(-1);
 }
@@ -229,6 +236,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         str = str + '\n';
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
+#ifndef BE_TEST
+        str = ctx->prepare_stream_load_record(str);
+        _sava_stream_load_record(ctx, str);
+#endif
         return -1;
     }
     return 0;
@@ -257,15 +268,21 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
     size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    bool read_json_by_line = false;
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            read_json_by_line = true;
+        }
+    }
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
-            (ctx->body_bytes > json_max_body_bytes)) {
+            (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
             std::stringstream ss;
             ss << "The size of this batch exceed the max size [" << json_max_body_bytes
                << "]  of json type data "
-               << " data [ " << ctx->body_bytes << " ]";
+               << " data [ " << ctx->body_bytes << " ]. Split the file, or use 'read_json_by_line'";
             return Status::InternalError(ss.str());
         }
         // csv max body size
@@ -452,6 +469,17 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     } else {
         request.__set_fuzzy_parse(false);
     }
+
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            request.__set_read_json_by_line(true);
+        } else {
+            request.__set_read_json_by_line(false);
+        }
+    } else {
+        request.__set_read_json_by_line(false);
+    }
+
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
@@ -531,6 +559,19 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     ss << prefix << "/" << req->param(HTTP_TABLE_KEY) << "." << buf << "." << tv.tv_usec;
     *file_path = ss.str();
     return Status::OK();
+}
+
+void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+    auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
+    if (stream_load_recorder != nullptr) {
+        std::string key = std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
+        auto st = stream_load_recorder->put(key, str);
+        if (st.ok()) {
+            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
+        }
+    } else {
+        LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
+    }
 }
 
 } // namespace doris

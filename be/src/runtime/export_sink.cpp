@@ -26,6 +26,7 @@
 #include "exec/s3_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
@@ -70,10 +71,7 @@ Status ExportSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
-    _mem_tracker = MemTracker::CreateTracker(
-            -1,
-            "ExportSink:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(-1, "ExportSink", state->instance_mem_tracker());
 
     // Prepare the exprs to run.
     RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
@@ -178,7 +176,8 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 break;
             }
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
 
                 if (string_val->ptr == NULL) {
@@ -191,19 +190,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 }
                 break;
             }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
 
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                (*ss) << decimal_str;
-                break;
-            }
             case TYPE_DECIMALV2: {
                 const DecimalV2Value decimal_val(
                         reinterpret_cast<const PackedInt128*>(item)->value);
@@ -269,8 +256,9 @@ Status ExportSink::open_file_writer() {
         break;
     }
     case TFileType::FILE_S3: {
-        S3Writer* s3_writer = new S3Writer( _t_export_sink.properties,
-                _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
+        S3Writer* s3_writer =
+                new S3Writer(_t_export_sink.properties,
+                             _t_export_sink.export_path + "/" + file_name, 0 /* offset */);
         RETURN_IF_ERROR(s3_writer->open());
         _file_writer.reset(s3_writer);
         break;

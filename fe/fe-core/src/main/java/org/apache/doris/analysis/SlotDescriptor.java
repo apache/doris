@@ -19,6 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnStats;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TSlotDescriptor;
 
@@ -195,6 +197,8 @@ public class SlotDescriptor {
                 stats = new ColumnStats();
             }
         }
+        // FIXME(dhc): mock ndv
+        stats.setNumDistinctValues(parent.getCardinality());
         return stats;
     }
 
@@ -218,6 +222,7 @@ public class SlotDescriptor {
      * Initializes a slot by setting its source expression information
      */
     public void initFromExpr(Expr expr) {
+        setIsNullable(expr.isNullable());
         setLabel(expr.toSql());
         Preconditions.checkState(sourceExprs_.isEmpty());
         setSourceExpr(expr);
@@ -289,5 +294,13 @@ public class SlotDescriptor {
         builder.append(prefix).append("nullIndicatorBit=").append(nullIndicatorBit).append("\n");
         builder.append(prefix).append("slotIdx=").append(slotIdx).append("\n");
         return builder.toString();
+    }
+
+    public boolean isScanSlot() {
+        Table table = parent.getTable();
+        if ((table != null) && (table instanceof OlapTable)) {
+            return true;
+        }
+        return false;
     }
 }

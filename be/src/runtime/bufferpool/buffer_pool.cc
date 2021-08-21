@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/bind.hpp>
 #include <limits>
 #include <sstream>
 
@@ -109,8 +108,8 @@ BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
         : allocator_(new BufferAllocator(this, min_buffer_len, buffer_bytes_limit,
                                          clean_page_bytes_limit)),
           min_buffer_len_(min_buffer_len) {
-    DCHECK_GT(min_buffer_len, 0);
-    DCHECK_EQ(min_buffer_len, BitUtil::RoundUpToPowerOfTwo(min_buffer_len));
+    CHECK_GT(min_buffer_len, 0);
+    CHECK_EQ(min_buffer_len, BitUtil::RoundUpToPowerOfTwo(min_buffer_len));
 }
 
 BufferPool::~BufferPool() {}
@@ -700,11 +699,13 @@ string BufferPool::Client::DebugString() {
        << " in_flight_write_bytes: " << in_flight_write_pages_.bytes()
        << " reservation: " << reservation_.DebugString();
     ss << "\n  " << pinned_pages_.size() << " pinned pages: ";
-    pinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
+    pinned_pages_.iterate(std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     ss << "\n  " << dirty_unpinned_pages_.size() << " dirty unpinned pages: ";
-    dirty_unpinned_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
+    dirty_unpinned_pages_.iterate(
+            std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     ss << "\n  " << in_flight_write_pages_.size() << " in flight write pages: ";
-    in_flight_write_pages_.iterate(boost::bind<bool>(Page::DebugStringCallback, &ss, _1));
+    in_flight_write_pages_.iterate(
+            std::bind<bool>(Page::DebugStringCallback, &ss, std::placeholders::_1));
     return ss.str();
 }
 

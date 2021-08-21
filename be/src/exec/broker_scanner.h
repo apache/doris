@@ -27,6 +27,7 @@
 #include "exec/base_scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
@@ -55,8 +56,7 @@ public:
     BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
-				  const std::vector<ExprContext*>& pre_filter_ctxs,
-                  ScannerCounter* counter);
+                  const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
     ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
@@ -76,7 +76,7 @@ private:
     Status open_next_reader();
 
     // Split one text line to values
-    void split_line(const Slice& line, std::vector<Slice>* values);
+    void split_line(const Slice& line);
 
     void fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
                                 int new_value_length);
@@ -100,6 +100,7 @@ private:
 
     std::string _value_separator;
     std::string _line_delimiter;
+    TFileFormatType::type _file_format_type;
     int _value_separator_length;
     int _line_delimiter_length;
 
@@ -118,6 +119,7 @@ private:
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
+    std::vector<Slice> _split_values;
 };
 
 } // namespace doris

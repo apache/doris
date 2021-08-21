@@ -17,7 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
 
 #include "runtime/exec_env.h"
 #include "util/cpu_info.h"
@@ -55,7 +55,7 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
                                                               &schema_hash);
     ASSERT_FALSE(st.ok());
 
-    boost::filesystem::remove_all("./ss_test/");
+    std::filesystem::remove_all("./ss_test/");
     std::map<std::string, std::string> src_to_dest;
     src_to_dest["./ss_test/"] = "./ss_test";
     st = loader._check_local_snapshot_paths(src_to_dest, true);
@@ -63,18 +63,18 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
     st = loader._check_local_snapshot_paths(src_to_dest, false);
     ASSERT_FALSE(st.ok());
 
-    boost::filesystem::create_directory("./ss_test/");
+    std::filesystem::create_directory("./ss_test/");
     st = loader._check_local_snapshot_paths(src_to_dest, true);
     ASSERT_TRUE(st.ok());
     st = loader._check_local_snapshot_paths(src_to_dest, false);
     ASSERT_TRUE(st.ok());
-    boost::filesystem::remove_all("./ss_test/");
+    std::filesystem::remove_all("./ss_test/");
 
-    boost::filesystem::create_directory("./ss_test/");
+    std::filesystem::create_directory("./ss_test/");
     std::vector<std::string> files;
     st = loader._get_existing_files_from_local("./ss_test/", &files);
     ASSERT_EQ(0, files.size());
-    boost::filesystem::remove_all("./ss_test/");
+    std::filesystem::remove_all("./ss_test/");
 
     std::string snapshot_file;
     std::string tablet_file;

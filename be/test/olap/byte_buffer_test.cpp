@@ -17,10 +17,10 @@
 
 #include "olap/byte_buffer.h"
 
+#include <filesystem>
 #include <gtest/gtest.h>
 #include <sys/mman.h>
 
-#include "boost/filesystem.hpp"
 #include "common/configbase.h"
 #include "olap/file_helper.h"
 #include "util/logging.h"
@@ -32,8 +32,8 @@ public:
     virtual ~TestByteBuffer() {}
     virtual void SetUp() {}
     virtual void TearDown() {
-        if (boost::filesystem::exists(".test_byte_buffer")) {
-            ASSERT_TRUE(boost::filesystem::remove_all(".test_byte_buffer"));
+        if (std::filesystem::exists(".test_byte_buffer")) {
+            ASSERT_TRUE(std::filesystem::remove_all(".test_byte_buffer"));
         }
     }
 };

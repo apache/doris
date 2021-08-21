@@ -218,6 +218,31 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_min) {
+    BigIntVal result = BitmapFunctions::bitmap_min(ctx, StringVal::null());
+    ASSERT_TRUE(result.is_null);
+
+    BitmapValue bitmap1;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap1);
+    result = BitmapFunctions::bitmap_min(ctx, empty_str);
+    ASSERT_TRUE(result.is_null);
+
+    BitmapValue bitmap2 = BitmapValue(1024);
+    StringVal bitmap_str = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1024), result);
+
+    BitmapValue bitmap3 = BitmapValue({1024, 1});
+    bitmap_str = convert_bitmap_to_string(ctx, bitmap3);
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1), result);
+
+    BitmapValue bitmap4 = BitmapValue({1024, 3, 2});
+    bitmap_str = convert_bitmap_to_string(ctx, bitmap4);
+    result = BitmapFunctions::bitmap_min(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(2), result);
+}
+
 // test intersect_count
 template <typename ValType, typename ValueType>
 void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
@@ -276,9 +301,9 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<DoubleVal, double>(ctx, DoubleVal(1.01), DoubleVal(1.02));
 
     DecimalV2Val v1;
-    DecimalV2Value("1.01").to_decimal_val(&v1);
+    DecimalV2Value(std::string("1.01")).to_decimal_val(&v1);
     DecimalV2Val v2;
-    DecimalV2Value("1.02").to_decimal_val(&v2);
+    DecimalV2Value(std::string("1.02")).to_decimal_val(&v2);
     test_bitmap_intersect<DecimalV2Val, DecimalV2Value>(ctx, v1, v2);
 
     DateTimeVal datetime1;

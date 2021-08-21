@@ -45,16 +45,28 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
 }
 
 void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos) {
-    uint8_t* buf = nullptr;
-    uint32_t len = 0;
-    ThriftSerializer ser(false, 4096);
-    auto st = ser.serialize(&t_result->result_batch, &len, &buf);
-    if (st.ok()) {
-        cntl->response_attachment().append(buf, len);
+    Status st = Status::OK();
+    if (t_result != nullptr) {
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        ThriftSerializer ser(false, 4096);
+        st = ser.serialize(&t_result->result_batch, &len, &buf);
+        if (st.ok()) {
+            if (resp_in_attachment) {
+                // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
+                cntl->response_attachment().append(buf, len);
+            } else {
+                result->set_row_batch(std::string((const char*)buf, len));
+            }
+            result->set_packet_seq(packet_seq);
+            result->set_eos(eos);
+        } else {
+            LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
+        }
+    } else {
+        result->set_empty_batch(true);
         result->set_packet_seq(packet_seq);
         result->set_eos(eos);
-    } else {
-        LOG(WARNING) << "TFetchDataResult serialize failed, errmsg=" << st.get_error_msg();
     }
     st.to_protobuf(result->mutable_status());
     done->Run();
@@ -83,7 +95,7 @@ Status BufferControlBlock::init() {
 }
 
 Status BufferControlBlock::add_batch(TFetchDataResult* result) {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
 
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
@@ -116,7 +128,7 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 Status BufferControlBlock::get_batch(TFetchDataResult* result) {
     TFetchDataResult* item = NULL;
     {
-        boost::unique_lock<boost::mutex> l(_lock);
+        std::unique_lock<std::mutex> l(_lock);
 
         while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
             _data_arrival.wait(l);
@@ -160,7 +172,7 @@ Status BufferControlBlock::get_batch(TFetchDataResult* result) {
 }
 
 void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
-    boost::lock_guard<boost::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (!_status.ok()) {
         ctx->on_failure(_status);
         return;
@@ -193,7 +205,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
 }
 
 Status BufferControlBlock::close(Status exec_status) {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     _is_close = true;
     _status = exec_status;
 
@@ -215,7 +227,7 @@ Status BufferControlBlock::close(Status exec_status) {
 }
 
 Status BufferControlBlock::cancel() {
-    boost::unique_lock<boost::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
     _data_arrival.notify_all();

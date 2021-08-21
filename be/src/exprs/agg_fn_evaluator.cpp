@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#pragma GCC diagnostic ignored "-Wstringop-overflow="
 
 #include "exprs/agg_fn_evaluator.h"
 
@@ -41,7 +44,6 @@ using doris_udf::BigIntVal;
 using doris_udf::LargeIntVal;
 using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
-using doris_udf::DecimalVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::StringVal;
@@ -311,6 +313,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -319,11 +322,6 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_DATETIME:
         reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                 reinterpret_cast<DateTimeVal*>(dst));
-        return;
-
-    case TYPE_DECIMAL:
-        reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-                reinterpret_cast<DecimalVal*>(dst));
         return;
 
     case TYPE_DECIMALV2:
@@ -386,6 +384,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -394,11 +393,6 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_DATETIME:
         *reinterpret_cast<DateTimeValue*>(slot) =
                 DateTimeValue::from_datetime_val(*reinterpret_cast<const DateTimeVal*>(src));
-        return;
-
-    case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(slot) =
-                DecimalValue::from_decimal_val(*reinterpret_cast<const DecimalVal*>(src));
         return;
 
     case TYPE_DECIMALV2:
@@ -561,13 +555,6 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
             break;
         }
 
-        case TYPE_DECIMAL: {
-            DecimalVal* value = reinterpret_cast<DecimalVal*>(_staging_input_vals[i]);
-            memcpy(begin, value, sizeof(DecimalVal));
-            begin += sizeof(DecimalVal);
-            break;
-        }
-
         case TYPE_DECIMALV2: {
             DecimalV2Val* value = reinterpret_cast<DecimalV2Val*>(_staging_input_vals[i]);
             memcpy(begin, value, sizeof(DecimalV2Val));
@@ -578,7 +565,8 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
-        case TYPE_OBJECT: {
+        case TYPE_OBJECT:
+        case TYPE_STRING: {
             StringVal* value = reinterpret_cast<StringVal*>(_staging_input_vals[i]);
             memcpy(begin, value->ptr, value->len);
             begin += value->len;
@@ -643,14 +631,6 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
         const DoubleVal* value = reinterpret_cast<DoubleVal*>(_staging_input_vals[0]);
         is_filter = is_in_hybridmap((void*)&(value->val), dst, &is_add_buckets);
         update_mem_trackers(is_filter, is_add_buckets, DOUBLE_SIZE);
-        return is_filter;
-    }
-
-    case TYPE_DECIMAL: {
-        const DecimalVal* value = reinterpret_cast<DecimalVal*>(_staging_input_vals[0]);
-        DecimalValue temp_value = DecimalValue::from_decimal_val(*value);
-        is_filter = is_in_hybridmap((void*)&(temp_value), dst, &is_add_buckets);
-        update_mem_trackers(is_filter, is_add_buckets, DECIMAL_SIZE);
         return is_filter;
     }
 
@@ -831,7 +811,7 @@ void AggFnEvaluator::choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRo
 
 void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
                                            const SlotDescriptor* dst_slot_desc, Tuple* dst,
-                                           void* fn) {
+                                           void* fn, bool add_null) {
     // DCHECK_EQ(dst_slot_desc->type().type, _return_type.type);
     if (src == NULL) {
         src = dst;
@@ -841,7 +821,7 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     }
 
     // same
-    bool src_slot_null = src->is_null(_intermediate_slot_desc->null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(_intermediate_slot_desc->null_indicator_offset());
     void* src_slot = NULL;
 
     if (!src_slot_null) {
@@ -913,7 +893,8 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
@@ -924,13 +905,6 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_DATETIME: {
         typedef DateTimeVal (*Fn)(FunctionContext*, AnyVal*);
         DateTimeVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
-        set_output_slot(&v, dst_slot_desc, dst);
-        break;
-    }
-
-    case TYPE_DECIMAL: {
-        typedef DecimalVal (*Fn)(FunctionContext*, AnyVal*);
-        DecimalVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);
         break;
     }
@@ -981,3 +955,5 @@ std::string AggFnEvaluator::debug_string() const {
 }
 
 } // namespace doris
+
+#pragma GCC diagnostic pop

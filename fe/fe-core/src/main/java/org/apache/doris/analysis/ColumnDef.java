@@ -200,10 +200,28 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
-            if (defaultValue.isSet) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Bitmap type column can not set default value");
             }
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Array type column default value only support null");
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.MAP) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Map type column default value just support null");
+            }
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.STRUCT) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Struct type column default value just support null");
+            }
         }
 
         // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
@@ -250,7 +268,6 @@ public class ColumnDef {
             case DOUBLE:
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
@@ -262,11 +279,18 @@ public class ColumnDef {
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }
                 break;
             case BITMAP:
+                break;
+            case ARRAY:
+                break;
+            case MAP:
+                break;
+            case STRUCT:
                 break;
             case BOOLEAN:
                 BoolLiteral boolLiteral = new BoolLiteral(defaultValue);

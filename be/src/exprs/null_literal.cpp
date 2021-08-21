@@ -63,12 +63,11 @@ DateTimeVal NullLiteral::get_datetime_val(ExprContext*, TupleRow*) {
     return DateTimeVal::null();
 }
 
-DecimalVal NullLiteral::get_decimal_val(ExprContext*, TupleRow*) {
-    return DecimalVal::null();
-}
-
 DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
     return DecimalV2Val::null();
 }
 
+CollectionVal NullLiteral::get_array_val(ExprContext* context, TupleRow*) {
+    return CollectionVal::null();
+}
 } // namespace doris

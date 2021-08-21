@@ -17,12 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -82,6 +84,40 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         }
 
         Preconditions.checkState(partitionKey.keys.size() == columns.size());
+        return partitionKey;
+    }
+
+    public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
+            throws AnalysisException {
+        // for multi list partition:
+        //
+        // PARTITION BY LIST(k1, k2)
+        // (
+        //     PARTITION p1 VALUES IN (("1","beijing"), ("1", "shanghai")),
+        //     PARTITION p2 VALUES IN (("2","shanghai"))
+        // )
+        //
+        // for single list partition:
+        //
+        // PARTITION BY LIST(`k1`)
+        // (
+        //     PARTITION p1 VALUES IN ("1", "2", "3", "4", "5"),
+        //     PARTITION p2 VALUES IN ("6", "7", "8", "9", "10"),
+        //     PARTITION p3 VALUES IN ("11", "12", "13", "14", "15"),
+        //     PARTITION p4 VALUES IN ("16", "17", "18", "19", "20"),
+        //     PARTITION p5 VALUES IN ("21", "22", "23", "24", "25"),
+        //     PARTITION p6 VALUES IN ("26")
+        // )
+        //
+        Preconditions.checkArgument(values.size() == columns.size(),
+                "in value size[" + values.size() + "] is not equal to partition column size[" + columns.size() + "].");
+
+        PartitionKey partitionKey = new PartitionKey();
+        for (int i = 0; i < values.size(); i++) {
+            partitionKey.keys.add(values.get(i).getValue(Type.fromPrimitiveType(columns.get(i).getDataType())));
+            partitionKey.types.add(columns.get(i).getDataType());
+        }
+
         return partitionKey;
     }
 
@@ -270,6 +306,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                     case DATE:
                     case DATETIME:
                         literal = DateLiteral.read(in);
+                        break;
+                    case CHAR:
+                    case VARCHAR:
+                        literal = StringLiteral.read(in);
+                        break;
+                    case BOOLEAN:
+                        literal = BoolLiteral.read(in);
                         break;
                     default:
                         throw new IOException("type[" + type.name() + "] not supported: ");

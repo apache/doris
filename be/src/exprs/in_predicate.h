@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
 
 #include <boost/shared_ptr.hpp>
-#include <boost/unordered_set.hpp>
 #include <string>
+#include <unordered_set>
 
 #include "exprs/hybrid_set.h"
 #include "exprs/predicate.h"
@@ -38,7 +38,7 @@ public:
         return pool->add(new InPredicate(*this));
     }
 
-    Status prepare(RuntimeState* state, const TypeDescriptor&);
+    Status prepare(RuntimeState* state, HybridSetBase* hset);
     Status open(RuntimeState* state, ExprContext* context,
                 FunctionContext::FunctionStateScope scope);
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
@@ -57,6 +57,7 @@ public:
 protected:
     friend class Expr;
     friend class HashJoinNode;
+    friend class RuntimePredicateWrapper;
 
     InPredicate(const TExprNode& node);
 

@@ -17,10 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Multimap;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -38,6 +34,12 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Multimap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,7 +51,7 @@ public class StatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
             .add("IndexNum").add("TabletNum").add("ReplicaNum").add("UnhealthyTabletNum")
-            .add("InconsistentTabletNum").add("CloningTabletNum")
+            .add("InconsistentTabletNum").add("CloningTabletNum").add("BadTabletNum")
             .build();
     private static final Logger LOG = LogManager.getLogger(StatisticProcDir.class);
 
@@ -61,12 +63,15 @@ public class StatisticProcDir implements ProcDirInterface {
     Multimap<Long, Long> inconsistentTabletIds;
     // db id -> set(tablet id)
     Multimap<Long, Long> cloningTabletIds;
+    // db id -> set(tablet id)
+    Multimap<Long, Long> unrecoverableTabletIds;
 
     public StatisticProcDir(Catalog catalog) {
         this.catalog = catalog;
         unhealthyTabletIds = HashMultimap.create();
         inconsistentTabletIds = HashMultimap.create();
         cloningTabletIds = HashMultimap.create();
+        unrecoverableTabletIds = HashMultimap.create();
     }
 
     @Override
@@ -140,8 +145,11 @@ public class StatisticProcDir implements ProcDirInterface {
 
                                     // here we treat REDUNDANT as HEALTHY, for user friendly.
                                     if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
-                                            && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR) {
+                                            && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR
+                                            && res.first != TabletStatus.UNRECOVERABLE) {
                                         unhealthyTabletIds.put(dbId, tablet.getId());
+                                    } else if (res.first == TabletStatus.UNRECOVERABLE) {
+                                        unrecoverableTabletIds.put(dbId, tablet.getId());
                                     }
 
                                     if (!tablet.isConsistent()) {
@@ -166,6 +174,7 @@ public class StatisticProcDir implements ProcDirInterface {
                 oneLine.add(unhealthyTabletIds.get(dbId).size());
                 oneLine.add(inconsistentTabletIds.get(dbId).size());
                 oneLine.add(cloningTabletIds.get(dbId).size());
+                oneLine.add(unrecoverableTabletIds.get(dbId).size());
 
                 lines.add(oneLine);
 
@@ -195,6 +204,7 @@ public class StatisticProcDir implements ProcDirInterface {
         finalLine.add(unhealthyTabletIds.size());
         finalLine.add(inconsistentTabletIds.size());
         finalLine.add(cloningTabletIds.size());
+        finalLine.add(unrecoverableTabletIds.size());
         lines.add(finalLine);
 
         // add result
@@ -224,7 +234,8 @@ public class StatisticProcDir implements ProcDirInterface {
         }
 
         return new IncompleteTabletsProcNode(unhealthyTabletIds.get(dbId),
-                                             inconsistentTabletIds.get(dbId),
-                                             cloningTabletIds.get(dbId));
+                inconsistentTabletIds.get(dbId),
+                cloningTabletIds.get(dbId),
+                unrecoverableTabletIds.get(dbId));
     }
 }

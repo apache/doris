@@ -18,10 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.Status;
-import org.apache.doris.proto.PFetchDataResult;
-import org.apache.doris.proto.PUniqueId;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
-import org.apache.doris.rpc.PFetchDataRequest;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
@@ -45,14 +44,12 @@ public class ResultReceiver {
     private long packetIdx = 0;
     private long timeoutTs = 0;
     private TNetworkAddress address;
-    private PUniqueId finstId;
+    private Types.PUniqueId finstId;
     private Long backendId;
     private Thread currentThread;
 
     public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, int timeoutMs) {
-        this.finstId = new PUniqueId();
-        this.finstId.hi = tid.hi;
-        this.finstId.lo = tid.lo;
+        this.finstId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
         this.address = address;
         this.timeoutTs = System.currentTimeMillis() + timeoutMs;
@@ -65,11 +62,14 @@ public class ResultReceiver {
         final RowBatch rowBatch = new RowBatch();
         try {
             while (!isDone && !isCancel) {
-                PFetchDataRequest request = new PFetchDataRequest(finstId);
-
+                InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
+                        .setFinstId(finstId)
+                        .setRespInAttachment(false)
+                        .build();
+                
                 currentThread = Thread.currentThread();
-                Future<PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
-                PFetchDataResult pResult = null;
+                Future<InternalService.PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                InternalService.PFetchDataResult pResult = null;
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();
                     if (currentTs >= timeoutTs) {
@@ -86,30 +86,34 @@ public class ResultReceiver {
                         }
                     }
                 }
-                TStatusCode code = TStatusCode.findByValue(pResult.status.status_code);
+                TStatusCode code = TStatusCode.findByValue(pResult.getStatus().getStatusCode());
                 if (code != TStatusCode.OK) {
-                    status.setPstatus(pResult.status);
+                    status.setPstatus(pResult.getStatus());
                     return null;
                 } 
  
-                rowBatch.setQueryStatistics(pResult.query_statistics);
+                rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
-                if (packetIdx != pResult.packet_seq) {
-                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.packet_seq);
+                if (packetIdx != pResult.getPacketSeq()) {
+                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.getPacketSeq());
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
     
                 packetIdx++;
-                isDone = pResult.eos;
+                isDone = pResult.getEos();
 
-                byte[] serialResult = request.getSerializedResult();
-                if (serialResult != null && serialResult.length > 0) {
+                if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
+                    LOG.info("get first empty rowbatch");
+                    rowBatch.setEos(false);
+                    return rowBatch;
+                } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
+                    byte[] serialResult = pResult.getRowBatch().toByteArray();
                     TResultBatch resultBatch = new TResultBatch();
                     TDeserializer deserializer = new TDeserializer();
                     deserializer.deserialize(resultBatch, serialResult);
                     rowBatch.setBatch(resultBatch);
-                    rowBatch.setEos(pResult.eos);
+                    rowBatch.setEos(pResult.getEos());
                     return rowBatch;
                 }
             }

@@ -17,12 +17,19 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import com.google.common.base.Preconditions;
+
+import java.util.ArrayList;
 
 /**
  * Represents an anonymous type definition, e.g., used in DDL and CASTs.
@@ -38,15 +45,19 @@ public class TypeDef implements ParseNode {
   public static TypeDef create(PrimitiveType type) {
     return new TypeDef(ScalarType.createType(type));
   }
+
   public static TypeDef createDecimal(int precision, int scale) {
-    return new TypeDef(ScalarType.createDecimalType(precision, scale));
+    return new TypeDef(ScalarType.createDecimalV2Type(precision, scale));
   }
+
   public static TypeDef createVarchar(int len) {
     return new TypeDef(ScalarType.createVarchar(len));
   }
+
   public static TypeDef createChar(int len) {
     return new TypeDef(ScalarType.createChar(len));
   }
+
   @Override
   public void analyze(Analyzer analyzer) throws AnalysisException {
     if (isAnalyzed) {
@@ -56,8 +67,8 @@ public class TypeDef implements ParseNode {
     // a stack overflow.
     if (parsedType.exceedsMaxNestingDepth()) {
       throw new AnalysisException(String.format(
-          "Type exceeds the maximum nesting depth of %s:\n%s",
-          Type.MAX_NESTING_DEPTH, parsedType.toSql()));
+              "Type exceeds the maximum nesting depth of %s:\n%s",
+              Type.MAX_NESTING_DEPTH, parsedType.toSql()));
     }
     analyze(parsedType);
     isAnalyzed = true;
@@ -70,10 +81,49 @@ public class TypeDef implements ParseNode {
     if (type.isScalarType()) {
       analyzeScalarType((ScalarType) type);
     }
+
+    if (type.isArrayType()) {
+      Type itemType = ((ArrayType) type).getItemType();
+      analyze(itemType);
+    }
+
+    if (type.isComplexType()) {
+      if (!Config.enable_complex_type_support) {
+        throw new AnalysisException("Unsupported data type: " + type.toSql());
+      }
+      if (type.isArrayType()) {
+        ScalarType itemType = (ScalarType) ((ArrayType) type).getItemType();
+        analyzeNestedType(itemType);
+      }
+      if (type.isMapType()) {
+        ScalarType keyType = (ScalarType) ((MapType) type).getKeyType();
+        ScalarType valueType = (ScalarType) ((MapType) type).getKeyType();
+        analyzeNestedType(keyType);
+        analyzeNestedType(valueType);
+      }
+      if (type.isStructType()) {
+        ArrayList<StructField> fields = ((StructType) type).getFields();
+        for (int i = 0; i < fields.size(); i++) {
+          ScalarType filedType = (ScalarType) fields.get(i).getType();
+          analyzeNestedType(filedType);
+        }
+      }
+    }
+  }
+
+  private void analyzeNestedType(ScalarType type) throws AnalysisException {
+    if (type.isNull()) {
+      throw new AnalysisException("Unsupported data type: " + type.toSql());
+    }
+    if (type.getPrimitiveType().isStringType()
+            && !type.isAssignedStrLenInColDefinition()) {
+      type.setLength(1);
+    }
+    analyze(type);
   }
 
   private void analyzeScalarType(ScalarType scalarType)
-      throws AnalysisException {
+          throws AnalysisException {
     PrimitiveType type = scalarType.getPrimitiveType();
     switch (type) {
       case CHAR:
@@ -81,10 +131,10 @@ public class TypeDef implements ParseNode {
         String name;
         int maxLen;
         if (type == PrimitiveType.VARCHAR) {
-          name = "Varchar";
+          name = "VARCHAR";
           maxLen = ScalarType.MAX_VARCHAR_LENGTH;
         } else if (type == PrimitiveType.CHAR) {
-          name = "Char";
+          name = "CHAR";
           maxLen = ScalarType.MAX_CHAR_LENGTH;
         } else {
           Preconditions.checkState(false);
@@ -98,11 +148,10 @@ public class TypeDef implements ParseNode {
         }
         if (scalarType.getLength() > maxLen) {
           throw new AnalysisException(
-              name + " size must be <= " + maxLen + ": " + len);
+                  name + " size must be <= " + maxLen + ": " + len);
         }
         break;
       }
-      case DECIMAL: 
       case DECIMALV2: {
         int precision = scalarType.decimalPrecision();
         int scale = scalarType.decimalScale();

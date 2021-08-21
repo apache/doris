@@ -80,8 +80,8 @@ Status ResultSink::prepare(RuntimeState* state) {
         break;
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
-        _writer.reset(new (std::nothrow)
-                              FileResultWriter(_file_opts.get(), _output_expr_ctxs, _profile, _sender.get()));
+        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
+                                                          _profile, _sender.get()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");
@@ -106,10 +106,12 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     Status final_status = exec_status;
     // close the writer
-    Status st = _writer->close();
-    if (!st.ok() && exec_status.ok()) {
-        // close file writer failed, should return this error to client
-        final_status = st;
+    if (_writer) {
+        Status st = _writer->close();
+        if (!st.ok() && exec_status.ok()) {
+            // close file writer failed, should return this error to client
+            final_status = st;
+        }
     }
 
     // close sender, this is normal path end
@@ -120,6 +122,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     state->exec_env()->result_mgr()->cancel_at_time(
             time(NULL) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;

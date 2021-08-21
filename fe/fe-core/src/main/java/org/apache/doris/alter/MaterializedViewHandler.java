@@ -61,13 +61,13 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -834,6 +834,10 @@ public class MaterializedViewHandler extends AlterHandler {
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        if (olapTable == null) {
+            LOG.warn("table {} does not exist when replaying drop rollup. db: {}", tableId, db.getId());
+            return;
+        }
         olapTable.writeLock();
         try {
             for (Partition partition : olapTable.getPartitions()) {
@@ -1214,7 +1218,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
         olapTable.writeLock();
         try {
-            if (olapTable.getState() != OlapTableState.ROLLUP) {
+            if (olapTable.getState() != OlapTableState.ROLLUP && olapTable.getState() != OlapTableState.WAITING_STABLE) {
                 throw new DdlException("Table[" + tableName + "] is not under ROLLUP. "
                         + "Use 'ALTER TABLE DROP ROLLUP' if you want to.");
             }
@@ -1232,7 +1236,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
             if (rollupJobV2List.size() == 0) {
                 rollupJob = getAlterJob(olapTable.getId());
-                Preconditions.checkNotNull(rollupJob, olapTable.getId());
+                Preconditions.checkNotNull(rollupJob, "Table[" + tableName + "] is not under ROLLUP. ");
                 if (rollupJob.getState() == JobState.FINISHED
                         || rollupJob.getState() == JobState.FINISHING
                         || rollupJob.getState() == JobState.CANCELLED) {
@@ -1244,7 +1248,7 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.writeUnlock();
         }
 
-        // alter job v2's cancel must be called outside the database lock
+        // alter job v2's cancel must be called outside the table lock
         if (rollupJobV2List.size() != 0) {
             for (AlterJobV2 alterJobV2 : rollupJobV2List) {
                 alterJobV2.cancel("user cancelled");

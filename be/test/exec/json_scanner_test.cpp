@@ -531,6 +531,7 @@ void JsonScannerTest::init() {
 
 TEST_F(JsonScannerTest, normal_simple_arrayjson) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
@@ -580,6 +581,7 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
 
     // Use num_as_string load data again
     BrokerScanNode scan_node2(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node2.init(_tnode);
     status = scan_node2.prepare(&_runtime_state);
     ASSERT_TRUE(status.ok());
     scan_ranges.clear();

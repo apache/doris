@@ -34,7 +34,8 @@ namespace doris {
 
 PlainTextLineReader::PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader,
                                          Decompressor* decompressor, size_t length,
-                                         const std::string& line_delimiter, size_t line_delimiter_length)
+                                         const std::string& line_delimiter,
+                                         size_t line_delimiter_length)
         : _profile(profile),
           _file_reader(file_reader),
           _decompressor(decompressor),
@@ -207,25 +208,27 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                 // we still have data in input which is not decompressed.
                 // and no more data is required for input
             } else {
-                size_t read_len = 0;
+                int64_t read_len = 0;
+                int64_t buffer_len = 0;
                 uint8_t* file_buf;
+
                 if (_decompressor == nullptr) {
                     // uncompressed file, read directly into output buf
                     file_buf = _output_buf + _output_buf_limit;
-                    read_len = _output_buf_size - _output_buf_limit;
+                    buffer_len = _output_buf_size - _output_buf_limit;
                 } else {
                     // MARK
                     if (_more_input_bytes > 0) {
                         // we already extend input buf.
                         // current data in input buf should remain unchanged
                         file_buf = _input_buf + _input_buf_limit;
-                        read_len = _input_buf_size - _input_buf_limit;
+                        buffer_len = _input_buf_size - _input_buf_limit;
                         // leave input pos and limit unchanged
                     } else {
                         // here we are sure that all data in input buf has been consumed.
                         // which means input pos and limit should be reset.
                         file_buf = _input_buf;
-                        read_len = _input_buf_size;
+                        buffer_len = _input_buf_size;
                         // reset input pos and limit
                         _input_buf_pos = 0;
                         _input_buf_limit = 0;
@@ -234,7 +237,8 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
 
                 {
                     SCOPED_TIMER(_read_timer);
-                    RETURN_IF_ERROR(_file_reader->read(file_buf, &read_len, &_file_eof));
+                    RETURN_IF_ERROR(
+                            _file_reader->read(file_buf, buffer_len, &read_len, &_file_eof));
                     COUNTER_UPDATE(_bytes_read_counter, read_len);
                 }
                 // LOG(INFO) << "after read file: _file_eof: " << _file_eof << " read_len: " << read_len;

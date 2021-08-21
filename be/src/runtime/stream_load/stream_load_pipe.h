@@ -25,6 +25,7 @@
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
+#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -33,22 +34,24 @@ namespace doris {
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
     StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024,
-                   int64_t total_length = -1)
+                   int64_t total_length = -1, bool use_proto = false)
             : _buffered_bytes(0),
+              _proto_buffered_bytes(0),
               _max_buffered_bytes(max_buffered_bytes),
               _min_chunk_size(min_chunk_size),
               _total_length(total_length),
+              _use_proto(use_proto),
               _finished(false),
               _cancelled(false) {}
     virtual ~StreamLoadPipe() {}
 
     Status open() override { return Status::OK(); }
 
-    Status append_and_flush(const char* data, size_t size) {
+    Status append_and_flush(const char* data, size_t size, size_t proto_byte_size = 0) {
         ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size + 1));
         buf->put_bytes(data, size);
         buf->flip();
-        return _append(buf);
+        return _append(buf, proto_byte_size);
     }
 
     Status append(const char* data, size_t size) override {
@@ -86,7 +89,7 @@ public:
     // If _total_length == -1, this should be a Kafka routine load task,
     // just get the next buffer directly from the buffer queue, because one buffer contains a complete piece of data.
     // Otherwise, this should be a stream load task that needs to read the specified amount of data.
-    Status read_one_message(std::unique_ptr<uint8_t[]>* data, size_t* length) override {
+    Status read_one_message(std::unique_ptr<uint8_t[]>* data, int64_t* length) override {
         if (_total_length < -1) {
             std::stringstream ss;
             ss << "invalid, _total_length is: " << _total_length;
@@ -103,18 +106,17 @@ public:
 
         // _total_length > 0, read the entire data
         data->reset(new uint8_t[_total_length]);
-        *length = _total_length;
         bool eof = false;
-        Status st = read(data->get(), length, &eof);
+        Status st = read(data->get(), _total_length, length, &eof);
         if (eof) {
             *length = 0;
         }
         return st;
     }
 
-    Status read(uint8_t* data, size_t* data_size, bool* eof) override {
-        size_t bytes_read = 0;
-        while (bytes_read < *data_size) {
+    Status read(uint8_t* data, int64_t data_size, int64_t* bytes_read, bool* eof) override {
+        *bytes_read = 0;
+        while (*bytes_read < data_size) {
             std::unique_lock<std::mutex> l(_lock);
             while (!_cancelled && !_finished && _buf_queue.empty()) {
                 _get_cond.wait(l);
@@ -126,22 +128,22 @@ public:
             // finished
             if (_buf_queue.empty()) {
                 DCHECK(_finished);
-                *data_size = bytes_read;
-                *eof = (bytes_read == 0);
+                data_size = *bytes_read;
+                *eof = (*bytes_read == 0);
                 return Status::OK();
             }
             auto buf = _buf_queue.front();
-            size_t copy_size = std::min(*data_size - bytes_read, buf->remaining());
-            buf->get_bytes((char*)data + bytes_read, copy_size);
-            bytes_read += copy_size;
+            int64_t copy_size = std::min(data_size - *bytes_read, (int64_t)buf->remaining());
+            buf->get_bytes((char*)data + *bytes_read, copy_size);
+            *bytes_read += copy_size;
             if (!buf->has_remaining()) {
                 _buf_queue.pop_front();
                 _buffered_bytes -= buf->limit;
                 _put_cond.notify_one();
             }
         }
-        DCHECK(bytes_read == *data_size)
-                << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
+        DCHECK(*bytes_read == data_size)
+                << "*bytes_read=" << *bytes_read << ", data_size=" << data_size;
         *eof = false;
         return Status::OK();
     }
@@ -188,7 +190,7 @@ public:
 
 private:
     // read the next buffer from _buf_queue
-    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_t* length) {
+    Status _read_next_buffer(std::unique_ptr<uint8_t[]>* data, int64_t* length) {
         std::unique_lock<std::mutex> l(_lock);
         while (!_cancelled && !_finished && _buf_queue.empty()) {
             _get_cond.wait(l);
@@ -211,23 +213,38 @@ private:
 
         _buf_queue.pop_front();
         _buffered_bytes -= buf->limit;
+        if (_use_proto) {
+            PDataRow** ptr = reinterpret_cast<PDataRow**>(data->get());
+            _proto_buffered_bytes -= (sizeof(PDataRow*) + (*ptr)->GetCachedSize());
+        }
         _put_cond.notify_one();
         return Status::OK();
     }
 
-    Status _append(const ByteBufferPtr& buf) {
+    Status _append(const ByteBufferPtr& buf, size_t proto_byte_size = 0) {
         {
             std::unique_lock<std::mutex> l(_lock);
             // if _buf_queue is empty, we append this buf without size check
-            while (!_cancelled && !_buf_queue.empty() &&
-                   _buffered_bytes + buf->remaining() > _max_buffered_bytes) {
-                _put_cond.wait(l);
+            if (_use_proto) {
+                while (!_cancelled && !_buf_queue.empty() &&
+                       (_proto_buffered_bytes + proto_byte_size > _max_buffered_bytes)) {
+                    _put_cond.wait(l);
+                }
+            } else {
+                while (!_cancelled && !_buf_queue.empty() &&
+                       _buffered_bytes + buf->remaining() > _max_buffered_bytes) {
+                    _put_cond.wait(l);
+                }
             }
             if (_cancelled) {
                 return Status::InternalError("cancelled");
             }
             _buf_queue.push_back(buf);
-            _buffered_bytes += buf->remaining();
+            if (_use_proto) {
+                _proto_buffered_bytes += proto_byte_size;
+            } else {
+                _buffered_bytes += buf->remaining();
+            }
         }
         _get_cond.notify_one();
         return Status::OK();
@@ -236,6 +253,7 @@ private:
     // Blocking queue
     std::mutex _lock;
     size_t _buffered_bytes;
+    size_t _proto_buffered_bytes;
     size_t _max_buffered_bytes;
     size_t _min_chunk_size;
     // The total amount of data expected to be read.
@@ -246,6 +264,7 @@ private:
     // and the length is unknown.
     // size_t is unsigned, so use int64_t
     int64_t _total_length = -1;
+    bool _use_proto = false;
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;

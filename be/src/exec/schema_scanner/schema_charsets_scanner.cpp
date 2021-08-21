@@ -32,7 +32,7 @@ SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
 
 SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
         {"utf8", "utf8_general_ci", "UTF-8 Unicode", 3},
-        {NULL, NULL, 0},
+        {nullptr, nullptr, 0},
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
@@ -48,7 +48,7 @@ Status SchemaCharsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_charsets[_index].charset);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_charsets[_index].charset, len + 1);
@@ -60,7 +60,7 @@ Status SchemaCharsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_charsets[_index].default_collation);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_charsets[_index].default_collation, len + 1);
@@ -72,7 +72,7 @@ Status SchemaCharsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
         int len = strlen(_s_charsets[_index].description);
         str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("No Memory.");
         }
         memcpy(str_slot->ptr, _s_charsets[_index].description, len + 1);
@@ -91,12 +91,12 @@ Status SchemaCharsetsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eo
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
-    if (NULL == _s_charsets[_index].charset) {
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("invalid parameter.");
+    }
+    if (nullptr == _s_charsets[_index].charset) {
         *eos = true;
         return Status::OK();
-    }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("invalid parameter.");
     }
     *eos = false;
     return fill_one_row(tuple, pool);

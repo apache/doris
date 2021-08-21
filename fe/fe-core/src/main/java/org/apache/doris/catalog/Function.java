@@ -82,6 +82,18 @@ public class Function implements Writable {
         IS_MATCHABLE
     }
 
+    public enum NullableMode {
+        // Whether output column is nullable is depend on the input column is nullable
+        DEPEND_ON_ARGUMENT,
+        // like 'str_to_date', 'cast', 'date_format' etc, the output column is nullable
+        // depend on input content
+        ALWAYS_NULLABLE,
+        // like 'count', the output column is always not nullable
+        ALWAYS_NOT_NULLABLE,
+        // Whether output column is nullable is depend on custom algorithm by @Expr.isNullable()
+        CUSTOM
+    }
+
     public static final long UNIQUE_FUNCTION_ID = 0;
     // Function id, every function has a unique id. Now all built-in functions' id is 0
     private long id = 0;
@@ -104,6 +116,10 @@ public class Function implements Writable {
     private HdfsURI location;
     private TFunctionBinaryType binaryType;
 
+    protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
+
+    private boolean vectorized = false;
+
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
 
@@ -111,33 +127,38 @@ public class Function implements Writable {
     protected Function() {
     }
 
-    public Function(FunctionName name, Type[] argTypes, Type retType, boolean varArgs) {
-        this(0, name, argTypes, retType, varArgs);
-    }
-
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(0, name, args, retType, varArgs);
+        this(0, name, args, retType, varArgs, false, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(long id, FunctionName name, Type[] argTypes, Type retType, boolean hasVarArgs) {
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized) {
+        this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
+    }
+
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+        this(0, name, args, retType, varArgs, vectorized, mode);
+    }
+
+    public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
+                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
-        if (argTypes == null) {
-            this.argTypes = new Type[0];
-        } else {
-            this.argTypes = argTypes;
-        }
-        this.retType = retType;
-    }
-
-    public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs) {
-        this(id, name, (Type[]) null, retType, hasVarArgs);
         if (argTypes.size() > 0) {
             this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
         } else {
             this.argTypes = new Type[0];
         }
+        this.retType = retType;
+        this.binaryType = binaryType;
+        this.userVisible = userVisible;
+        this.vectorized = vectorized;
+        this.nullableMode = mode;
+    }
+
+    public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
+                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+        this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
     public FunctionName getFunctionName() {
@@ -154,6 +175,10 @@ public class Function implements Writable {
 
     public Type getReturnType() {
         return retType;
+    }
+
+    public void setReturnType(Type type) {
+        this.retType = type;
     }
 
     public Type[] getArgs() {
@@ -434,6 +459,7 @@ public class Function implements Writable {
         if (!checksum.isEmpty()) {
             fn.setChecksum(checksum);
         }
+        fn.setVectorized(vectorized);
         return fn;
     }
 
@@ -465,12 +491,11 @@ public class Function implements Writable {
             case CHAR:
             case HLL:
             case BITMAP:
+            case STRING:
                 return "string_val";
             case DATE:
             case DATETIME:
                 return "datetime_val";
-            case DECIMAL:
-                return "decimal_val";
             case DECIMALV2:
                 return "decimalv2_val";
             default:
@@ -504,12 +529,11 @@ public class Function implements Writable {
             case CHAR:
             case HLL:
             case BITMAP:
+            case STRING:
                 return "StringVal";
             case DATE:
             case DATETIME:
                 return "DateTimeVal";
-            case DECIMAL:
-                return "DecimalVal";
             case DECIMALV2:
                 return "DecimalV2Val";
             default:
@@ -563,7 +587,8 @@ public class Function implements Writable {
     enum FunctionType {
         ORIGIN(0),
         SCALAR(1),
-        AGGREGATE(2);
+        AGGREGATE(2),
+        ALIAS(3);
 
         private int code;
 
@@ -582,6 +607,8 @@ public class Function implements Writable {
                     return SCALAR;
                 case 2:
                     return AGGREGATE;
+                case 3:
+                    return ALIAS;
             }
             return null;
         }
@@ -652,6 +679,9 @@ public class Function implements Writable {
             case AGGREGATE:
                 function = new AggregateFunction();
                 break;
+            case ALIAS:
+                function = new AliasFunction();
+                break;
             default:
                 throw new Error("Unsupported function type, type=" + functionType);
         }
@@ -675,6 +705,9 @@ public class Function implements Writable {
             if (this instanceof ScalarFunction) {
                 row.add("Scalar");
                 row.add("NULL");
+            } else if (this instanceof AliasFunction) {
+                row.add("Alias");
+                row.add("NULL");
             } else {
                 row.add("Aggregate");
                 AggregateFunction aggFunc = (AggregateFunction) this;
@@ -691,5 +724,13 @@ public class Function implements Writable {
             row.add(functionName());
         }
         return row;
+    }
+
+    boolean isVectorized() {
+        return vectorized;
+    }
+
+    public NullableMode getNullableMode() {
+        return nullableMode;
     }
 }

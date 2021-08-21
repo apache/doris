@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -25,18 +24,26 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TWaitingTxnStatusRequest;
+import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Transaction Manager
@@ -96,7 +104,8 @@ public class GlobalTransactionMgr implements Writable {
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
         return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
@@ -115,7 +124,8 @@ public class GlobalTransactionMgr implements Writable {
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
                                  TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
-            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException,
+            QuotaExceedException, MetaNotFoundException {
 
         if (Config.disable_load_job) {
             throw new AnalysisException("disable_load_job is set to true, all load jobs are prevented");
@@ -151,6 +161,16 @@ public class GlobalTransactionMgr implements Writable {
             return TransactionStatus.UNKNOWN;
         }
 
+    }
+
+    public Long getTransactionId(long dbId, String label) {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.getTransactionId(label);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction id by label " + label + " failed", e);
+            return null;
+        }
     }
 
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
@@ -189,6 +209,8 @@ public class GlobalTransactionMgr implements Writable {
             List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
             TxnCommitAttachment txnCommitAttachment)
             throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
         if (!MetaLockUtils.tryWriteLockTables(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
             throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
         }
@@ -197,8 +219,15 @@ public class GlobalTransactionMgr implements Writable {
         } finally {
            MetaLockUtils.writeUnlockTables(tableList);
         }
+        stopWatch.stop();
+        long publishTimeoutMillis = timeoutMillis - stopWatch.getTime();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(db.getId());
-        return dbTransactionMgr.publishTransaction(db, transactionId, timeoutMillis);
+        if (publishTimeoutMillis < 0) {
+            // here commit transaction successfully cost too much time to cause that publishTimeoutMillis is less than zero,
+            // so we just return false to indicate publish timeout
+            return false;
+        }
+        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
    }
 
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
@@ -315,15 +344,28 @@ public class GlobalTransactionMgr implements Writable {
         } catch (AnalysisException e) {
             LOG.warn("replay upsert transaction [" + transactionState.getTransactionId() + "] failed", e);
         }
-
     }
-    
+
+    @Deprecated
+    // Use replayBatchDeleteTransactions instead
     public void replayDeleteTransactionState(TransactionState transactionState) {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
-            dbTransactionMgr.deleteTransaction(transactionState);
+            dbTransactionMgr.replayDeleteTransaction(transactionState);
         } catch (AnalysisException e) {
             LOG.warn("replay delete transaction [" + transactionState.getTransactionId() + "] failed", e);
+        }
+    }
+
+    public void replayBatchRemoveTransactions(BatchRemoveTransactionsOperation operation) {
+        Map<Long, List<Long>> dbTxnIds = operation.getDbTxnIds();
+        for (Long dbId : dbTxnIds.keySet()) {
+            try {
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+                dbTransactionMgr.replayBatchRemoveTransaction(dbTxnIds.get(dbId));
+            } catch (AnalysisException e) {
+                LOG.warn("replay batch remove transactions failed. db " + dbId, e);
+            }
         }
     }
 
@@ -466,5 +508,44 @@ public class GlobalTransactionMgr implements Writable {
     public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.updateDatabaseUsedQuotaData(usedQuotaDataBytes);
+    }
+
+    public TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws AnalysisException, TimeoutException {
+        long dbId = request.getDbId();
+        int commitTimeoutSec = Config.commit_timeout_second;
+        for (int i = 0; i < commitTimeoutSec; ++i) {
+            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            if (db == null) {
+                throw new AnalysisException("invalid db id: " + dbId);
+            }
+            TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
+            statusResult.status = new TStatus();
+            TransactionStatus txnStatus = null;
+            if (request.isSetTxnId()) {
+                long txnId = request.getTxnId();
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().
+                        getTransactionState(dbId, txnId);
+                if (txnState == null) {
+                    throw new AnalysisException("txn does not exist: " + txnId);
+                }
+                txnStatus = txnState.getTransactionStatus();
+                if (!txnState.getReason().trim().isEmpty()) {
+                    statusResult.status.setErrorMsgsIsSet(true);
+                    statusResult.status.addToErrorMsgs(txnState.getReason());
+                }
+            } else {
+                txnStatus = getLabelState(dbId, request.getLabel());
+            }
+            if (txnStatus == TransactionStatus.UNKNOWN || txnStatus.isFinalStatus()) {
+                statusResult.setTxnStatusId(txnStatus.value());
+                return statusResult;
+            }
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                LOG.info("commit sleep exception.", e);
+            }
+        }
+        throw new TimeoutException("Operation is timeout");
     }
 }

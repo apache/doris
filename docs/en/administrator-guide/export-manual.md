@@ -39,7 +39,7 @@ This document mainly introduces the basic principles, usage, best practices and 
 
 ## Principle
 
-After the user submits an Export job. Doris counts all Tablets involved in this job. These tablets are then grouped to generate a special query plan for each group. The query plan reads the data on the included tablet and then writes the data to the specified path of the remote storage through Broker.
+After the user submits an Export job. Doris counts all Tablets involved in this job. These tablets are then grouped to generate a special query plan for each group. The query plan reads the data on the included tablet and then writes the data to the specified path of the remote storage through Broker. It can also be directly exported to the remote storage that supports S3 protocol through S3 protocol.
 
 The overall mode of dispatch is as follows:
 
@@ -118,6 +118,7 @@ WITH BROKER "hdfs"
 ```
 
 * `column_separator`: Column separator. The default is `\t`. Supports invisible characters, such as'\x07'.
+* `column`: columns to be exported, separated by commas, if this parameter is not filled in, all columns of the table will be exported by default.
 * `line_delimiter`: Line separator. The default is `\n`. Supports invisible characters, such as'\x07'.
 * `exec_mem_limit`: Represents the memory usage limitation of a query plan on a single BE in an Export job. Default 2GB. Unit bytes.
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.

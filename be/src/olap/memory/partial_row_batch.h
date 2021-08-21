@@ -155,9 +155,9 @@ private:
     scoped_refptr<Schema> _schema;
     struct CellInfo {
         CellInfo() = default;
-        uint32_t isset = 0;
-        uint32_t isnullable = 0;
-        const uint8_t* data = nullptr;
+        uint32_t isset;
+        uint32_t isnullable;
+        const uint8_t* data;
     };
     vector<CellInfo> _temp_cells;
     size_t _bit_set_size = 0;

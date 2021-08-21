@@ -25,13 +25,13 @@ import java.util.Map;
 // clause which is used to add partition
 public class AddPartitionClause extends AlterTableClause {
 
-    private SingleRangePartitionDesc partitionDesc;
+    private SinglePartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
     private Map<String, String> properties;
     // true if this is to add a temporary partition
     private boolean isTempPartition;
 
-    public SingleRangePartitionDesc getSingeRangePartitionDesc() {
+    public SinglePartitionDesc getSingeRangePartitionDesc() {
         return partitionDesc;
     }
 
@@ -43,7 +43,7 @@ public class AddPartitionClause extends AlterTableClause {
         return isTempPartition;
     }
 
-    public AddPartitionClause(SingleRangePartitionDesc partitionDesc,
+    public AddPartitionClause(SinglePartitionDesc partitionDesc,
                               DistributionDesc distributionDesc,
                               Map<String, String> properties,
                               boolean isTempPartition) {

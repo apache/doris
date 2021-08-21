@@ -51,12 +51,24 @@ static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
-static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
+static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
+
+// the max length supported for string type 2GB
+static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
+
+// the max length supported for array
+static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
-using StringLengthType = uint16_t;
+using StringLengthType = uint32_t;
+using VarcharLengthType = uint16_t;
 static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
+static const uint16_t OLAP_VARCHAR_MAX_BYTES = sizeof(VarcharLengthType);
+// the max bytes for stored array length
+static const uint16_t OLAP_ARRAY_MAX_BYTES = OLAP_ARRAY_MAX_LENGTH;
+
+static constexpr uint16_t MAX_ZONE_MAP_INDEX_SIZE = 512;
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,
@@ -391,6 +403,7 @@ static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
+const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";
 

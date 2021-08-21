@@ -169,7 +169,7 @@ Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
 
     // Calculate the amount of data written
     size_t bytes_written = accumulate(data, data + data_cnt, static_cast<size_t>(0),
-                                      [&](int sum, const Slice& curr) { return sum + curr.size; });
+                                      [](size_t sum, const Slice& curr) { return sum + curr.size; });
     _bytes_appended += bytes_written;
     return Status::OK();
 }
@@ -295,7 +295,7 @@ FileReadableBlock::FileReadableBlock(
         std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle)
         : _block_manager(block_manager),
           _path(std::move(path)),
-          _file_handle(file_handle),
+          _file_handle(std::move(file_handle)),
           _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);
@@ -368,8 +368,8 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
 FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
         : _env(DCHECK_NOTNULL(env)),
           _opts(std::move(opts)),
-          _mem_tracker(
-                  MemTracker::CreateTracker(-1, "FileBlockManager", _opts.parent_mem_tracker)) {
+          _mem_tracker(MemTracker::CreateTracker(-1, "FileBlockManager", _opts.parent_mem_tracker,
+                    false, false, MemTrackerLevel::OVERVIEW)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }

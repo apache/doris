@@ -36,6 +36,7 @@ under the License.
     2. Baidu AFS: afs for Baidu. Only be used inside Baidu.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
+    5. Amazon S3：Amazon S3。
 
 ### Syntax:
 
@@ -43,8 +44,8 @@ under the License.
     (
     data_desc1[, data_desc2, ...]
     )
-    WITH BROKER broker_name
-    [broker_properties]
+    WITH [BROKER broker_name | S3]
+    [load_properties]
     [opt_properties];
 
     1. load_label
@@ -72,6 +73,7 @@ under the License.
             [SET (k1 = func(k2))]
             [WHERE predicate] 
             [DELETE ON label=true]
+            [read_properties]
 
         Explain:
             file_path: 
@@ -131,12 +133,41 @@ under the License.
             delete_on_predicates:
 
             Only used when merge type is MERGE
+
+            read_properties:
+
+            Used to specify some special parameters.
+            Syntax：
+            [PROPERTIES ("key"="value", ...)]
+        
+            You can specify the following parameters:
+                
+              line_delimiter： Used to specify the line delimiter in the load file. The default is `\n`. You can use a combination of multiple characters as the column separator.
+
+              fuzzy_parse： Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
+            
+              jsonpaths: There are two ways to import json: simple mode and matched mode.
+                simple mode: it is simple mode without setting the jsonpaths parameter. In this mode, the json data is required to be the object type. For example:
+                {"k1": 1, "k2": 2, "k3": "hello"}, where k1, k2, k3 are column names.
+
+                matched mode: the json data is relatively complex, and the corresponding value needs to be matched through the jsonpaths parameter.
+            
+              strip_outer_array: Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false. For example：
+                [
+                  {"k1" : 1, "v1" : 2},
+                  {"k1" : 3, "v1" : 4}
+                ]
+              if strip_outer_array is true, and two rows of data are generated when imported into Doris.
+           
+              json_root: json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
+           
+              num_as_string: Boolean type, true means that when parsing the json data, it will be converted into a number type and converted into a string, and then it will be imported without loss of precision.
             
     3. broker_name
 
         The name of the Broker used can be viewed through the `show broker` command.
 
-    4. broker_properties
+    4. load_properties
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
@@ -169,6 +200,35 @@ under the License.
             kerberos_keytab_content: Specify the contents of the KeyTab file in Kerberos after base64 encoding. This option is optional from the kerberos_keytab configuration. 
 
             namenode HA: 
+            By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
+            dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
+            dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
+            dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
+        4. Amazon S3
+
+            fs.s3a.access.key：AmazonS3的access key
+            fs.s3a.secret.key：AmazonS3的secret key
+            fs.s3a.endpoint：AmazonS3的endpoint 
+        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+
+            (
+                "AWS_ENDPOINT" = "",
+                "AWS_ACCESS_KEY" = "",
+                "AWS_SECRET_KEY"="",
+                "AWS_REGION" = ""
+            )
+        6. if using load with hdfs, you need to specify the following attributes 
+            (
+                "fs.defaultFS" = "",
+                "hdfs_user"="",
+                "kerb_principal" = "",
+                "kerb_ticket_cache_path" = "",
+                "kerb_token" = ""
+            )
+            fs.defaultFS: defaultFS
+            hdfs_user: hdfs user
+            namenode HA：
             By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
             dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
@@ -473,7 +533,49 @@ under the License.
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
-     
+
+    15. Import the data in the json file, and specify format as json, it is judged by the file suffix by default, set parameters for reading data
+
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (k1, k2, k3)
+        properties("fuzzy_parse"="true", "strip_outer_array"="true")
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");   
+
+    16. LOAD WITH HDFS, normal HDFS cluster
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+        );
+    17. LOAD WITH HDFS, hdfs ha
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+            "dfs.nameservices"="my_ha",
+            "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+            "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+            "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+            "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        );
+
 ## keyword
 
     BROKER,LOAD

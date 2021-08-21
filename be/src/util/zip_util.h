@@ -21,7 +21,7 @@
 #include <string>
 
 #include "common/status.h"
-#include "util/minizip/unzip.h"
+#include "minizip/unzip.h"
 
 namespace doris {
 

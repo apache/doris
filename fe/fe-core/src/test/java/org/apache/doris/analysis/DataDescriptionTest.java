@@ -30,12 +30,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -119,7 +121,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
+                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, false, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
         Assert.assertEquals("MERGE DATA INFILE ('abc.txt') INTO TABLE testTable COLUMNS TERMINATED BY ',' (col1, col2) WHERE 1 = 1 DELETE ON 1 = 1", desc.toString());
         Assert.assertEquals("1 = 1", desc.getWhereExpr().toSql());
@@ -202,10 +204,30 @@ public class DataDescriptionTest {
                                         new FunctionCallExpr("bitmap_dict", params));
         desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                    "testHiveTable", false, Lists.newArrayList(predicate),
-                null, LoadTask.MergeType.APPEND, null);
+                null, LoadTask.MergeType.APPEND, null, null);
         desc.analyze("testDb");
         sql = "APPEND DATA FROM TABLE testHiveTable INTO TABLE testTable PARTITIONS (p1, p2) SET (`k1` = bitmap_dict(`k2`))";
         Assert.assertEquals(sql, desc.toSql());
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("line_delimiter", "abc");
+        properties.put("fuzzy_parse", "true");
+        properties.put("strip_outer_array", "true");
+        properties.put("jsonpaths",  "[\"$.h1.h2.k1\",\"$.h1.h2.v1\",\"$.h1.h2.v2\"]");
+        properties.put("json_root", "$.RECORDS");
+        properties.put("read_json_by_line", "true");
+        properties.put("num_as_string","true");
+        desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
+                Lists.newArrayList("col1", "col2"), new Separator(","), "json", null, false, null,
+                null, null, LoadTask.MergeType.APPEND, null, null, properties);
+
+        desc.analyze("testDb");
+        Assert.assertEquals("abc", desc.getLineDelimiter());
+        Assert.assertTrue(desc.isFuzzyParse());
+        Assert.assertTrue(desc.isStripOuterArray());
+        Assert.assertEquals("[\"$.h1.h2.k1\",\"$.h1.h2.v1\",\"$.h1.h2.v2\"]", desc.getJsonPaths());
+        Assert.assertEquals("$.RECORDS", desc.getJsonRoot());
+        Assert.assertTrue(desc.isNumAsString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -220,7 +242,7 @@ public class DataDescriptionTest {
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, new IntLiteral(1),  new IntLiteral(1));
 
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, true, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null);
+                Lists.newArrayList("col1", "col2"), new Separator(","), "csv", null, true, null, null, whereExpr, LoadTask.MergeType.MERGE, whereExpr, null, null);
         desc.analyze("testDb");
     }
 
@@ -312,7 +334,7 @@ public class DataDescriptionTest {
     public void testAnalyzeSequenceColumnNormal() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("k1", "k2", "source_sequence", "v1"), new Separator("\t"),
-                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence", null);
         new Expectations() {
             {
                 tbl.getName();
@@ -331,7 +353,7 @@ public class DataDescriptionTest {
     public void testAnalyzeSequenceColumnWithoutSourceSequence() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("k1", "k2", "v1"), new Separator("\t"),
-                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence");
+                null, null, false, null, null, null, LoadTask.MergeType.APPEND, null, "source_sequence", null);
         new Expectations() {
             {
                 tbl.getName();

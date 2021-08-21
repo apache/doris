@@ -24,7 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
@@ -43,19 +43,9 @@ import java.util.Objects;
 public class StringLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(StringLiteral.class);
     private String value;
-    /**
-     * the session variable `sql_mode` is a special kind of variable.
-     * it's real type is int, so when querying `select @@sql_mode`, the return column
-     * type is "int". but user usually set this variable by string, such as:
-     * `set @@sql_mode = 'STRICT_TRANS_TABLES'`
-     * or
-     * `set @@sql_mode = concat(@@sql_mode, 'STRICT_TRANS_TABLES')'`
-     * <p>
-     * So when it need to be cast to int, it means "cast 'STRICT_TRANS_TABLES' to Integer".
-     * To support this, we set `isSqlMode` to true, so that it can cast sql mode name to integer.
-     */
-    private boolean isSqlMode = false;
-    
+    // Means the converted session variable need to be cast to int, such as "cast 'STRICT_TRANS_TABLES' to Integer".
+    private String beConverted = "";
+
     public StringLiteral() {
         super();
         type = Type.VARCHAR;
@@ -73,8 +63,8 @@ public class StringLiteral extends LiteralExpr {
         value = other.value;
     }
 
-    public void setIsSqlMode(boolean val) {
-        this.isSqlMode = val;
+    public void setBeConverted(String val) {
+        this.beConverted = val;
     }
 
     @Override
@@ -87,7 +77,9 @@ public class StringLiteral extends LiteralExpr {
         if (expr instanceof NullLiteral) {
             return 1;
         }
-
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
         // compare string with utf-8 byte array, same with DM,BE,StorageEngine
         byte[] thisBytes = null;
         byte[] otherBytes = null;
@@ -166,6 +158,11 @@ public class StringLiteral extends LiteralExpr {
         return Double.valueOf(value);
     }
 
+    @Override
+    public String getRealValue() {
+        return getStringValue();
+    }
+
     /**
      * Convert a string literal to a date literal
      *
@@ -196,20 +193,18 @@ public class StringLiteral extends LiteralExpr {
                 case SMALLINT:
                 case INT:
                 case BIGINT:
-                    if (isSqlMode) {
+                    if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
-                            long sqlMode = SqlModeHelper.encode(value);
-                            return new IntLiteral(sqlMode, targetType);
+                            return new IntLiteral(VariableVarConverters.encode(beConverted, value), targetType);
                         } catch (DdlException e) {
                             throw new AnalysisException(e.getMessage());
                         }
                     }
                     return new IntLiteral(value, targetType);
                 case LARGEINT:
-                    if (isSqlMode) {
+                    if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
-                            long sqlMode = SqlModeHelper.encode(value);
-                            return new LargeIntLiteral(String.valueOf(sqlMode));
+                            return new LargeIntLiteral(String.valueOf(VariableVarConverters.encode(beConverted, value)));
                         } catch (DdlException e) {
                             throw new AnalysisException(e.getMessage());
                         }
@@ -223,7 +218,6 @@ public class StringLiteral extends LiteralExpr {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_NUMBER, value);
                     }
                     break;
-                case DECIMAL:
                 case DECIMALV2:
                     return new DecimalLiteral(value);
                 default:

@@ -225,6 +225,7 @@ public:
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
 
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb) const { *rs_meta_pb = _rowset_meta_pb; }
+    const RowsetMetaPB& get_rowset_pb() { return _rowset_meta_pb; }
 
     bool is_singleton_delta() const {
         return has_version() && _rowset_meta_pb.start_version() == _rowset_meta_pb.end_version();

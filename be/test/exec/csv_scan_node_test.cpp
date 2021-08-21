@@ -122,7 +122,7 @@ void CsvScanNodeTest::init_desc_tbl() {
     {
         TSlotDescriptor t_slot_desc;
         t_slot_desc.__set_id(i);
-        TTypeDesc ttype = gen_type_desc(TPrimitiveType::DECIMAL);
+        TTypeDesc ttype = gen_type_desc(TPrimitiveType::DECIMALV2);
         ttype.types[0].scalar_type.__set_precision(10);
         ttype.types[0].scalar_type.__set_scale(5);
         t_slot_desc.__set_slotType(ttype);
@@ -135,7 +135,7 @@ void CsvScanNodeTest::init_desc_tbl() {
         t_slot_desc.__set_colName("decimal_column");
 
         slot_descs.push_back(t_slot_desc);
-        offset += sizeof(DecimalValue);
+        offset += sizeof(DecimalValueV2);
     }
     ++i;
     // date_column
@@ -207,7 +207,7 @@ void CsvScanNodeTest::init_desc_tbl() {
     }
     {
         TColumnType column_type;
-        column_type.__set_type(TPrimitiveType::DECIMAL);
+        column_type.__set_type(TPrimitiveType::DECIMALV2);
         column_type.__set_precision(10);
         column_type.__set_scale(5);
         column_type_map["decimal_column"] = column_type;

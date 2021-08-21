@@ -54,12 +54,9 @@ Status OlapRewriteNode::prepare(RuntimeState* state) {
     _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(),
                                         state->fragment_mem_tracker().get()));
 
-    _max_decimal_val.resize(_column_types.size());
     _max_decimalv2_val.resize(_column_types.size());
     for (int i = 0; i < _column_types.size(); ++i) {
-        if (_column_types[i].type == TPrimitiveType::DECIMAL) {
-            _max_decimal_val[i].to_max_decimal(_column_types[i].precision, _column_types[i].scale);
-        } else if (_column_types[i].type == TPrimitiveType::DECIMALV2) {
+        if (_column_types[i].type == TPrimitiveType::DECIMALV2) {
             _max_decimalv2_val[i].to_max_decimal(_column_types[i].precision,
                                                  _column_types[i].scale);
         }
@@ -138,7 +135,8 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
         const TColumnType& column_type = _column_types[i];
         switch (column_type.type) {
         case TPrimitiveType::CHAR:
-        case TPrimitiveType::VARCHAR: {
+        case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING: {
             // Fixed length string
             StringValue* str_val = (StringValue*)src_value;
             if (str_val->len > column_type.len) {
@@ -148,8 +146,7 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
                       << "schema length: " << column_type.len << "; "
                       << "actual length: " << str_val->len << "; ";
                 return false;
-            }
-            StringValue* dst_val = (StringValue*)tuple->get_slot(slot_desc->tuple_offset());
+            } StringValue* dst_val = (StringValue*)tuple->get_slot(slot_desc->tuple_offset());
             if (column_type.type == TPrimitiveType::CHAR) {
                 dst_val->ptr = (char*)pool->allocate(column_type.len);
                 memcpy(dst_val->ptr, str_val->ptr, str_val->len);
@@ -159,27 +156,8 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
                 dst_val->ptr = (char*)pool->allocate(column_type.len);
                 memcpy(dst_val->ptr, str_val->ptr, str_val->len);
                 dst_val->len = str_val->len;
-            }
-            break;
-        }
-        case TPrimitiveType::DECIMAL: {
-            DecimalValue* dec_val = (DecimalValue*)src_value;
-            DecimalValue* dst_val = (DecimalValue*)tuple->get_slot(slot_desc->tuple_offset());
-            if (dec_val->scale() > column_type.scale) {
-                int code = dec_val->round(dst_val, column_type.scale, HALF_UP);
-                if (code != E_DEC_OK) {
-                    (*ss) << "round one decimal failed.value=" << dec_val->to_string();
-                    return false;
-                }
-            } else {
-                *dst_val = *dec_val;
-            }
-            if (*dst_val > _max_decimal_val[i]) {
-                dst_val->to_max_decimal(column_type.precision, column_type.scale);
-            }
-            break;
-        }
-        case TPrimitiveType::DECIMALV2: {
+            } break;
+        } case TPrimitiveType::DECIMALV2: {
             DecimalV2Value* dec_val = (DecimalV2Value*)src_value;
             DecimalV2Value* dst_val = (DecimalV2Value*)tuple->get_slot(slot_desc->tuple_offset());
             if (dec_val->greater_than_scale(column_type.scale)) {

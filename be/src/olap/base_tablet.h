@@ -93,7 +93,7 @@ inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
 }
 
-inline string BaseTablet::tablet_path() const {
+inline std::string BaseTablet::tablet_path() const {
     return _tablet_path;
 }
 

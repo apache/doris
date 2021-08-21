@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
+#include "runtime/mem_tracker.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 
@@ -36,14 +37,17 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock) {
+                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent)
+        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock), _mem_tracker(MemTracker::CreateTracker(
+                -1, "Segment-" + std::to_string(segment_id), parent, false)) {
     CHECK_NOTNULL(_wblock);
 }
 
-SegmentWriter::~SegmentWriter() = default;
+SegmentWriter::~SegmentWriter() {
+    _mem_tracker->Release(_mem_tracker->consumption());
+};
 
-void SegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
+void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
                                       const TabletColumn& column) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
@@ -55,7 +59,7 @@ void SegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
     meta->set_is_nullable(column.is_nullable());
     if (column.get_subtype_count() > 0) {
         for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-            _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
+            init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
         }
     }
 }
@@ -67,17 +71,15 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
-        _init_column_meta(opts.meta, &column_id, column);
+        init_column_meta(opts.meta, &column_id, column);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
         // and not support zone map for array type.
         opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            opts.need_zone_map = false;
-        }
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+            opts.need_zone_map = false;
             if (opts.need_bloom_filter) {
                 return Status::NotSupported("Do not support bloom filter for array type");
             }
@@ -85,6 +87,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
                 return Status::NotSupported("Do not support bitmap index for array type");
             }
         }
+        opts.parent = _mem_tracker;
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));
@@ -126,6 +129,9 @@ uint64_t SegmentWriter::estimate_segment_size() {
         size += column_writer->estimate_buffer_size();
     }
     size += _index_builder->size();
+
+    // update the mem_tracker of segment size
+    _mem_tracker->Consume(size - _mem_tracker->consumption());
     return size;
 }
 

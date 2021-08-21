@@ -19,7 +19,9 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
@@ -37,6 +39,7 @@ public class PartitionPersistInfo implements Writable {
     private Partition partition;
 
     private Range<PartitionKey> range;
+    private PartitionItem listPartitionItem;
     private DataProperty dataProperty;
     private short replicationNum;
     private boolean isInMemory = false;
@@ -46,13 +49,14 @@ public class PartitionPersistInfo implements Writable {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                DataProperty dataProperty, short replicationNum,
+                                PartitionItem listPartitionItem, DataProperty dataProperty, short replicationNum,
                                 boolean isInMemory, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;
 
         this.range = range;
+        this.listPartitionItem = listPartitionItem;
         this.dataProperty = dataProperty;
 
         this.replicationNum = replicationNum;
@@ -74,6 +78,10 @@ public class PartitionPersistInfo implements Writable {
 
     public Range<PartitionKey> getRange() {
         return range;
+    }
+
+    public PartitionItem getListPartitionItem() {
+        return listPartitionItem;
     }
 
     public DataProperty getDataProperty() {
@@ -98,6 +106,7 @@ public class PartitionPersistInfo implements Writable {
         partition.write(out);
 
         RangeUtils.writeRange(out, range);
+        listPartitionItem.write(out);
         dataProperty.write(out);
         out.writeShort(replicationNum);
         out.writeBoolean(isInMemory);
@@ -110,6 +119,12 @@ public class PartitionPersistInfo implements Writable {
         partition = Partition.read(in);
 
         range = RangeUtils.readRange(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
+            listPartitionItem = ListPartitionItem.read(in);
+        } else {
+            listPartitionItem = ListPartitionItem.DUMMY_ITEM;
+        }
+
         dataProperty = DataProperty.read(in);
         replicationNum = in.readShort();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {

@@ -192,7 +192,7 @@ DecimalV2Value operator/(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t x = v1.value();
     int128_t y = v2.value();
 
-    //todo: return 0 for divide zero
+    DCHECK(y != 0);
     if (x == 0 || y == 0) return DecimalV2Value(0);
     bool is_positive = (x > 0 && y > 0) || (x < 0 && y < 0);
     do_div(abs(x), abs(y), &result);
@@ -207,7 +207,7 @@ DecimalV2Value operator%(const DecimalV2Value& v1, const DecimalV2Value& v2) {
     int128_t x = v1.value();
     int128_t y = v2.value();
 
-    //todo: return 0 for divide zero
+    DCHECK(y != 0);
     if (x == 0 || y == 0) return DecimalV2Value(0);
 
     do_mod(x, y, &result);

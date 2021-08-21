@@ -19,7 +19,6 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
-#include <boost/functional/hash.hpp>
 #include <map>
 #include <set>
 #include <string>

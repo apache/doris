@@ -32,7 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
-public abstract class LiteralExpr extends Expr {
+public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
 
     public LiteralExpr() {
@@ -66,7 +66,6 @@ public abstract class LiteralExpr extends Expr {
             case DOUBLE:
                 literalExpr = new FloatLiteral(value);
                 break;
-            case DECIMAL:
             case DECIMALV2:
                 literalExpr = new DecimalLiteral(value);
                 break;
@@ -81,6 +80,41 @@ public abstract class LiteralExpr extends Expr {
                 break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
+        }
+
+        Preconditions.checkNotNull(literalExpr);
+        return literalExpr;
+    }
+
+    /**
+     * Init LiteralExpr's Type information
+     * only use in rewrite alias function
+     * @param expr
+     * @return
+     * @throws AnalysisException
+     */
+    public static LiteralExpr init(LiteralExpr expr) throws AnalysisException {
+        Preconditions.checkArgument(expr.getType().equals(Type.INVALID));
+        String value = expr.getStringValue();
+        LiteralExpr literalExpr = null;
+        if (expr instanceof NullLiteral) {
+            literalExpr = new NullLiteral();
+        } else if (expr instanceof BoolLiteral) {
+            literalExpr = new BoolLiteral(value);
+        } else if (expr instanceof IntLiteral) {
+            literalExpr = new IntLiteral(Long.parseLong(value));
+        } else if (expr instanceof LargeIntLiteral) {
+            literalExpr = new LargeIntLiteral(value);
+        } else if (expr instanceof FloatLiteral) {
+            literalExpr = new FloatLiteral(value);
+        } else if (expr instanceof DecimalLiteral) {
+            literalExpr = new DecimalLiteral(value);
+        } else if (expr instanceof StringLiteral) {
+            literalExpr = new StringLiteral(value);
+        } else if (expr instanceof DateLiteral) {
+            literalExpr = new DateLiteral(value, expr.getType());
+        } else {
+            throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
         }
 
         Preconditions.checkNotNull(literalExpr);
@@ -117,7 +151,7 @@ public abstract class LiteralExpr extends Expr {
      * return real value
      */
     public Object getRealValue() {
-        // implemented: TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME
+        // implemented: TINYINT/SMALLINT/INT/BIGINT/LARGEINT/DATE/DATETIME/CHAR/VARCHAR/BOOLEAN
         Preconditions.checkState(false, "should implement this in derived class. " + this.type.toSql());
         return null;
     }
@@ -127,6 +161,11 @@ public abstract class LiteralExpr extends Expr {
     // Only used by partition pruning and the derived class which can be used for pruning
     // must handle MaxLiteral.
     public abstract int compareLiteral(LiteralExpr expr);
+
+    @Override
+    public int compareTo(LiteralExpr literalExpr) {
+        return compareLiteral(literalExpr);
+    }
 
     // Returns the string representation of the literal's value. Used when passing
     // literal values to the metastore rather than to Palo backends. This is similar to
@@ -189,6 +228,11 @@ public abstract class LiteralExpr extends Expr {
             return false;
         }
         return this.compareLiteral(((LiteralExpr) obj)) == 0;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return this instanceof NullLiteral;
     }
 }
 

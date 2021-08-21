@@ -17,14 +17,6 @@
 
 package org.apache.doris.planner;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
@@ -34,8 +26,17 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.Assert;
+import org.junit.Test;
 
 public class OlapScanNodeTest {    
     // columnA in (1) hashmode=3
@@ -157,6 +158,21 @@ public class OlapScanNodeTest {
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 2);
-        } 
+        }
     }
+
+//    @Test
+//    public void testConstructInputPartitionByDistributionInfo(@Injectable OlapTable olapTable,
+//                                                              @Injectable TupleDescriptor tupleDescriptor) {
+//        PlanNodeId planNodeId = new PlanNodeId(1);
+//        OlapScanNode olapScanNode = new OlapScanNode(planNodeId, tupleDescriptor, "scan node");
+//        Deencapsulation.setField(olapScanNode, "olapTable", olapTable);
+//        new Expectations() {
+//            {
+//                olapTable.getDefaultDistributionInfo();
+//                result =
+//            }
+//        };
+//        olapScanNode.constructInputPartitionByDistributionInfo();
+//    }
 }

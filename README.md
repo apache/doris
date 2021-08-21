@@ -41,107 +41,7 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 
 ## 4. Compile and install
 
-Currently only supports Docker environment and Linux OS, such as Ubuntu and CentOS.
-
-### 4.1 Compile in Docker environment (Recommended)
-
-We offer a docker image as a Doris compilation environment. You can compile Doris from source in it and run the output binaries in other Linux environments.
-
-Firstly, you need to install and start docker service.
-
-And then you could build Doris as following steps:
-
-#### Step1: Pull the docker image with Doris building environment
-
-```
-$ docker pull apachedoris/doris-dev:build-env-1.2
-```
-
-You can check it by listing images, for example:
-
-```
-$ docker images
-REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env-1.2       69cf7fff9d10        2 weeks ago         4.12GB
-```
-> NOTE: You may have to use different images to compile from source.
->
-> | image version | commit id | release version |
-> |---|---|---|
-> | apachedoris/doris-dev:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
-> | apachedoris/doris-dev:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or 0.11.x |
-> | apachedoris/doris-dev:build-env-1.2 | [1648226](https://github.com/apache/incubator-doris/commit/1648226927c5b4e33f33ce2e12bf0e06369b7f6e) or later | 0.12.x or later |
-
-
-
-
-#### Step2: Run the Docker image
-
-You can run the image directly:
-
-```
-$ docker run -it apachedoris/doris-dev:build-env-1.2
-```
-
-Or if you want to compile the source located in your local host, you can map the local directory to the image by running:
-
-```
-$ docker run -it -v /your/local/path/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apachedoris/doris-dev:build-env-1.2
-```
-
-#### Step3: Download Doris source
-
-Now you should be attached in docker environment.
-
-You can download Doris source by release package or by git clone in image.
-
-(If you already downloaded the source in your local host and map it to the image in Step2, you can skip this step.)
-
-```
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
-or
-$ git clone https://github.com/apache/incubator-doris.git
-```
-
-#### Step4: Build Doris
-
-Enter Doris source path and build Doris.
-
-```
-$ sh build.sh
-```
-
-After successfully building, it will install binary files in the directory `output/`.
-
-### 4.2 For Linux OS
-
-#### Prerequisites
-
-You should install the following softwares:
-
-```
-GCC 7.3.0+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
-```
-
-Then set them to environment variable PATH and set JAVA_HOME.
-
-If your GCC version is lower than 7.3.0, you can run:
-
-```
-sudo yum install devtoolset-7-toolchain -y
-```
-
-and then, set the path of GCC (e.g `/opt/rh/devtoolset-7/root/usr/bin`) to the environment variable PATH.
-
-#### Compile and install
-
-Run the following script, it will compile thirdparty libraries and build whole Doris.
-
-```
-sh build.sh
-```
-
-After successfully building, it will install binary files in the directory `output/`.
+See [Compilation](https://github.com/apache/incubator-doris/blob/master/docs/en/installing/compilation.md) for details.
 
 ## 5. License Notice
 
@@ -152,7 +52,15 @@ some features of Doris to be complied with Apache 2.0 License. Details can be fo
 
 If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
 
-## 7. Links
+## 7. Contact Us
+
+### Mailing lists
+
+| Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
+|:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
+| [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
+
+## 8. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>

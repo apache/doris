@@ -52,6 +52,9 @@ public:
     Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
                                     std::vector<int32_t>* partition_ids);
 
+    Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
+        std::vector<PIntegerPair>* partition_offsets);
+
 private:
     // execute the task
     void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
@@ -60,6 +63,8 @@ private:
 
     // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
+    // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
+    Status _prepare_ctx(const PKafkaMetaProxyRequest& request, StreamLoadContext* ctx);
 
 private:
     ExecEnv* _exec_env;

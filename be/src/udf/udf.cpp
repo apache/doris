@@ -24,7 +24,6 @@
 
 #include "common/logging.h"
 #include "olap/hll.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 
 // Be careful what this includes since this needs to be linked into the UDF's
@@ -176,10 +175,6 @@ doris_udf::FunctionContext* FunctionContextImpl::create_context(
     ctx->_impl->_intermediate_type = intermediate_type;
     ctx->_impl->_return_type = return_type;
     ctx->_impl->_arg_types = arg_types;
-    // UDFs may manipulate DecimalVal arguments via SIMD instructions such as 'movaps'
-    // that require 16-byte memory alignment.
-    // ctx->_impl->_varargs_buffer =
-    //     reinterpret_cast<uint8_t*>(aligned_malloc(varargs_buffer_size, 16));
     ctx->_impl->_varargs_buffer = reinterpret_cast<uint8_t*>(malloc(varargs_buffer_size));
     ctx->_impl->_varargs_buffer_size = varargs_buffer_size;
     ctx->_impl->_debug = debug;
@@ -421,21 +416,6 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
     }
 }
 
-bool DecimalVal::operator==(const DecimalVal& other) const {
-    if (is_null && other.is_null) {
-        return true;
-    }
-
-    if (is_null || other.is_null) {
-        return false;
-    }
-
-    // TODO(lingbin): implement DecimalVal's own cmp method
-    doris::DecimalValue value1 = doris::DecimalValue::from_decimal_val(*this);
-    doris::DecimalValue value2 = doris::DecimalValue::from_decimal_val(other);
-    return value1 == value2;
-}
-
 const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
         return NULL;
@@ -487,7 +467,7 @@ void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
                 sparse_map = resolver.get_sparse_map();
         for (std::map<doris::HllSetResolver::SparseIndexType,
                       doris::HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin();
-             iter != sparse_map.end(); iter++) {
+             iter != sparse_map.end(); ++iter) {
             pdata[iter->first] = std::max(pdata[iter->first], (uint8_t)iter->second);
         }
     } else if (resolver.get_hll_data_type() == doris::HLL_DATA_FULL) {

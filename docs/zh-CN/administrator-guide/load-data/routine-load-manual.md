@@ -84,7 +84,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 ### 使用限制
 
 1. 支持无认证的 Kafka 访问，以及通过 SSL 方式认证的 Kafka 集群。
-2. 支持的消息格式为 csv 文本格式。每一个 message 为一行，且行尾**不包含**换行符。
+2. 支持的消息格式为 csv, json 文本格式。csv 每一个 message 为一行，且行尾**不包含**换行符。
 3. 仅支持 Kafka 0.10.0.0(含) 以上版本。
 
 ### 创建例行导入任务
@@ -97,11 +97,11 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     在 `columns_mapping` 中我们同样可以使用一些内置函数进行列的转换。但需要注意函数参数对应的实际列类型。举例说明：
 
-    假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的 null 值转换为 0。该功能可以通过 `ifnull` 函数实现。正确是的使用方式如下：
+    假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的 null 值转换为 0。该功能可以通过 `ifnull` 函数实现。正确的使用方式如下：
 
-    `COLUMNS (xx, k1=ifnull(xx, "3"))`
+    `COLUMNS (xx, k1=ifnull(xx, "0"))`
 
-    注意这里我们使用 `"3"` 而不是 `3`，虽然 `k1` 的类型为 `int`。因为对于导入任务来说，源数据中的列类型都为 `varchar`，所以这里 `xx` 虚拟列的类型也为 `varchar`。所以我们需要使用 `"3"` 来进行对应的匹配，否则 `ifnull` 函数无法找到参数为 `(varchar, int)` 的函数签名，将出现错误。
+    注意这里我们使用 `"0"` 而不是 `0`，虽然 `k1` 的类型为 `int`。因为对于导入任务来说，源数据中的列类型都为 `varchar`，所以这里 `xx` 虚拟列的类型也为 `varchar`。所以我们需要使用 `"0"` 来进行对应的匹配，否则 `ifnull` 函数无法找到参数为 `(varchar, int)` 的函数签名，将出现错误。
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
 
@@ -277,6 +277,26 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
      1. 创建Routine load 任务中指定的 Broker list 必须能够被Doris服务访问
      2. Kafka 中如果配置了`advertised.listeners`, `advertised.listeners` 中的地址必须能够被Doris服务访问
 
+6. 关于指定消费的 Partition 和 Offset
+
+    Doris 支持指定 Partition 和 Offset 开始消费。新版中还支持了指定时间点进行消费的功能。这里说明下对应参数的配置关系。
+    
+    有三个相关参数：
+    
+    * `kafka_partitions`：指定待消费的 partition 列表，如："0, 1, 2, 3"。
+    * `kafka_offsets`：指定每个分区的起始offset，必须和 `kafka_partitions` 列表个数对应。如："1000, 1000, 2000, 2000"
+    * `property.kafka_default_offset`：指定分区默认的起始offset。
+
+    在创建导入作业时，这三个参数可以有以下组合：
+    
+    | 组合 | `kafka_partitions` | `kafka_offsets` | `property.kafka_default_offset` | 行为 |
+    |---|---|---|---|---|
+    |1| No | No | No | 系统会自动查找topic对应的所有分区并从 OFFSET_END 开始消费 |
+    |2| No | No | Yes | 系统会自动查找topic对应的所有分区并从 default offset 指定的位置开始消费|
+    |3| Yes | No | No | 系统会从指定分区的 OFFSET_END 开始消费 |
+    |4| Yes | Yes | No | 系统会从指定分区的指定offset 处开始消费 |
+    |5| Yes | No | Yes | 系统会从指定分区，default offset 指定的位置开始消费 |
+    
 ## 相关参数
 
 一些系统配置参数会影响例行导入的使用。

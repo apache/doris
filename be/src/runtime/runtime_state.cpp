@@ -35,6 +35,7 @@
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/runtime_filter_mgr.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
@@ -53,6 +54,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
         : _fragment_mem_tracker(nullptr),
           _profile("Fragment " + print_id(fragment_instance_id)),
           _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _is_cancelled(false),
@@ -62,6 +64,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
           _num_print_error_rows(0),
+          _load_job_id(-1),
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file_path(""),
@@ -77,6 +80,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _fragment_mem_tracker(nullptr),
           _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _obj_pool(new ObjectPool()),
+          _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
@@ -92,6 +96,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _error_log_file_path(""),
           _error_log_file(nullptr),
           _instance_buffer_reservation(new ReservationTracker) {
+    if (fragment_exec_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
+    }
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
@@ -212,12 +219,11 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
     mem_tracker_counter->set(bytes_limit);
 
-    _query_mem_tracker = MemTracker::CreateTracker(
-            bytes_limit, "RuntimeState:query:" + print_id(query_id),
-            _exec_env->process_mem_tracker());
-    _instance_mem_tracker = MemTracker::CreateTracker(
-            &_profile, -1, "RuntimeState:instance:" + print_id(query_id),
-            _query_mem_tracker);
+    _query_mem_tracker =
+            MemTracker::CreateTracker(bytes_limit, "RuntimeState:query:" + print_id(query_id),
+                                      _exec_env->process_mem_tracker(), true, false);
+    _instance_mem_tracker =
+            MemTracker::CreateTracker(&_profile, -1, "RuntimeState:instance:", _query_mem_tracker);
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
@@ -241,6 +247,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
                                                        std::numeric_limits<int64_t>::max());
     }
 
+    // filter manager depends _instance_mem_tracker
+    _runtime_filter_mgr->init();
     return Status::OK();
 }
 
@@ -287,17 +295,17 @@ Status RuntimeState::create_block_mgr() {
 }
 
 bool RuntimeState::error_log_is_empty() {
-    boost::lock_guard<boost::mutex> l(_error_log_lock);
+    std::lock_guard<std::mutex> l(_error_log_lock);
     return (_error_log.size() > 0);
 }
 
 std::string RuntimeState::error_log() {
-    boost::lock_guard<boost::mutex> l(_error_log_lock);
+    std::lock_guard<std::mutex> l(_error_log_lock);
     return boost::algorithm::join(_error_log, "\n");
 }
 
 bool RuntimeState::log_error(const std::string& error) {
-    boost::lock_guard<boost::mutex> l(_error_log_lock);
+    std::lock_guard<std::mutex> l(_error_log_lock);
 
     if (_error_log.size() < _query_options.max_errors) {
         _error_log.push_back(error);
@@ -316,7 +324,7 @@ void RuntimeState::log_error(const Status& status) {
 }
 
 void RuntimeState::get_unreported_errors(std::vector<std::string>* new_errors) {
-    boost::lock_guard<boost::mutex> l(_error_log_lock);
+    std::lock_guard<std::mutex> l(_error_log_lock);
 
     if (_unreported_error_idx < _error_log.size()) {
         new_errors->assign(_error_log.begin() + _unreported_error_idx, _error_log.end());
@@ -328,7 +336,7 @@ Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_
                                             const std::string* msg) {
     DCHECK_GE(failed_allocation_size, 0);
     {
-        boost::lock_guard<boost::mutex> l(_process_status_lock);
+        std::lock_guard<std::mutex> l(_process_status_lock);
         if (_process_status.ok()) {
             if (msg != nullptr) {
                 _process_status = Status::MemoryLimitExceeded(*msg);

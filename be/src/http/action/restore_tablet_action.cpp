@@ -23,7 +23,6 @@
 #include <string>
 
 #include "agent/cgroups_mgr.h"
-#include "boost/lexical_cast.hpp"
 #include "env/env.h"
 #include "gutil/strings/substitute.h" // for Substitute
 #include "http/http_channel.h"
@@ -40,7 +39,7 @@
 #include "util/file_utils.h"
 #include "util/json_util.h"
 
-using boost::filesystem::path;
+using std::filesystem::path;
 
 namespace doris {
 

@@ -28,7 +28,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <boost/interprocess/sync/file_lock.hpp>
 #include <fstream>
 #include <set>
@@ -188,8 +188,8 @@ Status DataDir::_read_cluster_id(const std::string& cluster_id_path, int32_t* cl
 }
 
 Status DataDir::_init_capacity() {
-    boost::filesystem::path boost_path = _path;
-    int64_t disk_capacity = boost::filesystem::space(boost_path).capacity;
+    std::filesystem::path boost_path = _path;
+    int64_t disk_capacity = std::filesystem::space(boost_path).capacity;
     if (_capacity_bytes == -1) {
         _capacity_bytes = disk_capacity;
     } else if (_capacity_bytes > disk_capacity) {
@@ -404,7 +404,7 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
 
 std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
         const std::string& schema_hash_dir_in_trash) {
-    boost::filesystem::path schema_hash_path_in_trash(schema_hash_dir_in_trash);
+    std::filesystem::path schema_hash_path_in_trash(schema_hash_dir_in_trash);
     return schema_hash_path_in_trash.parent_path()
             .parent_path()
             .parent_path()
@@ -684,8 +684,8 @@ void DataDir::perform_path_gc_by_tablet() {
             // could find the tablet, then skip check it
             continue;
         }
-        boost::filesystem::path tablet_path(path);
-        boost::filesystem::path data_dir_path =
+        std::filesystem::path tablet_path(path);
+        std::filesystem::path data_dir_path =
                 tablet_path.parent_path().parent_path().parent_path().parent_path();
         std::string data_dir_string = data_dir_path.string();
         DataDir* data_dir = StorageEngine::instance()->get_store(data_dir_string);
@@ -818,18 +818,18 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 
 Status DataDir::update_capacity() {
     try {
-        boost::filesystem::path path_name(_path);
-        boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
+        std::filesystem::path path_name(_path);
+        std::filesystem::space_info path_info = std::filesystem::space(path_name);
         _available_bytes = path_info.available;
         if (_disk_capacity_bytes == 0) {
             // disk capacity only need to be set once
             _disk_capacity_bytes = path_info.capacity;
         }
-    } catch (boost::filesystem::filesystem_error& e) {
+    } catch (std::filesystem::filesystem_error& e) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::IOError(strings::Substitute(
                         "get path $0 available capacity failed, error=$1", _path, e.what())),
-                "boost::filesystem::space failed");
+                "std::filesystem::space failed");
     }
 
     disks_total_capacity->set_value(_disk_capacity_bytes);

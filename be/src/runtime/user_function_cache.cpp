@@ -19,6 +19,7 @@
 
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
+#include <atomic>
 #include <regex>
 #include <vector>
 
@@ -304,7 +305,7 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
-        LOG(WARNING) << "fail to open file, file=" << tmp_file << ", error=" << ferror(fp.get());
+        LOG(WARNING) << "fail to open file, file=" << tmp_file;
         return Status::InternalError("fail to open file");
     }
 

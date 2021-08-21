@@ -108,6 +108,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
     public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
+    public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
     public static final String KEY_IN_PARAM_MERGE_TYPE = "merge_type";
     public static final String KEY_IN_PARAM_DELETE_CONDITION = "delete";
     public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
@@ -159,6 +160,12 @@ public class LoadStmt extends DdlStmt {
                 @Override
                 public @Nullable Integer apply(@Nullable String s) {
                     return Integer.valueOf(s);
+                }
+            })
+            .put(CLUSTER_PROPERTY, new Function<String, String>() {
+                @Override
+                public @Nullable String apply(@Nullable String s) {
+                    return s;
                 }
             })
             .build();

@@ -17,11 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -30,6 +25,11 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 public class BackupJobInfoTest {
 
@@ -169,6 +169,7 @@ public class BackupJobInfoTest {
         Assert.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
 
         File tmpFile = new File("./tmp");
+        File tmpFile1 = new File("./tmp1");
         try {
             DataOutputStream out = new DataOutputStream(new FileOutputStream(tmpFile));
             jobInfo.write(out);
@@ -186,11 +187,28 @@ public class BackupJobInfoTest {
             Assert.assertEquals(jobInfo.newBackupObjects.views.size(), newInfo.newBackupObjects.views.size());
             Assert.assertEquals("view1", newInfo.newBackupObjects.views.get(0).name);
 
+            out = new DataOutputStream(new FileOutputStream(tmpFile1));
+            newInfo.write(out);
+            out.flush();
+            out.close();
+
+            in = new DataInputStream(new FileInputStream(tmpFile1));
+            BackupJobInfo newInfo1 = BackupJobInfo.read(in);
+            in.close();
+
+            Assert.assertEquals(
+                    newInfo.backupOlapTableObjects.get("table2").getPartInfo("partition1")
+                            .indexes.get("table2").sortedTabletInfoList.size(),
+                    newInfo1.backupOlapTableObjects.get("table2").getPartInfo("partition1")
+                            .indexes.get("table2").sortedTabletInfoList.size());
+
         } catch (IOException e) {
             e.printStackTrace();
             Assert.fail();
         } finally {
             tmpFile.delete();
+            tmpFile1.delete();
         }
+
     }
 }

@@ -105,9 +105,9 @@ if [ ${BUILD_UDF} -eq 1 ] ; then
     fi
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
-    ${CMAKE_CMD} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ../
-    make -j${PARALLEL} VERBOSE=1
-    make install
+    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ../
+    ${BUILD_SYSTEM} -j${PARALLEL} 
+    ${BUILD_SYSTEM} install
     cd ${UDF_HOME}
 fi
 

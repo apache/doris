@@ -21,7 +21,11 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+
 import org.json.JSONObject;
+
+import java.util.Map;
 
 public class EsUtil {
     
@@ -80,6 +84,15 @@ public class EsUtil {
             return getJsonObject(jsonObject.getJSONObject(fieldName), key, firstOccr + 1);
         } else {
             return null;
+        }
+    }
+    
+    public static boolean getBoolean(Map<String, String> properties, String name) throws DdlException {
+        String property = properties.get(name).trim();
+        try {
+            return Boolean.parseBoolean(property);
+        } catch (Exception e) {
+            throw new DdlException(String.format("fail to parse %s, %s = %s, `%s` should be like 'true' or 'false'， value should be double quotation marks", name, name, property, name));
         }
     }
 }

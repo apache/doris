@@ -18,11 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -351,6 +351,21 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
+            if (columnDef.getType().isArrayType()) {
+                ArrayType tp = (ArrayType) columnDef.getType();
+                if (!tp.getItemType().getPrimitiveType().isIntegerType() &&
+                        !tp.getItemType().getPrimitiveType().isCharFamily()) {
+                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+                }
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                    throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
+                }
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("Array can only be used in the non-key column of" +
+                            " the duplicate table at present.");
+                }
+            }
+
             if (columnDef.getType().isHllType()) {
                 hasHll = true;
             }
@@ -382,12 +397,12 @@ public class CreateTableStmt extends DdlStmt {
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
-                if (partitionDesc.getType() != PartitionType.RANGE) {
-                    throw new AnalysisException("Currently only support range partition with engine type olap");
+                if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
+                    partitionDesc.analyze(columnDefs, properties);
+                } else {
+                    throw new AnalysisException("Currently only support range and list partition with engine type olap");
                 }
 
-                RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
-                rangePartitionDesc.analyze(columnDefs, properties);
             }
 
             // analyze distribution

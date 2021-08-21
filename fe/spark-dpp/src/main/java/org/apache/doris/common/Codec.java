@@ -28,7 +28,7 @@ public class Codec {
         assert source >= 0;
         short B = 128;
 
-        while (source > B) {
+        while (source >= B) {
             out.write((int) (source & (B - 1) | B));
             source = source >> 7;
         }

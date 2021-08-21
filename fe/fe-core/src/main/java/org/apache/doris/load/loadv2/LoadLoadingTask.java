@@ -68,7 +68,6 @@ public class LoadLoadingTask extends LoadTask {
     private LoadingTaskPlanner planner;
 
     private RuntimeProfile jobProfile;
-    private RuntimeProfile profile;
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
@@ -106,7 +105,7 @@ public class LoadLoadingTask extends LoadTask {
 
     @Override
     protected void executeTask() throws Exception{
-        LOG.info("begin to execute loading task. load id: {} job: {}. db: {}, tbl: {}. left retry: {}",
+        LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
@@ -116,7 +115,7 @@ public class LoadLoadingTask extends LoadTask {
     private void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), db.getClusterName(), planner.getTimezone());
+                planner.getFragments(), planner.getScanNodes(), planner.getTimezone());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
         /*
@@ -140,7 +139,7 @@ public class LoadLoadingTask extends LoadTask {
     private void actualExecute(Coordinator curCoordinator) throws Exception {
         int waitSecond = (int) (getLeftTimeMs() / 1000);
         if (waitSecond <= 0) {
-            throw new LoadException("failed to execute plan when the left time is less then 0");
+            throw new LoadException("failed to execute plan when the left time is less than 0");
         }
 
         if (LOG.isDebugEnabled()) {
@@ -172,17 +171,15 @@ public class LoadLoadingTask extends LoadTask {
         return jobDeadlineMs - System.currentTimeMillis();
     }
 
-    public void createProfile(Coordinator coord) {
+    private void createProfile(Coordinator coord) {
         if (jobProfile == null) {
             // No need to gather profile
             return;
         }
         // Summary profile
-        profile = new RuntimeProfile("LoadTask: " + DebugUtil.printId(loadId));
         coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTime));
         coord.endProfile();
-        profile.addChild(coord.getQueryProfile());
-        jobProfile.addChild(profile);
+        jobProfile.addChild(coord.getQueryProfile());
     }
 
     @Override

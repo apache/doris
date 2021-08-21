@@ -447,22 +447,7 @@ Status Translator::create_value_updaters() {
             }
             break;
         }
-        case TYPE_DECIMAL: {
-            switch (_rollup_schema.value_ops()[i]) {
-            case TAggregationType::MAX:
-                _value_updaters.push_back(update_max<DecimalValue>);
-                break;
-            case TAggregationType::MIN:
-                _value_updaters.push_back(update_min<DecimalValue>);
-                break;
-            case TAggregationType::SUM:
-                _value_updaters.push_back(update_sum<DecimalValue>);
-                break;
-            default:
-                _value_updaters.push_back(fake_update);
-            }
-            break;
-        }
+
         case TYPE_DECIMALV2: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
@@ -499,13 +484,14 @@ Status Translator::create_value_updaters() {
             break;
         }
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
                 return Status::InternalError(
-                        "Unsupported max/min/sum operation on char/varchar column.");
+                        "Unsupported max/min/sum operation on char/varchar/string column.");
             default:
                 // Only replace has meaning
                 _value_updaters.push_back(fake_update);
@@ -666,7 +652,7 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row, ExprConte
         if (value->hash_set.size() > HLL_EXPLICIT_INT64_NUM) {
             value->type = HLL_DATA_SPARSE;
             for (std::set<uint64_t>::iterator iter = value->hash_set.begin();
-                 iter != value->hash_set.end(); iter++) {
+                 iter != value->hash_set.end(); ++iter) {
                 uint64_t hash = *iter;
                 int idx = hash % REGISTERS_SIZE;
                 uint8_t first_one_bit = __builtin_ctzl(hash >> HLL_COLUMN_PRECISION) + 1;
@@ -912,7 +898,7 @@ Status DppSink::finish(RuntimeState* state) {
     for (auto& iter : _translator_map) {
         for (auto& trans : iter.second) {
             state->exec_env()->etl_thread_pool()->offer(
-                    boost::bind<void>(&DppSink::process, this, state, trans, &latch));
+                    std::bind<void>(&DppSink::process, this, state, trans, &latch));
         }
     }
 

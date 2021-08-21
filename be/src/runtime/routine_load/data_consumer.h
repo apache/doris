@@ -77,6 +77,7 @@ protected:
     time_t _last_visit_time;
 };
 
+class PIntegerPair;
 class KafkaEventCb : public RdKafka::EventCb {
 public:
     void event_cb(RdKafka::Event& event) {
@@ -141,6 +142,9 @@ public:
 
     // get the partitions ids of the topic
     Status get_partition_meta(std::vector<int32_t>* partition_ids);
+    // get offsets for times
+    Status get_offsets_for_times(const std::vector<PIntegerPair>& times,
+            std::vector<PIntegerPair>* offsets);
 
 private:
     std::string _brokers;

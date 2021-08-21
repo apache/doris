@@ -82,6 +82,9 @@ public class CreateViewTest {
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view4 as select abs(-1) as s1;"));
 
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3" +
+                        " and curdate() > '2021-06-26';"));
 
         Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
 
@@ -106,5 +109,10 @@ public class CreateViewTest {
         View view4 = (View) db.getTable("view4");
         Assert.assertEquals(1, view4.getFullSchema().size());
         Assert.assertNotNull(view4.getColumn("s1"));
+
+        View view5 = (View) db.getTable("view5");
+        System.out.println(view5.getDdlSql());
+        Assert.assertTrue(view5.getDdlSql().contains("hour") && view5.getDdlSql().contains("now")
+                && view5.getDdlSql().contains("curdate"));
     }
 }

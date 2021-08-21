@@ -71,7 +71,7 @@ Please refer to [Schema Change](alter-table-schema-change.html)
     * `UNSIGNEDINT`
     * `BIGINT`
     * `CHAR`
-    * `VARCHAE`
+    * `VARCHAR`
     * `DATE`
     * `DATETIME`
     * `LARGEINT`

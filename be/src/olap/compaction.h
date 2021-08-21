@@ -86,6 +86,9 @@ protected:
 
     // the child of root, only track rowset readers mem
     std::shared_ptr<MemTracker> _readers_tracker;
+
+    // the child of root, only track rowset writer mem
+    std::shared_ptr<MemTracker> _writer_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;

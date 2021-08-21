@@ -33,10 +33,12 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ScalarType;
@@ -151,7 +153,7 @@ public class CatalogMocker {
         Column k5 = new Column("k5", ScalarType.createType(PrimitiveType.LARGEINT), true, null, "", "key5");
         Column k6 = new Column("k6", ScalarType.createType(PrimitiveType.DATE), true, null, "", "key6");
         Column k7 = new Column("k7", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "key7");
-        Column k8 = new Column("k8", ScalarType.createDecimalType(10, 3), true, null, "", "key8");
+        Column k8 = new Column("k8", ScalarType.createDecimalV2Type(10, 3), true, null, "", "key8");
         k1.setIsKey(true);
         k2.setIsKey(true);
         k3.setIsKey(true);
@@ -294,7 +296,8 @@ public class CatalogMocker {
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
-        rangePartitionInfo.setRange(TEST_PARTITION1_ID, false, rangeP1);
+        PartitionItem item1 = new RangePartitionItem(rangeP1);
+        rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item1);
 
         PartitionKey rangeP2Lower =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
@@ -303,7 +306,8 @@ public class CatalogMocker {
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
-        rangePartitionInfo.setRange(TEST_PARTITION2_ID, false, rangeP2);
+        PartitionItem item2 = new RangePartitionItem(rangeP2);
+        rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item2);
 
         rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, (short) 3);
         rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, (short) 3);

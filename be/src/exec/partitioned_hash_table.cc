@@ -110,20 +110,14 @@ Status PartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, int 
     // TODO chenhao replace ExprContext with ScalarFnEvaluator
     for (int i = 0; i < build_exprs_.size(); i++) {
         ExprContext* context = pool->add(new ExprContext(build_exprs_[i]));
-        context->prepare(state, row_desc, tracker_);
-        if (context == nullptr) {
-            return Status::InternalError("Hashtable init error.");
-        }
+        RETURN_IF_ERROR(context->prepare(state, row_desc, tracker_));
         build_expr_evals_.push_back(context);
     }
     DCHECK_EQ(build_exprs_.size(), build_expr_evals_.size());
 
     for (int i = 0; i < probe_exprs_.size(); i++) {
         ExprContext* context = pool->add(new ExprContext(probe_exprs_[i]));
-        context->prepare(state, row_desc_probe, tracker_);
-        if (context == nullptr) {
-            return Status::InternalError("Hashtable init error.");
-        }
+        RETURN_IF_ERROR(context->prepare(state, row_desc_probe, tracker_));
         probe_expr_evals_.push_back(context);
     }
     DCHECK_EQ(probe_exprs_.size(), probe_expr_evals_.size());
@@ -240,7 +234,7 @@ uint32_t PartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_values,
         // non-string and null slots are already part of 'expr_values'.
         // if (build_expr_ctxs_[i]->root()->type().type != TYPE_STRING
         PrimitiveType type = build_exprs_[i]->type().type;
-        if (type != TYPE_CHAR && type != TYPE_VARCHAR) {
+        if (type != TYPE_CHAR && type != TYPE_VARCHAR && type != TYPE_STRING) {
             continue;
         }
 
@@ -474,7 +468,8 @@ Status PartitionedHashTable::ResizeBuckets(int64_t num_buckets,
     DCHECK_GT(num_buckets, num_filled_buckets_)
             << "Cannot shrink the hash table to smaller number of buckets than the number of "
             << "filled buckets.";
-    VLOG_CRITICAL << "Resizing hash table from " << num_buckets_ << " to " << num_buckets << " buckets.";
+    VLOG_CRITICAL << "Resizing hash table from " << num_buckets_ << " to " << num_buckets
+                  << " buckets.";
     if (max_num_buckets_ != -1 && num_buckets > max_num_buckets_) {
         *got_memory = false;
         return Status::OK();

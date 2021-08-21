@@ -45,6 +45,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -64,7 +65,7 @@ public class TransactionState implements Writable {
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
-        INSERT_STREAMING(3), // insert stmt (streaming type) use this type
+        INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
         
@@ -186,22 +187,33 @@ public class TransactionState implements Writable {
     // error replica ids
     private Set<Long> errorReplicas;
     private CountDownLatch latch;
-    
+
     // this state need not to be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
     private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
-    
+
     private long callbackId = -1;
+    // In the beforeStateTransform() phase, we will get the callback object through the callbackId,
+    // and if we get it, we will save it in this variable.
+    // The main function of this variable is to retain a reference to this callback object.
+    // In order to prevent in the afterStateTransform() phase the callback object may have been removed
+    // from the CallbackFactory, resulting in the inability to obtain the object, causing some bugs
+    // such as
+    // 1. the write lock of callback object has been called in beforeStateTransform()
+    // 2. callback object has been removed from CallbackFactory
+    // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
+    private TxnStateChangeCallback callback = null;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+    private String authCode = "";
 
     // is set to true, we will double the publish timeout
     private boolean prolongPublishTimeout = false;
 
     // optional
     private TxnCommitAttachment txnCommitAttachment;
-    
+
     // this map should be set when load execution begin, so that when the txn commit, it will know
     // which tables and rollups it loaded.
     // tbl id -> (index ids)
@@ -231,6 +243,7 @@ public class TransactionState implements Writable {
         this.publishVersionTasks = Maps.newHashMap();
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
+        this.authCode = UUID.randomUUID().toString();
     }
     
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
@@ -254,8 +267,16 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
+        this.authCode = UUID.randomUUID().toString();
     }
-    
+
+    public void setAuthCode(String authCode) {
+        this.authCode = authCode;
+    }
+    public String getAuthCode() {
+        return authCode;
+    }
+
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
@@ -366,8 +387,7 @@ public class TransactionState implements Writable {
 
     public void beforeStateTransform(TransactionStatus transactionStatus) throws TransactionException {
         // before status changed
-        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
-                .getCallbackFactory().getCallback(callbackId);
+        callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
         if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
@@ -398,8 +418,9 @@ public class TransactionState implements Writable {
     public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
             throws UserException {
         // after status changed
-        TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr()
-                .getCallbackFactory().getCallback(callbackId);
+        if (callback == null) {
+            callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
+        }
         if (callback != null) {
             switch (transactionStatus) {
                 case ABORTED:
@@ -485,7 +506,21 @@ public class TransactionState implements Writable {
     
     // return true if txn is in final status and label is expired
     public boolean isExpired(long currentMillis) {
-        return transactionStatus.isFinalStatus() && (currentMillis - finishTime) / 1000 > Config.label_keep_max_second;
+        if (!transactionStatus.isFinalStatus()) {
+            return false;
+        }
+        long expireTime = Config.label_keep_max_second;
+        if (isShortTxn()) {
+            expireTime = Config.stream_load_default_timeout_second;
+        }
+        return (currentMillis - finishTime) / 1000 > expireTime;
+    }
+
+    // Return true if this txn is related to streaming load/insert/routine load task.
+    // We call these tasks "Short" tasks because they will be cleaned up in a short time after they are finished.
+    public boolean isShortTxn() {
+        return sourceType == LoadJobSourceType.BACKEND_STREAMING || sourceType == LoadJobSourceType.INSERT_STREAMING
+                || sourceType == LoadJobSourceType.ROUTINE_LOAD_TASK;
     }
 
     // return true if txn is running but timeout

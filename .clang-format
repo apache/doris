@@ -13,3 +13,4 @@ PointerAlignment: Left
 ReflowComments: false
 SortUsingDeclarations: false
 SpacesBeforeTrailingComments: 1
+SpaceBeforeCpp11BracedList: true

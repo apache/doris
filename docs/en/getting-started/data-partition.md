@@ -57,14 +57,16 @@ See more help with `HELP CREATE TABLE;`.
 This section introduces Doris's approach to building tables with an example.
 
 ```
-CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
+-- Range Partition
+
+CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
 (
-    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `user_id` LARGEINT NOT NULL COMMENT "User id",
     `date` DATE NOT NULL COMMENT "Data fill in date time",
     `timestamp` DATETIME NOT NULL COMMENT "Timestamp of data being poured",
     `city` VARCHAR(20) COMMENT "The city where the user is located",
-    `age` SMALLINT COMMENT "user age",
-    `sex` TINYINT COMMENT "User Gender",
+    `age` SMALLINT COMMENT "User age",
+    `sex` TINYINT COMMENT "User gender",
     `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
     `cost` BIGINT SUM DEFAULT "0" COMMENT "Total user consumption",
     `max_dwell_time` INT MAX DEFAULT "0" COMMENT "User maximum dwell time",
@@ -77,6 +79,38 @@ PARTITION BY RANGE(`date`)
     PARTITION `p201701` VALUES LESS THAN ("2017-02-01"),
     PARTITION `p201702` VALUES LESS THAN ("2017-03-01"),
     PARTITION `p201703` VALUES LESS THAN ("2017-04-01")
+)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
+PROPERTIES
+(
+    "replication_num" = "3",
+    "storage_medium" = "SSD",
+    "storage_cooldown_time" = "2018-01-01 12:00:00"
+);
+
+
+-- List Partition
+
+CREATE TABLE IF NOT EXISTS example_db.expamle_list_tbl
+(
+    `user_id` LARGEINT NOT NULL COMMENT "User id",
+    `date` DATE NOT NULL COMMENT "Data fill in date time",
+    `timestamp` DATETIME NOT NULL COMMENT "Timestamp of data being poured",
+    `city` VARCHAR(20) COMMENT "The city where the user is located",
+    `age` SMALLINT COMMENT "User Age",
+    `sex` TINYINT COMMENT "User gender",
+    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "User last visit time",
+    `cost` BIGINT SUM DEFAULT "0" COMMENT "Total user consumption",
+    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "User maximum dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "User minimum dwell time"
+)
+ENGINE=olap
+AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
+PARTITION BY LIST(`city`)
+(
+    PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
+    PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
+    PARTITION `p_jp` VALUES IN ("Tokyo")
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -106,7 +140,7 @@ When defining columns, you can refer to the following suggestions:
 
 ### Partitioning and binning
 
-Doris supports two levels of data partitioning. The first layer is Partition, which only supports the division of Range. The second layer is Bucket (Tablet), which only supports the way Hash is divided.
+Doris supports two levels of data partitioning. The first layer is Partition, which supports Range and List partitioning. The second layer is the Bucket (Tablet), which only supports Hash partitioning.
 
 It is also possible to use only one layer of partitioning. When using a layer partition, only Bucket partitioning is supported.
 
@@ -114,12 +148,15 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 
     * The Partition column can specify one or more columns. The partition class must be a KEY column. The use of multi-column partitions is described later in the **Multi-column partitioning** summary. 
     * Regardless of the type of partition column, double quotes are required when writing partition values.
-    * Partition columns are usually time columns for easy management of old and new data.
     * There is no theoretical limit on the number of partitions.
     * When you do not use Partition to build a table, the system will automatically generate a Partition with the same name as the table name. This Partition is not visible to the user and cannot be modified.
+    
+    #### Range Partition
+
+    * Partition columns are usually time columns for easy management of old and new data.
     * Partition supports only the upper bound by `VALUES LESS THAN (...)`, the system will use the upper bound of the previous partition as the lower bound of the partition, and generate a left closed right open interval. Passing, also supports specifying the upper and lower bounds by `VALUES [...)`, and generating a left closed right open interval.
     * It is easier to understand by specifying `VALUES [...)`. Here is an example of the change in partition range when adding or deleting partitions using the `VALUES LESS THAN (...)` statement:
-        * As the example above, when the table is built, the following 3 partitions are automatically generated:
+        * As in the `example_range_tbl` example above, when the table is built, the following 3 partitions are automatically generated:
             ```
             P201701: [MIN_VALUE, 2017-02-01)
             P201702: [2017-02-01, 2017-03-01)
@@ -176,6 +213,39 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     
     You cannot add partitions with overlapping ranges.
 
+    #### List Partition
+
+    * The partition column supports the `BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR` data type, and the partition value is an enumeration value. Partitions can be hit only if the data is one of the target partition enumeration values.
+    * Partition supports specifying the number of partitions contained in each partition via `VALUES IN (...) ` to specify the enumeration values contained in each partition.
+    * The following example illustrates how partitions change when adding or deleting partitions.
+      
+        * As in the `example_list_tbl` example above, when the table is built, the following three partitions are automatically created.
+
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_jp: ("Tokyo")
+            ```
+
+        * When we add a partition p_uk VALUES IN ("London"), the result of the partition is as follows
+        
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_jp: ("Tokyo")
+            p_uk: ("London")
+            ```
+        
+        * When we delete the partition p_jp, the result of the partition is as follows.
+
+            ```
+            p_cn: ("Beijing", "Shanghai", "Hong Kong")
+            p_usa: ("New York", "San Francisco")
+            p_uk: ("London")
+            ```
+
+    You cannot add partitions with overlapping ranges.
+
 2. Bucket
 
     * If a Partition is used, the `DISTRIBUTED ...` statement describes the division rules for the data in each partition. If you do not use Partition, it describes the rules for dividing the data of the entire table.
@@ -203,37 +273,70 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 
 Doris supports specifying multiple columns as partition columns, examples are as follows:
 
-```
-PARTITION BY RANGE(`date`, `id`)
-(
-    PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
-    PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
-    PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
-)
-```
+##### Range Partition
 
-In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
+    ```
+    PARTITION BY RANGE(`date`, `id`)
+    (
+        PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
+        PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
+        PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
+    )
+    ```
 
-```
-*p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-*p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-*p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
-```
+    In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
 
-Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
+    ```
+    *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+    *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+    *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+    ```
 
-```
-* Data --> Partition
-* 2017-01-01, 200 --> p201701_1000
-* 2017-01-01, 2000 --> p201701_1000
-* 2017-02-01, 100 --> p201701_1000
-* 2017-02-01, 2000 --> p201702_2000
-* 2017-02-15, 5000 --> p201702_2000
-* 2017-03-01, 2000 --> p201703_all
-* 2017-03-10, 1 --> p201703_all
-* 2017-04-01, 1000 --> Unable to import
-* 2017-05-01, 1000 --> Unable to import
-```
+    Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
+
+    ```
+    * Data --> Partition
+    * 2017-01-01, 200   --> p201701_1000
+    * 2017-01-01, 2000  --> p201701_1000
+    * 2017-02-01, 100   --> p201701_1000
+    * 2017-02-01, 2000  --> p201702_2000
+    * 2017-02-15, 5000  --> p201702_2000
+    * 2017-03-01, 2000  --> p201703_all
+    * 2017-03-10, 1     --> p201703_all
+    * 2017-04-01, 1000  --> Unable to import
+    * 2017-05-01, 1000  --> Unable to import
+    ```
+
+##### List Partition
+
+    ```
+    PARTITION BY LIST(`id`, `city`)
+    (
+        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
+        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
+        PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
+    )
+    ```
+
+    In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
+
+    ```
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+    ```
+
+    When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
+
+    ```
+    * Data ---> Partition
+    * 1, Beijing  ---> p1_city
+    * 1, Shanghai ---> p1_city
+    * 2, Shanghai ---> p2_city
+    * 3, Beijing  ---> p3_city
+    * 1, Tianjin  ---> Unable to import
+    * 4, Beijing  ---> Unable to import
+    ```
 
 ### PROPERTIES
 

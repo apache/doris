@@ -130,6 +130,11 @@ public class UtFrameUtils {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
         Config.plugin_dir = dorisHome + "/plugins";
+        Config.custom_config_dir = dorisHome + "/conf";
+        File file = new File(Config.custom_config_dir);
+        if (!file.exists()) {
+            file.mkdir();
+        }
 
         int fe_http_port = findValidPort();
         int fe_rpc_port = findValidPort();
@@ -150,10 +155,22 @@ public class UtFrameUtils {
         return fe_rpc_port;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+    public static void createMinDorisCluster(String runningDir) throws InterruptedException, NotInitException,
+            IOException, DdlException, EnvVarNotSetException, FeStartException {
+        createMinDorisCluster(runningDir, 1);
+    }
+
+    public static void createMinDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int fe_rpc_port = startFEServer(runningDir);
+        for (int i = 0; i < backendNum; i++) {
+            createBackend(fe_rpc_port);
+            // sleep to wait first heartbeat
+            Thread.sleep(6000);
+        }
+    }
 
+    public static void createBackend(int fe_rpc_port) throws IOException, InterruptedException {
         int be_heartbeat_port = findValidPort();
         int be_thrift_port = findValidPort();
         int be_brpc_port = findValidPort();
@@ -168,9 +185,9 @@ public class UtFrameUtils {
         backend.start();
 
         // add be
-        Backend be = new Backend(10001, backend.getHost(), backend.getHeartbeatPort());
+        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
-        DiskInfo diskInfo1 = new DiskInfo("/path1");
+        DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
@@ -178,10 +195,10 @@ public class UtFrameUtils {
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        be.setBePort(be_thrift_port);
+        be.setHttpPort(be_http_port);
+        be.setBrpcPort(be_brpc_port);
         Catalog.getCurrentSystemInfo().addBackend(be);
-
-        // sleep to wait first heartbeat
-        Thread.sleep(6000);
     }
 
     public static void cleanDorisFeDir(String baseDir) {

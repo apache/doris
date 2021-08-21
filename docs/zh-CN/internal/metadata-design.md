@@ -35,7 +35,7 @@ under the License.
 ## 整体架构
 ![](/images/palo_architecture.jpg)
 
-如上图，Doris 的整体架构分为两层。多个 FE 组成第一层，提供 FE 的横向扩展和高可用。多个 BE 组成第二层，负责数据存储于管理。本文主要介绍 FE 这一层中，元数据的设计与实现方式。
+如上图，Doris 的整体架构分为两层。多个 FE 组成第一层，提供 FE 的横向扩展和高可用。多个 BE 组成第二层，负责数据存储与管理。本文主要介绍 FE 这一层中，元数据的设计与实现方式。
 
 1. FE 节点分为 follower 和 observer 两类。各个 FE 之间，通过 bdbje（[BerkeleyDB Java Edition](http://www.oracle.com/technetwork/database/database-technologies/berkeleydb/overview/index-093405.html)）进行 leader 选举，数据同步等工作。
 

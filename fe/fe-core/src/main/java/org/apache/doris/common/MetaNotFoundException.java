@@ -22,7 +22,7 @@ package org.apache.doris.common;
  */
 public class MetaNotFoundException extends UserException {
     public MetaNotFoundException(String msg) {
-        super(msg);
+        super(InternalErrorCode.META_NOT_FOUND_ERR, msg);
     }
 
     public MetaNotFoundException(InternalErrorCode errcode, String msg) {

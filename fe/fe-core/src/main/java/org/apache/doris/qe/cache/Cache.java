@@ -20,6 +20,7 @@ package org.apache.doris.qe.cache;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.LogManager;
@@ -50,7 +51,7 @@ public abstract class Cache {
         hitRange = HitRange.None;
     }
 
-    public abstract CacheProxy.FetchCacheResult getCacheData(Status status);
+    public abstract InternalService.PFetchCacheResult getCacheData(Status status);
 
     public HitRange getHitRange() {
         return hitRange;

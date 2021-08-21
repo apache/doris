@@ -19,8 +19,8 @@
 
 #include <gflags/gflags.h>
 
-#include <boost/thread/mutex.hpp>
 #include <limits>
+#include <mutex>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -37,8 +37,8 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
                                          ReservationTracker* query_reservation,
                                          std::shared_ptr<MemTracker> query_mem_tracker,
                                          int64_t initial_reservation_total_claims)
-        : initial_reservation_mem_tracker_(MemTracker::CreateTracker(-1, "InitialReservations",
-                                                                     query_mem_tracker, false)),
+        : initial_reservation_mem_tracker_(
+                  MemTracker::CreateTracker(-1, "InitialReservations", query_mem_tracker, false)),
           remaining_initial_reservation_claims_(initial_reservation_total_claims) {
     initial_reservations_.InitChildTracker(nullptr, query_reservation,
                                            initial_reservation_mem_tracker_.get(),

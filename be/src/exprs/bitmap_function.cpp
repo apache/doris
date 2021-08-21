@@ -340,6 +340,19 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     }
 }
 
+BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
+
+    if (src.len == 0) {
+        return reinterpret_cast<BitmapValue*>(src.ptr)->minimum();
+    } else {
+        auto bitmap = BitmapValue((char*)src.ptr);
+        return bitmap.minimum();
+    }
+}
+
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
                                      const doris_udf::StringVal& src) {
     BitmapValue bitmap;

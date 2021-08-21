@@ -62,18 +62,24 @@ public class TupleDescriptor {
     private int numNullBytes;
     private int numNullableSlots;
 
+    // This cardinality is only used to mock slot ndv.
+    // Only tuple of olap scan node has this value.
+    private long cardinality;
+
     private float avgSerializedSize;  // in bytes; includes serialization overhead
 
     public TupleDescriptor(TupleId id) {
         this.id = id;
         this.slots = new ArrayList<SlotDescriptor>();
         this.debugName = "";
+        this.cardinality = -1;
     }
 
     public TupleDescriptor(TupleId id, String debugName) {
         this.id = id;
         this.slots = new ArrayList<SlotDescriptor>();
         this.debugName = debugName;
+        this.cardinality = -1;
     }
 
     public void addSlot(SlotDescriptor desc) {
@@ -95,6 +101,14 @@ public class TupleDescriptor {
 
     public ArrayList<SlotDescriptor> getSlots() {
         return slots;
+    }
+
+    public void setCardinality(long cardinality) {
+        this.cardinality = cardinality;
+    }
+
+    public long getCardinality() {
+        return cardinality;
     }
 
     public ArrayList<SlotDescriptor> getMaterializedSlots() {
@@ -162,6 +176,57 @@ public class TupleDescriptor {
         return ttupleDesc;
     }
 
+    /**
+     * This function is mainly used to calculate the statistics of the tuple and the layout information.
+     * Generally, it occurs after the plan node materializes the slot and before calculating the plan node statistics.
+     * PlanNode.init() {
+     *     materializedSlot();
+     *     tupleDesc.computeStatAndMemLayout();
+     *     computeStat();
+     * }
+     */
+    public void computeStatAndMemLayout() {
+        computeStat();
+        computeMemLayout();
+    }
+
+    /**
+     * This function is mainly used to evaluate the statistics of the tuple,
+     * such as the average size of each row.
+     * This function will be used before the computeStat() of the plan node
+     * and is the pre-work for evaluating the statistics of the plan node.
+     *
+     * This function is theoretically only called once when the plan node is init.
+     * However, the current code structure is relatively confusing
+     * In order to ensure that even if it is wrongly called a second time, no error will occur,
+     * so it will be initialized again at the beginning of the function.
+     *
+     * In the future this function will be changed to a private function.
+     */
+    @Deprecated
+    public void computeStat() {
+        // init stat
+        avgSerializedSize = 0;
+
+        // compute stat
+        for (SlotDescriptor d : slots) {
+            if (!d.isMaterialized()) {
+               continue;
+            }
+            ColumnStats stats = d.getStats();
+            if (stats.hasAvgSerializedSize()) {
+                avgSerializedSize += d.getStats().getAvgSerializedSize();
+            } else {
+                // TODO: for computed slots, try to come up with stats estimates
+                avgSerializedSize += d.getType().getSlotSize();
+            }
+        }
+    }
+
+    /**
+     * In the future this function will be changed to a private function.
+     */
+    @Deprecated
     public void computeMemLayout() {
         // sort slots by size
         List<List<SlotDescriptor>> slotsBySize = Lists.newArrayListWithCapacity(PrimitiveType.getMaxSlotSize());
@@ -173,12 +238,6 @@ public class TupleDescriptor {
         numNullableSlots = 0;
         for (SlotDescriptor d : slots) {
             ColumnStats stats = d.getStats();
-            if (stats.hasAvgSerializedSize()) {
-                avgSerializedSize += d.getStats().getAvgSerializedSize();
-            } else {
-                // TODO: for computed slots, try to come up with stats estimates
-                avgSerializedSize += d.getType().getSlotSize();
-            }
             if (d.isMaterialized()) {
                 slotsBySize.get(d.getType().getSlotSize()).add(d);
                 if (d.getIsNullable()) {
@@ -203,10 +262,7 @@ public class TupleDescriptor {
             }
             if (slotSize > 1) {
                 // insert padding
-                int alignTo = Math.min(slotSize, 8);
-                if (slotSize == 40) {
-                    alignTo = 4;
-                }
+                int alignTo = slotSize;
                 offset = (offset + alignTo - 1) / alignTo * alignTo;
             }
 
@@ -233,7 +289,6 @@ public class TupleDescriptor {
         }
 
         this.byteSize = offset;
-        // LOG.debug("tuple is {}", byteSize);
     }
 
     /**

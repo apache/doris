@@ -43,6 +43,8 @@ message PTransmitDataParams {
     // different per packet
     required int64 packet_seq = 7;
     optional PQueryStatistics query_statistics = 8;
+
+    optional PBlock block = 9;
 };
 
 message PTransmitDataResult {
@@ -112,6 +114,7 @@ message PTabletWriterCancelResult {
 };
 
 message PExecPlanFragmentRequest {
+    optional bytes request = 1;
 };
 
 message PExecPlanFragmentResult {
@@ -137,6 +140,7 @@ message PCancelPlanFragmentResult {
 
 message PFetchDataRequest {
     required PUniqueId finst_id = 1;
+    optional bool resp_in_attachment = 2;
 };
 
 message PFetchDataResult {
@@ -145,6 +149,8 @@ message PFetchDataResult {
     optional int64 packet_seq = 2;
     optional bool eos = 3;
     optional PQueryStatistics query_statistics = 4;
+    optional bytes row_batch = 5;
+    optional bool empty_batch = 6;
 };
 
 //Add message definition to fetch and update cache
@@ -158,6 +164,11 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+};
+
+enum CacheType {
+    SQL_CACHE = 1;
+    PARTITION_CACHE = 2;
 };
 
 message PCacheParam {
@@ -180,6 +191,7 @@ message PCacheResponse {
 message PUpdateCacheRequest{
     required PUniqueId sql_key = 1;
     repeated PCacheValue values = 2;
+    optional CacheType cache_type = 3;
 };
 
 message PFetchCacheRequest {
@@ -190,6 +202,7 @@ message PFetchCacheRequest {
 message PFetchCacheResult {
     required PCacheStatus status = 1;
     repeated PCacheValue values = 2;
+    optional int64 all_count = 3 [default = 0];
 };
 
 enum PClearType {
@@ -206,17 +219,14 @@ message PClearCacheRequest {
 };
 //End cache proto definition
 
-message PTriggerProfileReportRequest {
-    repeated PUniqueId instance_ids = 1;
-};
-
-message PTriggerProfileReportResult {
-    required PStatus status = 1;
-};
-
 message PStringPair {
     required string key = 1;
     required string val = 2;
+};
+
+message PIntegerPair {
+    required int32 key = 1;
+    required int64 val = 2;
 };
 
 message PKafkaLoadInfo {
@@ -227,6 +237,7 @@ message PKafkaLoadInfo {
 
 message PKafkaMetaProxyRequest {
     optional PKafkaLoadInfo kafka_info = 1;
+    repeated PIntegerPair offset_times = 3;
 };
 
 message PProxyRequest {
@@ -237,13 +248,138 @@ message PKafkaMetaProxyResult {
     repeated int32 partition_ids = 1;
 };
 
+message PKafkaPartitionOffsets {
+    repeated PIntegerPair offset_times = 1;
+};
+
 message PProxyResult {
     required PStatus status = 1;
     optional PKafkaMetaProxyResult kafka_meta_result = 2;
+	optional PKafkaPartitionOffsets partition_offsets = 3;
 };
 
-// NOTE(zc): If you want to add new method here,
-// you MUST add same method to palo_internal_service.proto
+message PDataColumn {
+    optional string value = 1;
+}
+
+message PDataRow {
+    repeated PDataColumn col = 1;
+}
+
+message PSendDataRequest {
+    required PUniqueId fragment_instance_id = 1;
+    repeated PDataRow data = 2;
+}
+
+message PSendDataResult {
+    required PStatus status = 1;
+}
+
+message PCommitRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PCommitResult {
+    required PStatus status = 1;
+}
+
+message PRollbackRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PRollbackResult {
+    required PStatus status = 1;
+}
+
+message PBloomFilter {
+     required bool always_true = 2;
+     required int32 filter_length = 1;
+};
+
+message PColumnValue {
+    optional bool boolVal = 1;
+    optional int32 intVal = 2;
+    optional int64 longVal = 3;
+    optional double doubleVal = 4;
+    optional bytes stringVal = 5;
+}
+
+// TODO: CHECK ALL TYPE
+enum PColumnType {
+    COLUMN_TYPE_BOOL = 0;
+    COLUMN_TYPE_INT = 1;
+    COLUMN_TYPE_TINY_INT = 2;
+    COLUMN_TYPE_SMALL_INT = 3;
+    COLUMN_TYPE_BIGINT = 4;
+    COLUMN_TYPE_LARGEINT = 5;
+    COLUMN_TYPE_VARCHAR = 6;
+    COLUMN_TYPE_CHAR = 7;
+    COLUMN_TYPE_DATE = 8;
+    COLUMN_TYPE_DATETIME = 9;
+    COLUMN_TYPE_DOUBLE = 10;
+    COLUMN_TYPE_FLOAT = 11;
+    COLUMN_TYPE_DECIMAL = 12;
+    COLUMN_TYPE_DECIMALV2 = 13;
+    COLUMN_TYPE_STRING = 14;
+}
+
+message PMinMaxFilter {
+    required PColumnType column_type = 1;
+    required PColumnValue min_val = 2;
+    required PColumnValue max_val = 3;
+};
+
+enum PFilterType {
+    UNKNOW_FILTER = 0;
+    BLOOM_FILTER = 1;
+    MINMAX_FILTER = 2;
+};
+
+message PMergeFilterRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PUniqueId fragment_id = 3;
+    required PFilterType filter_type = 4;
+    optional PMinMaxFilter minmax_filter = 5;
+    optional PBloomFilter bloom_filter = 6;
+};
+
+message PMergeFilterResponse {
+    required PStatus status = 1;
+};
+
+message PPublishFilterRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PUniqueId fragment_id = 3;
+    required PFilterType filter_type = 4;
+    optional PMinMaxFilter minmax_filter = 5;
+    optional PBloomFilter bloom_filter = 6;
+};
+
+message PPublishFilterResponse {
+    required PStatus status = 1;
+};
+
+message PExprResult {
+    required PScalarType type = 1;
+    required string content = 2;
+    required bool success = 3;
+};
+
+message PExprResultMap {
+    map<string, PExprResult> map = 1;
+};
+
+message PConstantExprRequest {
+	optional bytes request = 1;
+};
+
+message PConstantExprResult {
+    required PStatus status = 1;
+    map<string, PExprResultMap> expr_result_map = 2;
+};
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -252,10 +388,16 @@ service PBackendService {
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
-    rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
     rpc get_info(PProxyRequest) returns (PProxyResult); 
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
     rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
     rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);
+    rpc send_data(PSendDataRequest) returns (PSendDataResult);
+    rpc commit(PCommitRequest) returns (PCommitResult);
+    rpc rollback(PRollbackRequest) returns (PRollbackResult);
+    rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
+    rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
 };
 

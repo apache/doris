@@ -25,14 +25,14 @@ ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
 # install dependencies and build gcc
-RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
+RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel libasan-static libtsan-static \
   && updatedb \
   && yum -y clean all \
   && rm -rf /var/cache/yum \
   && mkdir -p  /var/local/gcc \
   && curl -fsSL -o /tmp/node-v14.16.0-linux-x64.tar.xz https://nodejs.org/dist/v14.16.0/node-v14.16.0-linux-x64.tar.xz \
   && tar xf /tmp/node-v14.16.0-linux-x64.tar.xz -C ${DEFAULT_DIR}/ \
-  && rm /tmp/node-v14.16.0-linux-x64.tar.xz
+  && rm /tmp/node-v14.16.0-linux-x64.tar.xz \
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
   && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
   && cd /var/local/gcc \

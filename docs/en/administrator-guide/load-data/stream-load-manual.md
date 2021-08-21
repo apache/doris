@@ -102,6 +102,21 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 	When the corresponding import operation state of label is CANCELLED, the label can be used again.
 
+
++ column_separator
+    
+    Used to specify the column separator in the load file. The default is `\t`. If it is an invisible character, you need to add `\x` as a prefix and hexadecimal to indicate the separator.
+
+    For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`.
+
+    You can use a combination of multiple characters as the column separator.
+
++ line_delimiter
+   
+   Used to specify the line delimiter in the load file. The default is `\n`.
+
+   You can use a combination of multiple characters as the column separator.
+
 + max\_filter\_ratio
 
 	The maximum tolerance rate of the import task is 0 by default, and the range of values is 0-1. When the import error rate exceeds this value, the import fails.

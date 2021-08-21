@@ -19,7 +19,6 @@ package org.apache.doris.task;
 
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -43,7 +42,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.io.StringReader;
-import java.util.List;
 
 public class StreamLoadTask implements LoadTaskInfo {
 
@@ -58,9 +56,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     private String jsonPaths;
     private String jsonRoot;
     private boolean fuzzyParse;
+    private boolean readJsonByLine;
 
     // optional
-    private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
+    private ImportColumnDescs columnExprDescs = new ImportColumnDescs();
     private Expr whereExpr;
     private Separator columnSeparator;
     private Separator lineDelimiter;
@@ -85,6 +84,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.stripOuterArray = false;
         this.numAsString = false;
         this.fuzzyParse = false;
+        this.readJsonByLine = false;
     }
 
     public TUniqueId getId() {
@@ -103,7 +103,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         return formatType;
     }
 
-    public List<ImportColumnDesc> getColumnExprDescs() {
+    public ImportColumnDescs getColumnExprDescs() {
         return columnExprDescs;
     }
 
@@ -154,6 +154,11 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public boolean isNumAsString() {
         return numAsString;
+    }
+
+    @Override
+    public boolean isReadJsonByLine() {
+        return readJsonByLine;
     }
 
     @Override
@@ -265,6 +270,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             stripOuterArray = request.isStripOuterArray();
             numAsString = request.isNumAsString();
             fuzzyParse = request.isFuzzyParse();
+            readJsonByLine = request.isReadJsonByLine();
         }
         if (request.isSetMergeType()) {
             try {
@@ -309,7 +315,7 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
 
         if (columnsStmt.getColumns() != null && !columnsStmt.getColumns().isEmpty()) {
-            columnExprDescs = columnsStmt.getColumns();
+            columnExprDescs.descs = columnsStmt.getColumns();
         }
     }
 

@@ -24,7 +24,7 @@
 #include <algorithm>
 #include <boost/date_time/gregorian/gregorian.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <iterator>
 #include <map>
 #include <set>
@@ -40,9 +40,8 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
 
-using boost::filesystem::copy_file;
-using boost::filesystem::copy_option;
-using boost::filesystem::path;
+using std::filesystem::copy_file;
+using std::filesystem::path;
 using std::map;
 using std::nothrow;
 using std::set;
@@ -441,9 +440,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
             LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
             break;
         }
-
-        // clear alter task info in snapshot files
-        new_tablet_meta->delete_alter_task();
 
         // The inc_rs_metas is deprecated since Doris version 0.13.
         // Clear it for safety reason.

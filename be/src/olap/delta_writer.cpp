@@ -108,7 +108,7 @@ OLAPStatus DeltaWriter::init() {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << _tablet->full_name();
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return OLAP_ERR_TOO_MANY_VERSION;
     }
 
     {
@@ -119,32 +119,6 @@ OLAPStatus DeltaWriter::init() {
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
                                                                   _req.txn_id, _req.load_id));
-        if (_req.need_gen_rollup) {
-            AlterTabletTaskSharedPtr alter_task = _tablet->alter_task();
-            if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
-                TTabletId new_tablet_id = alter_task->related_tablet_id();
-                TSchemaHash new_schema_hash = alter_task->related_schema_hash();
-                LOG(INFO) << "load with schema change. "
-                          << "old_tablet_id=" << _tablet->tablet_id() << ", "
-                          << ", old_schema_hash=" << _tablet->schema_hash() << ", "
-                          << ", new_tablet_id=" << new_tablet_id << ", "
-                          << ", new_schema_hash=" << new_schema_hash << ", "
-                          << ", transaction_id=" << _req.txn_id;
-                _new_tablet = tablet_mgr->get_tablet(new_tablet_id, new_schema_hash);
-                if (_new_tablet == nullptr) {
-                    LOG(WARNING) << "find alter task, but could not find new tablet. "
-                                 << "new_tablet_id=" << new_tablet_id
-                                 << ", new_schema_hash=" << new_schema_hash;
-                    return OLAP_ERR_TABLE_NOT_FOUND;
-                }
-                ReadLock new_migration_rlock(_new_tablet->get_migration_lock_ptr(), TRY_LOCK);
-                if (!new_migration_rlock.own_lock()) {
-                    return OLAP_ERR_RWLOCK_ERROR;
-                }
-                RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(
-                        _req.partition_id, _new_tablet, _req.txn_id, _req.load_id));
-            }
-        }
     }
 
     RowsetWriterContext writer_context;
@@ -164,6 +138,7 @@ OLAPStatus DeltaWriter::init() {
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
     writer_context.segments_overlap = OVERLAPPING;
+    writer_context.parent_mem_tracker = _mem_tracker;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
@@ -307,8 +282,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     if (_new_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
-        SchemaChangeHandler schema_change;
-        res = schema_change.schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
+        auto schema_change_handler = SchemaChangeHandler::instance();
+        res = schema_change_handler->schema_version_convert(_tablet, _new_tablet, &_cur_rowset,
                                                    &_new_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
@@ -340,7 +315,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
+    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 

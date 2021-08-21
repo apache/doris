@@ -64,7 +64,7 @@ public:
     /// param all_rowsets, all rowsets in tablet.
     /// param current_cumulative_point, current cumulative point value.
     /// return score, the result score after calculate.
-    virtual void calc_cumulative_compaction_score(
+    virtual void calc_cumulative_compaction_score(TabletState state,
             const std::vector<RowsetMetaSharedPtr>& all_rowsets, int64_t current_cumulative_point,
             uint32_t* score) = 0;
 
@@ -156,7 +156,7 @@ public:
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
@@ -210,7 +210,7 @@ public:
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
@@ -248,7 +248,7 @@ class CumulativeCompactionPolicyFactory {
 public:
     /// Static factory function. It can product different policy according to the `policy` parameter and use tablet ptr
     /// to construct the policy. Now it can product size based and num based policies.
-    static std::unique_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
+    static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
             std::string policy);
 
 private:

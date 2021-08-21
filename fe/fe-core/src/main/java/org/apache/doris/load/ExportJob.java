@@ -78,6 +78,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -167,6 +168,10 @@ public class ExportJob implements Writable {
     private OriginStatement origStmt;
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
+    private List<String> exportColumns = Lists.newArrayList();
+    private String columns ;
+
+
     public ExportJob() {
         this.id = -1;
         this.dbId = -1;
@@ -178,10 +183,11 @@ public class ExportJob implements Writable {
         this.finishTimeMs = -1;
         this.failMsg = new ExportFailMsg(ExportFailMsg.CancelType.UNKNOWN, "");
         this.analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
-        this.desc = new DescriptorTable();
+        this.desc = analyzer.getDescTbl();
         this.exportPath = "";
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
+        this.columns = "";
     }
 
     public ExportJob(long jobId) {
@@ -211,7 +217,11 @@ public class ExportJob implements Writable {
         this.partitions = stmt.getPartitions();
 
         this.exportTable = db.getTable(stmt.getTblName().getTbl());
-
+        this.columns = stmt.getColumns();
+        if (!Strings.isNullOrEmpty(this.columns)) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(stmt.getColumns().toLowerCase());
+        }
         exportTable.readLock();
         try {
             this.dbId = db.getId();
@@ -258,13 +268,25 @@ public class ExportJob implements Writable {
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
-        for (Column col : exportTable.getBaseSchema()) {
-            SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
-            slot.setIsMaterialized(true);
-            slot.setColumn(col);
-            slot.setIsNullable(col.isAllowNull());
+        if (exportColumns.isEmpty()) {
+            for (Column column : exportTable.getBaseSchema()) {
+                SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                slot.setIsMaterialized(true);
+                slot.setColumn(column);
+                slot.setIsNullable(column.isAllowNull());
+            }
+        } else {
+            for (Column column : exportTable.getBaseSchema()) {
+                String colName = column.getName().toLowerCase();
+                if (exportColumns.contains(colName)) {
+                    SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
+                    slot.setIsMaterialized(true);
+                    slot.setColumn(column);
+                    slot.setIsNullable(column.isAllowNull());
+                }
+            }
         }
-        desc.computeMemLayout();
+        desc.computeStatAndMemLayout();
     }
 
     private void plan() throws UserException {
@@ -354,10 +376,7 @@ public class ExportJob implements Writable {
         switch (exportTable.getType()) {
             case OLAP:
                 scanNode = new OlapScanNode(new PlanNodeId(0), exportTupleDesc, "OlapScanNodeForExport");
-                ((OlapScanNode) scanNode).setColumnFilters(Maps.newHashMap());
-                ((OlapScanNode) scanNode).setIsPreAggregation(false, "This an export operation");
-                ((OlapScanNode) scanNode).setCanTurnOnPreAggr(false);
-                scanNode.init(analyzer);
+                ((OlapScanNode) scanNode).closePreAggregation("This an export operation");
                 ((OlapScanNode) scanNode).selectBestRollupByRollupSelector(analyzer);
                 break;
             case ODBC:
@@ -370,6 +389,7 @@ public class ExportJob implements Writable {
                 break;
         }
         if (scanNode != null) {
+            scanNode.init(analyzer);
             scanNode.finalize(analyzer);
         }
 
@@ -439,12 +459,16 @@ public class ExportJob implements Writable {
             ScanNode scanNode = nodes.get(i);
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
-                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName,
+                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
                     TimeUtils.DEFAULT_TIME_ZONE);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
         LOG.info("create {} coordinators for export job: {}", coordList.size(), id);
+    }
+
+    public String getColumns() {
+        return columns;
     }
 
     public long getId() {
@@ -740,7 +764,11 @@ public class ExportJob implements Writable {
                 this.properties.put(propertyKey, propertyValue);
             }
         }
-
+        this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
+        if (!Strings.isNullOrEmpty(this.columns)) {
+            Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+            this.exportColumns = split.splitToList(this.columns.toLowerCase());
+        }
         boolean hasPartition = in.readBoolean();
         if (hasPartition) {
             partitions = Lists.newArrayList();
@@ -782,7 +810,7 @@ public class ExportJob implements Writable {
             String value = Text.readString(in);
             sessionVariables.put(key, value);
         }
-        
+
         if (origStmt.originStmt.isEmpty()) {
             return;
         }

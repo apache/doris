@@ -17,7 +17,9 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.BoundType;
@@ -35,11 +37,11 @@ import java.util.Map;
 
 public class RangeUtils {
     
-    public static final Comparator<Map.Entry<Long, Range<PartitionKey>>> RANGE_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> o.getValue().lowerEndpoint());
+    public static final Comparator<Map.Entry<Long, PartitionItem>> RANGE_MAP_ENTRY_COMPARATOR =
+            Comparator.comparing(o -> (((RangePartitionItem)o.getValue()).getItems()).lowerEndpoint());
 
-    public static final Comparator<Range<PartitionKey>> RANGE_COMPARATOR = 
-            Comparator.comparing(o -> o.lowerEndpoint());
+    public static final Comparator<PartitionItem> RANGE_COMPARATOR =
+            Comparator.comparing(o -> ((RangePartitionItem) o).getItems().lowerEndpoint());
 
     public static void checkRangeIntersect(Range<PartitionKey> range1, Range<PartitionKey> range2) throws DdlException {
         if (range2.isConnected(range1)) {
@@ -74,14 +76,14 @@ public class RangeUtils {
      *      4.2 upper bounds (20 and 20) are equal.
      *  5. Not more next ranges, so 2 lists are equal.
      */
-    public static void checkRangeListsMatch(List<Range<PartitionKey>> list1, List<Range<PartitionKey>> list2) throws DdlException {
+    public static void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
         Collections.sort(list1, RangeUtils.RANGE_COMPARATOR);
         Collections.sort(list2, RangeUtils.RANGE_COMPARATOR);
 
         int idx1 = 0;
         int idx2 = 0;
-        Range<PartitionKey> range1 = list1.get(idx1);
-        Range<PartitionKey> range2 = list2.get(idx2);
+        Range<PartitionKey> range1 = list1.get(idx1).getItems();
+        Range<PartitionKey> range2 = list2.get(idx2).getItems();
         while (true) {
             if (range1.lowerEndpoint().compareTo(range2.lowerEndpoint()) != 0) {
                 throw new DdlException("2 range lists are not stricly matched. "
@@ -95,21 +97,21 @@ public class RangeUtils {
                 if (idx1 == list1.size() || idx2 == list2.size()) {
                     break;
                 }
-                range1 = list1.get(idx1);
-                range2 = list2.get(idx2);
+                range1 = list1.get(idx1).getItems();
+                range2 = list2.get(idx2).getItems();
                 continue;
             } else if (res > 0) {
                 if (++idx2 == list2.size()) {
                     break;
                 }
                 range1 = Range.closedOpen(range2.upperEndpoint(), range1.upperEndpoint());
-                range2 = list2.get(idx2);
+                range2 = list2.get(idx2).getItems();
             } else {
                 if (++idx1 == list1.size()) {
                     break;
                 }
                 range2 = Range.closedOpen(range1.upperEndpoint(), range2.upperEndpoint());
-                range1 = list1.get(idx1);
+                range1 = list1.get(idx1).getItems();
             }
         }
 
@@ -192,18 +194,18 @@ public class RangeUtils {
     }
 
     // check if any ranges in "rangesToBeChecked" conflict with ranges in "baseRanges".
-    public static void checkRangeConflict(List<Range<PartitionKey>> baseRanges,
-            List<Range<PartitionKey>> rangesToBeChecked) throws DdlException {
+    public static void checkRangeConflict(List<PartitionItem> baseRanges,
+            List<PartitionItem> rangesToBeChecked) throws DdlException {
 
         RangeMap<PartitionKey, Long> baseRangeMap = TreeRangeMap.create();
         long idx = 0;
-        for (Range<PartitionKey> baseRange : baseRanges) {
-            baseRangeMap.put(baseRange, idx++);
+        for (PartitionItem item : baseRanges) {
+            baseRangeMap.put(item.getItems(), idx++);
         }
 
-        for (Range<PartitionKey> range : rangesToBeChecked) {
-            if (!baseRangeMap.subRangeMap(range).asMapOfRanges().isEmpty()) {
-                throw new DdlException("Range: " + range + " conflicts with existing range");
+        for (PartitionItem item : rangesToBeChecked) {
+            if (!baseRangeMap.subRangeMap(item.getItems()).asMapOfRanges().isEmpty()) {
+                throw new DdlException("Range: " + item.getItems() + " conflicts with existing range");
             }
         }
     }

@@ -34,7 +34,6 @@
 #include "util/uid_util.h" // for print_id
 
 namespace doris {
-
 class Expr;
 class ExprContext;
 class ObjectPool;
@@ -46,12 +45,17 @@ class TupleRow;
 class DataSink;
 class MemTracker;
 
+namespace vectorized {
+class Block;
+class VExpr;
+}
+
 using std::string;
 using std::stringstream;
 using std::vector;
 using std::map;
-using boost::lock_guard;
-using boost::mutex;
+using std::lock_guard;
+using std::mutex;
 
 // Superclass of all executor nodes.
 // All subclasses need to make sure to check RuntimeState::is_cancelled()
@@ -97,6 +101,7 @@ public:
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) = 0;
+    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
     // Clears all internal state, returning this node to the state it was in after calling
@@ -304,7 +309,7 @@ protected:
     // Execution options that are determined at runtime.  This is added to the
     // runtime profile at close().  Examples for options logged here would be
     // "Codegen Enabled"
-    boost::mutex _exec_options_lock;
+    std::mutex _exec_options_lock;
     std::string _runtime_exec_options;
 
     /// Buffer pool client for this node. Initialized with the node's minimum reservation

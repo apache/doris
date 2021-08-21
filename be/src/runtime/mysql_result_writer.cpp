@@ -32,9 +32,9 @@
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
-                                     const std::vector<ExprContext*>& output_expr_ctxs,
-                                     RuntimeProfile* parent_profile)
-        : _sinker(sinker),
+                                     const std::vector<ExprContext*>& output_expr_ctxs, RuntimeProfile* parent_profile)
+        : ResultWriter(),
+          _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
           _row_buffer(NULL),
           _parent_profile(parent_profile) {}
@@ -49,8 +49,7 @@ Status MysqlResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
 
-    _row_buffer = new (std::nothrow) MysqlRowBuffer();
-
+    _row_buffer = new(std::nothrow) MysqlRowBuffer();
     if (NULL == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
     }
@@ -61,8 +60,150 @@ Status MysqlResultWriter::init(RuntimeState* state) {
 void MysqlResultWriter::_init_profile() {
     _append_row_batch_timer = ADD_TIMER(_parent_profile, "AppendBatchTime");
     _convert_tuple_timer = ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
-    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultRendTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
     _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
+}
+
+int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, void* item) {
+    int buf_ret = 0;
+    if (item == nullptr) {
+        return _row_buffer->push_null();
+    }
+
+    switch (type.type) {
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+        buf_ret = _row_buffer->push_tinyint(*static_cast<int8_t*>(item));
+        break;
+
+    case TYPE_SMALLINT:
+        buf_ret = _row_buffer->push_smallint(*static_cast<int16_t*>(item));
+        break;
+
+    case TYPE_INT:
+        buf_ret = _row_buffer->push_int(*static_cast<int32_t*>(item));
+        break;
+
+    case TYPE_BIGINT:
+        buf_ret = _row_buffer->push_bigint(*static_cast<int64_t*>(item));
+        break;
+
+    case TYPE_LARGEINT: {
+        auto string_value = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value);
+        buf_ret = _row_buffer->push_string(string_value.data(), string_value.size());
+        break;
+    }
+
+    case TYPE_FLOAT:
+        buf_ret = _row_buffer->push_float(*static_cast<float*>(item));
+        break;
+
+    case TYPE_DOUBLE:
+        buf_ret = _row_buffer->push_double(*static_cast<double*>(item));
+        break;
+
+    case TYPE_TIME: {
+        double time = *static_cast<double*>(item);
+        std::string time_str = time_str_from_double(time);
+        buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+        break;
+    }
+
+    case TYPE_DATE:
+    case TYPE_DATETIME: {
+        char buf[64];
+        const DateTimeValue* time_val = (const DateTimeValue*)(item);
+        // TODO(zhaochun), this function has core risk
+        char* pos = time_val->to_string(buf);
+        buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
+        break;
+    }
+
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
+        buf_ret = _row_buffer->push_null();
+        break;
+    }
+
+    case TYPE_VARCHAR:
+    case TYPE_CHAR:
+    case TYPE_STRING: {
+        const StringValue* string_val = (const StringValue*)(item);
+
+        if (string_val->ptr == NULL) {
+            if (string_val->len == 0) {
+                // 0x01 is a magic num, not useful actually, just for present ""
+                char* tmp_val = reinterpret_cast<char*>(0x01);
+                buf_ret = _row_buffer->push_string(tmp_val, string_val->len);
+            } else {
+                buf_ret = _row_buffer->push_null();
+            }
+        } else {
+            buf_ret = _row_buffer->push_string(string_val->ptr, string_val->len);
+        }
+
+        break;
+    }
+
+    case TYPE_DECIMALV2: {
+        DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
+        std::string decimal_str;
+        int output_scale = _output_expr_ctxs[index]->root()->output_scale();
+
+        if (output_scale > 0 && output_scale <= 30) {
+            decimal_str = decimal_val.to_string(output_scale);
+        } else {
+            decimal_str = decimal_val.to_string();
+        }
+
+        buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
+        break;
+    }
+
+    case TYPE_ARRAY: {
+        auto children_type = type.children[0].type;
+        auto array_value = (const CollectionValue*)(item);
+
+        ArrayIterator iter = array_value->iterator(children_type);
+
+        _row_buffer->open_dynamic_mode();
+
+        buf_ret = _row_buffer->push_string("[", 1);
+
+        int begin = 0;
+        while (iter.has_next() && !buf_ret) {
+            if (begin != 0) {
+                buf_ret = _row_buffer->push_string(", ", 2);
+            }
+
+            if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                buf_ret = _row_buffer->push_string("'", 1);
+                buf_ret = _add_row_value(index, children_type, iter.value());
+                buf_ret = _row_buffer->push_string("'", 1);
+            } else {
+                buf_ret = _add_row_value(index, children_type, iter.value());
+            }
+
+            iter.next();
+            begin++;
+        }
+
+        if (!buf_ret) {
+            buf_ret = _row_buffer->push_string("]", 1);
+        }
+
+        _row_buffer->close_dynamic_mode();
+        break;
+    }
+
+    default:
+        LOG(WARNING) << "can't convert this type to mysql type. type = "
+                     << _output_expr_ctxs[index]->root()->type();
+        buf_ret = -1;
+        break;
+    }
+
+    return buf_ret;
 }
 
 Status MysqlResultWriter::_add_one_row(TupleRow* row) {
@@ -74,124 +215,7 @@ Status MysqlResultWriter::_add_one_row(TupleRow* row) {
     for (int i = 0; 0 == buf_ret && i < num_columns; ++i) {
         void* item = _output_expr_ctxs[i]->get_value(row);
 
-        if (NULL == item) {
-            buf_ret = _row_buffer->push_null();
-            continue;
-        }
-
-        switch (_output_expr_ctxs[i]->root()->type().type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            buf_ret = _row_buffer->push_tinyint(*static_cast<int8_t*>(item));
-            break;
-
-        case TYPE_SMALLINT:
-            buf_ret = _row_buffer->push_smallint(*static_cast<int16_t*>(item));
-            break;
-
-        case TYPE_INT:
-            buf_ret = _row_buffer->push_int(*static_cast<int32_t*>(item));
-            break;
-
-        case TYPE_BIGINT:
-            buf_ret = _row_buffer->push_bigint(*static_cast<int64_t*>(item));
-            break;
-
-        case TYPE_LARGEINT: {
-            char buf[48];
-            int len = 48;
-            char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value,
-                                               buf, &len);
-            buf_ret = _row_buffer->push_string(v, len);
-            break;
-        }
-
-        case TYPE_FLOAT:
-            buf_ret = _row_buffer->push_float(*static_cast<float*>(item));
-            break;
-
-        case TYPE_DOUBLE:
-            buf_ret = _row_buffer->push_double(*static_cast<double*>(item));
-            break;
-
-        case TYPE_TIME: {
-            double time = *static_cast<double*>(item);
-            std::string time_str = time_str_from_double(time);
-            buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
-            break;
-        }
-
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            char buf[64];
-            const DateTimeValue* time_val = (const DateTimeValue*)(item);
-            // TODO(zhaochun), this function has core risk
-            char* pos = time_val->to_string(buf);
-            buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
-            break;
-        }
-
-        case TYPE_HLL:
-        case TYPE_OBJECT: {
-            buf_ret = _row_buffer->push_null();
-            break;
-        }
-
-        case TYPE_VARCHAR:
-        case TYPE_CHAR: {
-            const StringValue* string_val = (const StringValue*)(item);
-
-            if (string_val->ptr == NULL) {
-                if (string_val->len == 0) {
-                    // 0x01 is a magic num, not useful actually, just for present ""
-                    char* tmp_val = reinterpret_cast<char*>(0x01);
-                    buf_ret = _row_buffer->push_string(tmp_val, string_val->len);
-                } else {
-                    buf_ret = _row_buffer->push_null();
-                }
-            } else {
-                buf_ret = _row_buffer->push_string(string_val->ptr, string_val->len);
-            }
-
-            break;
-        }
-
-        case TYPE_DECIMAL: {
-            const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val->to_string(output_scale);
-            } else {
-                decimal_str = decimal_val->to_string();
-            }
-
-            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
-            break;
-        }
-
-        case TYPE_DECIMALV2: {
-            DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val.to_string(output_scale);
-            } else {
-                decimal_str = decimal_val.to_string();
-            }
-
-            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
-            break;
-        }
-
-        default:
-            LOG(WARNING) << "can't convert this type to mysql type. type = "
-                         << _output_expr_ctxs[i]->root()->type();
-            buf_ret = -1;
-            break;
-        }
+        buf_ret = _add_row_value(i, _output_expr_ctxs[i]->root()->type(), item);
     }
 
     if (0 != buf_ret) {
@@ -213,15 +237,18 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     int num_rows = batch->num_rows();
     result->result_batch.rows.resize(num_rows);
 
-    for (int i = 0; status.ok() && i < num_rows; ++i) {
-        TupleRow* row = batch->get_row(i);
-        status = _add_one_row(row);
+    {
+        SCOPED_TIMER(_convert_tuple_timer);
+        for (int i = 0; status.ok() && i < num_rows; ++i) {
+            TupleRow* row = batch->get_row(i);
+            status = _add_one_row(row);
 
-        if (status.ok()) {
-            result->result_batch.rows[i].assign(_row_buffer->buf(), _row_buffer->length());
-        } else {
-            LOG(WARNING) << "convert row to mysql result failed.";
-            break;
+            if (status.ok()) {
+                result->result_batch.rows[i].assign(_row_buffer->buf(), _row_buffer->length());
+            } else {
+                LOG(WARNING) << "convert row to mysql result failed.";
+                break;
+            }
         }
     }
 

@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-cmake_minimum_required(VERSION 3.12.0)
+cmake_minimum_required(VERSION 3.19.2)
 
 # set CMAKE_C_COMPILER, this must set before project command
 if (DEFINED ENV{DORIS_GCC_HOME})
@@ -130,14 +130,13 @@ endif()
 set(Boost_DEBUG FALSE)
 set(Boost_USE_MULTITHREADED ON)
 set(BOOST_ROOT ${THIRDPARTY_DIR})
+set(Boost_NO_BOOST_CMAKE OFF)
 
 if (NOT APPLE)
-    find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 REQUIRED COMPONENTS regex system filesystem thread date_time program_options)
 else()
-    find_package(Boost 1.55.0 COMPONENTS thread regex filesystem system date_time program_options)
+    find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
 endif()
-include_directories(${Boost_INCLUDE_DIRS})
-message(STATUS ${Boost_LIBRARIES})
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
@@ -259,6 +258,9 @@ set_target_properties(bitshuffle PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/
 add_library(roaring STATIC IMPORTED)
 set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libroaring.a)
 
+add_library(fmt STATIC IMPORTED)
+set_target_properties(fmt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libfmt.a)
+
 add_library(orc STATIC IMPORTED)
 set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
 
@@ -289,6 +291,23 @@ set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DI
 add_library(aws-s2n STATIC IMPORTED)
 set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
 
+add_library(minzip STATIC IMPORTED)
+set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
+
+if (ARCH_AMD64)
+    # libhdfs3 only support x86 or amd64
+    add_library(hdfs3 STATIC IMPORTED)
+    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
+
+    add_library(gsasl STATIC IMPORTED)
+    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
+    add_library(xml2 STATIC IMPORTED)
+    set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+
+    add_library(lzma STATIC IMPORTED)
+    set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+endif()
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -303,22 +322,28 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
 #    integers
-#   -fno-strict-aliasing: disable optimizations that assume strict aliasing. This
-#       is unsafe to do if the code uses casts (which we obviously do).
 #  -Wno-unknown-pragmas: suppress warnings for unknown (compiler specific) pragmas
 #  -Wno-deprecated: gutil contains deprecated headers
 #  -Wno-vla: we use C99-style variable-length arrays
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror=strict-aliasing")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer -Werror=return-type")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
+# Enable the cpu and heap profile of brpc
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
+# https://github.com/boostorg/uuid/issues/92
+# We need to avoid using SYS_getrandom system calls
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+    if (USE_AVX2)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
+    endif()
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
@@ -344,7 +369,7 @@ set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb3 -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -415,7 +440,7 @@ set(WL_END_GROUP "-Wl,--end-group")
 
 set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
 
-# Set Palo libraries
+# Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
@@ -434,22 +459,33 @@ set(DORIS_LINK_LIBS
     Util
     DorisGen
     Webserver
-    TestUtil
     Geo
     Plugin
     ${WL_END_GROUP}
 )
+if (${MAKE_TEST} STREQUAL "ON")
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        TestUtil
+    )
+endif()
 
-# Set thirdparty libraries
-set(DORIS_DEPENDENCIES
-    ${DORIS_DEPENDENCIES}
-    ${WL_START_GROUP}
+
+# COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
+# When adding new dependencies, If you don’t know if it can run on all platforms,
+# add it here first.
+set(COMMON_THIRDPARTY
     rocksdb
     librdkafka_cpp
     librdkafka
     libs2
     snappy
-    ${Boost_LIBRARIES}
+    Boost::regex
+    Boost::system
+    Boost::filesystem
+    Boost::thread
+    Boost::date_time
+    Boost::program_options
     thrift
     thriftnb
     glog
@@ -469,6 +505,7 @@ set(DORIS_DEPENDENCIES
     leveldb
     bitshuffle
     roaring
+    fmt
     double-conversion
     jemalloc
     brotlicommon
@@ -480,9 +517,35 @@ set(DORIS_DEPENDENCIES
     orc
     odbc
     cctz
+    minzip
     ${AWS_LIBS}
-    ${WL_END_GROUP}
 )
+
+# thirdparties dependescies that can only run on X86 platform
+set(X86_DEPENDENCIES
+    ${COMMON_THIRDPARTY}   
+    hdfs3
+    gsasl
+    xml2
+    lzma
+)
+
+if(ARCH_AARCH64)
+    # Set thirdparty libraries
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        ${WL_START_GROUP}
+        ${COMMON_THIRDPARTY}
+        ${WL_END_GROUP}
+    )
+else()
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        ${WL_START_GROUP}
+        ${X86_DEPENDENCIES}
+        ${WL_END_GROUP}
+    )
+endif()
 
 if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
@@ -496,12 +559,15 @@ if (WITH_MYSQL)
         )
 endif()
 
+message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
+
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
+    -lstdc++fs
 )
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
@@ -551,6 +617,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
+    add_subdirectory(${SRC_DIR}/testutil)
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
@@ -565,10 +632,12 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
-add_subdirectory(${SRC_DIR}/testutil)
-#add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
-add_subdirectory(${SRC_DIR}/tools)
+
+if (${MAKE_TEST} STREQUAL "OFF")
+    add_subdirectory(${SRC_DIR}/tools)
+endif()
+
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
 

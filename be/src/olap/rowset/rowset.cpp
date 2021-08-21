@@ -36,7 +36,7 @@ Rowset::Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSh
     }
 }
 
-OLAPStatus Rowset::load(bool use_cache) {
+OLAPStatus Rowset::load(bool use_cache, std::shared_ptr<MemTracker> parent) {
     // if the state is ROWSET_UNLOADING it means close() is called
     // and the rowset is already loaded, and the resource is not closed yet.
     if (_rowset_state_machine.rowset_state() == ROWSET_LOADED) {
@@ -48,12 +48,12 @@ OLAPStatus Rowset::load(bool use_cache) {
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
-            RETURN_NOT_OK(do_load(use_cache));
+            RETURN_NOT_OK(do_load(use_cache, parent));
             RETURN_NOT_OK(_rowset_state_machine.on_load());
         }
     }
     // load is done
-    LOG(INFO) << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
+    VLOG_CRITICAL << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
               << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
               << _rowset_meta->tablet_id();
     return OLAP_SUCCESS;

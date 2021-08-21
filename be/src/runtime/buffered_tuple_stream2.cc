@@ -17,8 +17,6 @@
 
 #include "runtime/buffered_tuple_stream2.h"
 
-#include <boost/bind.hpp>
-
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
@@ -447,7 +445,7 @@ Status BufferedTupleStream2::unpin_stream(bool all) {
     DCHECK(!_closed);
     SCOPED_TIMER(_unpin_timer);
 
-    BOOST_FOREACH (BufferedBlockMgr2::Block* block, _blocks) {
+    for (BufferedBlockMgr2::Block* block : _blocks) {
         if (!block->is_pinned()) {
             continue;
         }

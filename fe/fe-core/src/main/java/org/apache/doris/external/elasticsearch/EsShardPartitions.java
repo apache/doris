@@ -17,7 +17,7 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -40,7 +40,7 @@ public class EsShardPartitions {
     private final String indexName;
     // shardid -> host1, host2, host3
     private Map<Integer, List<EsShardRouting>> shardRoutings;
-    private SingleRangePartitionDesc partitionDesc;
+    private SinglePartitionDesc partitionDesc;
     private PartitionKey partitionKey;
     private long partitionId = -1;
 
@@ -127,11 +127,11 @@ public class EsShardPartitions {
         return shardRoutings;
     }
 
-    public SingleRangePartitionDesc getPartitionDesc() {
+    public SinglePartitionDesc getPartitionDesc() {
         return partitionDesc;
     }
 
-    public void setPartitionDesc(SingleRangePartitionDesc partitionDesc) {
+    public void setPartitionDesc(SinglePartitionDesc partitionDesc) {
         this.partitionDesc = partitionDesc;
     }
 

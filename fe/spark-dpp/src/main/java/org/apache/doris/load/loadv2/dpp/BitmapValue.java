@@ -113,12 +113,13 @@ public class BitmapValue {
                 break;
             case SINGLE_VALUE:
                 // is 32-bit enough
+                // FE is big end but BE is little end.
                 if (isLongValue32bitEnough(singleValue)) {
                     output.write(SINGLE32);
-                    output.writeInt((int)singleValue);
+                    output.writeInt(Integer.reverseBytes((int)singleValue));
                 } else {
                     output.writeByte(SINGLE64);
-                    output.writeLong(singleValue);
+                    output.writeLong(Long.reverseBytes(singleValue));
                 }
                 break;
             case BITMAP_VALUE:
@@ -134,11 +135,11 @@ public class BitmapValue {
             case EMPTY:
                 break;
             case SINGLE32:
-                singleValue = Util.toUnsignedLong(input.readInt());
+                singleValue = Util.toUnsignedLong(Integer.reverseBytes(input.readInt()));
                 this.bitmapType = SINGLE_VALUE;
                 break;
             case SINGLE64:
-                singleValue = input.readLong();
+                singleValue = Long.reverseBytes(input.readLong());
                 this.bitmapType = SINGLE_VALUE;
                 break;
             case BITMAP32:
@@ -207,7 +208,9 @@ public class BitmapValue {
             case BITMAP_VALUE:
                 switch (this.bitmapType) {
                     case EMPTY:
-                        this.bitmap = other.bitmap;
+                        // deep copy the bitmap in case of multi-rollups update the bitmap repeatedly
+                        this.bitmap = new Roaring64Map();
+                        this.bitmap.or(other.bitmap);
                         this.bitmapType = BITMAP_VALUE;
                         break;
                     case SINGLE_VALUE:

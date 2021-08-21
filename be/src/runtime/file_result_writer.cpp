@@ -41,8 +41,7 @@ const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile,
-                                   BufferControlBlock* sinker)
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker)
         : _file_opts(file_opts),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
@@ -55,9 +54,7 @@ FileResultWriter::~FileResultWriter() {
 Status FileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
-
-    RETURN_IF_ERROR(_create_next_file_writer());
-    return Status::OK();
+    return _create_next_file_writer();
 }
 
 void FileResultWriter::_init_profile() {
@@ -74,8 +71,7 @@ Status FileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
     RETURN_IF_ERROR(_create_file_writer(file_name));
-    RETURN_IF_ERROR(_close_file_writer(true, true));
-    return Status::OK();
+    return _close_file_writer(true, true);
 }
 
 Status FileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -89,11 +85,11 @@ Status FileResultWriter::_get_success_file_name(std::string* file_name) {
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
         if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name
-                    + ". Host: " + BackendOptions::get_localhost());
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
         }
     }
-        
+
     return Status::OK();
 }
 
@@ -112,20 +108,21 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
                                  _file_opts->broker_properties, file_name, 0 /*start offset*/);
     }
     RETURN_IF_ERROR(_file_writer->open());
-
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs);
+        _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
+                                                   _file_opts->file_properties, _file_opts->schema);
         break;
     default:
         return Status::InternalError(
                 strings::Substitute("unsupported file format: $0", _file_opts->file_format));
     }
     LOG(INFO) << "create file for exporting query result. file name: " << file_name
-              << ". query id: " << print_id(_state->query_id());
+              << ". query id: " << print_id(_state->query_id())
+              << " format:" << _file_opts->file_format;
     return Status::OK();
 }
 
@@ -141,11 +138,11 @@ Status FileResultWriter::_get_next_file_name(std::string* file_name) {
         // Doris is not responsible for ensuring the correctness of the path.
         // This is just to prevent overwriting the existing file.
         if (FileUtils::check_exist(*file_name)) {
-            return Status::InternalError("File already exists: " + *file_name
-                    + ". Host: " + BackendOptions::get_localhost());
+            return Status::InternalError("File already exists: " + *file_name +
+                                         ". Host: " + BackendOptions::get_localhost());
         }
     }
-        
+
     return Status::OK();
 }
 
@@ -167,7 +164,7 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 
     SCOPED_TIMER(_append_row_batch_timer);
     if (_parquet_writer != nullptr) {
-        RETURN_IF_ERROR(_parquet_writer->write(*batch));
+        RETURN_IF_ERROR(_write_parquet_file(*batch));
     } else {
         RETURN_IF_ERROR(_write_csv_file(*batch));
     }
@@ -176,14 +173,19 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
     return Status::OK();
 }
 
+Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
+    RETURN_IF_ERROR(_parquet_writer->write(batch));
+    // split file if exceed limit
+    return _create_new_file_if_exceed_size();
+}
+
 Status FileResultWriter::_write_csv_file(const RowBatch& batch) {
     int num_rows = batch.num_rows();
     for (int i = 0; i < num_rows; ++i) {
         TupleRow* row = batch.get_row(i);
         RETURN_IF_ERROR(_write_one_row_as_csv(row));
     }
-    _flush_plain_text_outstream(true);
-    return Status::OK();
+    return _flush_plain_text_outstream(true);
 }
 
 // actually, this logic is same as `ExportSink::gen_row_buffer`
@@ -252,7 +254,8 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 break;
             }
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
                 if (string_val->ptr == NULL) {
                     if (string_val->len != 0) {
@@ -261,18 +264,6 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 } else {
                     _plain_text_outstream << std::string(string_val->ptr, string_val->len);
                 }
-                break;
-            }
-            case TYPE_DECIMAL: {
-                const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-                std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val->to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val->to_string();
-                }
-                _plain_text_outstream << decimal_str;
                 break;
             }
             case TYPE_DECIMALV2: {
@@ -323,9 +314,7 @@ Status FileResultWriter::_flush_plain_text_outstream(bool eos) {
     _plain_text_outstream.clear();
 
     // split file if exceed limit
-    RETURN_IF_ERROR(_create_new_file_if_exceed_size());
-
-    return Status::OK();
+    return _create_new_file_if_exceed_size();
 }
 
 Status FileResultWriter::_create_new_file_if_exceed_size() {
@@ -345,11 +334,12 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
 Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
+        _current_written_bytes = _parquet_writer->written_len();
+        COUNTER_UPDATE(_written_data_bytes, _current_written_bytes);
         delete _parquet_writer;
         _parquet_writer = nullptr;
-        if (!done) {
-            //TODO(cmy): implement parquet writer later
-        }
+        delete _file_writer;
+        _file_writer = nullptr;
     } else if (_file_writer != nullptr) {
         _file_writer->close();
         delete _file_writer;
@@ -367,7 +357,7 @@ Status FileResultWriter::_close_file_writer(bool done, bool only_close) {
         // All data is written to file, send statistic result
         if (_file_opts->success_file_name != "") {
             // write success file, just need to touch an empty file
-            RETURN_IF_ERROR(_create_success_file()); 
+            RETURN_IF_ERROR(_create_success_file());
         }
         RETURN_IF_ERROR(_send_result());
     }
@@ -385,26 +375,17 @@ Status FileResultWriter::_send_result() {
     // The type of these field should be conssitent with types defined
     // in OutFileClause.java of FE.
     MysqlRowBuffer row_buffer;
-    row_buffer.push_int(_file_idx); // file number
+    row_buffer.push_int(_file_idx);                         // file number
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
-    row_buffer.push_bigint(_written_data_bytes->value()); // file size
+    row_buffer.push_bigint(_written_data_bytes->value());   // file size
     std::string localhost = BackendOptions::get_localhost();
     row_buffer.push_string(localhost.c_str(), localhost.length()); // url
 
-    TFetchDataResult* result = new (std::nothrow) TFetchDataResult();
+    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
-
-    Status st = _sinker->add_batch(result);
-    if (st.ok()) {
-        result = nullptr;
-    } else {
-        LOG(WARNING) << "failed to send outfile result: " << st.get_error_msg();
-    }
-
-    delete result;
-    result = nullptr;
-    return st;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result.get()), "failed to send outfile result");
+    return Status::OK();
 }
 
 Status FileResultWriter::close() {
@@ -415,8 +396,7 @@ Status FileResultWriter::close() {
     // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
     SCOPED_TIMER(_writer_close_timer);
-    RETURN_IF_ERROR(_close_file_writer(true));
-    return Status::OK();
+    return _close_file_writer(true);
 }
 
 } // namespace doris

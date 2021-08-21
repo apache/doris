@@ -20,10 +20,10 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <boost/unordered_map.hpp>
 #include <map>
+#include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -63,7 +63,7 @@ public:
     Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
-    typedef boost::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
+    typedef std::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
     typedef std::map<time_t, std::vector<TUniqueId>> TimeoutMap;
 
     boost::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
@@ -73,12 +73,12 @@ private:
     void cancel_thread();
 
     // lock for buffer map
-    boost::mutex _lock;
+    std::mutex _lock;
     // buffer block map
     BufferMap _buffer_map;
 
     // lock for timeout map
-    boost::mutex _timeout_lock;
+    std::mutex _timeout_lock;
 
     // map (cancel_time : query to be cancelled),
     // cancel time maybe equal, so use one list
@@ -88,7 +88,7 @@ private:
     scoped_refptr<Thread> _clean_thread;
 };
 
-// TUniqueId hash function used for boost::unordered_map
+// TUniqueId hash function used for std::unordered_map
 std::size_t hash_value(const TUniqueId& fragment_id);
 } // namespace doris
 

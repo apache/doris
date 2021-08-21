@@ -328,6 +328,63 @@ This term does not match any term in the dictionary, and will not return any res
 
 The type of `k4.keyword` is `keyword`, and writing data into ES is a complete term, so it can be matched
 
+### Enable node discovery mechanism, default is true(es\_nodes\_discovery=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"nodes_discovery" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**es\_nodes\_discovery** | Whether or not to enable ES node discovery. the default is true
+
+Doris would find all available related data nodes (shards allocated on)from ES when this is true.  Just set false if address of  ES data nodes are not accessed by Doris BE, eg. the ES cluster is deployed in the intranet which isolated from your public Internet, and users access through a proxy
+
+### Whether ES cluster enables https access mode, if enabled should set value with`true`, default is false(http\_ssl\_enable=true)
+
+```
+CREATE EXTERNAL TABLE `test` (
+  `k1` bigint(20) COMMENT "",
+  `k2` datetime COMMENT "",
+  `k3` varchar(20) COMMENT "",
+  `k4` varchar(100) COMMENT "",
+  `k5` float COMMENT ""
+) ENGINE=ELASTICSEARCH
+PROPERTIES (
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"index" = "test”,
+"type" = "doc",
+"user" = "root",
+"password" = "root",
+
+"http_ssl_enabled" = "true"
+);
+```
+
+Parameter Description：
+
+Parameter | Description
+---|---
+**http\_ssl\_enabled** | Whether ES cluster enables https access mode
+
+The current FE/BE implementation is to trust all, this is a temporary solution, and the real user configuration certificate will be used later
 
 ### Query usage
 

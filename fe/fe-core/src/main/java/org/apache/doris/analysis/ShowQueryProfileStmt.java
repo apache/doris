@@ -32,7 +32,7 @@ import com.google.common.base.Strings;
 // show query profile "/e0f7390f5363419e-b416a2a79996083e/0/e0f7390f5363419e-b416a2a799960906" # show graph of the instance
 public class ShowQueryProfileStmt extends ShowStmt {
     // This should be same as ProfileManager.PROFILE_HEADERS
-    private static final ShowResultSetMetaData META_DATA_QUERYIDS =
+    public static final ShowResultSetMetaData META_DATA_QUERY_IDS =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("User", ScalarType.createVarchar(128)))
@@ -45,17 +45,17 @@ public class ShowQueryProfileStmt extends ShowStmt {
                     .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
                     .build();
 
-    private static final ShowResultSetMetaData META_DATA_FRAGMENTS =
+    public static final ShowResultSetMetaData META_DATA_FRAGMENTS =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Fragments", ScalarType.createVarchar(65535)))
                     .build();
-    private static final ShowResultSetMetaData META_DATA_INSTANCES =
+    public static final ShowResultSetMetaData META_DATA_INSTANCES =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Instances", ScalarType.createVarchar(128)))
                     .addColumn(new Column("Host", ScalarType.createVarchar(64)))
                     .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
                     .build();
-    private static final ShowResultSetMetaData META_DATA_SINGLE_INSTANCE =
+    public static final ShowResultSetMetaData META_DATA_SINGLE_INSTANCE =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Instance", ScalarType.createVarchar(65535)))
                     .build();
@@ -150,7 +150,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         switch (pathType) {
             case QUERY_IDS:
-                return META_DATA_QUERYIDS;
+                return META_DATA_QUERY_IDS;
             case FRAGMETNS:
                 return META_DATA_FRAGMENTS;
             case INSTANCES:

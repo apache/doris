@@ -49,6 +49,8 @@ class RuntimeState;
 class TupleDescriptor;
 class MemTracker;
 class JsonReader;
+class LineReader;
+class FileReader;
 
 class JsonScanner : public BaseScanner {
 public:
@@ -69,6 +71,9 @@ public:
     void close() override;
 
 private:
+    Status open_file_reader();
+    Status open_line_reader();
+    Status open_json_reader();
     Status open_next_reader();
 
 private:
@@ -78,13 +83,24 @@ private:
     std::string _jsonpath;
     std::string _jsonpath_file;
 
+    std::string _line_delimiter;
+    int _line_delimiter_length;
+
+    // Reader
+    FileReader* _cur_file_reader;
+    LineReader* _cur_line_reader;
+    JsonReader* _cur_json_reader;
+    int _next_range;
+    bool _cur_reader_eof;
+    bool _scanner_eof;
+    bool _read_json_by_line;
+
+    // When we fetch range doesn't start from 0,
+    // we will read to one ahead, and skip the first line
+    bool _skip_next_line;
+
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
-    // Reader
-    JsonReader* _cur_file_reader;
-    int _next_range;
-    bool _cur_file_eof; // is read over?
-    bool _scanner_eof;
 };
 
 class JsonDataInternal {
@@ -107,31 +123,31 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               FileReader* file_reader, bool strip_outer_array, bool num_as_string,
-               bool fuzzy_parse);
+               bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
+               FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~JsonReader();
 
     Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
-    Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                bool* eof);
+    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
+                bool* is_empty_row, bool* eof);
 
 private:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
-                                                MemPool* tuple_pool, bool* eof);
+                                                MemPool* tuple_pool, bool* is_empty_row, bool* eof);
     Status _handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                               MemPool* tuple_pool, bool* eof);
+                               MemPool* tuple_pool, bool* is_empty_row, bool* eof);
     Status _handle_flat_array_complex_json(Tuple* tuple,
                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                           MemPool* tuple_pool, bool* eof);
+                                           MemPool* tuple_pool, bool* is_empy_row, bool* eof);
     Status _handle_nested_complex_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
-                                       MemPool* tuple_pool, bool* eof);
+                                       MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
-    Status _parse_json_doc(bool* eof);
+    Status _parse_json_doc(size_t* size, bool* eof);
     void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
                           const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
                           bool* valid);
@@ -153,6 +169,7 @@ private:
     ScannerCounter* _counter;
     RuntimeProfile* _profile;
     FileReader* _file_reader;
+    LineReader* _line_reader;
     bool _closed;
     bool _strip_outer_array;
     bool _num_as_string;
