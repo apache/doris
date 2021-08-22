@@ -206,7 +206,7 @@ class ScalaValueReader(partition: PartitionDefinition, options: DorisOptions, re
    * get next value.
    * @return next value
    */
-  def next: AnyRef = {
+  def next: java.util.List[_] = {
     if (!hasNext) {
       logger.error(SHOULD_NOT_HAPPEN_MESSAGE)
       throw new ShouldNeverHappenException
