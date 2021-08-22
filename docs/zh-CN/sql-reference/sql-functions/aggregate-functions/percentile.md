@@ -44,6 +44,7 @@ MySQL > select `table`, percentile(cost_time,0.99) from log_statis group by `tab
 +----------+--------------------------------------+
 | test     |                                54.22 |
 +----------+--------------------------------------+
+```
 
 ## keyword
 PERCENTILE
