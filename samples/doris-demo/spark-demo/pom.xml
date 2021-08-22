@@ -38,6 +38,7 @@ under the License.
     </properties>
 
     <dependencies>
+        <!-- doris spark -->
         <dependency>
             <groupId>org.apache</groupId>
             <artifactId>doris-spark</artifactId>
