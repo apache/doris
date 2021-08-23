@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.constants;
 
 public class Constants {
 
-    public static String KEY_SERVER_PORT = "server.port";
-    public static String KEY_DORIS_AGENT_INSTALL_DIR = "doris.manager.agent.install.dir";
-    public static String KEY_DORIS_AGENT_START_SCRIPT = "doris.manager.agent.start-script";
+    public static final String KEY_SERVER_PORT = "server.port";
+    public static final String KEY_DORIS_AGENT_INSTALL_DIR = "doris.manager.agent.install.dir";
+    public static final String KEY_DORIS_AGENT_START_SCRIPT = "doris.manager.agent.start-script";
 }

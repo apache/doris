@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
@@ -39,8 +41,6 @@ import org.apache.doris.stack.req.TaskInfoReq;
 import org.apache.doris.stack.req.TaskLogReq;
 import org.apache.doris.stack.service.ServerAgent;
 import org.apache.doris.stack.util.Preconditions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,14 +51,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
 /**
  * server agent
  **/
 @Service
+@Slf4j
 public class ServerAgentImpl implements ServerAgent {
-
-    private static final Logger log = LoggerFactory.getLogger(ServerAgentImpl.class);
 
     @Autowired
     private AgentRest agentRest;

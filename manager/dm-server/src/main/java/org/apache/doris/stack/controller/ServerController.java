@@ -14,16 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.controller;
 
 import io.swagger.annotations.Api;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.req.AgentCommon;
 import org.apache.doris.stack.req.SshInfo;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.util.Preconditions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,9 +35,8 @@ import java.util.Map;
 @Api(tags = "Server API")
 @RestController
 @RequestMapping("/server")
+@Slf4j
 public class ServerController {
-
-    private static final Logger log = LoggerFactory.getLogger(ServerController.class);
 
     @Autowired
     private ServerProcess serverProcess;

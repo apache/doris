@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.service;
 
 import org.apache.doris.manager.common.domain.RResult;
@@ -26,7 +27,6 @@ import java.util.List;
  * server
  */
 public interface ServerProcess {
-
 
     void initAgent(SshInfo sshInfo);
 

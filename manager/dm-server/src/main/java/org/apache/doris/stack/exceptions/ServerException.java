@@ -14,13 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.exceptions;
 
 public class ServerException extends RuntimeException {
-    private static final long serialVersionUID = -1L;
-    private static final Integer DEAFULT_EXCEPTION_STATUS = 500;
-    private int status;
+    private static final long SERIAL_VERSION_UID = -1L;
 
+    private static final Integer DEAFULT_EXCEPTION_STATUS = 500;
+
+    private int status;
 
     public ServerException(String message) {
         this(message, DEAFULT_EXCEPTION_STATUS);

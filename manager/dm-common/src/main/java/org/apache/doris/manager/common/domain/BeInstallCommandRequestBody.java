@@ -14,13 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.common.domain;
 
 public class BeInstallCommandRequestBody {
     private String installDir;
-    private String packageUrl;
-    private boolean mkBeStorageDir = false;
 
+    private String packageUrl;
+
+    private boolean mkBeStorageDir = false;
 
     public boolean isMkBeStorageDir() {
         return mkBeStorageDir;

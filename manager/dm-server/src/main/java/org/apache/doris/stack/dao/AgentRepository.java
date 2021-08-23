@@ -39,5 +39,4 @@ public interface AgentRepository extends JpaRepository<AgentEntity, Integer> {
     @Query("select f from AgentEntity f where f.host = :host and f.port = :port")
     List<AgentEntity> agentInfo(@Param("host")String host, @Param("port")Integer port);
 
-
 }

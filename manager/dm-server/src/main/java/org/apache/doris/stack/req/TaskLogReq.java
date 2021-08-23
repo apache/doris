@@ -14,9 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.req;
 
-public class TaskLogReq extends TaskInfoReq{
+public class TaskLogReq extends TaskInfoReq {
     private int offset;
 
     public int getOffset() {

@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.register;
 
 import com.alibaba.fastjson.JSON;
@@ -35,10 +36,11 @@ public class FeState {
 
         HttpGet httpget = new HttpGet(requestUrl);
 
-        RequestConfig requestConfig = RequestConfig.custom().
-                setConnectTimeout(5000).
-                setConnectionRequestTimeout(5000)
-                .setSocketTimeout(5000).build();
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000)
+                .setConnectionRequestTimeout(5000)
+                .setSocketTimeout(5000)
+                .build();
         httpget.setConfig(requestConfig);
 
         CloseableHttpResponse response = null;

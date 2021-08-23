@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package org.apache.doris.manager.agent.register;
 
+package org.apache.doris.manager.agent.register;
 
 import org.apache.doris.manager.common.domain.Role;
 import org.apache.logging.log4j.util.Strings;
@@ -59,7 +59,6 @@ public class AgentContext {
             AgentContext.setAgentInstallDir(agentInstallDir);
         }
     }
-
 
     public static String getBashBin() {
         return bashBin;

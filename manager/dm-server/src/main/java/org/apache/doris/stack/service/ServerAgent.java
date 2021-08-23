@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.service;
 
 import org.apache.doris.manager.common.domain.RResult;
@@ -23,7 +24,6 @@ import org.apache.doris.stack.req.TaskInfoReq;
 import org.apache.doris.stack.req.TaskLogReq;
 
 import java.util.List;
-
 
 /**
  * server agent

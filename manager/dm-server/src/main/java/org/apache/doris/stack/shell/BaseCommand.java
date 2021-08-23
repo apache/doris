@@ -14,11 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.shell;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -28,9 +28,8 @@ import java.util.stream.Collectors;
 /**
  * base command
  **/
+@Slf4j
 public abstract class BaseCommand {
-
-    private static final Logger log = LoggerFactory.getLogger(BaseCommand.class);
 
     protected String[] resultCommand;
     protected Long timeout = 10000L;
@@ -73,13 +72,18 @@ public abstract class BaseCommand {
                 process.exitValue();
                 return true;
             } catch (IllegalThreadStateException ignored) {
+                log.error("process exception");
+                ignored.printStackTrace();
             }
             // Check if process has terminated once per second
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
+                e.printStackTrace();
             }
-        } while (System.currentTimeMillis() - startTime < timeout);
+        }
+        while (System.currentTimeMillis() - startTime < timeout);
+
         return false;
     }
 }

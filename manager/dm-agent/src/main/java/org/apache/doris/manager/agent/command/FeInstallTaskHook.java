@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
@@ -26,7 +27,6 @@ import org.apache.logging.log4j.util.Strings;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.Properties;
-
 
 public class FeInstallTaskHook extends TaskHook<FeInstallTaskDesc> {
     @Override

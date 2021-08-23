@@ -14,11 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.register;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -26,14 +26,15 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 public class AgentHeartbeat extends BaseRequest {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentHeartbeat.class);
-    private static final long HEARTBEAT_TIME = 10000l;
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static final long HEARTBEAT_TIME = 10000L;
+
+    private static final ScheduledExecutorService SCHEDULER = Executors.newScheduledThreadPool(1);
 
     public static void start() {
-        scheduler.scheduleWithFixedDelay(() -> {
+        SCHEDULER.scheduleWithFixedDelay(() -> {
             if (!heartbeat()) {
                 log.error("agent heartbeat fail!");
             } else {
@@ -49,9 +50,9 @@ public class AgentHeartbeat extends BaseRequest {
         map.put("port", AgentContext.getAgentPort());
 
         RResult res = null;
-        try{
+        try {
             res = sendRequest(requestUrl, map);
-        }catch (Exception ex){
+        } catch (Exception ex) {
             return false;
         }
         if (res.getCode() == 0) {

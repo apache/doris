@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 import java.util.Date;
@@ -21,10 +22,12 @@ import java.util.UUID;
 
 public abstract class Task<T extends TaskDesc> {
     protected T taskDesc;
-    private TaskResult taskResult;
-    private ITaskLog tasklog;
-    private TaskHook taskHook;
 
+    private TaskResult taskResult;
+
+    private ITaskLog tasklog;
+
+    private TaskHook taskHook;
 
     private Task(T taskDesc) {
         this.taskDesc = taskDesc;
@@ -42,7 +45,6 @@ public abstract class Task<T extends TaskDesc> {
         this.tasklog = taskLruLog;
         this.taskHook = taskHook;
     }
-
 
     public ITaskLog getTasklog() {
         return tasklog;

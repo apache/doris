@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 public class SyncTaskHandlerFactory implements ITaskHandlerFactory {
@@ -23,8 +24,9 @@ public class SyncTaskHandlerFactory implements ITaskHandlerFactory {
     public TaskHandler createTaskHandler() {
         if (instance == null) {
             synchronized (SyncTaskHandlerFactory.class) {
-                if (instance == null)
+                if (instance == null) {
                     instance = new SyncTaskHandler();
+                }
             }
         }
         return instance;

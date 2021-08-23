@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.agent;
 
 import com.google.common.collect.Lists;
@@ -34,7 +35,7 @@ import java.util.stream.Collectors;
 @Component
 public class AgentCache {
 
-    private static final Map<String, AgentEntity> hostAgentCache = new ConcurrentHashMap<>();
+    private static Map<String, AgentEntity> hostAgentCache = new ConcurrentHashMap<>();
 
     @Autowired
     private AgentComponent agentComponent;
@@ -63,6 +64,6 @@ public class AgentCache {
      * put agent to cache
      */
     public void putAgent(AgentEntity agent) {
-        hostAgentCache.put(agent.getHost(),agent);
+        hostAgentCache.put(agent.getHost(), agent);
     }
 }

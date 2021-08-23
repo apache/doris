@@ -14,20 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.stack.agent;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.service.ServerProcess;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -38,11 +37,11 @@ import java.util.concurrent.TimeUnit;
  * agent status check
  **/
 @Component
+@Slf4j
 public class AgentHeatbeatRunner implements ApplicationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentHeatbeatRunner.class);
-    private static final long HEALTH_TIME = 60 * 1000l;
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private static final long HEALTH_TIME = 60 * 1000L;
+    private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
     private ServerProcess serverProcess;
@@ -57,6 +56,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
                 heartbeatCheck();
             } catch (Exception ex) {
                 log.error("heartbeat check fail:", ex);
+                ex.printStackTrace();
             }
         }, 0, HEALTH_TIME, TimeUnit.MILLISECONDS);
     }
@@ -70,7 +70,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
         for (AgentEntity agent : agents) {
             Date lastReportedTime = agent.getLastReportedTime();
             long diff = HEALTH_TIME + 1;
-            if(lastReportedTime != null){
+            if (lastReportedTime != null) {
                 diff = currTime - lastReportedTime.getTime();
             }
             if (diff > HEALTH_TIME) {
