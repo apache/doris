@@ -40,7 +40,7 @@ import java.util.List;
  */
 public class FlinkReadTextHdfs2Doris {
     //hdfs path
-    private static final String path = "hdfs://gaia-dev-bigdata1:8020/tmp/3.csv";
+    private static final String path = "hdfs://gaia-dev-bigdata1:8020/tmp/2.csv";
     //hdfs default scheme
     private static final String fsDefaultScheme = "hdfs://gaia-dev-bigdata1:8020";
     //doris ip port
