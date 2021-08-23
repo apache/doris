@@ -239,8 +239,8 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
                 <configuration>
-                    <configLocation>build/checkstyle/studio_checks.xml</configLocation>
-                    <suppressionsLocation>build/checkstyle/suppressions.xml</suppressionsLocation>
+                    <configLocation>checkstyle/studio_checks.xml</configLocation>
+                    <suppressionsLocation>checkstyle/suppressions.xml</suppressionsLocation>
                     <suppressionsFileExpression>checkstyle.suppressions.file</suppressionsFileExpression>
                     <!-- Ensure generated source files are not style-checked -->
                     <sourceDirectories>
