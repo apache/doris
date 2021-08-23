@@ -1,71 +1,27 @@
-package org.apache.doris.scala
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.demo.spark
 
 /**
  * This class is a scala demo for doris spark connector,
  * and provides four ways to read doris tables using spark.
  * before you run this class, you need to build doris-spark,
  * and put the doris-spark jar file in your maven repository
- *
- * The pom.xml dependency:
- *
- * <dependency>
- *    <groupId>org.apache</groupId>
- *    <artifactId>doris-spark</artifactId>
- *    <version>1.0.0-SNAPSHOT</version>
- *</dependency>
- * <dependency>
- *     <groupId>org.apache.spark</groupId>
- *     <artifactId>spark-core_2.11</artifactId>
- *     <version>2.3.4</version>
- * </dependency>
- * <dependency>
- *     <groupId>org.apache.spark</groupId>
- *     <artifactId>spark-sql_2.11</artifactId>
- *     <version>2.3.4</version>
- * </dependency>
- * <dependency>
- *     <groupId>org.scala-lang</groupId>
- *     <artifactId>scala-library</artifactId>
- *     <version>2.11.12</version>
- * </dependency>
- * <dependency>
- *     <groupId>mysql</groupId>
- *     <artifactId>mysql-connector-java</artifactId>
- *     <version>8.0.23</version>
- * </dependency>
- *
- * How to use:
- *
- * 1. create a table in doris with any mysql client
- *
- * CREATE TABLE `example_table` (
- * `id` bigint(20) NOT NULL COMMENT "ID",
- * `name` varchar(100) NOT NULL COMMENT "Name",
- * `age` int(11) NOT NULL COMMENT "Age"
- * ) ENGINE=OLAP
- * UNIQUE KEY(`id`)
- * COMMENT "example table"
- * DISTRIBUTED BY HASH(`id`) BUCKETS 1
- * PROPERTIES (
- * "replication_num" = "1",
- * "in_memory" = "false",
- * "storage_format" = "V2"
- * );
- *
- * 2. insert some data to example_table
- * insert into example_table values(1,"小明",21);
- * insert into example_table values(2,"小画",22);
- *
- * 3. change the Doris DORIS_DB, DORIS_TABLE, DORIS_FE_IP, DORIS_FE_HTTP_PORT,
- * DORIS_FE_QUERY_PORT, DORIS_USER, DORIS_PASSWORD config in this class
- *
- * 4. run this class, you should see the output：
- * +---+----+---+
- * | id|name|age|
- * +---+----+---+
- * |  2|  小画| 22|
- * |  1|  小明| 21|
- * +---+----+---+
  */
 
 object DorisSparkConnectionExampleScala {
@@ -74,15 +30,15 @@ object DorisSparkConnectionExampleScala {
 
     val DORIS_TABLE = "example_table"
 
-    val DORIS_FE_IP = "127.0.0.1"
+    val DORIS_FE_IP = "your doris fe ip"
 
     val DORIS_FE_HTTP_PORT = "8030"
 
     val DORIS_FE_QUERY_PORT = "9030"
 
-    val DORIS_USER = "root"
+    val DORIS_USER = "your doris user"
 
-    val DORIS_PASSWORD = ""
+    val DORIS_PASSWORD = "your doris password"
 
     def main(args: Array[String]): Unit = {
         val sparkConf = new SparkConf().setAppName("test").setMaster("local[*]")
@@ -113,6 +69,7 @@ object DorisSparkConnectionExampleScala {
 
     /**
      * read doris table Using DataFrame
+     *
      * @param sc SparkSession
      */
     def readWithDataFrame(sc: SparkSession): Unit = {
@@ -127,6 +84,7 @@ object DorisSparkConnectionExampleScala {
 
     /**
      * read doris table Using Spark Sql
+     *
      * @param sc SparkSession
      */
     def readWithSql(sc: SparkSession): Unit = {
@@ -143,6 +101,7 @@ object DorisSparkConnectionExampleScala {
 
     /**
      * read doris table Using jdbc
+     *
      * @param sc SparkSession
      */
     def readWithJdbc(sc: SparkSession): Unit = {
