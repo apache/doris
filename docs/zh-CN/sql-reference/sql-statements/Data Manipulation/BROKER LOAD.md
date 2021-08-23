@@ -576,7 +576,7 @@ under the License.
             "fs.defaultFS"="hdfs://testFs",
             "hdfs_user"="user"
         );
-     17. LOAD WITH HDFS, 带ha的HDFS集群
+     18. LOAD WITH HDFS, 带ha的HDFS集群
         LOAD LABEL example_db.label_filter
         (
             DATA INFILE("hdfs://host:port/user/data/*/test.txt")

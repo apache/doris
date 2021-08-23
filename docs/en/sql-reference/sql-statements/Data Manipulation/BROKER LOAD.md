@@ -501,7 +501,7 @@ under the License.
         ) 
         WITH BROKER "hdfs" ("username"="user", "password"="pass");
 
-    13. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
+    12. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
 
         LOAD LABEL example_db.label1
         (
@@ -522,7 +522,7 @@ under the License.
         "max_filter_ratio" = "0.1"
         );
 
-    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+    13. Filter the original data first, and perform column mapping, conversion and filtering operations
 
         LOAD LABEL example_db.label_filter
         (
@@ -536,7 +536,7 @@ under the License.
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
 
-    15. Import the data in the json file, and specify format as json, it is judged by the file suffix by default, set parameters for reading data
+    14. Import the data in the json file, and specify format as json, it is judged by the file suffix by default, set parameters for reading data
 
         LOAD LABEL example_db.label9
         (
@@ -548,7 +548,7 @@ under the License.
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");   
 
-    16. LOAD WITH HDFS, normal HDFS cluster
+    15. LOAD WITH HDFS, normal HDFS cluster
         LOAD LABEL example_db.label_filter
         (
             DATA INFILE("hdfs://host:port/user/data/*/test.txt")
@@ -560,7 +560,7 @@ under the License.
             "fs.defaultFS"="hdfs://testFs",
             "hdfs_user"="user"
         );
-    17. LOAD WITH HDFS, hdfs ha
+    16. LOAD WITH HDFS, hdfs ha
         LOAD LABEL example_db.label_filter
         (
             DATA INFILE("hdfs://host:port/user/data/*/test.txt")
