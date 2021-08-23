@@ -347,8 +347,9 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPool>& thread_p
     if (!st.ok()) {
         return 0;
     }
-
-    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
+    bool is_finished = true;
+    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
+            _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
         if (!thread_pool || !thread_pool->submit_func([this]() {
             this->try_send_batch();
         }).ok()) {
@@ -411,6 +412,7 @@ void NodeChannel::try_send_batch() {
                                    &_add_batch_closure->result, _add_batch_closure);
 
     _next_packet_seq++;
+    _last_patch_processed_finished = true;
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
