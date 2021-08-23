@@ -41,3 +41,12 @@ MB_DB_DBNAME
 nohup sh ./start_manager.sh > start.log 2>&1 &
 ```
 查看logs中的日志即可判断程序是否启动成功
+
+#### 3 使用
+预设了一个超级管理员用户，信息如下：
+```$xslt
+用户名: Admin
+密码: Admin@123
+(大小写敏感)
+```
+为了确保使用安全，登陆后请修改密码！
