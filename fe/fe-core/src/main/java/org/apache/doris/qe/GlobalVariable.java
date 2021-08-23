@@ -89,6 +89,7 @@ public final class GlobalVariable {
         List<String> varNames = Lists.newArrayList();
         for (Field field : GlobalVariable.class.getDeclaredFields()) {
             VariableMgr.VarAttr attr = field.getAnnotation(VariableMgr.VarAttr.class);
+            // Since the flag of lower_case_table_names is READ_ONLY, it is handled separately here.
             if (attr != null && (attr.flag() == VariableMgr.GLOBAL || attr.name().equals(LOWER_CASE_TABLE_NAMES))) {
                 varNames.add(attr.name());
             }
