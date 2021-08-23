@@ -578,7 +578,8 @@ Status OlapScanNode::normalize_conjuncts() {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
@@ -952,7 +953,8 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_LARGEINT: {
+    case TYPE_LARGEINT:
+    case TYPE_STRING: {
         func(temp_range, reinterpret_cast<T*>(value));
         break;
     }
@@ -1250,7 +1252,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_INT:
                 case TYPE_BIGINT:
                 case TYPE_LARGEINT:
-                case TYPE_BOOLEAN: {
+                case TYPE_BOOLEAN:
+                case TYPE_STRING: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(value));
                     break;

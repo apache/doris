@@ -594,6 +594,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATETIME:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             _need_validate_data = true;
             break;
         default:
@@ -698,7 +699,6 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         _convert_batch(state, input_batch, _output_batch.get());
         batch = _output_batch.get();
     }
-
     int num_invalid_rows = 0;
     if (_need_validate_data) {
         SCOPED_RAW_TIMER(&_validate_data_ns);
@@ -936,6 +936,19 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
                     str_val->ptr = new_ptr;
                     str_val->len = desc->type().len;
+                }
+                break;
+            }
+            case TYPE_STRING: {
+                StringValue* str_val = (StringValue*)slot;
+                if (str_val->len > desc->type().MAX_STRING_LENGTH) {
+                    ss << "the length of input is too long than schema. "
+                       << "column_name: " << desc->col_name() << "; "
+                       << "first 128 bytes of input_str: [" << std::string(str_val->ptr, 128) << "] "
+                       << "schema length: " << desc->type().MAX_STRING_LENGTH << "; "
+                       << "actual length: " << str_val->len << "; ";
+                    row_valid = false;
+                    continue;
                 }
                 break;
             }

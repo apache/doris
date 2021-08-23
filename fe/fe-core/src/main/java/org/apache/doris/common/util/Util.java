@@ -68,6 +68,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
+        TYPE_STRING_MAP.put(PrimitiveType.STRING, "string");
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
@@ -332,6 +333,30 @@ public class Util {
         long result = defaultVal;
         try {
             result = Long.valueOf(valStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException(hintMsg);
+        }
+
+        if (pred == null) {
+            return result;
+        }
+
+        if (!pred.test(result)) {
+            throw new AnalysisException(hintMsg);
+        }
+
+        return result;
+    }
+
+    public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
+                                                String hintMsg) throws AnalysisException {
+        if (Strings.isNullOrEmpty(valStr)) {
+            return defaultVal;
+        }
+
+        float result = defaultVal;
+        try {
+            result = Float.valueOf(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }

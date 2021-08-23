@@ -209,6 +209,7 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.Frontend;
@@ -393,6 +394,7 @@ public class Catalog {
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
+    private StatisticsManager statisticsManager;
 
     private PaloAuth auth;
 
@@ -545,7 +547,9 @@ public class Catalog {
         this.resourceMgr = new ResourceMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
+
         this.tabletStatMgr = new TabletStatMgr();
+        this.statisticsManager = new StatisticsManager();
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
@@ -688,6 +692,10 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
+    }
+
+    public StatisticsManager getStatisticsManager() {
+        return statisticsManager;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -6337,8 +6345,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
+                if (Catalog.getServingCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getServingCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());

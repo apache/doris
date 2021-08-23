@@ -38,7 +38,6 @@ import java.util.Map;
 public class SchemaTable extends Table {
     private final static int FN_REFLEN               = 512;
     private final static int NAME_CHAR_LEN           = 64;
-    private final static int MAX_FIELD_VARCHARLENGTH = 65535;
     private final static int MY_CS_NAME_SIZE         = 32;
     private final static int GRANTEE_len             = 81;
     private final static int PRIVILEGE_TYPE_LEN      = 64;
@@ -47,11 +46,6 @@ public class SchemaTable extends Table {
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {
         super(id, name, type, baseSchema);
-    }
-
-    protected SchemaTable(long id, String name, SchemaTableType type) {
-        super(TableType.SCHEMA);
-        schemaTableType = type;
     }
 
     @Override

@@ -239,6 +239,7 @@ public:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
+        case TYPE_STRING:
             return sizeof(doris_udf::StringVal);
 
         case TYPE_DATE:
@@ -280,6 +281,7 @@ public:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
+        case TYPE_STRING:
             return alignof(StringVal);
         case TYPE_DATETIME:
         case TYPE_DATE:
@@ -376,6 +378,7 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
             return;

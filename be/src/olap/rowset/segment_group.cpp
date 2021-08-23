@@ -94,7 +94,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;
@@ -132,7 +132,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;

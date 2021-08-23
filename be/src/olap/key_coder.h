@@ -256,4 +256,33 @@ public:
     }
 };
 
+template <>
+class KeyCoderTraits<OLAP_FIELD_TYPE_STRING> {
+public:
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto slice = reinterpret_cast<const Slice*>(value);
+        buf->append(slice->get_data(), slice->get_size());
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        const Slice* slice = (const Slice*)value;
+        size_t copy_size = std::min(index_size, slice->size);
+        buf->append(slice->data, copy_size);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
+                                   MemPool* pool) {
+        CHECK(encoded_key->size <= index_size)
+        << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
+        << ", index_size=" << index_size;
+        auto copy_size = encoded_key->size;
+        Slice* slice = (Slice*)cell_ptr;
+        slice->data = (char*)pool->allocate(copy_size);
+        slice->size = copy_size;
+        memcpy(slice->data, encoded_key->data, copy_size);
+        encoded_key->remove_prefix(copy_size);
+        return Status::OK();
+    }
+};
+
 } // namespace doris

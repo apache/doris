@@ -354,6 +354,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
         keywordMap.put("status", new Integer(SqlParserSymbols.KW_STATUS));
+        keywordMap.put("stats", new Integer(SqlParserSymbols.KW_STATS));
         keywordMap.put("stop", new Integer(SqlParserSymbols.KW_STOP));
         keywordMap.put("storage", new Integer(SqlParserSymbols.KW_STORAGE));
         keywordMap.put("stream", new Integer(SqlParserSymbols.KW_STREAM));

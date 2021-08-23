@@ -208,7 +208,9 @@ public class BitmapValue {
             case BITMAP_VALUE:
                 switch (this.bitmapType) {
                     case EMPTY:
-                        this.bitmap = other.bitmap;
+                        // deep copy the bitmap in case of multi-rollups update the bitmap repeatedly
+                        this.bitmap = new Roaring64Map();
+                        this.bitmap.or(other.bitmap);
                         this.bitmapType = BITMAP_VALUE;
                         break;
                     case SINGLE_VALUE:

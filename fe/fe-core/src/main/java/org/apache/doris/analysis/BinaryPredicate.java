@@ -303,6 +303,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.VARCHAR) {
             return Type.VARCHAR;
         }
+        if (t1 == PrimitiveType.STRING && t2 == PrimitiveType.STRING
+                || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
+                || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
+            return Type.STRING;
+        }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
@@ -322,14 +327,14 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.VARCHAR) {
+        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 ==PrimitiveType.STRING)) {
             Expr rightChild = getChild(1);
             Long parsedLong = Type.tryParseToLong(rightChild);
             if(parsedLong != null) {
                 return Type.BIGINT;
             }
         }
-        if (t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.BIGINT) {
+        if ((t1 == PrimitiveType.VARCHAR || t1 ==PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
             Expr leftChild = getChild(0);
             Long parsedLong = Type.tryParseToLong(leftChild);
             if(parsedLong != null) {
