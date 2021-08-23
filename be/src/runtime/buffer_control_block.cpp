@@ -44,7 +44,8 @@ void GetResultBatchCtx::on_close(int64_t packet_seq, QueryStatistics* statistics
     delete this;
 }
 
-void GetResultBatchCtx::on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos) {
+void GetResultBatchCtx::on_data(const std::unique_ptr<TFetchDataResult>& t_result,
+                                int64_t packet_seq, bool eos) {
     Status st = Status::OK();
     if (t_result != nullptr) {
         uint8_t* buf = nullptr;
@@ -83,18 +84,13 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
 
 BufferControlBlock::~BufferControlBlock() {
     cancel();
-
-    for (ResultQueue::iterator iter = _batch_queue.begin(); _batch_queue.end() != iter; ++iter) {
-        delete *iter;
-        *iter = NULL;
-    }
 }
 
 Status BufferControlBlock::init() {
     return Status::OK();
 }
 
-Status BufferControlBlock::add_batch(TFetchDataResult* result) {
+Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) {
     std::unique_lock<std::mutex> l(_lock);
 
     if (_is_cancelled) {
@@ -113,61 +109,53 @@ Status BufferControlBlock::add_batch(TFetchDataResult* result) {
 
     if (_waiting_rpc.empty()) {
         _buffer_rows += num_rows;
-        _batch_queue.push_back(result);
+        _batch_queue.push_back(std::move(result));
         _data_arrival.notify_one();
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
         ctx->on_data(result, _packet_num);
-        delete result;
         _packet_num++;
     }
     return Status::OK();
 }
 
 Status BufferControlBlock::get_batch(TFetchDataResult* result) {
-    TFetchDataResult* item = NULL;
-    {
-        std::unique_lock<std::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
 
-        while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
-            _data_arrival.wait(l);
-        }
-
-        // if Status has been set, return fail;
-        RETURN_IF_ERROR(_status);
-
-        // cancelled
-        if (_is_cancelled) {
-            return Status::Cancelled("Cancelled");
-        }
-
-        if (_batch_queue.empty()) {
-            if (_is_close) {
-                // no result, normal end
-                result->eos = true;
-                result->__set_packet_num(_packet_num);
-                _packet_num++;
-                return Status::OK();
-            } else {
-                // can not get here
-                return Status::InternalError("Internal error, can not Get here!");
-            }
-        }
-
-        // get result
-        item = _batch_queue.front();
-        _batch_queue.pop_front();
-        _buffer_rows -= item->result_batch.rows.size();
-        _data_removal.notify_one();
+    while (_batch_queue.empty() && !_is_close && !_is_cancelled) {
+        _data_arrival.wait(l);
     }
-    *result = *item;
+
+    // if Status has been set, return fail;
+    RETURN_IF_ERROR(_status);
+
+    // cancelled
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    if (_batch_queue.empty()) {
+        if (_is_close) {
+            // no result, normal end
+            result->eos = true;
+            result->__set_packet_num(_packet_num);
+            _packet_num++;
+            return Status::OK();
+        } else {
+            // can not get here
+            return Status::InternalError("Internal error, can not Get here!");
+        }
+    }
+
+    // get result
+    std::unique_ptr<TFetchDataResult> item = std::move(_batch_queue.front());
+    _batch_queue.pop_front();
+    _buffer_rows -= item->result_batch.rows.size();
+    _data_removal.notify_one();
+    *result = *(item.get());
     result->__set_packet_num(_packet_num);
     _packet_num++;
-    // destruct item new from Result writer
-    delete item;
-    item = NULL;
-
     return Status::OK();
 }
 
@@ -183,17 +171,13 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
     }
     if (!_batch_queue.empty()) {
         // get result
-        TFetchDataResult* result = _batch_queue.front();
+        std::unique_ptr<TFetchDataResult> result = std::move(_batch_queue.front());
         _batch_queue.pop_front();
         _buffer_rows -= result->result_batch.rows.size();
         _data_removal.notify_one();
 
         ctx->on_data(result, _packet_num);
         _packet_num++;
-
-        delete result;
-        result = nullptr;
-
         return;
     }
     if (_is_close) {

@@ -233,7 +233,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
 
     Status status;
     // convert one batch
-    TFetchDataResult* result = new (std::nothrow) TFetchDataResult();
+    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     int num_rows = batch->num_rows();
     result->result_batch.rows.resize(num_rows);
 
@@ -255,20 +255,10 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);
         // push this batch to back
-        status = _sinker->add_batch(result);
-
-        if (status.ok()) {
-            result = NULL;
-            _written_rows += num_rows;
-        } else {
-            LOG(WARNING) << "append result batch to sink failed.";
-        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "fappend result batch to sink failed.");
+        _written_rows += num_rows;
     }
-
-    delete result;
-    result = NULL;
-
-    return status;
+    return Status::OK();
 }
 
 Status MysqlResultWriter::close() {
