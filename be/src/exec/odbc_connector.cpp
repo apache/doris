@@ -273,15 +273,10 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                 case TYPE_DECIMALV2: {
                     const DecimalV2Value decimal_val(
                             reinterpret_cast<const PackedInt128*>(item)->value);
-                    std::string decimal_str;
+                    char buffer[MAX_DECIMAL_WIDTH];
                     int output_scale = _output_expr_ctxs[j]->root()->output_scale();
-
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val.to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val.to_string();
-                    }
-                    fmt::format_to(_insert_stmt_buffer, "{}", decimal_str);
+                    int len = decimal_val.to_buffer(buffer, output_scale);
+                    _insert_stmt_buffer.append(buffer, buffer + len);
                     break;
                 }
                 case TYPE_LARGEINT: {
