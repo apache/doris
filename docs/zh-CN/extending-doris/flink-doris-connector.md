@@ -26,7 +26,7 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector 可以支持通过 Flink 读取 Doris 中存储的数据。
+Flink Doris Connector 可以支持通过 Flink 读写 Doris 中存储的数据。
 
 - 可以将`Doris`表映射为`DataStream`或者`Table`。
 
@@ -34,12 +34,33 @@ Flink Doris Connector 可以支持通过 Flink 读取 Doris 中存储的数据�
 
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
+| 1.0.0     | 1.11.x  , 1.12.x | 0.13+  | 8    | 2.12  |
+| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
 
+**针对Flink 1.13.x版本适配问题**
+
+```xml
+    <properties>
+        <scala.version>2.12</scala.version>
+        <flink.version>1.11.2</flink.version>
+        <libthrift.version>0.9.3</libthrift.version>
+        <arrow.version>0.15.1</arrow.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.home>${basedir}/../../</doris.home>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+    </properties>
+```
+
+只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编辑即可
 
 ## 编译与安装
 
 在 `extension/flink-doris-connector/` 源码目录下执行：
+
+**注意：**
+
+1. 这里如果你没有整体编译过 doris 源码，需要首先编译一次 Doris 源码，不然会出现 thrift 命令找不到的情况，需要到 `incubator-doris` 目录下执行 `sh build.sh`
+2. 建议在 doris 的 docker 编译环境 `apache/incubator-doris:build-env-1.2` 下进行编译，因为 1.3 下面的JDK 版本是 11，会存在编译问题。
 
 ```bash
 sh build.sh

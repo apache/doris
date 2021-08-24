@@ -950,7 +950,7 @@ build_bitshuffle
 build_croaringbitmap
 build_fmt
 build_parallel_hashmap
-build_pdqosrt
+build_pdqsort
 build_libdivide
 build_orc
 build_cctz

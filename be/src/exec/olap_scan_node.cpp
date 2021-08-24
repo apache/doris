@@ -326,7 +326,8 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
             _row_batch_consumed_cv.notify_all();
             *eos = true;
-            LOG(INFO) << "OlapScanNode ReachedLimit.";
+            VLOG_QUERY << "OlapScanNode ReachedLimit. fragment id="
+                       << print_id(_runtime_state->fragment_instance_id());
         } else {
             *eos = false;
         }
@@ -577,7 +578,8 @@ Status OlapScanNode::normalize_conjuncts() {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
@@ -951,7 +953,8 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_LARGEINT: {
+    case TYPE_LARGEINT:
+    case TYPE_STRING: {
         func(temp_range, reinterpret_cast<T*>(value));
         break;
     }
@@ -1249,7 +1252,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_INT:
                 case TYPE_BIGINT:
                 case TYPE_LARGEINT:
-                case TYPE_BOOLEAN: {
+                case TYPE_BOOLEAN:
+                case TYPE_STRING: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(value));
                     break;
@@ -1482,6 +1486,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
         _running_thread--;
+        // We need to make sure the scanner is closed because the query has been closed or cancelled.
+        scanner->close(scanner->runtime_state());
         _scan_batch_added_cv.notify_one();
         _scan_thread_exit_cv.notify_one();
         LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
@@ -1551,7 +1557,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            VLOG_QUERY << "Scan thread cancelled, cause query done, maybe reach limit."
+                       << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
         RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),

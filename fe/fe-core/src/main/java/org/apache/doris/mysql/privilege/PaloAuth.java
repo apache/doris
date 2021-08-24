@@ -50,13 +50,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -1129,6 +1129,15 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String[] getSqlBlockRules(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getSqlBlockRules(qualifiedUser);
         } finally {
             readUnlock();
         }

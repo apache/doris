@@ -435,10 +435,12 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // max memory can be allocated by buffer pool
-CONF_String(buffer_pool_limit, "80G");
+// This is the percentage of mem_limit
+CONF_String(buffer_pool_limit, "20%");
 
 // clean page can be hold by buffer pool
-CONF_String(buffer_pool_clean_pages_limit, "20G");
+// This is the percentage of buffer_pool_limit
+CONF_String(buffer_pool_clean_pages_limit, "50%");
 
 // Sleep time in seconds between memory maintenance iterations
 CONF_mInt64(memory_maintenance_sleep_time_s, "10");

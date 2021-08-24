@@ -438,7 +438,6 @@ public class StmtExecutor implements ProfileWriter {
                 }
             }
         }
-
     }
 
     private void analyzeVariablesInStmt() throws DdlException {

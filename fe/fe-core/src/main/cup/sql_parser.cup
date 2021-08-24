@@ -10,7 +10,7 @@
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// "AS IS" BASIS, WITHOUT WARRANTIES ORF CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
@@ -263,14 +263,14 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
     KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SET_VAR, KW_SHOW, KW_SIGNED,
     KW_SKEW,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
+    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR;
+    KW_YEAR, KW_SQL_BLOCK_RULE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -351,7 +351,7 @@ nonterminal ArrayList<String> ident_list;
 nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
-nonterminal TableName table_name;
+nonterminal TableName table_name, opt_table_name;
 nonterminal FunctionName function_name;
 nonterminal EncryptKeyName encryptkey_name;
 nonterminal Expr pre_filter_clause;
@@ -415,7 +415,8 @@ nonterminal SetVar option_value, option_value_follow_option_type, option_value_n
 nonterminal List<SetVar> option_value_list, option_value_list_continued, start_option_value_list,
         start_option_value_list_following_option_type, user_property_list;
 
-nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties, opt_enable_feature_properties;
+nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties,
+            opt_ext_properties, opt_enable_feature_properties, properties;
 nonterminal ColumnDef column_definition;
 nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
@@ -827,6 +828,25 @@ alter_stmt ::=
     {:
         RESULT = new AlterRoutineLoadStmt(jobLabel, jobProperties, datasourceProperties);
     :}
+    | KW_ALTER KW_SQL_BLOCK_RULE ident:ruleName
+    opt_properties:properties
+    {:
+        RESULT = new AlterSqlBlockRuleStmt(ruleName, properties);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_SET KW_STATS LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterTableStatsStmt(tbl, map);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_MODIFY KW_COLUMN ident:columnName
+      KW_SET KW_STATS LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterColumnStatsStmt(tbl, columnName, map);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_SET LPAREN key_value_map:properties RPAREN
+    {:
+        ModifyTablePropertiesClause clause = new ModifyTablePropertiesClause(properties);
+        RESULT = new AlterTableStmt(tbl, Lists.newArrayList(clause));
+    :}
     ;
 
 opt_datasource_properties ::=
@@ -981,10 +1001,6 @@ alter_table_clause ::=
     {:
         RESULT = new ReorderColumnsClause(cols, rollup, properties);
     :}
-    | KW_SET LPAREN key_value_map:properties RPAREN
-    {:
-        RESULT = new ModifyTablePropertiesClause(properties);
-    :}
     | KW_ADD opt_tmp:isTempPartition single_partition_desc:desc opt_distribution:distribution opt_properties:properties
     {:
         RESULT = new AddPartitionClause(desc, distribution, properties, isTempPartition);
@@ -1061,9 +1077,9 @@ opt_enable_feature_properties ::=
     {:
     RESULT = null;
     :}
-    | KW_WITH KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    | KW_WITH properties:properties
     {:
-    RESULT = map;
+    RESULT = properties;
     :}
     ;
 
@@ -1253,6 +1269,11 @@ create_stmt ::=
     | KW_CREATE KW_SYNC ident:db DOT ident_or_text:jobName LPAREN channel_desc_list:channelDescList RPAREN binlog_desc:binlog opt_properties:properties
     {:
         RESULT = new CreateDataSyncJobStmt(jobName, db, channelDescList, binlog, properties);
+    :}
+    /* sql_block_rule */
+    | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
+    {:
+        RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
     ;
 
@@ -1955,6 +1976,10 @@ drop_stmt ::=
     {:
         RESULT = new DropEncryptKeyStmt(keyName);
     :}
+    | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
+    {:
+        RESULT = new DropSqlBlockRuleStmt(ruleNames);
+    :}
     ;
 
 // Recover statement
@@ -2257,9 +2282,9 @@ opt_properties ::=
     {:
     RESULT = null;
     :}
-    | KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    | properties:properties
     {:
-    RESULT = map;
+    RESULT = properties;
     :}
     ;
 
@@ -2267,7 +2292,14 @@ opt_ext_properties ::=
     {:
     RESULT = null;
     :}
-    | KW_BROKER KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    | KW_BROKER properties:properties
+    {:
+    RESULT = properties;
+    :}
+    ;
+
+properties ::=
+    KW_PROPERTIES LPAREN key_value_map:map RPAREN
     {:
     RESULT = map;
     :}
@@ -2421,6 +2453,14 @@ show_stmt ::=
     KW_SHOW show_param:stmt
     {:
         RESULT = stmt;
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE KW_FOR ident:ruleName
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(ruleName);
+    :}
+    | KW_SHOW KW_SQL_BLOCK_RULE
+    {:
+        RESULT = new ShowSqlBlockRuleStmt(null);
     :}
     ;
 
@@ -2746,6 +2786,16 @@ show_param ::=
     | KW_SYNC KW_JOB opt_db:dbName
     {:
         RESULT = new ShowSyncJobStmt(dbName);
+    :}
+    /* show table stats */
+    | KW_TABLE KW_STATS opt_table_name:tbl
+    {:
+        RESULT = new ShowTableStatsStmt(tbl);
+    :}
+    /* show column stats */
+    | KW_COLUMN KW_STATS table_name:tbl
+    {:
+        RESULT = new ShowColumnStatsStmt(tbl);
     :}
     ;
 
@@ -3796,6 +3846,16 @@ star_expr ::=
     :}
     ;
 
+opt_table_name ::=
+    {:
+        RESULT = null;
+    :}
+    | table_name:tbl
+    {:
+        RESULT = tbl;
+    :}
+    ;
+
 table_name ::=
     ident:tbl
     {: RESULT = new TableName(null, tbl); :}
@@ -4251,7 +4311,7 @@ type ::=
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_STRING
-  {: RESULT = ScalarType.createVarcharType(-1); :}
+  {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      type.setAssignedStrLenInColDefinition();
@@ -5272,6 +5332,8 @@ keyword ::=
     | KW_START:id
     {: RESULT = id; :}
     | KW_STATUS:id
+    {: RESULT = id; :}
+    | KW_STATS:id
     {: RESULT = id; :}
     | KW_STORAGE:id
     {: RESULT = id; :}

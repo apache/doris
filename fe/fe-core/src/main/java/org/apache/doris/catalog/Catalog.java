@@ -85,6 +85,7 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -208,6 +209,7 @@ import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.statistics.StatisticsManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.Frontend;
@@ -308,6 +310,7 @@ public class Catalog {
     private LoadManager loadManager;
     private StreamLoadRecordMgr streamLoadRecordMgr;
     private RoutineLoadManager routineLoadManager;
+    private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
     private SyncJobManager syncJobManager;
     private Alter alter;
@@ -391,6 +394,7 @@ public class Catalog {
     private DeployManager deployManager;
 
     private TabletStatMgr tabletStatMgr;
+    private StatisticsManager statisticsManager;
 
     private PaloAuth auth;
 
@@ -495,6 +499,7 @@ public class Catalog {
         this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
         this.routineLoadManager = new RoutineLoadManager();
+        this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
@@ -542,7 +547,9 @@ public class Catalog {
         this.resourceMgr = new ResourceMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
+
         this.tabletStatMgr = new TabletStatMgr();
+        this.statisticsManager = new StatisticsManager();
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
@@ -685,6 +692,10 @@ public class Catalog {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentCatalog().getAuditEventProcessor();
+    }
+
+    public StatisticsManager getStatisticsManager() {
+        return statisticsManager;
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1901,6 +1912,14 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_104) {
+            sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
+        }
+        LOG.info("finished replay sqlBlockRule from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
@@ -2171,6 +2190,11 @@ public class Catalog {
 
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
+        return checksum;
+    }
+
+    public long saveSqlBlockRule(DataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
         return checksum;
     }
 
@@ -4864,6 +4888,10 @@ public class Catalog {
         return routineLoadManager;
     }
 
+    public SqlBlockRuleMgr getSqlBlockRuleMgr() {
+        return sqlBlockRuleMgr;
+    }
+
     public RoutineLoadTaskScheduler getRoutineLoadTaskScheduler(){
         return routineLoadTaskScheduler;
     }
@@ -6317,8 +6345,8 @@ public class Catalog {
                 InfoSchemaDb db;
                 // Use real Catalog instance to avoid InfoSchemaDb id continuously increment
                 // when checkpoint thread load image.
-                if (Catalog.getCurrentCatalog().getFullNameToDb().containsKey(dbName)) {
-                    db = (InfoSchemaDb)Catalog.getCurrentCatalog().getFullNameToDb().get(dbName);
+                if (Catalog.getServingCatalog().getFullNameToDb().containsKey(dbName)) {
+                    db = (InfoSchemaDb)Catalog.getServingCatalog().getFullNameToDb().get(dbName);
                 } else {
                     db = new InfoSchemaDb(cluster.getName());
                     db.setClusterName(cluster.getName());

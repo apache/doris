@@ -116,6 +116,8 @@ public class ConnectContext {
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
 
+    private String sqlHash;
+
     public static ConnectContext get() {
         return threadLocalInfo.get();
     }
@@ -187,11 +189,6 @@ public class ConnectContext {
             }
             txnEntry = null;
         }
-    }
-
-    // Just for unit test
-    public void resetSessionVariables() {
-        sessionVariable = VariableMgr.newSessionVariable();
     }
 
     public long getStmtId() {
@@ -417,6 +414,14 @@ public class ConnectContext {
 
     public void setCluster(String clusterName) {
         this.clusterName = clusterName;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
+    }
+
+    public void setSqlHash(String sqlHash) {
+        this.sqlHash = sqlHash;
     }
 
     // kill operation with no protect.

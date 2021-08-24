@@ -353,6 +353,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("split", new Integer(SqlParserSymbols.KW_SPLIT));
         keywordMap.put("start", new Integer(SqlParserSymbols.KW_START));
         keywordMap.put("status", new Integer(SqlParserSymbols.KW_STATUS));
+        keywordMap.put("stats", new Integer(SqlParserSymbols.KW_STATS));
         keywordMap.put("stop", new Integer(SqlParserSymbols.KW_STOP));
         keywordMap.put("storage", new Integer(SqlParserSymbols.KW_STORAGE));
         keywordMap.put("stream", new Integer(SqlParserSymbols.KW_STREAM));
@@ -408,6 +409,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("||", new Integer(SqlParserSymbols.KW_PIPE));
+        keywordMap.put("sql_block_rule", new Integer(SqlParserSymbols.KW_SQL_BLOCK_RULE));
    }
     
   // map from token id to token description

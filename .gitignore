@@ -20,6 +20,8 @@ thirdparty/installed
 core.*
 extension/spark-doris-connector/.classpath
 extension/spark-doris-connector/target
+extension/flink-doris-connector/.classpath
+extension/flink-doris-connector/target
 fe/log
 custom_env.sh
 ut_dir

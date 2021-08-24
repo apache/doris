@@ -56,6 +56,8 @@ IBloomFilterFuncBase* IBloomFilterFuncBase::create_bloom_filter(MemTracker* trac
         return new BloomFilterFunc<TYPE_CHAR, CurrentBloomFilterAdaptor>(tracker);
     case TYPE_VARCHAR:
         return new BloomFilterFunc<TYPE_VARCHAR, CurrentBloomFilterAdaptor>(tracker);
+    case TYPE_STRING:
+        return new BloomFilterFunc<TYPE_STRING, CurrentBloomFilterAdaptor>(tracker); 
     default:
         return nullptr;
     }

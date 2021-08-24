@@ -35,6 +35,9 @@ public class CommonUserProperties implements Writable {
     private long maxConn = 100;
     @SerializedName("maxQueryInstances")
     private long maxQueryInstances = -1;
+    @SerializedName("sqlBlockRules")
+    private String sqlBlockRules = "";
+    private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
         return maxConn;
@@ -42,6 +45,14 @@ public class CommonUserProperties implements Writable {
 
     long getMaxQueryInstances() {
         return maxQueryInstances;
+    }
+
+    String getSqlBlockRules() {
+        return sqlBlockRules;
+    }
+    
+    String[] getSqlBlockRulesSplit() {
+        return sqlBlockRulesSplit;
     }
 
     void setMaxConn(long maxConn) {
@@ -52,9 +63,22 @@ public class CommonUserProperties implements Writable {
         this.maxQueryInstances = maxQueryInstances;
     }
 
+    void setSqlBlockRules(String sqlBlockRules) {
+        this.sqlBlockRules = sqlBlockRules;
+        setSqlBlockRulesSplit(sqlBlockRules);
+    }
+    
+    void setSqlBlockRulesSplit(String sqlBlockRules) {
+        // split
+        this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
+    }
+
     public static CommonUserProperties read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
+        CommonUserProperties commonUserProperties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
+        // trigger split
+        commonUserProperties.setSqlBlockRulesSplit(commonUserProperties.getSqlBlockRules());
+        return commonUserProperties;
     }
 
     @Override

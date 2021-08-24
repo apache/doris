@@ -54,6 +54,7 @@ HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return new (std::nothrow) StringValueSet();
 
     default:
