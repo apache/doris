@@ -337,7 +337,7 @@ bool DateTimeValue::from_time_int64(int64_t value) {
     return true;
 }
 
-char* DateTimeValue::append_date_string(char* to) const {
+char* DateTimeValue::append_date_buffer(char* to) const {
     uint32_t temp;
     // Year
     temp = _year / 100;
@@ -357,7 +357,7 @@ char* DateTimeValue::append_date_string(char* to) const {
     return to;
 }
 
-char* DateTimeValue::append_time_string(char* to) const {
+char* DateTimeValue::append_time_buffer(char* to) const {
     if (_neg) {
         *to++ = '-';
     }
@@ -392,42 +392,38 @@ char* DateTimeValue::append_time_string(char* to) const {
     return to;
 }
 
-char* DateTimeValue::to_datetime_string(char* to) const {
-    to = append_date_string(to);
+char* DateTimeValue::to_datetime_buffer(char* to) const {
+    to = append_date_buffer(to);
     *to++ = ' ';
-    to = append_time_string(to);
-    *to++ = '\0';
-    return to;
+    return append_time_buffer(to);
 }
 
-char* DateTimeValue::to_date_string(char* to) const {
-    to = append_date_string(to);
-    *to++ = '\0';
-    return to;
+char* DateTimeValue::to_date_buffer(char* to) const {
+    return append_date_buffer(to);
 }
 
-char* DateTimeValue::to_time_string(char* to) const {
-    to = append_time_string(to);
-    *to++ = '\0';
-    return to;
+char* DateTimeValue::to_time_buffer(char* to) const {
+    return append_time_buffer(to);
+}
+
+int32_t DateTimeValue::to_buffer(char* buffer) const {
+    switch (_type) {
+        case TIME_TIME:
+            return to_time_buffer(buffer) - buffer;
+        case TIME_DATE:
+            return to_date_buffer(buffer) - buffer;
+        case TIME_DATETIME:
+            return to_datetime_buffer(buffer) - buffer;
+        default:
+            break;
+    }
+    return 0;
 }
 
 char* DateTimeValue::to_string(char* to) const {
-    switch (_type) {
-    case TIME_TIME:
-        to = to_time_string(to);
-        break;
-    case TIME_DATE:
-        to = to_date_string(to);
-        break;
-    case TIME_DATETIME:
-        to = to_datetime_string(to);
-        break;
-    default:
-        *to++ = '\0';
-        break;
-    }
-    return to;
+    int len = to_buffer(to);
+    *(to + len) = '\0';
+    return to + len + 1;
 }
 
 int64_t DateTimeValue::to_datetime_int64() const {

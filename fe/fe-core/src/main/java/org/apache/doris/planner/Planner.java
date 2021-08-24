@@ -102,9 +102,7 @@ public class Planner {
                             }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
-                        // TODO output scale
-                        // int outputScale = slotDesc.getColumn().getType().getScale();
-                        int outputScale = 10;
+                        int outputScale = slotDesc.getColumn().getScale();
                         if (outputScale >= 0) {
                             if (outputScale > expr.getOutputScale()) {
                                 expr.setOutputScale(outputScale);

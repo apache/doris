@@ -227,8 +227,8 @@ public:
             case TYPE_DATETIME: {
                 char buf[64];
                 const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                char* pos = time_val->to_string(buf);
-                ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_LARGEINT: {
