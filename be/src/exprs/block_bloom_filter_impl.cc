@@ -164,7 +164,7 @@ void BlockBloomFilter::or_equal_array_internal(size_t n, const uint8_t* __restri
 #ifdef __AVX2__
     BlockBloomFilter::or_equal_array_avx2(n, in, out);
 #else
-    BlockBloomFilter::or_equal_array(n, in, out);
+    BlockBloomFilter::or_equal_array_no_avx2(n, in, out);
 #endif
 }
 
