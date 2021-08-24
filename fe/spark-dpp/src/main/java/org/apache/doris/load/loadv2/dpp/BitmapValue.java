@@ -55,11 +55,11 @@ public class BitmapValue {
 
     public void add(int value) {
         add(Util.toUnsignedLong(value));
-    }//转为Long类型add
+    }
 
     public void add(long value) {
         switch (bitmapType) {
-            case EMPTY: //按照single_value处理
+            case EMPTY:
                 singleValue = value;
                 bitmapType = SINGLE_VALUE;
                 break;
@@ -223,98 +223,6 @@ public class BitmapValue {
                 break;
         }
     }
-
-    public void remove(long value){
-        switch (this.bitmapType){
-            case EMPTY:
-                break;
-            case SINGLE_VALUE:
-                if(this.singleValue == value) {
-                    clear();
-                }
-                break;
-            case BITMAP_VALUE:
-                this.bitmap.removeLong(value);
-                convertToSmallerType();
-                break;
-        }
-    }
-
-    public void not(BitmapValue other) {
-        switch (other.bitmapType) {
-            case EMPTY:
-                break;
-            case SINGLE_VALUE:
-                remove(other.singleValue);
-                break;
-            case BITMAP_VALUE:
-                switch (this.bitmapType) {
-                    case EMPTY:
-                        break;
-                    case SINGLE_VALUE:
-                        if(other.bitmap.contains(this.singleValue)){
-                            clear();
-                        }
-                        break;
-                    case BITMAP_VALUE:
-                        this.bitmap.andNot(other.bitmap);
-                        convertToSmallerType();
-                        break;
-                }
-                break;
-        }
-    }
-
-    public void xor(BitmapValue other) {
-        switch (other.bitmapType) {
-            case EMPTY:
-                break;
-            case SINGLE_VALUE:
-                switch (this.bitmapType){
-                    case EMPTY:
-                        add(other.singleValue);
-                        break;
-                    case SINGLE_VALUE:
-                        if(this.singleValue != other.singleValue){
-                            add(other.singleValue);
-                        }else{
-                            clear();
-                        }
-                        break;
-                    case BITMAP_VALUE:
-                        if(!this.bitmap.contains(other.singleValue)){
-                            this.bitmap.add(other.singleValue);
-                        }else{
-                            this.bitmap.removeLong(other.singleValue);
-                            convertToSmallerType();
-                        }
-                        break;
-                }
-                break;
-            case BITMAP_VALUE:
-                switch (this.bitmapType) {
-                    case EMPTY:
-                        this.bitmap = other.bitmap;
-                        this.bitmapType = BITMAP_VALUE;
-                        break;
-                    case SINGLE_VALUE:
-                        this.bitmap = other.bitmap;
-                        this.bitmapType = BITMAP_VALUE;
-                        if(this.bitmap.contains(this.singleValue)){
-                            this.bitmap.removeLong(this.singleValue);
-                        }else{
-                            this.bitmap.add(this.bitmapType);
-                        }
-                        break;
-                    case BITMAP_VALUE:
-                        this.bitmap.xor(other.bitmap);
-                        convertToSmallerType();
-                        break;
-                }
-                break;
-        }
-    }
-
 
     public boolean equals(BitmapValue other) {
         boolean ret = false;
