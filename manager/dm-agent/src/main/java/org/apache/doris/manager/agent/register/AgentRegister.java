@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.register;
 
 import org.apache.doris.manager.common.domain.RResult;
@@ -31,9 +32,9 @@ public class AgentRegister extends BaseRequest {
         map.put("port", AgentContext.getAgentPort());
 
         RResult res = null;
-        try{
+        try {
             res = sendRequest(requestUrl, map);
-        }catch (Exception ex){
+        } catch (Exception ex) {
             return false;
         }
         if (res.getCode() == 0) {

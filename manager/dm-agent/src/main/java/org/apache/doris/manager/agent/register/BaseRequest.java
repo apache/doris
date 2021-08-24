@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.register;
 
 import com.alibaba.fastjson.JSON;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -25,24 +27,22 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Map;
 
+@Slf4j
 public class BaseRequest {
-
-    private static final Logger log = LoggerFactory.getLogger(BaseRequest.class);
 
     public static RResult sendRequest(String requestUrl, Map<String, Object> params) {
         CloseableHttpClient httpclient = HttpClients.createDefault();
         HttpPost httpPost = new HttpPost(requestUrl);
 
-        RequestConfig requestConfig = RequestConfig.custom().
-                setConnectTimeout(5000).
-                setConnectionRequestTimeout(5000)
-                .setSocketTimeout(5000).build();
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000)
+                .setConnectionRequestTimeout(5000)
+                .setSocketTimeout(5000)
+                .build();
         httpPost.setConfig(requestConfig);
 
         httpPost.setEntity(new StringEntity(JSON.toJSONString(params), "utf-8"));
@@ -55,7 +55,7 @@ public class BaseRequest {
             response = httpclient.execute(httpPost);
             result = EntityUtils.toString(response.getEntity());
         } catch (IOException e) {
-            log.error("request url error:{},param:{}",requestUrl,params,e);
+            log.error("request url error:{},param:{}", requestUrl, params, e);
             throw new RuntimeException(e);
         }
 

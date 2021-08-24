@@ -14,22 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
 
 public class TaskContext {
-    private static final LRU<String, Task> taskLRU = new LRU<>(AgentConstants.COMMAND_HISTORY_SAVE_MAX_COUNT);
+    private static final LRU<String, Task> TAST_LRU = new LRU<>(AgentConstants.COMMAND_HISTORY_SAVE_MAX_COUNT);
 
     public static synchronized void register(Task task) {
-        taskLRU.put(task.getTaskId(), task);
+        TAST_LRU.put(task.getTaskId(), task);
     }
 
     public static synchronized void unregister(Task task) {
-        taskLRU.remove(task.getTaskId());
+        TAST_LRU.remove(task.getTaskId());
     }
 
     public static synchronized Task getTaskByTaskId(String taskId) {
-        return taskLRU.get(taskId);
+        return TAST_LRU.get(taskId);
     }
 }

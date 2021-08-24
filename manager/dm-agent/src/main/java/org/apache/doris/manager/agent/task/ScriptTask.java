@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 import java.io.BufferedReader;
@@ -36,7 +37,6 @@ public class ScriptTask extends Task<ScriptTaskDesc> {
             Process proc = rt.exec(taskDesc.getScriptCmd());
             BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
             BufferedReader stdError = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
-
 
             String s = null;
             while ((s = stdInput.readLine()) != null) {

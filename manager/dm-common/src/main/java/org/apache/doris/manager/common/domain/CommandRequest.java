@@ -14,10 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.common.domain;
 
 public class CommandRequest {
     private String commandType;
+
     private String body;
 
     public String getCommandType() {

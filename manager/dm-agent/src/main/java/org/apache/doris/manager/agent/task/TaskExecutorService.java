@@ -14,13 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class TaskExecutorService {
-    private static final ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
+    private static ExecutorService singleThreadExecutor = Executors.newSingleThreadExecutor();
 
     public static ExecutorService getSingleThreadExecutor() {
         return singleThreadExecutor;

@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.register.AgentContext;
@@ -24,7 +25,6 @@ import org.apache.doris.manager.agent.task.ScriptTaskDesc;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.common.domain.CommandType;
-
 
 public class BeStopCommand extends BeCommand {
     @Override

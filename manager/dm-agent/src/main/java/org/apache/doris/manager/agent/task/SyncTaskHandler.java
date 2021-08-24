@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 public class SyncTaskHandler extends TaskHandler {
@@ -22,4 +23,5 @@ public class SyncTaskHandler extends TaskHandler {
     public void doHandle(Task task) {
         task.executeTask();
     }
+
 }

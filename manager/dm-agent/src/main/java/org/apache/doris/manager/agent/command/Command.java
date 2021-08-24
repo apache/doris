@@ -14,18 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.common.domain.CommandType;
 
-
 public abstract class Command {
     private Task task;
     private ITaskHandlerFactory handlerFactory;
     protected CommandType commandType;
-
 
     public Command setup() {
         task = setupTask();

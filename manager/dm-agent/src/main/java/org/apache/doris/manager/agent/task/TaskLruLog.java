@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.task;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
@@ -28,7 +29,6 @@ public class TaskLruLog implements ITaskLog {
 
     private int currentStdPage = 0;
     private int currentErrPage = 0;
-
 
     public TaskLruLog() {
         this(AgentConstants.TASK_LOG_ROW_MAX_COUNT, AgentConstants.TASK_LOG_ROW_MAX_COUNT);

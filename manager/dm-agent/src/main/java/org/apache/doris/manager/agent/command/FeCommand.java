@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.exception.AgentException;
@@ -26,8 +27,8 @@ import java.util.Objects;
 public abstract class FeCommand extends ListenerCommand {
     @Override
     public void beforeExecute(CommandType commandType) {
-        if (Objects.isNull(AgentContext.getServiceInstallDir()) || Objects.isNull(AgentContext.getRole()) ||
-                AgentContext.getRole() != Role.FE) {
+        if (Objects.isNull(AgentContext.getServiceInstallDir()) || Objects.isNull(AgentContext.getRole())
+                || AgentContext.getRole() != Role.FE) {
             throw new AgentException("service fe not installed");
         }
     }
