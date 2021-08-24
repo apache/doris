@@ -89,8 +89,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_LARGEINT: {
-        auto string_value = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value);
-        buf_ret = _row_buffer->push_string(string_value.data(), string_value.size());
+        buf_ret = _row_buffer->push_largeint(reinterpret_cast<const PackedInt128*>(item)->value);
         break;
     }
 
@@ -103,19 +102,13 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_TIME: {
-        double time = *static_cast<double*>(item);
-        std::string time_str = time_str_from_double(time);
-        buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+        buf_ret = _row_buffer->push_time(*static_cast<double*>(item));
         break;
     }
 
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        char buf[64];
-        const DateTimeValue* time_val = (const DateTimeValue*)(item);
-        // TODO(zhaochun), this function has core risk
-        char* pos = time_val->to_string(buf);
-        buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
+        buf_ret = _row_buffer->push_datetime(*static_cast<DateTimeValue*>(item));
         break;
     }
 
@@ -147,16 +140,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-        std::string decimal_str;
         int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-
-        if (output_scale > 0 && output_scale <= 30) {
-            decimal_str = decimal_val.to_string(output_scale);
-        } else {
-            decimal_str = decimal_val.to_string();
-        }
-
-        buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
+        buf_ret = _row_buffer->push_decimal(decimal_val, output_scale);
         break;
     }
 
