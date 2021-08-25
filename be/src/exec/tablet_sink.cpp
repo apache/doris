@@ -342,7 +342,7 @@ void NodeChannel::cancel() {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPool>& thread_pool) {
+int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
@@ -350,13 +350,11 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPool>& thread_p
     bool is_finished = true;
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
             _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
-        if (!thread_pool || !thread_pool->submit_func([this]() {
-            this->try_send_batch();
-        }).ok()) {
-            try_send_batch();
+        auto s = thread_pool_token->submit_func(std::bind(&NodeChannel::try_send_batch, this));
+        if (!s.ok()) {
+            _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
         }
     }
-
     return _send_finished ? 0 : 1;
 }
 
@@ -687,7 +685,9 @@ Status OlapTableSink::open(RuntimeState* state) {
             return Status::InternalError(ss.str());
         }
     }
-
+    int32_t send_batch_parallelism = MIN(_send_batch_parallelism, config::max_send_batch_parallelism);
+    _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
+            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
             "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
             &_sender_thread));
@@ -1016,27 +1016,11 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
 
 void OlapTableSink::_send_batch_process() {
     SCOPED_TIMER(_non_blocking_send_timer);
-    std::unique_ptr<ThreadPool> thread_pool = nullptr;
-    int32_t send_batch_parallelism = MIN(_send_batch_parallelism, config::max_send_batch_parallelism);
-    if (send_batch_parallelism > 1) {
-        int send_batch_pool_queue_size = 0;
-        for (auto index_channel : _channels) {
-            send_batch_pool_queue_size += index_channel->num_node_channels();
-        }
-        auto s = ThreadPoolBuilder("SendBatchThreadPool")
-                .set_min_threads(send_batch_parallelism)
-                .set_max_threads(send_batch_parallelism)
-                .set_max_queue_size(send_batch_pool_queue_size)
-                .build(&thread_pool);
-        if (!s.ok()) {
-            thread_pool.reset();
-        }
-    }
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, &thread_pool](NodeChannel* ch) {
-                running_channels_num += ch->try_send_and_fetch_status(thread_pool);
+            index_channel->for_each_node_channel([&running_channels_num, this](NodeChannel* ch) {
+                running_channels_num += ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
             });
         }
 

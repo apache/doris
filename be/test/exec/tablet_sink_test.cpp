@@ -54,7 +54,11 @@ public:
         _env->_load_stream_mgr = new LoadStreamMgr();
         _env->_brpc_stub_cache = new BrpcStubCache();
         _env->_buffer_reservation = new ReservationTracker();
-
+        ThreadPoolBuilder("SendBatchThreadPool")
+                .set_min_threads(1)
+                .set_max_threads(5)
+                .set_max_queue_size(100)
+                .build(&_env->_send_batch_thread_pool);
         config::tablet_writer_open_rpc_timeout_sec = 60;
     }
 

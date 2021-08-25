@@ -142,8 +142,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
-    public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
-
     // set the default parallelism for send batch when execute InsertStmt operation,
     // if the value for parallelism exceed `max_send_batch_parallelism` in BE config,
     // then the coordinator be will use the value of `max_send_batch_parallelism`

@@ -627,6 +627,11 @@ CONF_mBool(runtime_filter_use_async_rpc, "true");
 CONF_mInt32(max_send_batch_parallelism, "1");
 CONF_Validator(max_send_batch_parallelism, [](const int config) -> bool { return config >= 1; });
 
+// number of send batch thread pool size
+CONF_Int32(doris_send_batch_thread_pool_thread_num, "256");
+// number of send batch thread pool queue size
+CONF_Int32(doris_send_batch_thread_pool_queue_size, "102400");
+
 } // namespace config
 
 } // namespace doris

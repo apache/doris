@@ -45,6 +45,7 @@ class MemTracker;
 class RuntimeProfile;
 class RowDescriptor;
 class ThreadPool;
+class ThreadPoolToken;
 class Tuple;
 class TupleDescriptor;
 class ExprContext;
@@ -170,7 +171,7 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(std::unique_ptr<ThreadPool>& thread_pool);
+    int try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
     void try_send_batch();
 
@@ -379,6 +380,7 @@ private:
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _sender_thread;
+    std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
     std::vector<DecimalV2Value> _max_decimalv2_val;
     std::vector<DecimalV2Value> _min_decimalv2_val;

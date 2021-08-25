@@ -67,6 +67,8 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "query"}}));
 
@@ -100,6 +102,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_limited_scan_thread_pool);    
 
+    ThreadPoolBuilder("SendBatchThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::doris_send_batch_thread_pool_thread_num)
+            .set_max_queue_size(config::doris_send_batch_thread_pool_queue_size)
+            .build(&_send_batch_thread_pool);
+    
     _etl_thread_pool = new PriorityThreadPool(config::etl_thread_pool_size,
                                               config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
@@ -246,11 +254,21 @@ void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(etl_thread_pool_queue_size, [this]() {
         return _etl_thread_pool->get_queue_size();
     });
+
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num, [this]() {
+        return _send_batch_thread_pool->num_threads();
+    });
+
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size, [this]() {
+        return _send_batch_thread_pool->get_queue_size();
+    });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(etl_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
 }
 
 void ExecEnv::_destroy() {
