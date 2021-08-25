@@ -128,6 +128,12 @@ FE 同理。
 
 BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的服务默认绑定在 0.0.0.0 上。只需在 ADD BROKER 时，执行正确可访问的 BROKER IP 即可。
 
+#### 表名大小写敏感性设置
+
+doris默认为表名大小写敏感，如有表名大小写不敏感的需求需在集群初始化时进行设置。表名大小写敏感性在集群初始化完成后不可再修改。
+
+详细参见 [变量](../administrator-guide/variables.md##支持的变量) 中关于`lower_case_table_names`变量的介绍。
+
 ## 集群部署
 
 ### 手动部署
