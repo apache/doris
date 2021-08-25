@@ -44,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -74,12 +75,15 @@ public class FunctionCallExpr extends Expr {
                     .add("stddev").add("stddev_val").add("stddev_samp")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
-    
+    //extra_mark use to represents parse parameter about json_array json_object
+    private String extra_mark = "";
+    //use to record the num of json_object parameters 
+    private int originChildNum;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
-
+    
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -125,6 +129,7 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = isMergeAggFn;
         if (params.exprs() != null) {
             children.addAll(params.exprs());
+            originChildNum = children.size();
         }
     }
 
@@ -160,6 +165,29 @@ public class FunctionCallExpr extends Expr {
         }
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
+    }
+
+    public void dealJsonTypeFun() {
+        String res = "";
+        extra_mark = extra_mark + "#";
+        for (int i = 0; i < children.size(); ++i) {
+            Type type = getChild(i).getType();
+            if (type.isNull()) {    //Not to return NULL directly, so save string, but flag is '0'
+                children.set(i, new StringLiteral("NULL"));
+                res = res + "0";
+            } else if (type.isBoolean()) {
+                res = res + "1";
+            } else if (type.isNumericType()) {
+                res = res + "2";
+            } else if (type.isTime()) {
+                res = res + "3";
+            } else {
+                res = res + "4";
+            }
+        }
+        res = res + extra_mark;
+        children.add(new StringLiteral(res));
+        LOG.info(res + " sql: " + this.toSql());
     }
 
     public boolean isMergeAggFn() {
@@ -209,8 +237,17 @@ public class FunctionCallExpr extends Expr {
         }
         if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
             sb.append("DISTINCT ");
+        }  
+        int len = children.size();
+        List<String> result = Lists.newArrayList();
+        if ((fnName.getFunction().equalsIgnoreCase("json_array")) ||
+            (fnName.getFunction().equalsIgnoreCase("json_object"))) {
+            len = len - 1;
         }
-        sb.append(Joiner.on(", ").join(expr.childrenToSql())).append(")");
+        for (int i = 0; i < len; ++i) {
+            result.add(children.get(i).toSql());
+        }
+        sb.append(Joiner.on(", ").join(result)).append(")");
         return sb.toString();
     }
 
@@ -320,6 +357,48 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
+            return;
+        }
+        
+        if(fnName.getFunction().equalsIgnoreCase("json_array")) {
+            if (children.isEmpty()) {
+                throw new AnalysisException(
+                        "json_array is empty, need more parameters: " + this.toSql());
+            }
+            dealJsonTypeFun();
+            return;
+        }
+
+        if(fnName.getFunction().equalsIgnoreCase("json_object")) {
+            if (children.isEmpty()) {
+                throw new AnalysisException("json_object is empty, need more parameters: " + this.toSql());
+            }
+            if ((children.size()&1)==1 && (originChildNum == children.size())) {
+                throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
+            }
+            String res = "";
+            extra_mark = extra_mark + "#";
+            for (int i = 0; i < children.size(); ++i) {
+                Type type = getChild(i).getType();
+                if (type.isNull()) {
+                    if((i&1)==0){
+                        throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
+                    }
+                    children.set(i, new StringLiteral("NULL"));
+                    res = res + "0";
+                } else if (type.isBoolean()) {
+                    res = res + "1";
+                } else if (type.isNumericType()) {
+                    res = res + "2";
+                } else if (type.isTime()) {
+                    res = res + "3";
+                } else {
+                    res = res + "4";
+                }
+            }
+            res = res + extra_mark;
+            children.add(new StringLiteral(res));
+            LOG.info(res + " sql: " + this.toSql());
             return;
         }
 
@@ -510,6 +589,7 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
+
     }
 
     // Provide better error message for some aggregate builtins. These can be

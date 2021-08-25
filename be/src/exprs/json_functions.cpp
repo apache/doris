@@ -107,6 +107,82 @@ DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringV
         return DoubleVal::null();
     }
 }
+StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
+                                    const StringVal* json_str) {
+    if (json_str->is_null) {
+        return StringVal::null();
+    }
+    int num = num_args - 1;
+    std::string s1((char*)json_str[num].ptr, json_str[num].len);
+    std::string s2((char*)json_str[num - 1].ptr, json_str[num - 1].len);
+    if ((s1[s1.length() - 1] == '#' && s1[s1.length() - 2] == '#') ||
+        (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#')) {
+        num = num - 1;
+    }
+    //flag: The number it contains represents the type of previous parameters
+    std::string flag((char*)json_str[num].ptr, json_str[num].len);
+    std::string res = "";
+    LOG(INFO) << "json_array " + flag << " num: " << std::to_string(num_args);
+    for (int i = 0; i < num; ++i) {
+        std::string arg((char*)json_str[i].ptr, json_str[i].len);
+        parse_str_with_flag(res, arg, flag, i);
+    }
+    res = "[" + res.substr(0, res.length() - 2) + "]"; // pop the last ", "
+    return AnyValUtil::from_buffer_temp(context, res.c_str(), res.size());
+}
+
+StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
+                                     const StringVal* json_str) {
+    if (json_str->is_null) {
+        return StringVal::null();
+    }
+    int num = num_args - 1;
+    std::string s1((char*)json_str[num].ptr, json_str[num].len);
+    std::string s2((char*)json_str[num - 1].ptr, json_str[num - 1].len);
+    if (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#' &&
+               s2[s2.length() - 2] == '#') {
+        num = num - 2;
+    }else if ((s1[s1.length() - 1] == '#' && s1[s1.length() - 2] == '#') ||
+        (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#')) {
+        num = num - 1;
+    }  
+    std::string flag((char*)json_str[num].ptr, json_str[num].len);
+    std::string res = "";
+    for (int i = 0; i < num && flag[i] != '#'; ++i) {
+        std::string arg((char*)json_str[i].ptr, json_str[i].len);
+        if (!(i & 1)) {
+            res = res + "\"" + arg + "\": "; // "key:"
+            continue;
+        }
+        parse_str_with_flag(res, arg, flag, i);
+    }
+    res = "{" + res.substr(0, res.length() - 2) + "}";
+    return AnyValUtil::from_buffer_temp(context, res.c_str(), res.size());
+}
+
+void JsonFunctions::parse_str_with_flag(std::string& result, const std::string& arg,
+                                        const std::string& flag, int num) {
+    if (flag[num] == '1') {
+        result = result + ((arg == "1") ? "TRUE, " : "FALSE, "); // deal with true or false
+    } else if (flag[num] == '4') {
+        result = result + "\"" + arg + "\", "; // str--> "str"
+    } else if (flag[num] == '3') {
+        result = result + "\"" + arg.substr(1, arg.length() - 2) + "\", "; // 'time'  -->"time"
+    } else {
+        result = result + arg + ", ";
+    }
+}
+StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& json_str) {
+    if (json_str.is_null) {
+        return StringVal::null();
+    }
+    std::string json_string((char*)json_str.ptr, json_str.len);
+    for (size_t i = 0; i < json_string.length(); ++i) {
+        if (json_string[i] == '\"') json_string.insert(i++, "\\");
+    }
+    json_string = '\"' + json_string + '\"';
+    return AnyValUtil::from_buffer_temp(context, json_string.c_str(), json_string.size());
+}
 
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
                                              rapidjson::Value* document,
