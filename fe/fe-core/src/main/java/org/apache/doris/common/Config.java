@@ -1349,4 +1349,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_access_file_without_broker = false;
+
+    /**
+     * This config is to solve the mismatch between the Doris function and the third-party data function.
+     * If set to true, Enable the external database function pushdown function.
+     */
+    @ConfField(mutable = true)
+    public static boolean enable_external_database_function_push_down = true;
 }

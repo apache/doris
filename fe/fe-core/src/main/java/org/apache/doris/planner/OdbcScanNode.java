@@ -20,12 +20,12 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TOdbcScanNode;
@@ -49,19 +49,6 @@ import java.util.List;
  */
 public class OdbcScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OdbcScanNode.class);
-
-    // Now some database have different function call like doris, now doris do not
-    // push down the function call except MYSQL
-    private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
-        if (!tableType.equals(TOdbcTableType.MYSQL)) {
-            List<FunctionCallExpr> fnExprList = Lists.newArrayList();
-            expr.collect(FunctionCallExpr.class, fnExprList);
-            if (!fnExprList.isEmpty()) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
@@ -156,7 +143,6 @@ public class OdbcScanNode extends ScanNode {
     private void createOdbcFilters(Analyzer analyzer) {
         if (conjuncts.isEmpty()) {
             return;
-
         }
         List<SlotRef> slotRefs = Lists.newArrayList();
         Expr.collectList(conjuncts, SlotRef.class, slotRefs);
@@ -169,7 +155,8 @@ public class OdbcScanNode extends ScanNode {
         }
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
-            if (shouldPushDownConjunct(odbcType, p)) {
+            if (Config.enable_external_database_function_push_down) {
+                FunctionMappingHelper.mappingEngineFunction(p, odbcType.name().toLowerCase());
                 String filter = p.toMySql();
                 filters.add(filter);
                 conjuncts.remove(p);

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMySQLScanNode;
@@ -118,7 +119,6 @@ public class MysqlScanNode extends ScanNode {
     private void createMySQLFilters(Analyzer analyzer) {
         if (conjuncts.isEmpty()) {
             return;
-
         }
         List<SlotRef> slotRefs = Lists.newArrayList();
         Expr.collectList(conjuncts, SlotRef.class, slotRefs);
@@ -131,7 +131,11 @@ public class MysqlScanNode extends ScanNode {
         }
         ArrayList<Expr> mysqlConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : mysqlConjuncts) {
-            filters.add(p.toMySql());
+            if (Config.enable_external_database_function_push_down) {
+                FunctionMappingHelper.mappingEngineFunction(p, "mysql");
+                filters.add(p.toMySql());
+                conjuncts.remove(p);
+            }
         }
     }
 
