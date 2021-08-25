@@ -154,7 +154,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **labelPrefix**
 
-  - 描述：每批次导入任务的 label 前缀。最终的 label 将有 `labelPrefix + UUID + 序号` 组成
+  - 描述：每批次导入任务的 label 前缀。最终的 label 将由 `labelPrefix + UUID + 序号` 组成
   - 必选：否
   - 默认值：`datax_doris_writer_`
 
@@ -166,7 +166,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   
 * **format**
 
-  - 描述：导入数据的格式, 可以使是json或者csv。
+  - 描述：导入数据的格式, 可以是json或者csv。
   - 必选：否
   - 默认值：`json`
   
