@@ -83,8 +83,15 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
-    public static LongCounterMetric COUNTER_IMAGE_WRITE;
-    public static LongCounterMetric COUNTER_IMAGE_PUSH;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
+    public static LongCounterMetric COUNTER_IMAGE_PUSH_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_PUSH_FAILED;
+    public static LongCounterMetric COUNTER_IMAGE_CLEAN_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_CLEAN_FAILED;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
+
     public static LongCounterMetric COUNTER_TXN_REJECT;
     public static LongCounterMetric COUNTER_TXN_BEGIN;
     public static LongCounterMetric COUNTER_TXN_FAILED;
@@ -279,11 +286,37 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
         COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", MetricUnit.BYTES, "size of edit log");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
-        COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image generated");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
-        COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
-                "counter of image succeeded in pushing to other frontends");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
+
+        // image generate
+        COUNTER_IMAGE_WRITE_SUCCESS = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image succeed in write");
+        COUNTER_IMAGE_WRITE_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_SUCCESS);
+        COUNTER_IMAGE_WRITE_FAILED = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image failed to write");
+        COUNTER_IMAGE_WRITE_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_FAILED);
+
+        COUNTER_IMAGE_PUSH_SUCCESS = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image succeeded in pushing to other frontends");
+        COUNTER_IMAGE_PUSH_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_SUCCESS);
+        COUNTER_IMAGE_PUSH_FAILED = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image failed to other frontends");
+        COUNTER_IMAGE_PUSH_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_FAILED);
+
+        // image clean
+        COUNTER_IMAGE_CLEAN_SUCCESS = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image succeeded in cleaning");
+        COUNTER_IMAGE_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_SUCCESS);
+        COUNTER_IMAGE_CLEAN_FAILED = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image failed to clean");
+        COUNTER_IMAGE_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_FAILED);
+
+        // edit log clean
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log succeed in cleaning");
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
+        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log failed to clean");
+        COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
         COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS, "counter of rejected transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_REJECT);
