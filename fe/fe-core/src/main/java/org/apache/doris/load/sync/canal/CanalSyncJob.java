@@ -232,11 +232,7 @@ public class CanalSyncJob extends SyncJob {
             return;
         }
         if (client != null) {
-            if (jobState == JobState.CANCELLED) {
-                client.shutdown(true);
-            } else {
-                client.shutdown(false);
-            }
+            client.shutdown(true);
         }
         updateState(jobState, false);
         LOG.info("client has been stopped. id: {}, jobName: {}" , id, jobName);

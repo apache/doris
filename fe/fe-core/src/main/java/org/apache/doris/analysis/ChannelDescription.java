@@ -121,7 +121,7 @@ public class ChannelDescription implements Writable {
         }
     }
 
-    private void setChannelId(long channelId) {
+    public void setChannelId(long channelId) {
         this.channelId = channelId;
     }
 

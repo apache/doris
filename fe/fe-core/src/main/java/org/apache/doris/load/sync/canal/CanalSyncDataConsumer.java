@@ -265,7 +265,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         }
 
         int startIndex = 0;
-        // if last ack position is null, it is the first time to consume batch (startOffset = 0)
+        // if last ack position is null, it is the first time to consume batch
         EntryPosition lastAckPosition = positionMeta.getAckPosition();
         if (lastAckPosition != null) {
             EntryPosition firstPosition = EntryPosition.createPosition(entries.get(0));
@@ -308,13 +308,17 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
         EntryPosition startPosition = dataEvents.getPositionRange().getStart();
         EntryPosition endPosition = dataEvents.getPositionRange().getEnd();
         for (CanalSyncChannel channel : idToChannels.values()) {
+            String key = CanalUtils.getFullName(channel.getSrcDataBase(), channel.getSrcTable());
+            // if last commit position is null, it is the first time to execute batch
             EntryPosition commitPosition = positionMeta.getCommitPosition(channel.getId());
-            String key = channel.getSrcDataBase() + "." + channel.getSrcTable();
-            if (commitPosition.compareTo(startPosition) < 0) {
+            if (commitPosition != null) {
+                if (commitPosition.compareTo(startPosition) < 0) {
+                    preferChannels.put(key, channel);
+                } else if (commitPosition.compareTo(endPosition) < 0) {
+                    secondaryChannels.put(key, channel);
+                }
+            } else {
                 preferChannels.put(key, channel);
-            }
-            else if (commitPosition.compareTo(endPosition) < 0) {
-                secondaryChannels.put(key, channel);
             }
         }
 

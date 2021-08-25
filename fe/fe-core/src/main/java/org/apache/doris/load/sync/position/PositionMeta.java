@@ -76,7 +76,7 @@ public class PositionMeta<T> {
     }
 
     public T getLatestPosition() {
-        if (batches.isEmpty()) {
+        if (!batches.containsKey(maxBatchId)) {
             return null;
         } else {
             return batches.get(maxBatchId).getEnd();
