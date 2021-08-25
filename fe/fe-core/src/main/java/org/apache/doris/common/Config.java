@@ -1477,4 +1477,7 @@ public class Config extends ConfigBase {
     
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int table_name_length_limit = 64;
 }
