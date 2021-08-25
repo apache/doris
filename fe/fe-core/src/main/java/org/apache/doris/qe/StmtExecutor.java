@@ -1258,9 +1258,10 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 2 cases
+            // 1. transaction aborted for no data inserted into table, or
+            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 3 cases
 
             String message = "";
             if (txnStatus == TransactionStatus.ABORTED) {
