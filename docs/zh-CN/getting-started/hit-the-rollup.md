@@ -117,12 +117,14 @@ Rollup：一般指基于 Base 表创建的 Rollup 表，但在一些场景包括
 +---------------+-------+--------------+------+-------+---------+-------+
 ```
 
-三张表的前缀索引分别为
+这五张表的前缀索引分别为
 
 ```
 Base(k1 ,k2, k3, k4, k5, k6, k7)
 
-rollup_index1(k9)，rollup_index2(k9)
+rollup_index1(k9)
+
+rollup_index2(k9)
 
 rollup_index3(k4, k5, k6, k1, k2, k3, k7)
 
