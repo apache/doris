@@ -466,24 +466,40 @@ public class BitmapValueTest {
     @Test
     public void testBitmapOrDeepCopy(){
         // this test is added for issue #6452
-        // baseIndex bitmap == Roaring64Map
+        // baseIndex bitmap type == Roaring64Map
         BitmapValue baseIndex1 = new BitmapValue();
         baseIndex1.add(1L);
         baseIndex1.add(2L);
-        //rollupIndex bitmap == Roaring64Map
+        //rollupIndex bitmap type == Roaring64Map
         BitmapValue rollup1 = new BitmapValue();
         rollup1.add(3L);
         rollup1.add(4L);
         Assert.assertTrue(rollup1.getBitmapType() == BitmapValue.BITMAP_VALUE);
-        BitmapValue merge = new BitmapValue();
+        BitmapValue bitmapValMerge = new BitmapValue();
         // or operator is supposed to deep copy Roaring64Map object
-        merge.or(baseIndex1);
-        merge.or(rollup1);
-        Assert.assertTrue(merge.getBitmapType() == BitmapValue.BITMAP_VALUE);
+        bitmapValMerge.or(baseIndex1);
+        bitmapValMerge.or(rollup1);
+        Assert.assertTrue(bitmapValMerge.getBitmapType() == BitmapValue.BITMAP_VALUE);
 
         Assert.assertTrue(baseIndex1.cardinality() == 2L);
         Assert.assertTrue(rollup1.cardinality() == 2L);
-        Assert.assertTrue(merge.cardinality() == 4L);
+        Assert.assertTrue(bitmapValMerge.cardinality() == 4L);
+
+        //rollupIndex bitmap type == SINGLE_VALUE
+        BitmapValue rollup2 = new BitmapValue();
+        rollup2.add(5L);
+
+        BitmapValue singleValMerge = new BitmapValue();
+        singleValMerge.or(rollup2);
+        Assert.assertTrue(singleValMerge.getBitmapType() == BitmapValue.SINGLE_VALUE);
+        singleValMerge.or(baseIndex1);
+        // update merged bitmap and check whether the original bitmap changed
+        singleValMerge.add(6L);
+        singleValMerge.add(7L);
+        Assert.assertTrue(singleValMerge.cardinality() == 5L);
+        Assert.assertTrue(baseIndex1.cardinality() == 2L);
+        Assert.assertTrue(rollup2.cardinality() == 1L);
+
     }
 
     @Test
