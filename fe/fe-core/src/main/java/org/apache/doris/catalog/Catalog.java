@@ -164,9 +164,9 @@ import org.apache.doris.load.loadv2.LoadTimeoutChecker;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.load.routineload.RoutineLoadScheduler;
 import org.apache.doris.load.routineload.RoutineLoadTaskScheduler;
-import org.apache.doris.load.update.UpdateManager;
 import org.apache.doris.load.sync.SyncChecker;
 import org.apache.doris.load.sync.SyncJobManager;
+import org.apache.doris.load.update.UpdateManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.master.PartitionInMemoryInfoCollector;
@@ -205,6 +205,7 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
@@ -231,6 +232,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -1219,6 +1221,8 @@ public class Catalog {
             Preconditions.checkNotNull(self);
             // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
             editLog.logAddFirstFrontend(self);
+
+            initLowerCaseTableNames();
         }
 
         if (!isDefaultClusterCreated) {
@@ -1247,6 +1251,8 @@ public class Catalog {
 
         canRead.set(true);
         isReady.set(true);
+
+        checkLowerCaseTableNames();
 
         String msg = "master finished to replay journal, can write now.";
         Util.stdoutWithTime(msg);
@@ -1381,9 +1387,47 @@ public class Catalog {
         // 'isReady' will be set to true in 'setCanRead()' method
         fixBugAfterMetadataReplayed(true);
 
+        checkLowerCaseTableNames();
+
         startNonMasterDaemonThreads();
 
         MetricRepo.init();
+    }
+
+    // Set global variable 'lower_case_table_names' only when the cluster is initialized.
+    private void initLowerCaseTableNames() {
+        if (Config.lower_case_table_names > 2 || Config.lower_case_table_names < 0) {
+            LOG.error("Unsupported configuration value of lower_case_table_names: " + Config.lower_case_table_names);
+            System.exit(-1);
+        }
+        try {
+            VariableMgr.setLowerCaseTableNames(Config.lower_case_table_names);
+        } catch (Exception e) {
+            LOG.error("Initialization of lower_case_table_names failed.", e);
+            System.exit(-1);
+        }
+        LOG.info("Finish initializing lower_case_table_names, value is {}", GlobalVariable.lowerCaseTableNames);
+    }
+
+    // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
+    // restart or upgrade.
+    private void checkLowerCaseTableNames() {
+        while (!isReady()) {
+            // Waiting for lower_case_table_names to initialize value from image or editlog.
+            try {
+                LOG.info("Waiting for \'lower_case_table_names\' initialization.");
+                TimeUnit.MILLISECONDS.sleep(100);
+            } catch (InterruptedException e) {
+                LOG.error("Sleep got exception while waiting for lower_case_table_names initialization. ", e);
+            }
+        }
+        if (Config.lower_case_table_names != GlobalVariable.lowerCaseTableNames) {
+            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, " +
+                            "the expected value is {}, but the actual value is {}",
+                    GlobalVariable.lowerCaseTableNames, Config.lower_case_table_names);
+            System.exit(-1);
+        }
+        LOG.info("lower_case_table_names is {}", GlobalVariable.lowerCaseTableNames);
     }
 
     /*
@@ -7127,5 +7171,13 @@ public class Catalog {
                 }
             }
         }
+    }
+
+    public static boolean isStoredTableNamesLowerCase() {
+        return GlobalVariable.lowerCaseTableNames == 1;
+    }
+
+    public static boolean isTableNamesCaseInsensitive() {
+        return GlobalVariable.lowerCaseTableNames == 2;
     }
 }
