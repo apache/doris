@@ -258,37 +258,6 @@ public:
         add_name(column_valid);
     }
 
-    void build_segment(size_t nrows, std::shared_ptr<Segment>* res) {
-        // must use unique filename for each segment, otherwise page cache kicks in and produces
-        // the wrong answer (it use (filename,offset) as cache key)
-        std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, ++seg_id);
-        std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions block_opts({filename});
-        fs::fs_util::block_manager()->create_block(block_opts, &wblock);
-        SegmentWriterOptions opts;
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, opts);
-        writer.init(1024);
-
-        RowCursor row;
-        row.init(_tablet_schema);
-
-        for (size_t rid = 0; rid < nrows; ++rid) {
-            for (int cid = 0; cid < _tablet_schema.num_columns(); ++cid) {
-                RowCursorCell cell = row.cell(cid);
-                set_column_value_by_type(_tablet_schema._cols[cid]._type, rid * 10 + cid,
-                                         (char*)cell.mutable_cell_ptr(), &_pool,
-                                         _tablet_schema._cols[cid]._length);
-            }
-            writer.append_row(row);
-        }
-
-        uint64_t file_size, index_size;
-        writer.finalize(&file_size, &index_size);
-        wblock->close();
-
-        Segment::open(filename, seg_id, &_tablet_schema, res);
-    }
-
     void build_segment(std::vector<std::vector<std::string>> dataset,
                        std::shared_ptr<Segment>* res) {
         // must use unique filename for each segment, otherwise page cache kicks in and produces
@@ -321,6 +290,18 @@ public:
         Segment::open(filename, seg_id, &_tablet_schema, res);
     }
 
+    std::vector<std::vector<std::string>> generate_dataset(int rows_number) {
+        std::vector<std::vector<std::string>> dataset;
+        while (rows_number--) {
+            std::vector<std::string> row_data;
+            for (int cid = 0; cid < _tablet_schema.num_columns(); ++cid) {
+                row_data.emplace_back(rand_rng_by_type(_tablet_schema._cols[cid]._type));
+            }
+            dataset.emplace_back(row_data);
+        }
+        return dataset;
+    }
+
 private:
     TabletSchema _create_schema(const std::vector<TabletColumn>& columns,
                                 int num_short_key_columns = -1) {
@@ -347,22 +328,24 @@ private:
 }; // namespace doris
 
 class SegmentWriteBenchmark : public SegmentBenchmark {
+public:
     SegmentWriteBenchmark(std::string name, int iterations, std::string column_type,
                           int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
-              _rows_number(rows_number) {}
+              _dataset(generate_dataset(rows_number)) {}
     virtual ~SegmentWriteBenchmark() override {}
 
     virtual void init() override {}
-    virtual void run() override { build_segment(_rows_number, &_segment); };
+    virtual void run() override { build_segment(_dataset, &_segment); };
 
 private:
-    int _rows_number;
+    std::vector<std::vector<std::string>> _dataset;
     std::shared_ptr<Segment> _segment;
 };
 
 class SegmentWriteByFileBenchmark : public SegmentBenchmark {
+public:
     SegmentWriteByFileBenchmark(std::string name, int iterations, std::string file_str)
             : SegmentBenchmark(name + "/file_path:" + file_str, iterations) {
         std::ifstream file(file_str);
@@ -396,10 +379,10 @@ public:
     SegmentScanBenchmark(std::string name, int iterations, std::string column_type, int rows_number)
             : SegmentBenchmark(name + "/rows_number:" + std::to_string(rows_number), iterations,
                                column_type),
-              _rows_number(rows_number) {}
+              _dataset(generate_dataset(rows_number)) {}
     virtual ~SegmentScanBenchmark() override {}
 
-    virtual void init() override { build_segment(_rows_number, &_segment); }
+    virtual void init() override { build_segment(_dataset, &_segment); }
     virtual void run() override {
         StorageReadOptions read_opts;
         read_opts.stats = &stats;
@@ -407,7 +390,7 @@ public:
         _segment->new_iterator(get_schema(), read_opts, nullptr, &iter);
         RowBlockV2 block(get_schema(), 1024);
 
-        int left = _rows_number;
+        int left = _dataset.size();
         int rowid = 0;
         while (left > 0) {
             int rows_read = std::min(left, 1024);
@@ -419,7 +402,7 @@ public:
     };
 
 private:
-    int _rows_number;
+    std::vector<std::vector<std::string>> _dataset;
     std::shared_ptr<Segment> _segment;
     OlapReaderStatistics stats;
 };
