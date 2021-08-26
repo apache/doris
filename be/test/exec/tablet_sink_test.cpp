@@ -60,6 +60,7 @@ public:
                 .set_max_queue_size(100)
                 .build(&_env->_send_batch_thread_pool);
         config::tablet_writer_open_rpc_timeout_sec = 60;
+        config::max_send_batch_parallelism = 1;
     }
 
     void TearDown() override {
