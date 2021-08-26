@@ -191,6 +191,7 @@ Status BlockBloomFilter::or_equal_array(size_t n, const uint8_t* __restrict__ in
 
 void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restrict__ in,
                                               uint8_t* __restrict__ out) {
+#ifdef __SSE4_2__
     // The trivial loop out[i] |= in[i] should auto-vectorize with gcc at -O3, but it is not
     // written in a way that is very friendly to auto-vectorization. Instead, we manually
     // vectorize, increasing the speed by up to 56x.
@@ -206,6 +207,11 @@ void BlockBloomFilter::or_equal_array_no_avx2(size_t n, const uint8_t* __restric
                              _mm_or_si128(_mm_loadu_si128(simd_out), _mm_loadu_si128(simd_in)));
         }
     }
+#else
+    for (int i = 0; i < n; ++i) {
+        out[i] |= in[i];
+    }
+#endif
 }
 
 Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
