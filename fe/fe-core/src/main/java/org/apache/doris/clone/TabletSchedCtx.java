@@ -501,10 +501,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             
             long srcPathHash = slot.takeSlot(srcReplica.getPathHash());
             if (srcPathHash != -1) {
-                findSrcReplica = true;
                 if (minVersionCount == -1 || srcReplica.getVersionCount() < minVersionCount) {
                     minVersionCount = srcReplica.getVersionCount();
                     setSrc(srcReplica);
+                    findSrcReplica = true;
                 }
             }
         }
