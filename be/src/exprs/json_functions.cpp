@@ -112,23 +112,20 @@ StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
     if (json_str->is_null) {
         return StringVal::null();
     }
-    int num = num_args - 1;
-    std::string s1((char*)json_str[num].ptr, json_str[num].len);
-    std::string s2((char*)json_str[num - 1].ptr, json_str[num - 1].len);
-    if ((s1[s1.length() - 1] == '#' && s1[s1.length() - 2] == '#') ||
-        (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#')) {
-        num = num - 1;
-    }
+    rapidjson::Value array_obj(rapidjson::kArrayType);
+    rapidjson::Document document;
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     //flag: The number it contains represents the type of previous parameters
-    std::string flag((char*)json_str[num].ptr, json_str[num].len);
-    std::string res = "";
-    LOG(INFO) << "json_array " + flag << " num: " << std::to_string(num_args);
-    for (int i = 0; i < num; ++i) {
+    std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
+    for (int i = 0; i < num_args - 1; ++i) {
         std::string arg((char*)json_str[i].ptr, json_str[i].len);
-        parse_str_with_flag(res, arg, flag, i);
+        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
+        array_obj.PushBack(val, allocator);
     }
-    res = "[" + res.substr(0, res.length() - 2) + "]"; // pop the last ", "
-    return AnyValUtil::from_buffer_temp(context, res.c_str(), res.size());
+    rapidjson::StringBuffer buf;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+    array_obj.Accept(writer);
+    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
 }
 
 StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
@@ -136,41 +133,51 @@ StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
     if (json_str->is_null) {
         return StringVal::null();
     }
-    int num = num_args - 1;
-    std::string s1((char*)json_str[num].ptr, json_str[num].len);
-    std::string s2((char*)json_str[num - 1].ptr, json_str[num - 1].len);
-    if (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#' &&
-               s2[s2.length() - 2] == '#') {
-        num = num - 2;
-    }else if ((s1[s1.length() - 1] == '#' && s1[s1.length() - 2] == '#') ||
-        (s1[s1.length() - 1] == '#' && s2[s2.length() - 1] == '#')) {
-        num = num - 1;
-    }  
-    std::string flag((char*)json_str[num].ptr, json_str[num].len);
-    std::string res = "";
-    for (int i = 0; i < num && flag[i] != '#'; ++i) {
+    rapidjson::Document document(rapidjson::kObjectType);
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+    std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
+    document.SetObject();
+    for (int i = 1; i < num_args - 1; i = i + 2) {
         std::string arg((char*)json_str[i].ptr, json_str[i].len);
-        if (!(i & 1)) {
-            res = res + "\"" + arg + "\": "; // "key:"
-            continue;
-        }
-        parse_str_with_flag(res, arg, flag, i);
+        rapidjson::Value key(rapidjson::kStringType);
+        key.SetString((char*)json_str[i - 1].ptr, json_str[i - 1].len, allocator);
+        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
+        document.AddMember(key, val, allocator);
     }
-    res = "{" + res.substr(0, res.length() - 2) + "}";
-    return AnyValUtil::from_buffer_temp(context, res.c_str(), res.size());
+    rapidjson::StringBuffer buf;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+    document.Accept(writer);
+    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
 }
 
-void JsonFunctions::parse_str_with_flag(std::string& result, const std::string& arg,
-                                        const std::string& flag, int num) {
-    if (flag[num] == '1') {
-        result = result + ((arg == "1") ? "TRUE, " : "FALSE, "); // deal with true or false
-    } else if (flag[num] == '4') {
-        result = result + "\"" + arg + "\", "; // str--> "str"
-    } else if (flag[num] == '3') {
-        result = result + "\"" + arg.substr(1, arg.length() - 2) + "\", "; // 'time'  -->"time"
+rapidjson::Value JsonFunctions::parse_str_with_flag(const std::string& arg, const std::string& flag,
+                                                    const int& num,
+                                                    rapidjson::Document::AllocatorType& allocator) {
+    rapidjson::Value val;
+    if (flag[num] == '0') {   //null
+        rapidjson::Value nullObject(rapidjson::kNullType);
+        val = nullObject;
+    } else if (flag[num] == '1') { //bool
+        bool res = ((arg == "1") ? true : false);
+        val.SetBool(res);
+    } else if (flag[num] == '2') { //int
+        std::stringstream ss;
+        ss << arg;
+        int number = 0;
+        ss >> number;
+        val.SetInt(number);
+    } else if (flag[num] == '3') { //double
+        std::stringstream ss;
+        ss << arg;
+        double number = 0.0;
+        ss >> number;
+        val.SetDouble(number);
     } else {
-        result = result + arg + ", ";
+        std::string str = arg;
+        if (flag[num] == '4') str = arg.substr(1, arg.length() - 2);
+        val.SetString(str.c_str(), str.length(), allocator);
     }
+    return val;
 }
 StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& json_str) {
     if (json_str.is_null) {

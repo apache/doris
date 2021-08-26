@@ -52,7 +52,7 @@ MySQL> SELECT json_array(1, "abc", NULL, TRUE, CURTIME());
 +-----------------------------------------------+
 
 
-MySQL [example_db]> select json_array("a", null, "c");
+MySQL> select json_array("a", null, "c");
 +------------------------------+
 | json_array('a', 'NULL', 'c') |
 +------------------------------+

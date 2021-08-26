@@ -44,7 +44,7 @@ MySQL> SELECT json_quote('null'), json_quote('"null"');
 +--------------------+----------------------+
 
 
-MySQL [example_db]> SELECT json_quote('[1, 2, 3]');
+MySQL> SELECT json_quote('[1, 2, 3]');
 +-------------------------+
 | json_quote('[1, 2, 3]') |
 +-------------------------+

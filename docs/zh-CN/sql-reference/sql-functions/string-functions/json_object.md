@@ -52,7 +52,7 @@ MySQL> SELECT json_object('id', 87, 'name', 'carrot');
 +-----------------------------------------+
 
 
-MySQL [example_db]> select json_object('username',null);
+MySQL> select json_object('username',null);
 +---------------------------------+
 | json_object('username', 'NULL') |
 +---------------------------------+
