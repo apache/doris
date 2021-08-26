@@ -239,14 +239,6 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
-        if (type() == OLAP_FIELD_TYPE_STRING) {
-            auto dst_slice = reinterpret_cast<Slice*>(buf);
-            if (dst_slice->size < value_string.size()) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
-                dst_slice->data = *_long_text_buf;
-                dst_slice->size = value_string.size();
-            }
-        }
         return _type_info->from_string(buf, value_string);
     }
 

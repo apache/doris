@@ -16,8 +16,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#ifdef __aarch64__
+#include "util/sse2neon.h"
+#else //__aarch64__
 #include <emmintrin.h>
 #include <mm_malloc.h>
+#endif
 
 #include <algorithm>
 #include <climits>
@@ -108,10 +112,16 @@ void BlockBloomFilter::bucket_insert(const uint32_t bucket_idx, const uint32_t h
         new_bucket[i] = 1U << new_bucket[i];
     }
     for (int i = 0; i < 2; ++i) {
+#ifdef __aarch64__
+        uint8x16_t new_bucket_neon = vreinterpretq_u8_u32(vld1q_u32(new_bucket + 4 * i));
+        uint8x16_t* existing_bucket = reinterpret_cast<uint8x16_t*>(&_directory[bucket_idx][4 * i]);
+        *existing_bucket = vorrq_u8(*existing_bucket, new_bucket_neon);
+#else
         __m128i new_bucket_sse = _mm_load_si128(reinterpret_cast<__m128i*>(new_bucket + 4 * i));
         __m128i* existing_bucket =
                 reinterpret_cast<__m128i*>(&DCHECK_NOTNULL(_directory)[bucket_idx][4 * i]);
         *existing_bucket = _mm_or_si128(*existing_bucket, new_bucket_sse);
+#endif
     }
 }
 
@@ -164,7 +174,7 @@ void BlockBloomFilter::or_equal_array_internal(size_t n, const uint8_t* __restri
 #ifdef __AVX2__
     BlockBloomFilter::or_equal_array_avx2(n, in, out);
 #else
-    BlockBloomFilter::or_equal_array(n, in, out);
+    BlockBloomFilter::or_equal_array_no_avx2(n, in, out);
 #endif
 }
 
