@@ -15,52 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.manager.common.domain;
 
-import java.util.List;
+/**
+ * agent role resgiter entity
+ **/
+public class AgentRoleRegister {
+    private String host;
 
-public class SshInfo {
-
-    private List<String> hosts;
-
-    private String user;
-
-    private Integer sshPort;
-
-    private String sshKey;
+    private String role;
 
     private String installDir;
 
-    public List<String> getHosts() {
-        return hosts;
+    public AgentRoleRegister() {
     }
 
-    public void setHosts(List<String> hosts) {
-        this.hosts = hosts;
+    public AgentRoleRegister(String host, String role, String installDir) {
+        this.host = host;
+        this.role = role;
+        this.installDir = installDir;
     }
 
-    public String getUser() {
-        return user;
+    public String getHost() {
+        return host;
     }
 
-    public void setUser(String user) {
-        this.user = user;
+    public void setHost(String host) {
+        this.host = host;
     }
 
-    public Integer getSshPort() {
-        return sshPort;
+    public String getRole() {
+        return role;
     }
 
-    public void setSshPort(Integer sshPort) {
-        this.sshPort = sshPort;
-    }
-
-    public String getSshKey() {
-        return sshKey;
-    }
-
-    public void setSshKey(String sshKey) {
-        this.sshKey = sshKey;
+    public void setRole(String role) {
+        this.role = role;
     }
 
     public String getInstallDir() {

@@ -14,36 +14,37 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+package org.apache.doris.stack.req;
 
-package org.apache.doris.stack.service;
+public class AgentRegister {
 
-import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.req.AgentRegister;
-import org.apache.doris.stack.req.SshInfo;
+    private String host;
 
-import java.util.List;
+    private Integer port;
 
-/**
- * server
- */
-public interface ServerProcess {
+    private String installDir;
 
-    void initAgent(SshInfo sshInfo);
+    public String getHost() {
+        return host;
+    }
 
-    /**
-     * install agent
-     */
-    void startAgent(SshInfo sshInfo);
+    public void setHost(String host) {
+        this.host = host;
+    }
 
-    /**
-     * agent list
-     */
-    List<AgentEntity> agentList();
+    public Integer getPort() {
+        return port;
+    }
 
-    List<AgentRoleEntity> agentRole(String host);
+    public void setPort(Integer port) {
+        this.port = port;
+    }
 
-    void heartbeat(String host, Integer port);
+    public String getInstallDir() {
+        return installDir;
+    }
 
-    boolean register(AgentRegister agent);}
+    public void setInstallDir(String installDir) {
+        this.installDir = installDir;
+    }
+}

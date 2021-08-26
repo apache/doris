@@ -26,10 +26,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
+import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.dao.AgentRoleRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.exceptions.ServerException;
+import org.apache.doris.stack.req.AgentRegister;
 import org.apache.doris.stack.req.SshInfo;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.shell.SCP;
@@ -68,10 +70,11 @@ public class ServerProcessImpl implements ServerProcess {
     private AgentComponent agentComponent;
 
     @Autowired
-    private AgentCache agentCache;
+    private AgentRoleComponent agentRoleComponent;
 
     @Autowired
-    private AgentRoleRepository roleRepository;
+    private AgentCache agentCache;
+
 
     @Override
     public void initAgent(SshInfo sshInfo) {
@@ -110,12 +113,9 @@ public class ServerProcessImpl implements ServerProcess {
     }
 
     @Override
-    public String agentRole(String host) {
-        Optional<AgentRoleEntity> agentRoleOp = roleRepository.findById(host);
-        if (agentRoleOp.equals(Optional.empty())) {
-            return null;
-        }
-        return agentRoleOp.get().getRole();
+    public List<AgentRoleEntity> agentRole(String host) {
+        List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByHost(host);
+        return agentRoles;
 
     }
 
@@ -125,15 +125,16 @@ public class ServerProcessImpl implements ServerProcess {
     }
 
     @Override
-    public RResult register(String host, Integer port) {
-        AgentEntity agentEntity = agentComponent.agentInfo(host, port);
-
+    public boolean register(AgentRegister agent) {
+        AgentEntity agentEntity = agentComponent.agentInfo(agent.getHost());
         if (agentEntity != null) {
-            return RResult.success("agent already register");
+            log.warn("agent already register");
+            return true;
         }
-        AgentEntity newAgentEntity = agentComponent.registerAgent(host, port);
+        AgentEntity newAgentEntity = agentComponent.registerAgent(agent);
         agentCache.putAgent(newAgentEntity);
-        return RResult.success("agent register success");
+        log.info("agent register success");
+        return true;
     }
 
     /**

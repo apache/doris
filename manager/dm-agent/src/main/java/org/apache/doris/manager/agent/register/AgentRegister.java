@@ -17,12 +17,14 @@
 
 package org.apache.doris.manager.agent.register;
 
+import com.alibaba.fastjson.JSON;
+import org.apache.doris.manager.agent.util.Request;
 import org.apache.doris.manager.common.domain.RResult;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class AgentRegister extends BaseRequest {
+public class AgentRegister {
 
     public static boolean register() {
 
@@ -30,14 +32,16 @@ public class AgentRegister extends BaseRequest {
         Map<String, Object> map = new HashMap<>();
         map.put("host", AgentContext.getAgentIp());
         map.put("port", AgentContext.getAgentPort());
+        map.put("installDir", AgentContext.getAgentInstallDir());
 
         RResult res = null;
         try {
-            res = sendRequest(requestUrl, map);
+            String result = Request.sendPostRequest(requestUrl, map);
+            res = JSON.parseObject(result, RResult.class);
         } catch (Exception ex) {
             return false;
         }
-        if (res.getCode() == 0) {
+        if (res != null && new Boolean(true).equals(res.getData())) {
             return true;
         }
         return false;

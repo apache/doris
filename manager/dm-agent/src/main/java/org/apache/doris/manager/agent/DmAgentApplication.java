@@ -23,6 +23,7 @@ import org.apache.doris.manager.agent.register.AgentHeartbeat;
 import org.apache.doris.manager.agent.register.AgentRegister;
 import org.apache.doris.manager.agent.register.AgentRole;
 import org.apache.doris.manager.agent.register.ApplicationOption;
+import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.Role;
 import org.apache.doris.manager.agent.common.PropertiesUtil;
 import org.kohsuke.args4j.CmdLineException;
@@ -30,6 +31,8 @@ import org.kohsuke.args4j.CmdLineParser;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.system.ApplicationHome;
+
+import java.util.List;
 
 @SpringBootApplication
 @Slf4j
@@ -52,8 +55,8 @@ public class DmAgentApplication {
 
         AgentContext.init(option.role, option.agentIp, Integer.valueOf(agentPort), option.agentServer, option.dorisHomeDir, agentInstallDir);
 
-        String role = AgentRole.queryRole();
-        AgentContext.setRole(Role.findByName(role));
+        List<AgentRoleRegister> role = AgentRole.queryRole();
+        //AgentContext.setRole(Role.findByName(role));
 
         // register agent
         boolean register = AgentRegister.register();

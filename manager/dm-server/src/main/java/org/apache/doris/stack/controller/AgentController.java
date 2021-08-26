@@ -18,6 +18,7 @@
 package org.apache.doris.stack.controller;
 
 import io.swagger.annotations.Api;
+import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.req.DorisExecReq;
 import org.apache.doris.stack.req.DorisInstallReq;
@@ -29,6 +30,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @Api(tags = "Agent API")
 @RestController
@@ -78,4 +81,21 @@ public class AgentController {
         return serverAgent.taskErrlog(taskInfo);
     }
 
+    /**
+     * join be to cluster
+     */
+    @RequestMapping(value = "/joinBe", method = RequestMethod.POST)
+    public RResult joinBe(@RequestBody List<String> hosts) {
+        serverAgent.joinBe(hosts);
+        return RResult.success();
+    }
+
+    /**
+     * register role service (be/fe)
+     */
+    @RequestMapping(value = "/register", method = RequestMethod.POST)
+    public RResult register(@RequestBody AgentRoleRegister agentReg) {
+        boolean register = serverAgent.register(agentReg);
+        return RResult.success(register);
+    }
 }

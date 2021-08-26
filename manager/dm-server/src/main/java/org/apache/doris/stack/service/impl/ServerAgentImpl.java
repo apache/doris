@@ -19,6 +19,7 @@ package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
@@ -28,6 +29,8 @@ import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.Role;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
+import org.apache.doris.stack.component.AgentComponent;
+import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.constants.CmdTypeEnum;
 import org.apache.doris.stack.dao.AgentRoleRepository;
 import org.apache.doris.stack.entity.AgentEntity;
@@ -40,11 +43,13 @@ import org.apache.doris.stack.req.InstallInfo;
 import org.apache.doris.stack.req.TaskInfoReq;
 import org.apache.doris.stack.req.TaskLogReq;
 import org.apache.doris.stack.service.ServerAgent;
+import org.apache.doris.stack.util.JdbcUtil;
 import org.apache.doris.stack.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -65,12 +70,15 @@ public class ServerAgentImpl implements ServerAgent {
     private AgentCache agentCache;
 
     @Autowired
-    private AgentRoleRepository roleRepository;
+    private AgentRoleComponent agentRoleComponent;
+
+    @Autowired
+    private AgentComponent agentComponent;
 
     @Override
     @Transactional
     public List<Object> install(DorisInstallReq installReq) {
-        List<String> agentRoleList = roleRepository.findAll().stream()
+        List<String> agentRoleList = agentRoleComponent.queryAgentRoles().stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
                 .collect(Collectors.toList());
         List<Object> results = new ArrayList<>();
@@ -82,7 +90,7 @@ public class ServerAgentImpl implements ServerAgent {
                 continue;
             }
             RResult result = installDoris(install);
-            roleRepository.save(new AgentRoleEntity(install.getHost(), install.getRole(), install.getInstallDir()));
+            agentRoleComponent.registerAgentRole(new AgentRoleRegister(install.getHost(), install.getRole() ,install.getInstallDir()));
 
             results.add(result.getData());
         }
@@ -173,6 +181,41 @@ public class ServerAgentImpl implements ServerAgent {
             throw new ServerException("query agent port fail");
         }
         return agent.getPort();
+    }
+
+    @Override
+    public void joinBe(List<String> hosts) {
+        List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByRole(Role.FE.name());
+        if (agentRoles.isEmpty()) {
+            return;
+        }
+        AgentRoleEntity agentRole = agentRoles.get(0);
+        AgentEntity agentEntity = agentCache.agentInfo(agentRole.getHost());
+        //fetch agent conf
+        //agentRest.reqestConf();
+        Connection conn = null;
+        try {
+            conn = JdbcUtil.getConn("", "", "root", "", "");
+        } catch (Exception e) {
+            throw new ServerException("Failed to get fe's jdbc connection");
+        }
+        List<Boolean> result = new ArrayList<>();
+        for (String be : hosts) {
+            //query be's doris port
+            boolean flag = JdbcUtil.execute(conn, "ALTER SYSTEM ADD BACKEND " + be + ":" + "9030");
+            result.add(flag);
+        }
+        RResult.success(result);
+    }
+
+    @Override
+    public boolean register(AgentRoleRegister agentReg) {
+        AgentEntity agent = agentComponent.agentInfo(agentReg.getHost());
+        if(agent == null){
+            throw new ServerException("can not find " + agentReg.getHost() + " agent");
+        }
+        AgentRoleEntity agentRoleEntity = agentRoleComponent.registerAgentRole(agentReg);
+        return agentRoleEntity != null;
     }
 
 }

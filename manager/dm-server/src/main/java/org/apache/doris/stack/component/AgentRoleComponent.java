@@ -17,7 +17,10 @@
 
 package org.apache.doris.stack.component;
 
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.dao.AgentRoleRepository;
@@ -32,40 +35,33 @@ import java.util.List;
 
 @Component
 @Slf4j
-public class AgentComponent {
+public class AgentRoleComponent {
 
     @Autowired
-    private AgentRepository agentRepository;
+    private AgentRoleRepository agentRoleRepository;
 
-    public List<AgentEntity> queryAgentNodes(List<String> hosts) {
-        if (hosts == null || hosts.isEmpty()) {
-            return agentRepository.findAll();
+    public List<AgentRoleEntity> queryAgentRoles() {
+        return agentRoleRepository.findAll();
+    }
+
+    public List<AgentRoleEntity> queryAgentByRole(String role) {
+        if (StringUtils.isBlank(role)) {
+            return Lists.newArrayList();
         }
-        return agentRepository.queryAgentNodes(hosts);
+        return agentRoleRepository.queryAgentByRole(role);
     }
 
-    public AgentEntity agentInfo(String host) {
-        List<AgentEntity> agentEntities = agentRepository.agentInfo(host);
-        if (agentEntities != null && !agentEntities.isEmpty()) {
-            return agentEntities.get(0);
-        } else {
-            return null;
+    public List<AgentRoleEntity> queryAgentByHost(String host) {
+        if (StringUtils.isBlank(host)) {
+            return Lists.newArrayList();
         }
+        return agentRoleRepository.queryAgentByHost(host);
     }
 
-    public int refreshAgentStatus(String host, Integer port) {
-        AgentEntity agentInfo = agentInfo(host);
-        if (agentInfo == null) {
-            return 0;
-        }
-        agentInfo.setStatus(AgentStatus.RUNNING.name());
-        agentInfo.setLastReportedTime(new Date());
-        agentRepository.save(agentInfo);
-        return 1;
+    public AgentRoleEntity registerAgentRole(AgentRoleRegister agentReg) {
+        AgentRoleEntity agentRoleEntity = new AgentRoleEntity(agentReg.getHost(), agentReg.getRole(), agentReg.getInstallDir());
+        return agentRoleRepository.save(agentRoleEntity);
     }
 
-    public AgentEntity registerAgent(AgentRegister agent) {
-        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING.name());
-        return agentRepository.save(agentEntity);
-    }
+
 }
