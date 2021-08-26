@@ -31,6 +31,7 @@
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
+#include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
 #include "olap/fs/block_manager.h"
@@ -58,7 +59,7 @@ DEFINE_string(operation, "Custom",
               "valid operation: Custom, BinaryDictPageEncode, SegmentScan, SegmentWrite, "
               "SegmentScanByFile, SegmentWriteByFile");
 DEFINE_string(input_file, "./sample.dat", "input file directory");
-DEFINE_string(column_type, "int,varchar", "valid type: int, char, varchar");
+DEFINE_string(column_type, "int,varchar", "valid type: int, char, varchar, string");
 DEFINE_string(rows_number, "10000", "rows number");
 DEFINE_string(iterations, "10",
               "run times, this is set to 0 means the number of iterations is automatically set ");
@@ -222,7 +223,7 @@ public:
     void init_schema(std::string column_type) {
         std::string column_valid = "/column_type:";
 
-        auto tokens = split_str(column_type);
+        std::vector<std::string> tokens = strings::Split(column_type, ",");
         std::vector<TabletColumn> columns;
 
         bool first_column = true;
@@ -231,10 +232,12 @@ public:
 
             if (equal_ignore_case(token, "int")) {
                 columns.emplace_back(create_int_key(columns.size() + 1));
-            } else if (equal_ignore_case(token, "varchar")) {
-                columns.emplace_back(create_varchar_key(columns.size() + 1));
             } else if (equal_ignore_case(token, "char")) {
                 columns.emplace_back(create_char_key(columns.size() + 1));
+            } else if (equal_ignore_case(token, "varchar")) {
+                columns.emplace_back(create_varchar_key(columns.size() + 1));
+            } else if (equal_ignore_case(token, "string")) {
+                columns.emplace_back(create_string_key(columns.size() + 1));
             } else {
                 valid = false;
             }
@@ -371,7 +374,7 @@ class SegmentWriteByFileBenchmark : public SegmentBenchmark {
         while (file.peek() != EOF) {
             std::string row_str;
             std::getline(file, row_str);
-            auto tokens = split_str(row_str);
+            std::vector<std::string> tokens = strings::Split(row_str, ",");
             assert(tokens.size() == _tablet_schema.num_columns());
             _dataset.push_back(tokens);
         }
@@ -434,7 +437,7 @@ public:
         while (file.peek() != EOF) {
             std::string row_str;
             std::getline(file, row_str);
-            auto tokens = split_str(row_str);
+            std::vector<std::string> tokens = strings::Split(row_str, ",");
             assert(tokens.size() == _tablet_schema.num_columns());
             _dataset.push_back(tokens);
         }

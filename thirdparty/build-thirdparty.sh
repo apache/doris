@@ -920,12 +920,8 @@ build_benchmark() {
 
     cd $TP_SOURCE_DIR/$BENCHMARK_SOURCE
 
-    sed -i '160 i  \ \ add_cxx_compiler_flag(-lresolv)' ./CMakeLists.txt
-    sed -i '160 i  \ \ add_cxx_compiler_flag(-pthread)' ./CMakeLists.txt
-    sed -i '160 i  \ \ add_cxx_compiler_flag(-lrt)' ./CMakeLists.txt
-
     cmake -E make_directory "build"
-    cmake -E chdir "build" cmake -DBENCHMARK_DOWNLOAD_DEPENDENCIES=on -DCMAKE_BUILD_TYPE=Release ../
+    CXXFLAGS="-lresolv -pthread -lrt" cmake -E chdir "build" cmake -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DCMAKE_BUILD_TYPE=Release ../
     cmake --build "build" --config Release
 
     mkdir $TP_INCLUDE_DIR/benchmark

@@ -39,8 +39,6 @@ std::string GetCurrentRunningDir();
 // Initialize config file.
 void InitConfig();
 
-std::vector<std::string> split_str(const std::string& str, char separation = ',');
-
 bool equal_ignore_case(std::string lhs, std::string rhs);
 
 int rand_rng_int(int l, int r);

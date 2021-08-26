@@ -73,21 +73,6 @@ void InitConfig() {
     }
 }
 
-std::vector<std::string> split_str(const std::string& str, char separation) {
-    std::vector<std::string> tokens;
-    int pre = 0;
-    int now = 0;
-    for (char c : str) {
-        now++;
-        if (c == separation) {
-            tokens.emplace_back(str.substr(pre, now - pre - 1));
-            pre = now;
-        }
-    }
-    if (pre < now) tokens.emplace_back(str.substr(pre, now - pre));
-    return tokens;
-}
-
 bool equal_ignore_case(std::string lhs, std::string rhs) {
     std::transform(lhs.begin(), lhs.end(), lhs.begin(), ::tolower);
     std::transform(rhs.begin(), rhs.end(), rhs.begin(), ::tolower);
