@@ -480,6 +480,18 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 * 描述：Scanner线程池线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
 * 默认值：48
 
+### `doris_send_batch_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
+* 默认值：256
+
+### `doris_send_batch_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `download_low_speed_limit_kbps`
 
 默认值：50 (KB/s)

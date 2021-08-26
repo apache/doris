@@ -483,6 +483,17 @@ The maximum number of data rows returned by each scanning thread in a single exe
 * Description: The number of threads in the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
 * Default value: 48
 
+### `doris_send_batch_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the SendBatch thread pool. In NodeChannels' sending data tasks, the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the SendBatch thread pool.
+* Default value: 256
+
+### `doris_send_batch_thread_pool_queue_size`
+
+* Type: int32
+* Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+
 ### `download_low_speed_limit_kbps`
 
 Default：50 (KB/s)
