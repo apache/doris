@@ -79,11 +79,16 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     // if unique table with rowset [0-x] or [0-1] [2-y] [...],
     // value column predicates can be pushdown on rowset [0-x] or [2-y]
-    if (read_context->value_predicates != nullptr && _rowset->keys_type() == UNIQUE_KEYS &&
+    if (_rowset->keys_type() == UNIQUE_KEYS &&
         (_rowset->start_version() == 0 || _rowset->start_version() == 2)) {
-        read_options.column_predicates.insert(read_options.column_predicates.end(),
-                                              read_context->value_predicates->begin(),
-                                              read_context->value_predicates->end());
+        if (read_context->value_predicates != nullptr) {
+            read_options.column_predicates.insert(read_options.column_predicates.end(),
+                                                  read_context->value_predicates->begin(),
+                                                  read_context->value_predicates->end());
+        }
+        if (read_context->all_conditions != nullptr && !read_context->all_conditions->empty()) {
+            read_options.conditions = read_context->all_conditions;
+        }
     }
     read_options.use_page_cache = read_context->use_page_cache;
 

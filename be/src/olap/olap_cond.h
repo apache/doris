@@ -161,6 +161,7 @@ public:
         }
         _columns.clear();
     }
+    bool empty() const { return _columns.empty(); }
 
     // TODO(yingchun): should do it in constructor
     void set_tablet_schema(const TabletSchema* schema) { _schema = schema; }
@@ -170,7 +171,7 @@ public:
     // 1. column不属于key列
     // 2. column类型是double, float
     OLAPStatus append_condition(const TCondition& condition);
-    
+
     // 通过所有列上的删除条件对RowCursor进行过滤
     // Return true means this row should be filtered out, otherwise return false
     bool delete_conditions_eval(const RowCursor& row) const;
