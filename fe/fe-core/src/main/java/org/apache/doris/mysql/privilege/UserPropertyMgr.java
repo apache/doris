@@ -27,11 +27,11 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -226,6 +226,14 @@ public class UserPropertyMgr implements Writable {
             return new String[]{};
         }
         return existProperty.getSqlBlockRules();
+    }
+
+    public int getCpuResourceLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getCpuResourceLimit();
     }
 
     public UserProperty getUserProperty(String qualifiedUserName) {
