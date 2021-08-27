@@ -490,7 +490,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find source replica");
         }
 
-        long minVersionCount = -1;
+        long minVersionCount = -2;
         boolean findSrcReplica = false;
         // choose a replica which slot is available from candidates.
         for (Replica srcReplica : candidates) {
@@ -501,10 +501,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             
             long srcPathHash = slot.takeSlot(srcReplica.getPathHash());
             if (srcPathHash != -1) {
-                if (minVersionCount == -1 || srcReplica.getVersionCount() < minVersionCount) {
+                findSrcReplica = true;
+                if (minVersionCount == -2) {
                     minVersionCount = srcReplica.getVersionCount();
                     setSrc(srcReplica);
-                    findSrcReplica = true;
+                } else if (minVersionCount == -1) {
+                    if (srcReplica.getVersionCount() != -1) {
+                        minVersionCount = srcReplica.getVersionCount();
+                        setSrc(srcReplica);
+                    }
+                } else {
+                    if (srcReplica.getVersionCount() != -1 && srcReplica.getVersionCount() < minVersionCount) {
+                        minVersionCount = srcReplica.getVersionCount();
+                        setSrc(srcReplica);
+                    }
                 }
             }
         }
