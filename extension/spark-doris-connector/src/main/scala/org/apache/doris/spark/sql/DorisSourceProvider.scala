@@ -63,7 +63,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     val maxRowCount = dorisWriterOption.maxRowCount
     val maxRetryTimes = dorisWriterOption.maxRetryTimes
 
-    data.foreachPartition(partition => {
+    data.rdd.foreachPartition(partition => {
 
       val buffer = ListBuffer[String]()
       partition.foreach(row => {
