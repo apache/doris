@@ -502,12 +502,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             long srcPathHash = slot.takeSlot(srcReplica.getPathHash());
             if (srcPathHash != -1) {
                 if (!findSrcReplica) {
+                    // version count is set by report process, so it may not be set yet and default value is -1.
+                    // so we need to check it.
                     minVersionCount = srcReplica.getVersionCount() == -1 ? Long.MAX_VALUE : srcReplica.getVersionCount();
                     setSrc(srcReplica);
                     findSrcReplica = true;
                 } else {
-                    // version count is set by report process, so it may not be set yet and default value is -1.
-                    // so we need to check it.
                     long curVerCount = srcReplica.getVersionCount() == -1 ? Long.MAX_VALUE : srcReplica.getVersionCount();
                     if (curVerCount < minVersionCount) {
                         minVersionCount = curVerCount;
