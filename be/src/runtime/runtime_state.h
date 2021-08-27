@@ -33,6 +33,7 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/mem_pool.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
@@ -371,6 +372,14 @@ public:
     int64_t get_load_mem_limit();
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    
+    void set_query_fragments_ctx(QueryFragmentsCtx* ctx) {
+        _query_ctx = ctx;
+    }
+
+    QueryFragmentsCtx* get_query_fragments_ctx() {
+        return _query_ctx;
+    }
 
 private:
     // Use a custom block manager for the query for testing purposes.
@@ -516,6 +525,7 @@ private:
     /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
     AtomicInt32 _initial_reservation_refcnt;
 
+    QueryFragmentsCtx* _query_ctx;
     // prohibit copies
     RuntimeState(const RuntimeState&);
 };

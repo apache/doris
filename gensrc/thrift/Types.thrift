@@ -77,7 +77,8 @@ enum TPrimitiveType {
   OBJECT,
   ARRAY,
   MAP,
-  STRUCT
+  STRUCT,
+  STRING
 }
 
 enum TTypeNodeType {

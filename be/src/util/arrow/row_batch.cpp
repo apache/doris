@@ -76,6 +76,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_STRING:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
@@ -210,7 +211,8 @@ public:
             switch (primitive_type) {
             case TYPE_VARCHAR:
             case TYPE_CHAR:
-            case TYPE_HLL: {
+            case TYPE_HLL:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(cell_ptr);
                 if (string_val->len == 0) {
                     // 0x01 is a magic num, not useful actually, just for present ""
@@ -225,8 +227,8 @@ public:
             case TYPE_DATETIME: {
                 char buf[64];
                 const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                char* pos = time_val->to_string(buf);
-                ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_LARGEINT: {

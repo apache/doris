@@ -162,6 +162,8 @@ private:
     void _init_seek_columns();
 
     void _init_load_bf_columns(const ReaderParams& read_params);
+    void _init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
+                               std::set<uint32_t>* load_bf_columns);
 
     // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
@@ -187,6 +189,7 @@ private:
     std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _predicate_mem_pool;
     std::set<uint32_t> _load_bf_columns;
+    std::set<uint32_t> _load_bf_all_columns;
     std::vector<uint32_t> _return_columns;
     std::vector<uint32_t> _seek_columns;
 
@@ -195,7 +198,11 @@ private:
     KeysParam _keys_param;
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
+    // contains condition on key columns in agg or unique table or all column in dup tables
     Conditions _conditions;
+    // contains _conditions and condition on value columns, used for push down
+    // conditions to base rowset of unique table
+    Conditions _all_conditions;
     std::vector<ColumnPredicate*> _col_predicates;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;

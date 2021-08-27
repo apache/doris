@@ -578,7 +578,8 @@ Status OlapScanNode::normalize_conjuncts() {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
@@ -952,7 +953,8 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_LARGEINT: {
+    case TYPE_LARGEINT:
+    case TYPE_STRING: {
         func(temp_range, reinterpret_cast<T*>(value));
         break;
     }
@@ -1250,7 +1252,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_INT:
                 case TYPE_BIGINT:
                 case TYPE_LARGEINT:
-                case TYPE_BOOLEAN: {
+                case TYPE_BOOLEAN:
+                case TYPE_STRING: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(value));
                     break;
@@ -1335,6 +1338,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     }
 
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
+
     /*********************************
      * 优先级调度基本策略:
      * 1. 通过查询拆分的Range个数来确定初始nice值
@@ -1345,7 +1350,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      *    nice值越大的，越优先获得的查询资源
      * 4. 定期提高队列内残留任务的优先级，避免大查询完全饿死
      *********************************/
-    PriorityThreadPool* thread_pool = state->exec_env()->thread_pool();
+    PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
@@ -1410,17 +1415,30 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
 
         auto iter = olap_scanners.begin();
-        while (iter != olap_scanners.end()) {
-            PriorityThreadPool::Task task;
-            task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
-            task.priority = _nice;
-            (*iter)->start_wait_worker_timer();
-            if (thread_pool->offer(task)) {
-                olap_scanners.erase(iter++);
-            } else {
-                LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+        if (thread_token != nullptr) {
+            while (iter != olap_scanners.end()) {
+                auto s = thread_token->submit_func(std::bind(&OlapScanNode::scanner_thread, this, *iter));
+                if (s.ok()) {
+                    (*iter)->start_wait_worker_timer();
+                    olap_scanners.erase(iter++);
+                } else {
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+                }
+                ++_total_assign_num;
             }
-            ++_total_assign_num;
+        } else {
+            while (iter != olap_scanners.end()) {
+                PriorityThreadPool::Task task;
+                task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
+                task.priority = _nice;
+                (*iter)->start_wait_worker_timer();
+                if (thread_pool->offer(task)) {
+                    olap_scanners.erase(iter++);
+                } else {
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+                }
+                ++_total_assign_num;
+            }
         }
 
         RowBatchInterface* scan_batch = NULL;
@@ -1463,7 +1481,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         if (NULL != scan_batch) {
             add_one_batch(scan_batch);
         }
-    }
+    } // end of transfer while
 
     state->resource_pool()->release_thread_token(true);
     VLOG_CRITICAL << "TransferThread finish.";

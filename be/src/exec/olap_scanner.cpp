@@ -182,6 +182,7 @@ Status OlapScanner::_init_params(
              _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
+
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
@@ -443,7 +444,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_OBJECT:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;

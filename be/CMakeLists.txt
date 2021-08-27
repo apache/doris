@@ -459,11 +459,17 @@ set(DORIS_LINK_LIBS
     Util
     DorisGen
     Webserver
-    TestUtil
     Geo
     Plugin
     ${WL_END_GROUP}
 )
+if (${MAKE_TEST} STREQUAL "ON")
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        TestUtil
+    )
+endif()
+
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -611,6 +617,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
+    add_subdirectory(${SRC_DIR}/testutil)
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
@@ -625,10 +632,12 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
-add_subdirectory(${SRC_DIR}/testutil)
-#add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
-add_subdirectory(${SRC_DIR}/tools)
+
+if (${MAKE_TEST} STREQUAL "OFF")
+    add_subdirectory(${SRC_DIR}/tools)
+endif()
+
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
 
@@ -677,6 +686,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
     add_subdirectory(${TEST_DIR}/geo)
+    add_subdirectory(${TEST_DIR}/gutil)
     add_subdirectory(${TEST_DIR}/http)
     add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/runtime)

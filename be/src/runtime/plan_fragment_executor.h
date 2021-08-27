@@ -26,6 +26,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/datetime_value.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
@@ -97,7 +98,7 @@ public:
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
     // If fragments_ctx is not null, some components will be got from fragments_ctx.
     Status prepare(const TExecPlanFragmentParams& request,
-                   const QueryFragmentsCtx* fragments_ctx = nullptr);
+                   QueryFragmentsCtx* fragments_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -262,52 +263,6 @@ private:
     const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
-};
-
-// Save the common components of fragments in a query.
-// Some components like DescriptorTbl may be very large
-// that will slow down each execution of fragments when DeSer them every time.
-class QueryFragmentsCtx {
-public:
-    QueryFragmentsCtx(int total_fragment_num)
-            : fragment_num(total_fragment_num), timeout_second(-1) {
-        _start_time = DateTimeValue::local_time();
-    }
-
-    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
-
-    bool is_timeout(const DateTimeValue& now) const {
-        if (timeout_second <= 0) {
-            return false;
-        }
-        if (now.second_diff(_start_time) > timeout_second) {
-            return true;
-        }
-        return false;
-    }
-
-public:
-    TUniqueId query_id;
-    DescriptorTbl* desc_tbl;
-    bool set_rsc_info = false;
-    std::string user;
-    std::string group;
-    TNetworkAddress coord_addr;
-    TQueryGlobals query_globals;
-
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryFragmentsCtx, and save QueryFragmentsCtx in FragmentMgr.
-    /// When all Fragments are executed, QueryFragmentsCtx needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryFragmentsCtx.
-    std::atomic<int> fragment_num;
-    int timeout_second;
-    ObjectPool obj_pool;
-
-private:
-    DateTimeValue _start_time;
 };
 
 } // namespace doris

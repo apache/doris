@@ -461,6 +461,16 @@ public class FunctionCallExpr extends Expr {
             fnParams.setIsDistinct(false);
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("percentile")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("percentile(expr, DOUBLE) requires two parameters");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException("percentile requires second parameter must be a constant : "
+                        + this.toSql());
+            }
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
             if (children.size() != 2 && children.size() != 3) {
                 throw new AnalysisException("percentile_approx(expr, DOUBLE [, B]) requires two or three parameters");

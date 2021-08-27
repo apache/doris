@@ -82,6 +82,7 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
         _value.set_string_val(node.string_literal.value);

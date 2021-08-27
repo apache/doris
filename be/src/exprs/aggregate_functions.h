@@ -74,6 +74,19 @@ public:
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
 
+    // Implementation of percentile
+    static void percentile_init(FunctionContext* ctx, StringVal* dst);
+
+    template <typename T>
+    static void percentile_update(FunctionContext* ctx, const T& src,
+                                    const DoubleVal& quantile, StringVal* dst);
+
+    static void percentile_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static StringVal percentile_serialize(FunctionContext* ctx, const StringVal& state_sv);
+
+    static DoubleVal percentile_finalize(FunctionContext* ctx, const StringVal& src);
+
     // Implementation of percentile_approx
     static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
 

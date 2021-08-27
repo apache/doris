@@ -53,5 +53,7 @@ MySQL > select `table`, percentile_approx(cost_time,0.99, 4096) from log_statis 
 +----------+--------------------------------------+
 | test     |                                54.21 |
 +----------+--------------------------------------+
+```
+
 ## keyword
 PERCENTILE_APPROX,PERCENTILE,APPROX

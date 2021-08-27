@@ -484,13 +484,14 @@ Status Translator::create_value_updaters() {
             break;
         }
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
                 return Status::InternalError(
-                        "Unsupported max/min/sum operation on char/varchar column.");
+                        "Unsupported max/min/sum operation on char/varchar/string column.");
             default:
                 // Only replace has meaning
                 _value_updaters.push_back(fake_update);

@@ -112,6 +112,7 @@ std::string SchemaColumnsScanner::to_mysql_data_type_string(TColumnDesc& desc) {
     case TPrimitiveType::DOUBLE:
         return "double";
     case TPrimitiveType::VARCHAR:
+    case TPrimitiveType::STRING:
         return "varchar";
     case TPrimitiveType::CHAR:
         return "char";
@@ -151,6 +152,8 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
         } else {
             return "varchar(20)";
         }
+    case TPrimitiveType::STRING:
+        return "string";
     case TPrimitiveType::CHAR:
         if (desc.__isset.columnLength) {
             return "char(" + std::to_string(desc.columnLength) + ")";
@@ -261,7 +264,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // For string columns, the maximum length in characters.
     {
         int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
-        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+            data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
             if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
@@ -277,7 +281,8 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // For string columns, the maximum length in bytes.
     {
         int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
-        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR ||
+            data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
             if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {

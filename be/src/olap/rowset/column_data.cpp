@@ -282,7 +282,7 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
     FieldType type = tablet_schema.column(key.field_count() - 1).type();
     if (key.field_count() > _segment_group->get_num_short_key_columns() ||
-        OLAP_FIELD_TYPE_VARCHAR == type) {
+        OLAP_FIELD_TYPE_VARCHAR == type || OLAP_FIELD_TYPE_STRING == type) {
         res = _find_position_by_full_key(key, find_last_key, &position);
     } else {
         res = _find_position_by_short_key(key, find_last_key, &position);

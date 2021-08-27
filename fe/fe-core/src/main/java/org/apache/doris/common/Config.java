@@ -1478,6 +1478,17 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
 
+    /**
+     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
+     * restart and upgrade after initialization is complete.
+     *
+     * 0: table names are stored as specified and comparisons are case sensitive.
+     * 1: table names are stored in lowercase and comparisons are not case sensitive.
+     * 2: table names are stored as given but compared in lowercase.
+     */
+    @ConfField(masterOnly = true)
+    public static int lower_case_table_names = 0;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 }

@@ -80,6 +80,7 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->compare(*string_value2);
