@@ -37,6 +37,9 @@ public class CommonUserProperties implements Writable {
     private long maxQueryInstances = -1;
     @SerializedName("sqlBlockRules")
     private String sqlBlockRules = "";
+    @SerializedName("cpuResourceLimit")
+    private int cpuResourceLimit = -1;
+
     private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
@@ -71,6 +74,14 @@ public class CommonUserProperties implements Writable {
     void setSqlBlockRulesSplit(String sqlBlockRules) {
         // split
         this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
+    }
+
+    public int getCpuResourceLimit() {
+        return cpuResourceLimit;
+    }
+
+    public void setCpuResourceLimit(int cpuResourceLimit) {
+        this.cpuResourceLimit = cpuResourceLimit;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

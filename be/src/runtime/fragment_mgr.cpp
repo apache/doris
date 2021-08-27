@@ -562,7 +562,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         } else {
             // This may be a first fragment request of the query.
             // Create the query fragments context.
-            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host));
+            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host, _exec_env));
             fragments_ctx->query_id = params.params.query_id;
             RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                                   &(fragments_ctx->desc_tbl)));
@@ -577,6 +577,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
             if (params.__isset.query_options) {
                 fragments_ctx->timeout_second = params.query_options.query_timeout;
+                if (params.query_options.__isset.resource_limit) {
+                    fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+                }
             }
 
             {
