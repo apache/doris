@@ -1216,9 +1216,7 @@ public class StmtExecutor implements ProfileWriter {
                     Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
                             insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                     context.getState().setOk();
-                    return;
-                }
-                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1260,9 +1258,18 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 2 cases
+            // 1. transaction aborted for no data inserted into table, or
+            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 3 cases
+
+            String message = "";
+            if (txnStatus == TransactionStatus.ABORTED) {
+                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+            } else if (throwable != null) {
+                message = throwable.getMessage();
+            }
 
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1271,7 +1278,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        throwable == null ? "" : throwable.getMessage(),
+                        message,
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
