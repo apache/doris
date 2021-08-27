@@ -40,7 +40,9 @@ under the License.
     超级用户权限:
         max_user_connections: 最大连接数。
         max_query_instances: 用户同一时间点执行查询可以使用的instance个数。
-        resource.cpu_share: cpu资源分配。
+        sql_block_rules: 设置 sql block rules。设置后，该用户发送的查询如果匹配规则，则会被拒绝。
+        cpu_resource_limit: 限制查询的cpu资源。详见会话变量 `cpu_resource_limit` 的介绍。
+        resource.cpu_share: cpu资源分配。（已废弃）
         load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
 
     普通用户权限：
@@ -80,6 +82,12 @@ under the License.
 
     8. 修改用户jack的查询可用instance个数为3000
     SET PROPERTY FOR 'jack' 'max_query_instances' = '3000';
+
+    9. 修改用户jack的sql block rule
+    SET PROPERTY FOR 'jack' 'sql_block_rules' = 'rule1, rule2';
+
+    10. 修改用户jack的 cpu 使用限制
+    SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
 
 ## keyword
     SET, PROPERTY

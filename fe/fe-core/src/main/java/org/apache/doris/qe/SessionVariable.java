@@ -24,6 +24,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -148,6 +149,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
+
+    public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -360,6 +363,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = false;
+
+    @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
+    public int cpuResourceLimit = -1;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -757,6 +763,10 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
+    public int getCpuResourceLimit() {
+        return cpuResourceLimit;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -790,6 +800,13 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setRuntimeFilterWaitTimeMs(runtimeFilterWaitTimeMs);
         tResult.setRuntimeFilterMaxInNum(runtimeFilterMaxInNum);
+
+        if (cpuResourceLimit > 0) {
+            TResourceLimit resourceLimit = new TResourceLimit();
+            resourceLimit.setCpuLimit(cpuResourceLimit);
+            tResult.setResourceLimit(resourceLimit);
+        }
+
         return tResult;
     }
 
