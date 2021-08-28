@@ -86,7 +86,7 @@ public class ModifyBackendTagTest {
                 ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Failed to find enough host with storage medium and tag(NaN/{\"location\" : \"default\"}) in all backends. need: 1",
+                "Failed to find enough host with storage medium and tag(HDD/{\"location\" : \"default\"}) in all backends. need: 1",
                 () -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt));
 
         createStr = "create table test.tbl1(\n" +
@@ -150,7 +150,9 @@ public class ModifyBackendTagTest {
         Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, defaultAlloc);
         TableProperty tableProperty = tbl.getTableProperty();
         Map<String, String> tblProperties = tableProperty.getProperties();
-        Assert.assertFalse(tblProperties.containsKey("default.replication_allocation"));
+        // if replication_num or replica_allocation is not set, it will be set to the default one
+        Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
+        Assert.assertEquals("tag.location.default: 3", tblProperties.get("default.replication_allocation"));
 
         // modify default replica
         String alterStr = "alter table test.tbl4 set ('default.replication_allocation' = 'tag.location.zonex:1')";
