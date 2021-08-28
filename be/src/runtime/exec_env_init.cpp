@@ -104,8 +104,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(1)
-            .set_max_threads(config::doris_send_batch_thread_pool_thread_num)
-            .set_max_queue_size(config::doris_send_batch_thread_pool_queue_size)
+            .set_max_threads(config::send_batch_thread_pool_thread_num)
+            .set_max_queue_size(config::send_batch_thread_pool_queue_size)
             .build(&_send_batch_thread_pool);
     
     _etl_thread_pool = new PriorityThreadPool(config::etl_thread_pool_size,

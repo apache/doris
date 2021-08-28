@@ -685,7 +685,7 @@ Status OlapTableSink::open(RuntimeState* state) {
             return Status::InternalError(ss.str());
         }
     }
-    int32_t send_batch_parallelism = MIN(_send_batch_parallelism, config::max_send_batch_parallelism);
+    int32_t send_batch_parallelism = MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
