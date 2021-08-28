@@ -291,8 +291,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(stmt.getExecMemLimit()));
-        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(stmt.getSendBatchParallelism()));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
+        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
 
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");

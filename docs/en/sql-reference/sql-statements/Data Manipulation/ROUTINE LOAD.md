@@ -197,7 +197,7 @@ FROM data_source
         json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
 
     10. `send_batch_parallelism`
-        Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism`.
+        Integer, Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
 
 6. data_source
 

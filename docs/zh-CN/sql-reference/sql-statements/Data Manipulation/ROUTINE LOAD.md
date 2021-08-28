@@ -183,7 +183,7 @@ under the License.
 
         10. send_batch_parallelism
             
-            整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism` 的值。 
+            整型，用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
 
     6. data_source
 

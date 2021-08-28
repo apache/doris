@@ -341,7 +341,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     暂不使用。
 * `send_batch_parallelism`                                                                                                                                                   
 
-   用于设置执行 InsertStmt 操作时发送批处理数据的默认并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism` 的值。 
+   用于设置执行 InsertStmt 操作时发送批处理数据的默认并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。 
                                                                                                  
 * `sql_mode`
 

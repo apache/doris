@@ -792,10 +792,10 @@ cumulative compaction策略：最大增量文件的数量
 
 txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
 
-### `max_send_batch_parallelism`
+### `max_send_batch_parallelism_per_job`
 
 * 类型：int
-* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism` 的值。
+* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
 * 默认值：1
 
 ### `max_tablet_num_per_shard`

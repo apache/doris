@@ -789,10 +789,10 @@ Default：100
 
 Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
 
-### `max_send_batch_parallelism`
+### `max_send_batch_parallelism_per_job`
 
 * Type: int
-* Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism`.
+* Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
 * Default value: 1
 
 ### `max_tablet_num_per_shard`

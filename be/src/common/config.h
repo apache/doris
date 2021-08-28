@@ -622,13 +622,13 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 CONF_mBool(runtime_filter_use_async_rpc, "true");
 
 // max send batch parallelism for OlapTableSink
-// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism,
-// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism
+// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
+// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
 CONF_mInt32(max_send_batch_parallelism_per_job, "5");
 CONF_Validator(max_send_batch_parallelism_per_job, [](const int config) -> bool { return config >= 1; });
 
 // number of send batch thread pool size
-CONF_Int32(send_batch_thread_pool_thread_num, "256");
+CONF_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 
