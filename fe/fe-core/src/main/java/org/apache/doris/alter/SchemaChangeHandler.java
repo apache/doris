@@ -61,12 +61,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -97,6 +99,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class SchemaChangeHandler extends AlterHandler {
@@ -105,8 +108,20 @@ public class SchemaChangeHandler extends AlterHandler {
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PRFIX = "__doris_shadow_";
 
+    public static final int MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE = 10;
+
+    public static final int CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB = 20;
+
+    public final ThreadPoolExecutor schemaChangeThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE, "schema-change-pool", true);
+
+    public final Map<Long, AlterJobV2> activeSchemaChangeJobsV2 = Maps.newConcurrentMap();
+
+    public final Map<Long, AlterJobV2> runnableSchemaChangeJobV2 = Maps.newConcurrentMap();
+
+    public int cycle_count = 0;
+
     public SchemaChangeHandler() {
-        super("schema change");
+        super("schema change", FeConstants.default_schema_change_scheduler_interval_millisecond);
     }
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
@@ -1387,13 +1402,36 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     protected void runAfterCatalogReady() {
-        super.runAfterCatalogReady();
+        if (cycle_count >= CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB) {
+            clearFinishedOrCancelledSchemaChangeJobV2();
+            super.runAfterCatalogReady();
+            cycle_count = 0;
+        }
         runOldAlterJob();
         runAlterJobV2();
+        cycle_count++;
     }
 
     private void runAlterJobV2() {
-        alterJobsV2.values().forEach(AlterJobV2::run);
+        runnableSchemaChangeJobV2.values().forEach(
+                alterJobsV2 -> {
+                    if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId()) &&
+                            activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
+                        if (FeConstants.runningUnitTest) {
+                            alterJobsV2.run();
+                        } else {
+                            schemaChangeThreadPool.submit(() -> {
+                                if (activeSchemaChangeJobsV2.putIfAbsent(alterJobsV2.getJobId(), alterJobsV2) == null) {
+                                    try {
+                                        alterJobsV2.run();
+                                    } finally {
+                                        activeSchemaChangeJobsV2.remove(alterJobsV2.getJobId());
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
     }
 
     @Deprecated
@@ -1998,5 +2036,38 @@ public class SchemaChangeHandler extends AlterHandler {
                 break;
             }
         }
+    }
+
+    @Override
+    protected void addAlterJobV2(AlterJobV2 alterJob) {
+        super.addAlterJobV2(alterJob);
+        runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
+    }
+
+
+    private void clearFinishedOrCancelledSchemaChangeJobV2() {
+        Iterator<Map.Entry<Long, AlterJobV2>> iterator = runnableSchemaChangeJobV2.entrySet().iterator();
+        while (iterator.hasNext()) {
+            AlterJobV2 alterJobV2 = iterator.next().getValue();
+            if (alterJobV2.isDone()) {
+                iterator.remove();
+            }
+        }
+    }
+
+    @Override
+    public void replayRemoveAlterJobV2(RemoveAlterJobV2OperationLog log) {
+        if (runnableSchemaChangeJobV2.containsKey(log.getJobId())) {
+            runnableSchemaChangeJobV2.remove(log.getJobId());
+        }
+        super.replayRemoveAlterJobV2(log);
+    }
+
+    @Override
+    public void replayAlterJobV2(AlterJobV2 alterJob) {
+        if (!alterJob.isDone() && !runnableSchemaChangeJobV2.containsKey(alterJob.getJobId())) {
+            runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
+        }
+        super.replayAlterJobV2(alterJob);
     }
 }
