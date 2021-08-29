@@ -33,6 +33,7 @@ Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& r
     RETURN_IF_ERROR(Expr::prepare(state, row_desc, ctx));
     DCHECK_EQ(0, _children.size());
 
+    _tuple_idxs.clear();
     // Resolve tuple ids to tuple indexes.
     for (int i = 0; i < _tuple_ids.size(); ++i) {
         int32_t tuple_idx = row_desc.get_tuple_idx(_tuple_ids[i]);
