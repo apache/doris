@@ -22,7 +22,6 @@ public class AgentException extends RuntimeException {
     private static final Integer DEAFULT_EXCEPTION_STATUS = 500;
     private int status;
 
-
     public AgentException(String message) {
         this(message, DEAFULT_EXCEPTION_STATUS);
     }

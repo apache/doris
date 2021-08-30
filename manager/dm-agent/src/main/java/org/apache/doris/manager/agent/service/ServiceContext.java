@@ -33,7 +33,7 @@ import java.util.Objects;
 public class ServiceContext {
     private static Map<ServiceRole, Service> serviceMap = new HashMap<>();
 
-    private synchronized static void registeService(Service service) {
+    private static synchronized void registeService(Service service) {
         serviceMap.put(service.getServiceRole(), service);
     }
 

@@ -66,6 +66,7 @@ public class CommandFactory {
                 try {
                     writeFeConfCommandRequestBody.setContent(new String(decoder.decode(writeFeConfCommandRequestBody.getContent()), "UTF-8"));
                 } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
                 }
                 return new WriteFeConfCommand(writeFeConfCommandRequestBody);
             case WRITE_BE_CONF:
@@ -75,6 +76,7 @@ public class CommandFactory {
                 try {
                     writeBeConfCommandRequestBody.setContent(new String(decoder2.decode(writeBeConfCommandRequestBody.getContent()), "UTF-8"));
                 } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
                 }
                 return new WriteBeConfCommand(writeBeConfCommandRequestBody);
             default:

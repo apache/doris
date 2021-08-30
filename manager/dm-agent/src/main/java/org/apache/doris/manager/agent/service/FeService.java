@@ -60,9 +60,9 @@ public class FeService extends Service {
 
         HttpGet httpget = new HttpGet(requestUrl);
 
-        RequestConfig requestConfig = RequestConfig.custom().
-                setConnectTimeout(5000).
-                setConnectionRequestTimeout(5000)
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(5000)
+                .setConnectionRequestTimeout(5000)
                 .setSocketTimeout(5000).build();
         httpget.setConfig(requestConfig);
 

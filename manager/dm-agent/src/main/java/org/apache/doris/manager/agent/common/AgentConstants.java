@@ -41,6 +41,4 @@ public class AgentConstants {
 
     public static final int TASK_ERROR_CODE_DEFAULT = -501;
     public static final int TASK_ERROR_CODE_EXCEPTION = -502;
-
-
 }

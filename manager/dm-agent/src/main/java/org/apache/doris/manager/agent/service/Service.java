@@ -89,10 +89,10 @@ public abstract class Service {
 
     @Override
     public String toString() {
-        return "Service{" +
-                "serviceRole=" + serviceRole +
-                ", installDir='" + installDir + '\'' +
-                ", httpPort=" + httpPort +
-                '}';
+        return "Service{"
+                + "serviceRole=" + serviceRole
+                + ", installDir='" + installDir + '\''
+                + ", httpPort=" + httpPort
+                + '}';
     }
 }
