@@ -23,12 +23,6 @@ public class ApplicationOption {
     @Option(name = "--agentIp", required = true, usage = "Specify agent agentIp")
     public String agentIp;
 
-    @Option(name = "--agentServer", required = true, usage = "Specify agent agentServer agentIp:port")
+    @Option(name = "--agentServer", required = true, usage = "Specify agent agentServer agentServerIp:port")
     public String agentServer;
-
-    @Option(name = "--dorisHomeDir", usage = "Specify service home dir")
-    public String dorisHomeDir;
-
-    @Option(name = "--role", usage = "Specify service role")
-    public String role;
 }

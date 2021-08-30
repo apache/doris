@@ -37,5 +37,4 @@ public class GlobalExceptionHandler {
         log.error("agent error ", ex);
         return RResult.error(5000, "agent error");
     }
-
 }

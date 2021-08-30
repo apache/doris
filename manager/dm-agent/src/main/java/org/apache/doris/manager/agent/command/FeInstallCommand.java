@@ -17,14 +17,24 @@
 
 package org.apache.doris.manager.agent.command;
 
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
+import org.apache.doris.manager.agent.service.FeService;
+import org.apache.doris.manager.agent.service.Service;
+import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
 import org.apache.doris.manager.agent.task.ScriptTask;
+import org.apache.doris.manager.agent.task.ScriptTaskDesc;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
+import org.apache.doris.manager.agent.task.TaskHook;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.ServiceRole;
+
+import java.util.Objects;
 
 public class FeInstallCommand extends Command {
     private FeInstallCommandRequestBody requestBody;
@@ -35,14 +45,20 @@ public class FeInstallCommand extends Command {
 
     @Override
     public Task setupTask() {
+        validCommand();
+
+        if (requestBody.getInstallDir().endsWith("/")) {
+            requestBody.setInstallDir(requestBody.getInstallDir().substring(0, requestBody.getInstallDir().length() - 1));
+        }
+
         FeInstallTaskDesc taskDesc = new FeInstallTaskDesc();
 
-        String scriptCmd = AgentContext.getBashBin();
+        String scriptCmd = AgentConstants.BASH_BIN;
         scriptCmd += AgentContext.getAgentInstallDir() + "/bin/install_fe.sh ";
         scriptCmd += " --installDir " + requestBody.getInstallDir();
         scriptCmd += " --url " + requestBody.getPackageUrl();
         if (requestBody.getMkFeMetadir()) {
-            scriptCmd += " --mkFeMetadir";
+            taskDesc.setCreateMetaDir(true);
         }
 
         taskDesc.setScriptCmd(scriptCmd);
@@ -58,5 +74,54 @@ public class FeInstallCommand extends Command {
     @Override
     public CommandType setupCommandType() {
         return CommandType.INSTALL_FE;
+    }
+
+    private void validCommand() {
+        Service service = ServiceContext.getServiceMap().get(ServiceRole.FE);
+        if (Objects.nonNull(service)) {
+            throw new AgentException("service fe has installed");
+        }
+
+        if (Objects.isNull(requestBody.getInstallDir()) || Objects.isNull(requestBody.getPackageUrl())) {
+            throw new AgentException("required parameters are missing in body param");
+        }
+
+        if (!requestBody.getInstallDir().startsWith("/")) {
+            throw new AgentException("the installation path must use an absolute path");
+        }
+    }
+
+    private static class FeInstallTaskDesc extends ScriptTaskDesc {
+        private String installDir;
+        private boolean createMetaDir;
+
+        public String getInstallDir() {
+            return installDir;
+        }
+
+        public void setInstallDir(String installDir) {
+            this.installDir = installDir;
+        }
+
+        public boolean isCreateMetaDir() {
+            return createMetaDir;
+        }
+
+        public void setCreateMetaDir(boolean createMetaDir) {
+            this.createMetaDir = createMetaDir;
+        }
+    }
+
+    private static class FeInstallTaskHook extends TaskHook<FeInstallTaskDesc> {
+        @Override
+        public void onSuccess(FeInstallTaskDesc taskDesc) {
+            FeService feService = new FeService(taskDesc.getInstallDir());
+
+            if (taskDesc.isCreateMetaDir()) {
+                feService.createMetaDir(false);
+            }
+
+            ServiceContext.register(feService);
+        }
     }
 }

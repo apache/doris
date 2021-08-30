@@ -26,13 +26,12 @@ import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.manager.common.domain.Role;
+import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.constants.CmdTypeEnum;
-import org.apache.doris.stack.dao.AgentRoleRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.exceptions.ServerException;
@@ -99,14 +98,14 @@ public class ServerAgentImpl implements ServerAgent {
 
     private RResult installDoris(InstallInfo install) {
         CommandRequest creq = new CommandRequest();
-        if (Role.FE.name().equals(install.getRole())) {
+        if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(install.isMkFeMetadir());
             feBody.setPackageUrl(install.getPackageUrl());
             feBody.setInstallDir(install.getInstallDir());
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
-        } else if (Role.BE.name().equals(install.getRole())) {
+        } else if (ServiceRole.BE.name().equals(install.getRole())) {
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(install.isMkBeStorageDir());
             beBody.setInstallDir(install.getInstallDir());
@@ -123,11 +122,10 @@ public class ServerAgentImpl implements ServerAgent {
         CmdTypeEnum cmdType = CmdTypeEnum.findByName(dorisExec.getCommand());
         List<DorisExec> dorisExecs = dorisExec.getDorisExecs();
         for (DorisExec exec : dorisExecs) {
-            CommandType commandType = transAgentCmd(cmdType, Role.findByName(exec.getRole()));
+            CommandType commandType = transAgentCmd(cmdType, ServiceRole.findByName(exec.getRole()));
             CommandRequest creq = new CommandRequest();
             if (CommandType.START_FE.equals(commandType) && exec.isMaster()) {
                 FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
-                feBody.setHelper(true);
                 // request fe master ip and port
                 feBody.setHelpHostPort("");
             }
@@ -142,7 +140,7 @@ public class ServerAgentImpl implements ServerAgent {
     /**
      * trans server command to agent command
      */
-    public CommandType transAgentCmd(CmdTypeEnum cmdType, Role role) {
+    public CommandType transAgentCmd(CmdTypeEnum cmdType, ServiceRole role) {
         Preconditions.checkNotNull(cmdType, "unrecognized cmd type " + cmdType);
         Preconditions.checkNotNull(role, "unrecognized role " + role);
         String cmd = cmdType.name() + "_" + role.name();
@@ -185,7 +183,7 @@ public class ServerAgentImpl implements ServerAgent {
 
     @Override
     public void joinBe(List<String> hosts) {
-        List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByRole(Role.FE.name());
+        List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByRole(ServiceRole.FE.name());
         if (agentRoles.isEmpty()) {
             return;
         }

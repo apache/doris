@@ -17,16 +17,12 @@
 
 package org.apache.doris.manager.agent.command;
 
-import org.apache.doris.manager.agent.task.ScriptTaskDesc;
-
-public class BeInstallTaskDesc extends ScriptTaskDesc {
-    private String installDir;
-
-    public String getInstallDir() {
-        return installDir;
+public abstract class ExpandCommand extends Command {
+    @Override
+    public Command setup() {
+        beforeSetup();
+        return super.setup();
     }
 
-    public void setInstallDir(String installDir) {
-        this.installDir = installDir;
-    }
+    abstract void beforeSetup();
 }

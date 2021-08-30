@@ -23,5 +23,4 @@ public class SyncTaskHandler extends TaskHandler {
     public void doHandle(Task task) {
         task.executeTask();
     }
-
 }

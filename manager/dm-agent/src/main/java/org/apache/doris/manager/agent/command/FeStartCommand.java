@@ -17,7 +17,8 @@
 
 package org.apache.doris.manager.agent.command;
 
-import org.apache.doris.manager.agent.register.AgentContext;
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
 import org.apache.doris.manager.agent.task.ScriptTask;
@@ -26,7 +27,7 @@ import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
-import org.apache.logging.log4j.util.Strings;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
 import java.util.Objects;
 
@@ -41,10 +42,10 @@ public class FeStartCommand extends FeCommand {
     public Task setupTask() {
         ScriptTaskDesc taskDesc = new ScriptTaskDesc();
 
-        String scriptCmd = AgentContext.getBashBin();
-        scriptCmd += AgentContext.getServiceInstallDir() + "/bin/start_fe.sh ";
+        String scriptCmd = AgentConstants.BASH_BIN;
+        scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.FE).getInstallDir() + "/bin/start_fe.sh ";
         if (Objects.nonNull(requestBody)) {
-            if (requestBody.isHelper() && Strings.isNotBlank(requestBody.getHelpHostPort())) {
+            if (Objects.nonNull(requestBody.getHelpHostPort()) && requestBody.getHelpHostPort().length() > 0) {
                 scriptCmd += " --help " + requestBody.getHelpHostPort();
             }
         }

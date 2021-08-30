@@ -28,7 +28,11 @@ public enum CommandType {
 
     START_BE,
 
-    STOP_BE;
+    STOP_BE,
+
+    WRITE_FE_CONF,
+
+    WRITE_BE_CONF;
 
     public static CommandType findByName(String name) {
         for (CommandType type : CommandType.values()) {

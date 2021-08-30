@@ -15,18 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.command;
+package org.apache.doris.manager.common.domain;
 
-import org.apache.doris.manager.agent.task.ScriptTaskDesc;
+public class WriteFeConfCommandRequestBody {
+    private String content;
+    private boolean createMetaDir;
 
-public class FeInstallTaskDesc extends ScriptTaskDesc {
-    private String installDir;
-
-    public String getInstallDir() {
-        return installDir;
+    public String getContent() {
+        return content;
     }
 
-    public void setInstallDir(String installDir) {
-        this.installDir = installDir;
+    public void setContent(String content) {
+        this.content = content;
+    }
+
+    public boolean isCreateMetaDir() {
+        return createMetaDir;
+    }
+
+    public void setCreateMetaDir(boolean createMetaDir) {
+        this.createMetaDir = createMetaDir;
     }
 }

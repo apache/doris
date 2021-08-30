@@ -31,9 +31,9 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class AgentHeartbeat {
 
-    private static final long HEARTBEAT_TIME = 10000L;
-
     private static final ScheduledExecutorService SCHEDULER = Executors.newScheduledThreadPool(1);
+
+    private static final long HEARTBEAT_TIME = 10000L;
 
     public static void start() {
         SCHEDULER.scheduleWithFixedDelay(() -> {

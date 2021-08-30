@@ -15,10 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.command;
+package org.apache.doris.manager.common.domain;
 
-import org.apache.doris.manager.common.domain.CommandType;
+public class WriteBeConfCommandRequestBody {
+    private String content;
+    private boolean createStorageDir;
 
-public interface CommandListener {
-    void beforeExecute(CommandType commandType);
+    public boolean isCreateStorageDir() {
+        return createStorageDir;
+    }
+
+    public void setCreateStorageDir(boolean createStorageDir) {
+        this.createStorageDir = createStorageDir;
+    }
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
+    }
 }

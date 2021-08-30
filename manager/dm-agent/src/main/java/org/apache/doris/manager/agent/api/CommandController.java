@@ -18,13 +18,13 @@
 package org.apache.doris.manager.agent.api;
 
 import org.apache.doris.manager.agent.command.CommandFactory;
-import org.apache.doris.manager.agent.common.AgentConstants;
-import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.agent.command.CommandResult;
 import org.apache.doris.manager.agent.command.CommandResultService;
-import org.apache.doris.manager.common.domain.CommandType;
+import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskContext;
+import org.apache.doris.manager.common.domain.CommandRequest;
+import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.RResult;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;

@@ -18,16 +18,7 @@
 package org.apache.doris.manager.common.domain;
 
 public class FeStartCommandRequestBody {
-    private boolean helper;
     private String helpHostPort;
-
-    public boolean isHelper() {
-        return helper;
-    }
-
-    public void setHelper(boolean helper) {
-        this.helper = helper;
-    }
 
     public String getHelpHostPort() {
         return helpHostPort;

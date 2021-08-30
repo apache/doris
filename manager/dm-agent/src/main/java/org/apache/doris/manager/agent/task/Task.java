@@ -17,6 +17,9 @@
 
 package org.apache.doris.manager.agent.task;
 
+import org.apache.doris.manager.agent.common.AgentConstants;
+
+import java.io.IOException;
 import java.util.Date;
 import java.util.UUID;
 
@@ -29,7 +32,7 @@ public abstract class Task<T extends TaskDesc> {
 
     private TaskHook taskHook;
 
-    private Task(T taskDesc) {
+    protected Task(T taskDesc) {
         this.taskDesc = taskDesc;
         this.taskResult = new TaskResult();
         this.taskResult.setTaskId(UUID.randomUUID().toString().replace("-", ""));
@@ -61,14 +64,18 @@ public abstract class Task<T extends TaskDesc> {
     public TaskResult executeTask() {
         this.taskResult.setStartTime(new Date());
         this.taskResult.setTaskState(TaskState.RUNNING);
-        int code = -501;
+        int code = AgentConstants.TASK_ERROR_CODE_DEFAULT;
         try {
             code = execute();
             if (0 == code && taskHook != null) {
                 taskHook.onSuccess(taskDesc);
             }
         } catch (Throwable e) {
+            code = AgentConstants.TASK_ERROR_CODE_EXCEPTION;
             e.printStackTrace();
+            if (tasklog != null) {
+                tasklog.appendErrLog(e.getMessage());
+            }
         } finally {
             this.taskResult.setEndTime(new Date());
             this.taskResult.setRetCode(code);
@@ -81,6 +88,6 @@ public abstract class Task<T extends TaskDesc> {
         return taskDesc;
     }
 
-    protected abstract int execute();
+    protected abstract int execute() throws IOException, InterruptedException;
 
 }

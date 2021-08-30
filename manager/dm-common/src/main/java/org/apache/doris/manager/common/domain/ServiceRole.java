@@ -17,12 +17,12 @@
 
 package org.apache.doris.manager.common.domain;
 
-public enum Role {
+public enum ServiceRole {
     FE,
     BE;
 
-    public static Role findByName(String name) {
-        for (Role type : Role.values()) {
+    public static ServiceRole findByName(String name) {
+        for (ServiceRole type : ServiceRole.values()) {
             if (type.name().equals(name)) {
                 return type;
             }

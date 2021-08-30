@@ -17,8 +17,8 @@
 
 package org.apache.doris.manager.agent.task;
 
-import org.apache.doris.manager.agent.common.AgentConstants;
 import javafx.util.Pair;
+import org.apache.doris.manager.agent.common.AgentConstants;
 
 import java.util.ArrayList;
 import java.util.List;

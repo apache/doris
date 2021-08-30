@@ -24,15 +24,18 @@ import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
-import org.apache.logging.log4j.util.Strings;
+import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
+import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
+import java.util.Base64;
+import java.util.Objects;
 
 public class CommandFactory {
     public static Command get(CommandRequest commandRequest) {
         String body = null;
-        if (Strings.isNotBlank(commandRequest.getBody())) {
+        if (Objects.nonNull(commandRequest.getBody())) {
             try {
                 body = URLDecoder.decode(commandRequest.getBody(), "UTF-8");
             } catch (UnsupportedEncodingException e) {
@@ -43,22 +46,45 @@ public class CommandFactory {
 
         switch (CommandType.valueOf(commandRequest.getCommandType())) {
             case INSTALL_FE:
-                FeInstallCommandRequestBody feInstallCommandRequestBody = JSON.parseObject(body, FeInstallCommandRequestBody.class);
-                return new FeInstallCommand(feInstallCommandRequestBody);
+                validBody(body);
+                return new FeInstallCommand(JSON.parseObject(body, FeInstallCommandRequestBody.class));
             case INSTALL_BE:
-                BeInstallCommandRequestBody beInstallCommandRequestBody = JSON.parseObject(body, BeInstallCommandRequestBody.class);
-                return new BeInstallCommand(beInstallCommandRequestBody);
+                validBody(body);
+                return new BeInstallCommand(JSON.parseObject(body, BeInstallCommandRequestBody.class));
             case START_FE:
-                FeStartCommandRequestBody feStartCommandRequestBody = JSON.parseObject(body, FeStartCommandRequestBody.class);
-                return new FeStartCommand(feStartCommandRequestBody);
+                return new FeStartCommand(JSON.parseObject(body, FeStartCommandRequestBody.class));
             case STOP_FE:
                 return new FeStopCommand();
             case START_BE:
                 return new BeStartCommand();
             case STOP_BE:
                 return new BeStopCommand();
+            case WRITE_FE_CONF:
+                validBody(body);
+                WriteFeConfCommandRequestBody writeFeConfCommandRequestBody = JSON.parseObject(body, WriteFeConfCommandRequestBody.class);
+                Base64.Decoder decoder = Base64.getDecoder();
+                try {
+                    writeFeConfCommandRequestBody.setContent(new String(decoder.decode(writeFeConfCommandRequestBody.getContent()), "UTF-8"));
+                } catch (UnsupportedEncodingException e) {
+                }
+                return new WriteFeConfCommand(writeFeConfCommandRequestBody);
+            case WRITE_BE_CONF:
+                validBody(body);
+                WriteBeConfCommandRequestBody writeBeConfCommandRequestBody = JSON.parseObject(body, WriteBeConfCommandRequestBody.class);
+                Base64.Decoder decoder2 = Base64.getDecoder();
+                try {
+                    writeBeConfCommandRequestBody.setContent(new String(decoder2.decode(writeBeConfCommandRequestBody.getContent()), "UTF-8"));
+                } catch (UnsupportedEncodingException e) {
+                }
+                return new WriteBeConfCommand(writeBeConfCommandRequestBody);
             default:
                 throw new AgentException("unkown CommandType");
+        }
+    }
+
+    private static void validBody(String body) {
+        if (Objects.isNull(body) || body.length() == 0) {
+            throw new AgentException("param body can not be empty");
         }
     }
 }

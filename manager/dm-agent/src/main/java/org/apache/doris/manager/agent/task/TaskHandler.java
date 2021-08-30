@@ -26,5 +26,4 @@ public abstract class TaskHandler {
     }
 
     public abstract void doHandle(Task task);
-
 }
