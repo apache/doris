@@ -117,6 +117,7 @@ public:
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -189,6 +190,7 @@ private:
     PriorityThreadPool* _scan_thread_pool = nullptr;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
+    std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;

@@ -789,6 +789,12 @@ Default：100
 
 Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
 
+### `max_send_batch_parallelism_per_job`
+
+* Type: int
+* Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
+* Default value: 1
+
 ### `max_tablet_num_per_shard`
 
 Default：1024
@@ -1055,6 +1061,17 @@ Check row nums for BE/CE and schema change. true is open, false is closed
 Default：5
 
 This configuration is used for the context gc thread scheduling cycle. Note: The unit is minutes, and the default is 5 minutes
+
+### `send_batch_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the SendBatch thread pool. In NodeChannels' sending data tasks, the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the SendBatch thread pool.
+* Default value: 256
+
+### `send_batch_thread_pool_queue_size`
+
+* Type: int32
+* Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
 
 ### `sleep_one_second`
 

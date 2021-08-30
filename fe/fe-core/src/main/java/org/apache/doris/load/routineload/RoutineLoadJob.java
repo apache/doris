@@ -109,6 +109,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
+    public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -168,6 +169,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // if current error rate is more than max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
+    protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
@@ -284,8 +286,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getExecMemLimit() != -1) {
             this.execMemLimit = stmt.getExecMemLimit();
         }
+        if (stmt.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = stmt.getSendBatchParallelism();
+        }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
+        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
@@ -553,6 +561,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public boolean isFuzzyParse() {
         return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
+    }
+
+    @Override
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
     }
 
     @Override

@@ -199,6 +199,11 @@ public:
         return _num_threads + _num_threads_pending_start;
     }
 
+    int get_queue_size() const {
+        MutexLock l(&_lock);
+        return _total_queued_tasks;
+    }
+
 private:
     friend class ThreadPoolBuilder;
     friend class ThreadPoolToken;
