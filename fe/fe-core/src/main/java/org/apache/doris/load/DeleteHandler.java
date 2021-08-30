@@ -54,6 +54,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -94,7 +95,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
+import java.util.Iterator;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class DeleteHandler implements Writable {
@@ -107,9 +110,12 @@ public class DeleteHandler implements Writable {
     @SerializedName(value = "dbToDeleteInfos")
     private Map<Long, List<DeleteInfo>> dbToDeleteInfos;
 
+    private ReentrantReadWriteLock lock;
+
     public DeleteHandler() {
         idToDeleteJob = Maps.newConcurrentMap();
         dbToDeleteInfos = Maps.newConcurrentMap();
+        lock = new ReentrantReadWriteLock();
     }
 
     private enum CancelType {
@@ -117,6 +123,22 @@ public class DeleteHandler implements Writable {
         TIMEOUT,
         COMMIT_FAIL,
         UNKNOWN
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
     }
 
     public void process(DeleteStmt stmt) throws DdlException, QueryStateException {
@@ -136,7 +158,7 @@ public class DeleteHandler implements Writable {
             long transactionId = -1;
             Table table = null;
             try {
-               table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+                table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -431,8 +453,11 @@ public class DeleteHandler implements Writable {
                     job.getTransactionId(), dbId);
             dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
             List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-            synchronized (deleteInfoList) {
+            writeLock();
+            try {
                 deleteInfoList.add(job.getDeleteInfo());
+            } finally {
+                writeUnlock();
             }
         }
     }
@@ -657,33 +682,40 @@ public class DeleteHandler implements Writable {
         }
 
         String dbName = db.getFullName();
-        List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(dbId);
-        if (deleteInfos == null) {
-            return infos;
-        }
+        List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
 
-        for (DeleteInfo deleteInfo : deleteInfos) {
-            if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    deleteInfo.getTableName(),
-                    PrivPredicate.LOAD)) {
-                continue;
+        readLock();
+        try {
+            if (deleteInfoList == null) {
+                return infos;
             }
 
-            List<Comparable> info = Lists.newArrayList();
-            info.add(deleteInfo.getTableName());
-            if (deleteInfo.isNoPartitionSpecified()) {
-                info.add("*");
-            } else {
-                info.add(Joiner.on(", ").join(deleteInfo.getPartitionNames()));
+            for (DeleteInfo deleteInfo : deleteInfoList) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        deleteInfo.getTableName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                List<Comparable> info = Lists.newArrayList();
+                info.add(deleteInfo.getTableName());
+                if (deleteInfo.isNoPartitionSpecified()) {
+                    info.add("*");
+                } else {
+                    info.add(Joiner.on(", ").join(deleteInfo.getPartitionNames()));
+                }
+
+                info.add(TimeUtils.longToTimeString(deleteInfo.getCreateTimeMs()));
+                String conds = Joiner.on(", ").join(deleteInfo.getDeleteConditions());
+                info.add(conds);
+
+                info.add("FINISHED");
+                infos.add(info);
             }
-
-            info.add(TimeUtils.longToTimeString(deleteInfo.getCreateTimeMs()));
-            String conds = Joiner.on(", ").join(deleteInfo.getDeleteConditions());
-            info.add(conds);
-
-            info.add("FINISHED");
-            infos.add(info);
+        } finally {
+            readUnlock();
         }
+
         // sort by createTimeMs
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(2);
         Collections.sort(infos, comparator);
@@ -696,8 +728,11 @@ public class DeleteHandler implements Writable {
         LOG.info("replay delete, dbId {}", dbId);
         dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
         List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-        synchronized (deleteInfoList) {
+        writeLock();
+        try {
             deleteInfoList.add(deleteInfo);
+        } finally {
+            writeUnlock();
         }
     }
 
@@ -709,6 +744,33 @@ public class DeleteHandler implements Writable {
 
     public static DeleteHandler read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, DeleteHandler.class);
+        DeleteHandler deleteHandler = GsonUtils.GSON.fromJson(json, DeleteHandler.class);
+        deleteHandler.removeOldDeleteInfos(new Timestamp());
+        return deleteHandler;
+    }
+
+    public void removeOldDeleteInfos(Timestamp currTime) {
+        Iterator<Entry<Long, List<DeleteInfo>>> iter1 = dbToDeleteInfos.entrySet().iterator();
+        while (iter1.hasNext()) {
+            List<DeleteInfo> deleteInfoList = iter1.next().getValue();
+
+            writeLock();
+            try {
+                Iterator<DeleteInfo> iter2 = deleteInfoList.iterator();
+                while (iter2.hasNext()) {
+                    DeleteInfo deleteInfo = iter2.next();
+                    if ((currTime.getTimestamp() - deleteInfo.getCreateTimeMs()) / 1000
+                            > Config.delete_info_keep_max_second) {
+                        iter2.remove();
+                    }
+                }
+            } finally {
+                writeUnlock();
+            }
+
+            if (deleteInfoList.isEmpty()) {
+                iter1.remove();
+            }
+        }
     }
 }
