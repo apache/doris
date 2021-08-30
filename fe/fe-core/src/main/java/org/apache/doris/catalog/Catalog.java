@@ -2249,6 +2249,7 @@ public class Catalog {
                 load.removeOldLoadJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
+                deleteHandler.removeOldDeleteInfos(new Timestamp());
             }
         };
     }

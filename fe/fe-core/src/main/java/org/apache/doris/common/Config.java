@@ -154,6 +154,14 @@ public class Config extends ConfigBase {
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
 
     /**
+     * Delete all deleteInfo older than *delete_info_keep_max_second*
+     * Setting a shorter time will reduce FE memory usage and image file size
+     * (Because all deleteInfo is stored in memory and image files before being deleted)
+     */
+    @ConfField(mutable = true)
+    public static int delete_info_keep_max_second = 3 * 24 * 3600; // 3 days
+
+    /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
      */

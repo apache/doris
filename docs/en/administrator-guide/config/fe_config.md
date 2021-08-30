@@ -1986,7 +1986,7 @@ IsMutable：true
 
 MasterOnly：true
 
-abels of finished or cancelled load jobs will be removed after *label_keep_max_second* ， The removed labels can be reused.  Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
+labels of finished or cancelled load jobs will be removed after *label_keep_max_second* ， The removed labels can be reused.  Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
 
 In the case of high concurrent writes, if there is a large backlog of jobs and call frontend service failed, check the log. If the metadata write takes too long to lock, you can adjust this value to 12 hours, or 6 hours less
 
@@ -2016,6 +2016,16 @@ Default：4 * 3600  （4 hour）
 
 Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
 
+### delete_info_keep_max_second
+
+Default：3 * 24 * 3600  (3day)
+
+IsMutable：true
+
+MasterOnly：false
+
+Delete all deleteInfo older than *delete_info_keep_max_second* , Setting a shorter time will reduce FE memory usage and image file size. (Because all deleteInfo is stored in memory and image files before being deleted)
+
 ### transaction_clean_interval_second
 
 Default：30
@@ -2023,7 +2033,7 @@ Default：30
 the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted  we should make this interval as short as possible and each clean cycle as soon as possible
 
 
-### `default_max_query_instances`
+### default_max_query_instances
 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
