@@ -792,6 +792,12 @@ cumulative compaction策略：最大增量文件的数量
 
 txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
 
+### `max_send_batch_parallelism_per_job`
+
+* 类型：int
+* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
+* 默认值：1
+
 ### `max_tablet_num_per_shard`
 
 默认：1024
@@ -1058,6 +1064,18 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 默认值：5
 
 此配置用于上下文gc线程调度周期 ， 注意：单位为分钟，默认为 5 分钟
+
+### `send_batch_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
+* 默认值：256
+
+### `send_batch_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
 
 ### `serialize_batch`
 
