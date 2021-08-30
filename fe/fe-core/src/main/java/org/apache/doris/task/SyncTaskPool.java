@@ -17,19 +17,32 @@
 
 package org.apache.doris.task;
 
-import java.util.concurrent.ExecutorService;
+import org.apache.doris.common.Config;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntUnaryOperator;
 
 public class SyncTaskPool {
-
-    private static final ExecutorService executor = new StripedTaskExecutor();
-
-    public SyncTaskPool() {
-    }
+    private static final int NUM_OF_SLOTS = Config.max_sync_task_threads_num;
+    private static final SerialExecutorService EXECUTOR = new SerialExecutorService(NUM_OF_SLOTS);
+    private static final AtomicInteger nextIndex = new AtomicInteger();
 
     public static void submit(Runnable task) {
         if (task == null) {
             return;
         }
-        executor.submit(task);
+        EXECUTOR.submit(task);
+    }
+
+    public static int getNextIndex() {
+        return nextIndex.updateAndGet(new IntUnaryOperator() {
+            @Override
+            public int applyAsInt(int operand) {
+                if (++operand >= NUM_OF_SLOTS) {
+                    operand = 0;
+                }
+                return operand;
+            }
+        });
     }
 }

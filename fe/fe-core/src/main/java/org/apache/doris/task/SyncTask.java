@@ -18,20 +18,21 @@
 package org.apache.doris.task;
 
 import org.apache.doris.load.sync.SyncChannelCallback;
+import org.apache.doris.task.SerialExecutorService.SerialRunnable;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public abstract class SyncTask implements StripedRunnable {
+public abstract class SyncTask implements SerialRunnable {
     private static final Logger LOG = LogManager.getLogger(SyncTask.class);
 
     protected long signature;
-    protected Object stripe;
+    protected int index;
     protected SyncChannelCallback callback;
 
-    public SyncTask(long signature, Object stripe, SyncChannelCallback callback) {
+    public SyncTask(long signature, int index, SyncChannelCallback callback) {
         this.signature = signature;
-        this.stripe = stripe;
+        this.index = index;
         this.callback = callback;
     }
 
@@ -46,8 +47,8 @@ public abstract class SyncTask implements StripedRunnable {
         }
     }
 
-    public Object getStripe() {
-        return this.stripe;
+    public int getIndex() {
+        return this.index;
     }
 
     /**

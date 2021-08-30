@@ -655,7 +655,7 @@ public class Config extends ConfigBase {
     /**
      * max num of thread to handle sync task in sync task thread-pool.
      */
-    @ConfField public static int max_sync_task_threads_num = 1024;
+    @ConfField public static int max_sync_task_threads_num = 10;
 
     /**
      * Default number of waiting jobs for routine load and version 2 of load

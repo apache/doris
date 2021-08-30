@@ -68,7 +68,7 @@ public class SyncChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        LOG.debug("start check export jobs. job state: {}", jobState.name());
+        LOG.debug("start check sync jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:
                 runPendingJobs();

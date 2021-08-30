@@ -68,7 +68,7 @@ public class CanalSyncChannel extends SyncChannel {
     private static final String DELETE_CONDITION = DELETE_COLUMN + "=1";
     private static final String NULL_VALUE_FOR_LOAD = "\\N";
 
-    private final Object stripe = new Object();
+    private final int index;
 
     private long timeoutSecond;
     private long lastBatchId;
@@ -78,32 +78,33 @@ public class CanalSyncChannel extends SyncChannel {
 
     public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
         super(id, syncJob, db, table, columns, srcDataBase, srcTable);
+        this.index = SyncTaskPool.getNextIndex();
         this.batchBuffer = new Data<>();
         this.lastBatchId = -1L;
         this.timeoutSecond = -1L;
     }
 
-    final class SendTask extends SyncTask {
+    private final static class SendTask extends SyncTask {
         private final InsertStreamTxnExecutor executor;
-        private Data<InternalService.PDataRow> rows;
+        private final Data<InternalService.PDataRow> rows;
 
-        public SendTask(long signature, Object stripe, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
-            super(signature, stripe, callback);
+        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
+            super(signature, index, callback);
             this.executor = executor;
             this.rows = rows;
         }
 
         public void exec() throws Exception {
-            TransactionEntry txnEntry = txnExecutor.getTxnEntry();
+            TransactionEntry txnEntry = executor.getTxnEntry();
             txnEntry.setDataToSend(rows.getDatas());
             executor.sendData();
         }
     }
 
-    final class EOFTask extends SyncTask {
+    private final static class EOFTask extends SyncTask {
 
-        public EOFTask(long signature, Object stripe, SyncChannelCallback callback) {
-            super(signature, stripe, callback);
+        public EOFTask(long signature, int index, SyncChannelCallback callback) {
+            super(signature, index, callback);
         }
 
         public void exec() throws Exception {
@@ -256,7 +257,7 @@ public class CanalSyncChannel extends SyncChannel {
     }
 
     public void submitEOF() {
-        EOFTask task = new EOFTask(id, stripe, callback);
+        EOFTask task = new EOFTask(id, index, callback);
         SyncTaskPool.submit(task);
     }
 
@@ -268,7 +269,7 @@ public class CanalSyncChannel extends SyncChannel {
                 if (!isTxnBegin()) {
                     beginTxn(batchId);
                 } else {
-                    SendTask task = new SendTask(id, stripe, callback, batchBuffer, txnExecutor);
+                    SendTask task = new SendTask(id, index, callback, batchBuffer, txnExecutor);
                     SyncTaskPool.submit(task);
                     this.batchBuffer = new Data<>();
                 }
