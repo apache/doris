@@ -56,7 +56,8 @@
 #include "util/file_utils.h"
 
 DEFINE_string(operation, "Custom",
-              "valid operation: Custom, BinaryDictPageEncode, SegmentScan, SegmentWrite, "
+              "valid operation: Custom, BinaryDictPageEncode, BinaryDictPageDecode, SegmentScan, "
+              "SegmentWrite, "
               "SegmentScanByFile, SegmentWriteByFile");
 DEFINE_string(input_file, "./sample.dat", "input file directory");
 DEFINE_string(column_type, "int,varchar", "valid type: int, char, varchar, string");
@@ -74,6 +75,8 @@ std::string get_usage(const std::string& progname) {
     ss << "Usage:\n";
     ss << "./benchmark_tool --operation=Custom\n";
     ss << "./benchmark_tool --operation=BinaryDictPageEncode "
+          "--rows_number=10000 --iterations=40\n";
+    ss << "./benchmark_tool --operation=BinaryDictPageDecode "
           "--rows_number=10000 --iterations=40\n";
     ss << "./benchmark_tool --operation=SegmentScan --column_type=int,varchar "
           "--rows_number=10000 --iterations=0\n";
@@ -100,12 +103,12 @@ namespace doris {
 class BaseBenchmark {
 public:
     BaseBenchmark(std::string name, int iterations) : _name(name), _iterations(iterations) {}
-    virtual ~BaseBenchmark() {};
+    virtual ~BaseBenchmark() {}
 
     void add_name(std::string str) { _name += str; }
 
-    virtual void init() {};
-    virtual void run() {};
+    virtual void init() {}
+    virtual void run() {}
 
     void register_bm() {
         auto bm = benchmark::RegisterBenchmark(_name.c_str(), [&](benchmark::State& state) {
@@ -133,16 +136,18 @@ private:
 class BinaryDictPageBenchmark : public BaseBenchmark {
 public:
     BinaryDictPageBenchmark(std::string name, int iterations) : BaseBenchmark(name, iterations) {}
-    virtual ~BinaryDictPageBenchmark() override {};
+    virtual ~BinaryDictPageBenchmark() override {}
 
-    virtual void init() override {};
-    virtual void run() override {};
+    virtual void init() override {}
+    virtual void run() override {}
 
-    std::vector<OwnedSlice> encode_pages(const std::vector<Slice>& contents) {
+    void encode_pages(const std::vector<Slice>& contents) {
         PageBuilderOptions options;
         BinaryDictPageBuilder page_builder(options);
 
-        std::vector<OwnedSlice> results;
+        results.clear();
+        page_start_ids.clear();
+        page_start_ids.push_back(0);
         for (size_t i = 0; i < contents.size(); i++) {
             const Slice* ptr = &contents[i];
             size_t add_num = 1;
@@ -150,14 +155,52 @@ public:
             if (page_builder.is_page_full()) {
                 OwnedSlice s = page_builder.finish();
                 results.emplace_back(std::move(s));
+                page_start_ids.push_back(i + 1);
                 page_builder.reset();
             }
         }
         OwnedSlice s = page_builder.finish();
         results.emplace_back(std::move(s));
+        page_start_ids.push_back(contents.size());
 
-        return results;
+        Status status = page_builder.get_dictionary_page(&dict_slice);
     }
+    void decode_pages() {
+        int slice_index = 0;
+        for (auto& src : results) {
+            PageDecoderOptions dict_decoder_options;
+            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
+                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
+            dict_page_decoder->init();
+
+            // decode
+            PageDecoderOptions decoder_options;
+            BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
+            page_decoder.init();
+            page_decoder.set_dict_decoder(dict_page_decoder.get());
+
+            //check values
+
+            size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
+
+            auto tracker = std::make_shared<MemTracker>();
+            MemPool pool(tracker.get());
+            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
+            ColumnBlock column_block(cvb.get(), &pool);
+            ColumnBlockView block_view(&column_block);
+
+            page_decoder.next_batch(&num, &block_view);
+
+            slice_index++;
+        }
+    }
+
+private:
+    std::vector<OwnedSlice> results;
+    OwnedSlice dict_slice;
+    std::vector<size_t> page_start_ids;
 };
 
 class BinaryDictPageEncodeBenchmark : public BinaryDictPageBenchmark {
@@ -166,7 +209,7 @@ public:
             : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
                                       iterations),
               _rows_number(rows_number) {}
-    virtual ~BinaryDictPageEncodeBenchmark() override {};
+    virtual ~BinaryDictPageEncodeBenchmark() override {}
 
     virtual void init() override {
         src_strings.clear();
@@ -178,14 +221,43 @@ public:
         for (auto s : src_strings) {
             slices.emplace_back(s.c_str());
         }
-    };
-    virtual void run() override { auto p = encode_pages(slices); };
+    }
+    virtual void run() override { encode_pages(slices); }
 
 private:
     std::vector<Slice> slices;
     std::vector<std::string> src_strings;
     int _rows_number;
 };
+
+class BinaryDictPageDecodeBenchmark : public BinaryDictPageBenchmark {
+public:
+    BinaryDictPageDecodeBenchmark(std::string name, int iterations, int rows_number)
+            : BinaryDictPageBenchmark(name + "/rows_number:" + std::to_string(rows_number),
+                                      iterations),
+              _rows_number(rows_number) {}
+    virtual ~BinaryDictPageDecodeBenchmark() override {}
+
+    virtual void init() override {
+        src_strings.clear();
+        for (int i = 0; i < _rows_number; i++) {
+            src_strings.emplace_back(rand_rng_string(rand_rng_int(1, 8)));
+        }
+
+        slices.clear();
+        for (auto s : src_strings) {
+            slices.emplace_back(s.c_str());
+        }
+
+        encode_pages(slices);
+    }
+    virtual void run() override { decode_pages(); }
+
+private:
+    std::vector<Slice> slices;
+    std::vector<std::string> src_strings;
+    int _rows_number;
+}; // namespace doris
 
 class SegmentBenchmark : public BaseBenchmark {
 public:
@@ -217,8 +289,8 @@ public:
 
     const Schema& get_schema() { return *_schema.get(); }
 
-    virtual void init() override {};
-    virtual void run() override {};
+    virtual void init() override {}
+    virtual void run() override {}
 
     void init_schema(std::string column_type) {
         std::string column_valid = "/column_type:";
@@ -337,7 +409,7 @@ public:
     virtual ~SegmentWriteBenchmark() override {}
 
     virtual void init() override {}
-    virtual void run() override { build_segment(_dataset, &_segment); };
+    virtual void run() override { build_segment(_dataset, &_segment); }
 
 private:
     std::vector<std::vector<std::string>> _dataset;
@@ -367,7 +439,7 @@ public:
     virtual ~SegmentWriteByFileBenchmark() override {}
 
     virtual void init() override {}
-    virtual void run() override { build_segment(_dataset, &_segment); };
+    virtual void run() override { build_segment(_dataset, &_segment); }
 
 private:
     std::vector<std::vector<std::string>> _dataset;
@@ -399,7 +471,7 @@ public:
             left -= rows_read;
             rowid += rows_read;
         }
-    };
+    }
 
 private:
     std::vector<std::vector<std::string>> _dataset;
@@ -446,7 +518,7 @@ public:
             left -= rows_read;
             rowid += rows_read;
         }
-    };
+    }
 
 private:
     std::vector<std::vector<std::string>> _dataset;
@@ -490,7 +562,7 @@ void custom_run_mod() {
 
 class MultiBenchmark {
 public:
-    MultiBenchmark() {};
+    MultiBenchmark() {}
     ~MultiBenchmark() {
         for (auto bm : benchmarks) {
             delete bm;
@@ -507,6 +579,9 @@ public:
                                                doris::custom_init, doris::custom_run_mod));
         } else if (equal_ignore_case(FLAGS_operation, "BinaryDictPageEncode")) {
             benchmarks.emplace_back(new doris::BinaryDictPageEncodeBenchmark(
+                    FLAGS_operation, std::stoi(FLAGS_iterations), std::stoi(FLAGS_rows_number)));
+        } else if (equal_ignore_case(FLAGS_operation, "BinaryDictPageDecode")) {
+            benchmarks.emplace_back(new doris::BinaryDictPageDecodeBenchmark(
                     FLAGS_operation, std::stoi(FLAGS_iterations), std::stoi(FLAGS_rows_number)));
         } else if (equal_ignore_case(FLAGS_operation, "SegmentScan")) {
             benchmarks.emplace_back(new doris::SegmentScanBenchmark(

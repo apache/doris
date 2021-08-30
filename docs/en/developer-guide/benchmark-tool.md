@@ -87,6 +87,18 @@ The type support is also `int`, `char`, `varchar`, `string`. Note that the data 
 
 > ./benchmark_tool --operation=SegmentWriteByFile --input_file=./sample.dat
 
+#### Use randomly generated data set for page dictionary encoding test 
+
+> ./benchmark_tool --operation=BinaryDictPageEncode --rows_number=10000 --iterations=0
+
+Randomly generate varchar with a length between [1,8], and perform time-consuming statistics on encoding. 
+
+#### Use randomly generated data set for page dictionary decoding test 
+
+> ./benchmark_tool --operation=BinaryDictPageDecode
+
+Randomly generate varchar with a length between [1,8] and encode, and perform time-consuming statistics on decoding. 
+
 ## Custom test
 
 Here, users are supported to use their own functions for performance testing, which can be implemented in `/be/test/tools/benchmark_tool.cpp`. 

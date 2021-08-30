@@ -75,7 +75,7 @@ under the License.
 数据集文件第一行为表结构定义,之后每行分别对应一行数据,每个数据用`,`隔开。
 
 举例: 
-``
+```
 int,char,varchar
 123,hello,world
 321,good,bye
@@ -86,6 +86,18 @@ int,char,varchar
 #### 使用从文件导入的数据集进行Segment写入测试
 
 > ./benchmark_tool --operation=SegmentWriteByFile --input_file=./sample.dat
+
+#### 使用随机生成的数据集进行page字典编码测试
+
+> ./benchmark_tool --operation=BinaryDictPageEncode --rows_number=10000 --iterations=0
+
+会随机生成长度在[1,8]之间的varchar,并对编码进行耗时统计。
+
+#### 使用随机生成的数据集进行page字典解码测试
+
+> ./benchmark_tool --operation=BinaryDictPageDecode
+
+会随机生成长度在[1,8]之间的varchar并编码,并对解码进行耗时统计。
 
 ## Custom测试
 
