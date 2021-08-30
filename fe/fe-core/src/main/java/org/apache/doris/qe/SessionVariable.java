@@ -142,6 +142,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DELETE_WITHOUT_PARTITION = "delete_without_partition";
 
+    // set the default parallelism for send batch when execute InsertStmt operation,
+    // if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config,
+    // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
+    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
@@ -340,6 +345,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
+
+    @VariableMgr.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
+    public int sendBatchParallelism = 1;
 
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
@@ -758,13 +766,17 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
     }
-
+    
     public boolean isExtractWideRangeExpr() {
         return extractWideRangeExpr;
     }
 
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
+    }
+
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
     }
 
     // Serialize to thrift object
