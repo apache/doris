@@ -16,6 +16,7 @@
 // under the License.
 
 package org.apache.doris.analysis;
+
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
