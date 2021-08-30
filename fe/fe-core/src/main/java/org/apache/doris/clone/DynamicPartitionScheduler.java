@@ -226,7 +226,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             for (Column distributionColumn : hashDistributionInfo.getDistributionColumns()) {
                 distColumnNames.add(distributionColumn.getName());
             }
-            DistributionDesc distributionDesc = new HashDistributionDesc(dynamicPartitionProperty.getBuckets(), distColumnNames);
+            int numBucket = dynamicPartitionProperty.getBuckets();
+            if (numBucket == DynamicPartitionProperty.NOT_SET_BUCKETS){
+                numBucket = hashDistributionInfo.getBucketNum();
+            }
+            DistributionDesc distributionDesc = new HashDistributionDesc(numBucket, distColumnNames);
 
             // add partition according to partition desc and distribution desc
             addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));

@@ -48,6 +48,7 @@ public class DynamicPartitionProperty {
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
+    public static final int NOT_SET_BUCKETS = -1;
 
     private boolean exist;
 
@@ -78,7 +79,7 @@ public class DynamicPartitionProperty {
             this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
-            this.buckets = Integer.parseInt(properties.get(BUCKETS));
+            this.buckets = Integer.parseInt(properties.getOrDefault(BUCKETS, String.valueOf(NOT_SET_BUCKETS)));
             this.replicaAlloc = analyzeReplicaAllocation(properties);
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
@@ -182,9 +183,14 @@ public class DynamicPartitionProperty {
 
     /**
      * use table replication_num as dynamic_partition.replication_num default value
+     * use table buckets as dynamic_partition.buckets default value
      */
-    public String getProperties(ReplicaAllocation tableReplicaAlloc) {
+    public String getProperties(ReplicaAllocation tableReplicaAlloc, int tableBuckets) {
         ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
+        int useTableBuckets = buckets;
+        if(useTableBuckets == NOT_SET_BUCKETS){
+            useTableBuckets = tableBuckets;
+        }
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
                 ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"" +
@@ -192,7 +198,7 @@ public class DynamicPartitionProperty {
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\"" +
-                ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
+                ",\n\"" + BUCKETS + "\" = \"" + useTableBuckets + "\"" +
                 ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
                 ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
                 ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"";

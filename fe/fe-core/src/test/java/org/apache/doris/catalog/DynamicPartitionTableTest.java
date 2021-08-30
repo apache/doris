@@ -245,7 +245,7 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testMissBuckets() throws Exception {
-        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n" +
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_none_buckets` (\n" +
                 "  `k1` date NULL COMMENT \"\",\n" +
                 "  `k2` int NULL COMMENT \"\",\n" +
                 "  `k3` smallint NULL COMMENT \"\",\n" +
@@ -269,9 +269,10 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.time_unit\" = \"day\",\n" +
                 "\"dynamic_partition.prefix\" = \"p\"\n" +
                 ");";
-        expectedException.expect(DdlException.class);
-        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.buckets properties");
         createTable(createOlapTblStmt);
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_none_buckets");
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getBuckets() == DynamicPartitionProperty.NOT_SET_BUCKETS);
     }
 
     @Test

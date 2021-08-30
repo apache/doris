@@ -251,7 +251,6 @@ public class DynamicPartitionUtil {
         String start = properties.get(DynamicPartitionProperty.START);
         String timeZone = properties.get(DynamicPartitionProperty.TIME_ZONE);
         String end = properties.get(DynamicPartitionProperty.END);
-        String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
@@ -261,7 +260,6 @@ public class DynamicPartitionUtil {
                 Strings.isNullOrEmpty(prefix) &&
                 Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
-                Strings.isNullOrEmpty(buckets) &&
                 Strings.isNullOrEmpty(createHistoryPartition) &&
                 Strings.isNullOrEmpty(historyPartitionNum))) {
             if (Strings.isNullOrEmpty(enable)) {
@@ -278,9 +276,6 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(end)) {
                 throw new DdlException("Must assign dynamic_partition.end properties");
-            }
-            if (Strings.isNullOrEmpty(buckets)) {
-                throw new DdlException("Must assign dynamic_partition.buckets properties");
             }
             if (Strings.isNullOrEmpty(timeZone)) {
                 properties.put(DynamicPartitionProperty.TIME_ZONE, TimeUtils.getSystemTimeZone().getID());

@@ -4135,7 +4135,7 @@ public class Catalog {
 
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
-                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc, distributionInfo.getBucketNum()));
             }
 
             // in memory

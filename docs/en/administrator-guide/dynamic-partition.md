@@ -111,7 +111,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.buckets`
 
-    The number of buckets corresponding to the dynamically created partitions.
+    The number of buckets corresponding to the dynamically created partitions, If not filled in, defaults to the number of table's bucket.
 
 * `dynamic_partition.replication_num`
 

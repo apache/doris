@@ -1817,6 +1817,8 @@ public class ShowExecutor {
                     if (replicaAlloc.isNotSet()) {
                         replicaAlloc = olapTable.getDefaultReplicaAllocation();
                     }
+                    int buckets = dynamicPartitionProperty.getBuckets();
+                    buckets = (buckets == DynamicPartitionProperty.NOT_SET_BUCKETS) ? olapTable.getDefaultDistributionInfo().getBucketNum() : buckets;
                     rows.add(Lists.newArrayList(
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
@@ -1824,7 +1826,7 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getStart()),
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
-                            String.valueOf(dynamicPartitionProperty.getBuckets()),
+                            String.valueOf(buckets),
                             String.valueOf(replicaAlloc.getTotalReplicaNum()),
                             replicaAlloc.toCreateStmt(),
                             dynamicPartitionProperty.getStartOfInfo(),

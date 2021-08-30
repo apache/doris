@@ -109,7 +109,7 @@ under the License.
 
 * `dynamic_partition.buckets`
 
-    动态创建的分区所对应的分桶数量。
+    动态创建的分区所对应的分桶数量，如果不填写，则默认为创建表时指定的bucket数量。
 
 * `dynamic_partition.replication_num`
 
