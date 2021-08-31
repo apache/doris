@@ -34,6 +34,9 @@ public class SyncTaskPool {
         EXECUTOR.submit(task);
     }
 
+    /**
+     * Gets the next index loop from 0 to @NUM_OF_SLOTS - 1
+     */
     public static int getNextIndex() {
         return nextIndex.updateAndGet(new IntUnaryOperator() {
             @Override

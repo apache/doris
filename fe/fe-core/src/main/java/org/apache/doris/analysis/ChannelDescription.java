@@ -60,7 +60,7 @@ public class ChannelDescription implements Writable {
     // column names of source table
     @SerializedName(value = "colNames")
     private final List<String> colNames;
-    @SerializedName(value = "id")
+    @SerializedName(value = "channelId")
     private long channelId;
 
     public ChannelDescription(String srcDatabase, String srcTableName, String targetTable, PartitionNames partitionNames, List<String> colNames) {

@@ -23,10 +23,23 @@ import org.apache.doris.task.SerialExecutorService.SerialRunnable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+/**
+ * SyncTask is a runnable to submit to SerialExecutorService. Each
+ * SyncTask will have an index to submit to the corresponding slot
+ * in the SerialExecutorService. And SerialExecutorService ensures
+ * that all SyncTasks submitted with the same index are always
+ * executed in the order of submission.
+ */
 public abstract class SyncTask implements SerialRunnable {
     private static final Logger LOG = LogManager.getLogger(SyncTask.class);
 
     protected long signature;
+    /**
+     * Each index corresponds to a slot in the SerialExecutorService.
+     * It should only be assigned by the getNextIndex() method in the
+     * SyncTaskPool. SyncTasks with the same index are always executed
+     * in the order of submission.
+     */
     protected int index;
     protected SyncChannelCallback callback;
 
