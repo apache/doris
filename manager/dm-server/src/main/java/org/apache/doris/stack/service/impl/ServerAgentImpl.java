@@ -89,7 +89,7 @@ public class ServerAgentImpl implements ServerAgent {
                 continue;
             }
             RResult result = installDoris(install);
-            agentRoleComponent.registerAgentRole(new AgentRoleRegister(install.getHost(), install.getRole() ,install.getInstallDir()));
+            agentRoleComponent.registerAgentRole(new AgentRoleRegister(install.getHost(), install.getRole(), install.getInstallDir()));
 
             results.add(result.getData());
         }
@@ -209,7 +209,7 @@ public class ServerAgentImpl implements ServerAgent {
     @Override
     public boolean register(AgentRoleRegister agentReg) {
         AgentEntity agent = agentComponent.agentInfo(agentReg.getHost());
-        if(agent == null){
+        if (agent == null) {
             throw new ServerException("can not find " + agentReg.getHost() + " agent");
         }
         AgentRoleEntity agentRoleEntity = agentRoleComponent.registerAgentRole(agentReg);

@@ -30,13 +30,12 @@ import java.util.Map;
 @Component
 public class AgentRest {
 
-    @Autowired
-    private RestTemplate restTemplate;
-
     private static final String AGENT_COMMAND_EXEC = "http://%s:%s/command/execute";
     private static final String AGENT_TASK_INFO = "http://%s:%s/command/result?taskId={taskId}";
     private static final String AGENT_TASK_STD_LOG = "http://%s:%s/command/stdlog?taskId={taskId}&offset={offset}";
     private static final String AGENT_TASK_ERR_LOG = "http://%s:%s/command/errlog?taskId={taskId}&offset={offset}";
+    @Autowired
+    private RestTemplate restTemplate;
 
     public RResult commandExec(String host, Integer port, Object param) {
         String restUrl = String.format(AGENT_COMMAND_EXEC, host, port);

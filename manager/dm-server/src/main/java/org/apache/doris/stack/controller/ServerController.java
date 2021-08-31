@@ -21,11 +21,11 @@ import io.swagger.annotations.Api;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.RResult;
+import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.req.AgentCommon;
 import org.apache.doris.stack.req.AgentRegister;
 import org.apache.doris.stack.req.SshInfo;
 import org.apache.doris.stack.service.ServerProcess;
-import org.apache.doris.stack.util.Preconditions;
 import org.apache.doris.stack.util.PropertiesUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,17 +34,13 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Map;
-
-import static org.apache.doris.stack.constants.Constants.KEY_DORIS_AGENT_INSTALL_DIR;
-
 @Api(tags = "Server API")
 @RestController
 @RequestMapping("/server")
 @Slf4j
 public class ServerController {
 
-    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(KEY_DORIS_AGENT_INSTALL_DIR);
+    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_INSTALL_DIR);
 
     @Autowired
     private ServerProcess serverProcess;
@@ -54,7 +50,7 @@ public class ServerController {
      */
     @RequestMapping(value = "/installAgent", method = RequestMethod.POST)
     public RResult installAgent(@RequestBody SshInfo sshInfo) {
-        if(StringUtils.isBlank(sshInfo.getInstallDir())){
+        if (StringUtils.isBlank(sshInfo.getInstallDir())) {
             sshInfo.setInstallDir(AGENT_INSTALL_DIR);
         }
         serverProcess.initAgent(sshInfo);
@@ -97,5 +93,4 @@ public class ServerController {
         boolean register = serverProcess.register(agent);
         return RResult.success(register);
     }
-
 }

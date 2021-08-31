@@ -17,17 +17,13 @@
 
 package org.apache.doris.stack.service.impl;
 
-import static org.apache.doris.stack.constants.Constants.KEY_DORIS_AGENT_INSTALL_DIR;
-import static org.apache.doris.stack.constants.Constants.KEY_DORIS_AGENT_START_SCRIPT;
-import static org.apache.doris.stack.constants.Constants.KEY_SERVER_PORT;
-
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.doris.manager.common.domain.RResult;
+import org.apache.commons.io.FileUtils;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
-import org.apache.doris.stack.dao.AgentRoleRepository;
+import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.exceptions.ServerException;
@@ -38,7 +34,6 @@ import org.apache.doris.stack.shell.SCP;
 import org.apache.doris.stack.shell.SSH;
 import org.apache.doris.stack.util.Preconditions;
 import org.apache.doris.stack.util.PropertiesUtil;
-import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.system.ApplicationHome;
 import org.springframework.stereotype.Service;
@@ -53,7 +48,6 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -63,8 +57,8 @@ import java.util.Set;
 @Slf4j
 public class ServerProcessImpl implements ServerProcess {
 
-    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(KEY_DORIS_AGENT_INSTALL_DIR);
-    private static final String AGENT_START_SCRIPT = PropertiesUtil.getPropValue(KEY_DORIS_AGENT_START_SCRIPT);
+    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_INSTALL_DIR);
+    private static final String AGENT_START_SCRIPT = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_START_SCRIPT);
 
     @Autowired
     private AgentComponent agentComponent;
@@ -74,7 +68,6 @@ public class ServerProcessImpl implements ServerProcess {
 
     @Autowired
     private AgentCache agentCache;
-
 
     @Override
     public void initAgent(SshInfo sshInfo) {
@@ -204,7 +197,7 @@ public class ServerProcessImpl implements ServerProcess {
         } catch (UnknownHostException e) {
             throw new ServerException("get server ip fail");
         }
-        String port = PropertiesUtil.getPropValue(KEY_SERVER_PORT);
+        String port = PropertiesUtil.getPropValue(Constants.KEY_SERVER_PORT);
         return host + ":" + port;
     }
 

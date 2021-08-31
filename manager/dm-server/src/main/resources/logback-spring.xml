@@ -16,14 +16,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 <configuration debug="false">
-    <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="server" />
+    <springProperty scope="context" name="springAppName" source="spring.application.name" defaultValue="server"/>
     <property name="LOG_HOME" value="./log"/>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
         </encoder>
     </appender>
-    <appender name="FILE"  class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
             <FileNamePattern>${LOG_HOME}/${springAppName}.%d{yyyy-MM-dd}.%i.log</FileNamePattern>
             <MaxHistory>30</MaxHistory>
@@ -36,7 +36,7 @@ under the License.
     </appender>
 
     <root level="INFO">
-        <appender-ref ref="STDOUT" />
-        <appender-ref ref="FILE" />
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>

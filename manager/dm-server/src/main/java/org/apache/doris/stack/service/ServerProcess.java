@@ -17,7 +17,6 @@
 
 package org.apache.doris.stack.service;
 
-import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.req.AgentRegister;
@@ -46,4 +45,5 @@ public interface ServerProcess {
 
     void heartbeat(String host, Integer port);
 
-    boolean register(AgentRegister agent);}
+    boolean register(AgentRegister agent);
+}

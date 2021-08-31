@@ -21,16 +21,11 @@ import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
-import org.apache.doris.stack.constants.AgentStatus;
-import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.dao.AgentRoleRepository;
-import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.req.AgentRegister;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.Date;
 import java.util.List;
 
 @Component
@@ -62,6 +57,4 @@ public class AgentRoleComponent {
         AgentRoleEntity agentRoleEntity = new AgentRoleEntity(agentReg.getHost(), agentReg.getRole(), agentReg.getInstallDir());
         return agentRoleRepository.save(agentRoleEntity);
     }
-
-
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.stack.dao;
 
-import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
