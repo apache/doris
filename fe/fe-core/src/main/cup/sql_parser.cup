@@ -1190,9 +1190,17 @@ create_stmt ::=
         RESULT = new CreateFunctionStmt(functionName, args, parameters, func);
     :}
     /* Table */
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP ident_list:rollupNames
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, rollupNames, false);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP KW_ALL
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, true);
+    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
     {:
-        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name);
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
