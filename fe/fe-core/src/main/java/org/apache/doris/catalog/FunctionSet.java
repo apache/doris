@@ -128,6 +128,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     //     "3minIN9doris_udf9StringValEEEvPNS2_15FunctionContextERKT_PS6_")
                     .put(Type.VARCHAR,
                             "8min_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
+                    .put(Type.STRING,
+                            "8min_initIN9doris_udf9StringValEEEvPNS2_15FunctionContextEPT_")
                     .put(Type.DATE,
                             "8min_initIN9doris_udf11DateTimeValEEEvPNS2_15FunctionContextEPT_")
                     .put(Type.DATETIME,
