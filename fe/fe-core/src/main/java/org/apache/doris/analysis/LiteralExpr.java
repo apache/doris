@@ -72,6 +72,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 literalExpr = new StringLiteral(value);
                 break;
             case DATE:
