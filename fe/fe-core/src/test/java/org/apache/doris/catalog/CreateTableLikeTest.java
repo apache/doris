@@ -18,11 +18,13 @@
 package org.apache.doris.catalog;
 
 import avro.shaded.com.google.common.collect.Lists;
+import org.apache.commons.collections.ListUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.AfterClass;
@@ -75,24 +77,44 @@ public class CreateTableLikeTest {
         Catalog.getCurrentCatalog().createTableLike(createTableLikeStmt);
     }
 
-    private static void checkTableEqual(Table newTable, Table existedTable) {
+    private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
         List<String> newCreateTableStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(newTable, newCreateTableStmt, null, null, false, true /* hide password */);
+        List<String> newAddRollupStmt = Lists.newArrayList();
+        Catalog.getDdlStmt(newTable, newCreateTableStmt, null, newAddRollupStmt, false, true /* hide password */);
         List<String> existedTableStmt = Lists.newArrayList();
-        Catalog.getDdlStmt(existedTable, existedTableStmt, null, null, false, true /* hide password */);
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Catalog.getDdlStmt(existedTable, existedTableStmt, null, existedAddRollupStmt, false, true /* hide password */);
         Assert.assertEquals(newCreateTableStmt.get(0).replace(newTable.getName(), existedTable.getName()), existedTableStmt.get(0));
+        checkTableRollup(existedAddRollupStmt, newAddRollupStmt, newTable.getName(), existedTable.getName(), rollupSize);
+    }
+
+    private static void checkTableRollup(List<String> existedAddRollupStmt, List<String> newAddRollupStmt, String newTableName, String existedTableName, int rollupSize){
+        if (rollupSize != 0) {
+            List<String> addRollupStmt = Lists.newArrayList();
+            for (String aaRollupStmt : newAddRollupStmt) {
+                addRollupStmt.add(aaRollupStmt.replace(newTableName, existedTableName));
+            }
+            Assert.assertEquals(addRollupStmt.size(), rollupSize);
+            Assert.assertTrue(existedAddRollupStmt.containsAll(addRollupStmt));
+        }
     }
 
     private static void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql,
                                                  String newDbName, String existedDbName,
                                                  String newTblName, String existedTblName) throws Exception {
+        checkCreateOlapTableLike(createTableSql, createTableLikeSql, newDbName, existedDbName, newTblName, existedTblName,0);
+    }
+
+    private static void checkCreateOlapTableLike(String createTableSql, String createTableLikeSql,
+                                                 String newDbName, String existedDbName,
+                                                 String newTblName, String existedTblName, int rollupSize) throws Exception {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
         Database newDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + newDbName);
         Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
         OlapTable newTbl = (OlapTable) newDb.getTable(newTblName);
         OlapTable existedTbl = (OlapTable) existedDb.getTable(existedTblName);
-        checkTableEqual(newTbl, existedTbl);
+        checkTableEqual(newTbl, existedTbl, rollupSize);
     }
 
     private static void checkCreateMysqlTableLike(String createTableSql, String createTableLikeSql,
@@ -105,8 +127,9 @@ public class CreateTableLikeTest {
         Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
         MysqlTable newTbl = (MysqlTable) newDb.getTable(newTblName);
         MysqlTable existedTbl = (MysqlTable) existedDb.getTable(existedTblName);
-        checkTableEqual(newTbl, existedTbl);
+        checkTableEqual(newTbl, existedTbl, 0);
     }
+
     @Test
     public void testNormal() throws Exception {
         // 1. creat table with single partition
@@ -202,6 +225,7 @@ public class CreateTableLikeTest {
         String newTblName7 = "colocateTbl_like";
         String existedTblName7 = "colocateTbl";
         checkCreateOlapTableLike(createColocateTblSql, createTableLikeSql7, newDbName7, newDbName7, newTblName7, existedTblName7);
+
         // 8. creat non-OLAP table
         String createNonOlapTableSql = "create table test.testMysqlTbl\n" +
                 "(k1 DATE, k2 INT, k3 SMALLINT, k4 VARCHAR(2048), k5 DATETIME)\n" +
@@ -233,6 +257,55 @@ public class CreateTableLikeTest {
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
+
+        // 10. test create table like with rollup
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_rollup\n" +
+                "(\n" +
+                "    event_day DATE,\n" +
+                "    siteid INT DEFAULT '10',\n" +
+                "    citycode SMALLINT,\n" +
+                "    username VARCHAR(32) DEFAULT '',\n" +
+                "    pv BIGINT SUM DEFAULT '0'\n" +
+                ")\n" +
+                "AGGREGATE KEY(event_day, siteid, citycode, username)\n" +
+                "PARTITION BY RANGE(event_day)\n" +
+                "(\n" +
+                "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n" +
+                "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n" +
+                "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n" +
+                "ROLLUP\n" +
+                "(\n" +
+                "r(event_day,pv),\n" +
+                "r1(event_day,siteid,pv),\n" +
+                "r2(siteid,pv),\n" +
+                "r3(siteid,citycode,username,pv)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String createTableLikeWithRollupSql1_1 = "create table test.table_like_rollup like test.table_with_rollup with rollup r1,r2";
+        String createTableLikeWithRollupSql1_2 = "create table test.table_like_rollup1 like test.table_with_rollup with rollup all";
+
+        String newDbName10 = "test";
+        String existedDbName10 = "test";
+        String newTblName10_1 = "table_like_rollup";
+        String newTblName10_2 = "table_like_rollup1";
+        String existedTblName10 = "table_with_rollup";
+        checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_1, newDbName10, existedDbName10, newTblName10_1, existedTblName10, 2);
+        checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_2, newDbName10, existedDbName10, newTblName10_2, existedTblName10, 4);
+
+        String createTableLikeWithRollupSql2_1 = "create table test2.table_like_rollup like test.table_with_rollup with rollup r1,r2";
+        String createTableLikeWithRollupSql2_2 = "create table test2.table_like_rollup1 like test.table_with_rollup with rollup all";
+
+        String newDbName11 = "test2";
+        String existedDbName11 = "test";
+        String newTblName11_1 = "table_like_rollup";
+        String newTblName11_2 = "table_like_rollup1";
+        String existedTblName11 = "table_with_rollup";
+        checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql2_1, newDbName11, existedDbName11, newTblName11_1, existedTblName11, 2);
+        checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql2_2, newDbName11, existedDbName11, newTblName11_2, existedTblName11, 4);
+
     }
 
     @Test
@@ -255,5 +328,40 @@ public class CreateTableLikeTest {
         String existedTblName2 = "testAbTbl1";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown database 'default_cluster:fake_test'",
                 () -> checkCreateOlapTableLike(createTableSql2, createTableLikeSql2, newDbName2, existedDbName2, newTblName2, existedTblName2));
+
+        //3. add not existed rollup
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_rollup\n" +
+                "(\n" +
+                "    event_day DATE,\n" +
+                "    siteid INT DEFAULT '10',\n" +
+                "    citycode SMALLINT,\n" +
+                "    username VARCHAR(32) DEFAULT '',\n" +
+                "    pv BIGINT SUM DEFAULT '0'\n" +
+                ")\n" +
+                "AGGREGATE KEY(event_day, siteid, citycode, username)\n" +
+                "PARTITION BY RANGE(event_day)\n" +
+                "(\n" +
+                "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n" +
+                "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n" +
+                "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n" +
+                "ROLLUP\n" +
+                "(\n" +
+                "r(event_day,pv),\n" +
+                "r1(event_day,siteid,pv),\n" +
+                "r2(siteid,pv),\n" +
+                "r3(siteid,citycode,username,pv)\n" +
+                ")\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String createTableLikeWithRollupSq3 = "create table test.table_like_rollup like test.table_with_rollup with rollup r11";
+        String newDbName3 = "test";
+        String existedDbName3 = "test";
+        String newTblName3 = "table_like_rollup";
+        String existedTblName3 = "table_with_rollup";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Rollup index[r11] not exists in Table[table_with_rollup]",
+                () -> checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSq3, newDbName3, existedDbName3, newTblName3, existedTblName3, 1));
+
     }
 }

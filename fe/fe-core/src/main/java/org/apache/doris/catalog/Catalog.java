@@ -53,6 +53,7 @@ import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
@@ -3081,7 +3082,18 @@ public class Catalog {
             List<String> createTableStmt = Lists.newArrayList();
             table.readLock();
             try {
-                Catalog.getDdlStmt(stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                if (table.getType() == TableType.OLAP){
+                    if (!CollectionUtils.isEmpty(stmt.getRollupNames())){
+                        OlapTable olapTable = (OlapTable) table;
+                        for (String rollupIndexName : stmt.getRollupNames()) {
+                            if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
+                                throw new DdlException("Rollup index[" + rollupIndexName + "] not exists in Table[" + olapTable.getName() + "]");
+                            }
+                        }
+                    }
+                }
+
+                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -4001,10 +4013,10 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-         getDdlStmt(null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
     }
 
-    public static void getDdlStmt(String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
+    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
@@ -4084,6 +4096,63 @@ public class Catalog {
             // distribution
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             sb.append("\n").append(distributionInfo.toSql());
+
+            // rollup index
+            if (ddlStmt instanceof CreateTableLikeStmt){
+
+                CreateTableLikeStmt stmt = (CreateTableLikeStmt) ddlStmt;
+
+                ArrayList<String> rollupNames = stmt.getRollupNames();
+                boolean withAllRollup = stmt.isWithAllRollup();
+
+                Map<Long,MaterializedIndexMeta> addMVs = Maps.newHashMap();
+                Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
+
+                boolean needAddRollup = false;
+                if (!CollectionUtils.isEmpty(rollupNames)) {
+                    for (String rollupName : rollupNames) {
+                        addMVs.put(indexNameToId.get(rollupName),olapTable.getIndexMetaByIndexId(indexNameToId.get(rollupName)));
+                    }
+                    needAddRollup = true;
+                }
+
+                if (withAllRollup && rollupNames == null) {
+                    for (Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
+                        if (entry.getKey() == olapTable.getBaseIndexId()) {
+                            continue;
+                        }
+                        addMVs.put(entry.getKey(), entry.getValue());
+                    }
+                    needAddRollup = true;
+                }
+
+                if (needAddRollup){
+                    sb.append("\n").append("rollup (");
+                }
+
+                int size = addMVs.size();
+                int index = 1;
+                for (Map.Entry<Long, MaterializedIndexMeta> entry : addMVs.entrySet()) {
+                    MaterializedIndexMeta materializedIndexMeta = entry.getValue();
+                    String indexName = olapTable.getIndexNameById(entry.getKey());
+                    sb.append("\n").append(indexName).append("(");
+                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    for (int i = 0; i < indexSchema.size(); i++) {
+                        Column column = indexSchema.get(i);
+                        sb.append(column.getName());
+                        if (i != indexSchema.size() - 1) {
+                            sb.append(", ");
+                        }
+                    }
+                    if (index != size){
+                        sb.append("),");
+                    } else {
+                        sb.append(")");
+                        sb.append("\n)");
+                    }
+                    index++;
+                }
+            }
 
             // properties
             sb.append("\nPROPERTIES (\n");
