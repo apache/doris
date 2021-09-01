@@ -26,19 +26,20 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/tokenizer.hpp>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
-#include <iomanip>
+
 #include "common/logging.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
+#include "gutil/strings/stringpiece.h"
 #include "olap/olap_define.h"
 #include "rapidjson/error/en.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-
 namespace doris {
 
 // static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s#\\|\\.]*)(?:\\[([0-9]+)\\])?");
@@ -117,10 +118,10 @@ StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
     rapidjson::Document document;
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     //flag: The number it contains represents the type of previous parameters
-    std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
-    DCHECK(num_args-1==flag.length());
+    StringVal flag(json_str[num_args - 1].ptr, json_str[num_args - 1].len);
+    DCHECK_EQ(num_args - 1, flag.len);
     for (int i = 0; i < num_args - 1; ++i) {
-        std::string arg((char*)json_str[i].ptr, json_str[i].len);
+        StringVal arg(json_str[i].ptr, json_str[i].len);
         rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
         array_obj.PushBack(val, allocator);
     }
@@ -137,11 +138,11 @@ StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
     }
     rapidjson::Document document(rapidjson::kObjectType);
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
+    StringVal flag(json_str[num_args - 1].ptr, json_str[num_args - 1].len);
     document.SetObject();
-    DCHECK(num_args-1==flag.length());
+    DCHECK_EQ(num_args - 1, flag.len);
     for (int i = 1; i < num_args - 1; i = i + 2) {
-        std::string arg((char*)json_str[i].ptr, json_str[i].len);
+        StringVal arg(json_str[i].ptr, json_str[i].len);
         rapidjson::Value key(rapidjson::kStringType);
         key.SetString((char*)json_str[i - 1].ptr, json_str[i - 1].len, allocator);
         rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
@@ -153,34 +154,34 @@ StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
     return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
 }
 
-rapidjson::Value JsonFunctions::parse_str_with_flag(const std::string& arg, const std::string& flag,
+rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const StringVal& flag,
                                                     const int num,
                                                     rapidjson::Document::AllocatorType& allocator) {
     rapidjson::Value val;
-    if (flag[num] == '0') { //null
+    if (*(flag.ptr + num) == '0') { //null
         rapidjson::Value nullObject(rapidjson::kNullType);
         val = nullObject;
-    } else if (flag[num] == '1') { //bool
+    } else if (*(flag.ptr + num) == '1') { //bool
         bool res = ((arg == "1") ? true : false);
         val.SetBool(res);
-    } else if (flag[num] == '2') { //int
+    } else if (*(flag.ptr + num) == '2') { //int
         std::stringstream ss;
-        ss << arg;
+        ss << arg.ptr;
         int number = 0;
         ss >> number;
         val.SetInt(number);
-    } else if (flag[num] == '3') { //double
+    } else if (*(flag.ptr + num) == '3') { //double
         std::stringstream ss;
-        ss << arg;
+        ss << arg.ptr;
         double number = 0.0;
         ss >> number;
         val.SetDouble(number);
-    } else if(flag[num] == '4' || flag[num] == '5') {
-        std::string str = arg;
-        if (flag[num] == '4') str = arg.substr(1, arg.length() - 2);
-        val.SetString(str.c_str(), str.length(), allocator);
+    } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
+        StringPiece str((char*)arg.ptr, arg.len);
+        if (*(flag.ptr + num) == '4') str = str.substr(1, str.length() - 2);
+        val.SetString(str.data(), str.length(), allocator);
     } else {
-        DCHECK(false)<<"parse json type error with unknown type";
+        DCHECK(false) << "parse json type error with unknown type";
     }
     return val;
 }
