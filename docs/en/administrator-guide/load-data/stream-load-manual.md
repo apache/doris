@@ -146,8 +146,12 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 	The function transformation configuration of data to be imported includes the sequence change of columns and the expression transformation, in which the expression transformation method is consistent with the query statement.
 
 	```
-	Examples of column order transformation: There are two columns of original data, and there are also two columns (c1, c2) in the table at present. But the first column of the original file corresponds to the C2 column of the target table, while the second column of the original file corresponds to the C1 column of the target table, which is written as follows:
-	columns: c2,c1
+	Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present. 
+	when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
+	columns: dst_c1, dst_c2, dst_c3
+	
+	when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
+	columns: dst_c2, dst_c3, dst_c1
 	
 	Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
 	columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
