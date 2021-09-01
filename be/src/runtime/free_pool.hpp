@@ -20,7 +20,9 @@
 
 #include <stdio.h>
 #include <string.h>
+
 #include <string>
+
 #include "common/logging.h"
 #include "runtime/mem_pool.h"
 #include "util/bit_util.h"
@@ -44,9 +46,7 @@ class FreePool {
 public:
     // C'tor, initializes the FreePool to be empty. All allocations come from the
     // 'mem_pool'.
-    FreePool(MemPool* mem_pool) : _mem_pool(mem_pool) {
-        memset(&_lists, 0, sizeof(_lists));
-    }
+    FreePool(MemPool* mem_pool) : _mem_pool(mem_pool) { memset(&_lists, 0, sizeof(_lists)); }
 
     virtual ~FreePool() {}
 
@@ -65,9 +65,9 @@ public:
 
         if (allocation == NULL) {
             // There wasn't an existing allocation of the right size, allocate a new one.
-            size = 1 << free_list_idx;
+            size = 1L << free_list_idx;
             allocation = reinterpret_cast<FreeListNode*>(
-                             _mem_pool->allocate(size + sizeof(FreeListNode)));
+                    _mem_pool->allocate(size + sizeof(FreeListNode)));
         } else {
             // Remove this allocation from the list.
             _lists[free_list_idx].next = allocation->next;
@@ -158,6 +158,6 @@ private:
     FreeListNode _lists[NUM_LISTS];
 };
 
-}
+} // namespace doris
 
 #endif
