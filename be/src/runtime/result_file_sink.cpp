@@ -65,7 +65,9 @@ ResultFileSink::ResultFileSink(const RowDescriptor& row_desc, const std::vector<
 }
 
 ResultFileSink::~ResultFileSink() {
-    delete _output_batch;
+    if (_output_batch != nullptr) {
+        delete _output_batch;
+    }
 }
 
 Status ResultFileSink::prepare_exprs(RuntimeState* state) {
