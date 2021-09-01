@@ -673,7 +673,7 @@ Status ThreadPool::set_max_threads(int max_threads) {
     }
 
     _max_threads = max_threads;
-    if (_max_threads > _num_threads - _num_threads_pending_start) {
+    if (_max_threads > _num_threads + _num_threads_pending_start) {
         int addition_threads = _max_threads - _num_threads - _num_threads_pending_start;
         addition_threads = std::min(addition_threads, _total_queued_tasks);
         _num_threads_pending_start += addition_threads;
