@@ -1,0 +1,39 @@
+.textBox {
+    width: 100%;
+    min-height: 500px;
+    max-height: 70vh;
+    overflow-y: scroll;
+    border: 1px solid #ddd;
+  }
+
+.profileBox {
+    display: flex;
+    :global {
+        .ant-tree .ant-tree-treenode-disabled .ant-tree-node-content-wrapper{
+        color: #666 !important;
+        }
+    }
+
+    .fragment {
+        flex-shrink: 0;
+        width: 270px;
+        height: 70vh;
+        overflow: scroll;
+        border: 1px solid #ddd;
+    }
+
+    .graph {
+        flex: 1;
+        max-height: 70vh;
+        overflow-y: scroll;
+        font-size: 14px;
+        color: #fff;
+        background-color: #000;
+    }
+}
+
+:global {
+    .ant-tree .ant-tree-treenode-disabled .ant-tree-node-content-wrapper{
+        color: #666 !important;
+    }
+}  

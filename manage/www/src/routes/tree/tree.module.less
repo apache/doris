@@ -1,0 +1,61 @@
+/** @format */
+.palo-tree-container {
+  height: 100%;
+
+  .palo-tree-wrapper {
+    height: calc(100% - 87px);
+    padding: 0 0 20px 0;
+    overflow-y: scroll;
+  }
+}
+
+:global .ant-tree-node-content-wrapper {
+  display: flex;
+}
+
+:global .ant-tree-node-selected {
+  color: @primary-color !important;
+}
+
+.palo-tree-title {
+  width: 100%;
+  padding: 10px 15px;
+  margin: 0;
+  margin-top: 20px;
+  color: #555;
+  text-align: center;
+  background-color: #fff;
+  border: 1px solid #eee;
+  border-radius: 5px;
+
+  span {
+    padding-right: 15px;
+    cursor: pointer;
+  }
+}
+
+.palo-side-tree {
+  width: 100%;
+  min-height: 100%;
+  // width: 100%;
+  // height: calc(100vh - 245px);
+  padding: 18px;
+  overflow: hidden;
+  // overflow: hidden;
+  // overflow-y: scroll;
+  font-size: 17px;
+  color: #555;
+  border: 1px solid #eee;
+
+  :global .ant-tree-node-content-wrapper {
+    // display: contents;
+  }
+
+  :global .ant-tree .ant-tree-treenod {
+    padding: 0 0 7px;
+  }
+
+  .display_none {
+    display: none;
+  }
+}

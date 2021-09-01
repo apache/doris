@@ -1,0 +1,79 @@
+import dayjs from 'dayjs';
+export function getTimes(now: dayjs.Dayjs) {
+    return [
+        {
+            value: '1',
+            text: '最近半小时',
+            end: new Date().getTime(),
+            start: now.subtract(30, 'minute').valueOf(),
+            format: 'HH:mm',
+        },
+        {
+            value: '2',
+            text: '最近1小时',
+            end: new Date().getTime(),
+            start: now.subtract(1, 'hour').valueOf(),
+            format: 'HH:mm',
+        },
+        {
+            value: '3',
+            text: '最近6小时',
+            end: new Date().getTime(),
+            start: now.subtract(6, 'hour').valueOf(),
+            format: 'HH:mm',
+        },
+        {
+            value: '4',
+            text: '最近1天',
+            end: new Date().getTime(),
+            start: now.subtract(1, 'day').valueOf(),
+            format: 'HH:mm',
+        },
+        {
+            value: '5',
+            text: '最近三天',
+            end: new Date().getTime(),
+            start: now.subtract(3, 'day').valueOf(),
+            format: 'MM/DD HH:mm',
+        },
+        {
+            value: '6',
+            text: '最近一周',
+            end: new Date().getTime(),
+            start: now.subtract(1, 'week').valueOf(),
+            format: 'MM/DD HH:mm',
+        },
+        {
+            value: '7',
+            text: '最近半个月',
+            end: new Date().getTime(),
+            start: now.subtract(15, 'day').valueOf(),
+            format: 'MM/DD HH:mm',
+        },
+        {
+            value: '8',
+            text: '最近一个月',
+            end: new Date().getTime(),
+            start: now.subtract(1, 'month').valueOf(),
+            format: 'MM/DD HH:mm',
+        },
+    ];
+}
+
+export const CHARTS_OPTIONS = {
+    title: { text: '' },
+    legend: {
+        data: [],
+        left: 'center',
+    },
+    tooltip: {
+        trigger: 'axis',
+    },
+    xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: [],
+    },
+    yAxis: { type: 'value' },
+    series: [],
+};
