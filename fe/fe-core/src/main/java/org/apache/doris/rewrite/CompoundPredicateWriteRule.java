@@ -54,9 +54,7 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
         }
 
         /*
-         * following 'OR' 'AND' rewrite rule refer to Spark code
-         * Spark uses eight 'case' statements to make the code more streamlined
-         *
+         *  'OR' 'AND' rewrite rule
          *  case true AND expr ==> expr
          *  case expr AND true ==> expr
          *  case false Or expr ==> expr
@@ -71,34 +69,34 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
         Expr leftChild = cp.getChild(0);
         Expr rightChild = cp.getChild(1);
 
-        boolean opAND = (cp.getOp() == CompoundPredicate.Operator.AND);
+        boolean opAnd = (cp.getOp() == CompoundPredicate.Operator.AND);
         boolean opOr = (cp.getOp() == CompoundPredicate.Operator.OR);
 
-        boolean leftChildTrue = (leftChild instanceof BoolLiteral)&&(((BoolLiteral)leftChild).getValue());
-        boolean leftChildFalse = (leftChild instanceof BoolLiteral)&&(!((BoolLiteral)leftChild).getValue());
+        boolean leftChildTrue = (leftChild instanceof BoolLiteral) && (((BoolLiteral) leftChild).getValue());
+        boolean leftChildFalse = (leftChild instanceof BoolLiteral) && (!((BoolLiteral) leftChild).getValue());
 
-        boolean rightChildTrue = (rightChild instanceof BoolLiteral)&&(((BoolLiteral)rightChild).getValue());
-        boolean rightChildFalse = (rightChild instanceof BoolLiteral)&&(!((BoolLiteral)rightChild).getValue());
+        boolean rightChildTrue = (rightChild instanceof BoolLiteral) && (((BoolLiteral) rightChild).getValue());
+        boolean rightChildFalse = (rightChild instanceof BoolLiteral) && (!((BoolLiteral) rightChild).getValue());
 
-        //case true AND expr ==> expr
-        if(leftChildTrue && opAND) return rightChild;
-        //case expr AND true ==> expr
-        if(opAND && rightChildTrue) return leftChild;
-        //case false Or expr ==> expr
-        if(leftChildFalse && opOr) return rightChild;
-        //case expr Or false ==> expr
-        if(opOr && rightChildFalse) return leftChild;
+        // case true AND expr ==> expr
+        if (leftChildTrue && opAnd) return rightChild;
+        // case expr AND true ==> expr
+        if (opAnd && rightChildTrue) return leftChild;
+        // case false Or expr ==> expr
+        if (leftChildFalse && opOr) return rightChild;
+        // case expr Or false ==> expr
+        if (opOr && rightChildFalse) return leftChild;
 
-        //case false AND expr ==> false
-        if(leftChildFalse && opAND) return new BoolLiteral(false);
-        //case expr AND false ==> false
-        if(opAND && rightChildFalse) return new BoolLiteral(false);
-        //case true Or expr ==> true
-        if(leftChildTrue && opOr) return new BoolLiteral(true);
-        //case expr Or true ==> true
-        if(opOr && rightChildTrue) return new BoolLiteral(true);
+        // case false AND expr ==> false
+        if (leftChildFalse && opAnd) return new BoolLiteral(false);
+        // case expr AND false ==> false
+        if (opAnd && rightChildFalse) return new BoolLiteral(false);
+        // case true Or expr ==> true
+        if (leftChildTrue && opOr) return new BoolLiteral(true);
+        // case expr Or true ==> true
+        if (opOr && rightChildTrue) return new BoolLiteral(true);
 
-        //other case ,return origin expr
+        // other case ,return origin expr
         return expr;
     }
 }
