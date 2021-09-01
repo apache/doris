@@ -522,35 +522,40 @@ public class Tablet extends MetaObject implements Writable {
 
     /**
      * Check colocate table's tablet health
-     * 1. Mismatch:
+	 * 1. Redundant:
+     *      backends set:       1,2,3
+     *      tablet replicas:    1,2,3,4
+	 *
+	 *      backends set:       1,2,3
+     *      tablet replicas:    1,2,4,5
+	 *
+     * 2. Mismatch:
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,5
      *      
      *      backends set:       1,2,3
      *      tablet replicas:    1,2
-     *      
-     *      backends set:       1,2,3
-     *      tablet replicas:    1,2,4,5
-     *      
-     * 2. Version incomplete:
+     *       
+     * 3. Version incomplete:
      *      backend matched, but some replica(in backends set)'s version is incomplete
-     *      
-     * 3. Redundant:
-     *      backends set:       1,2,3
-     *      tablet replicas:    1,2,3,4
-     *      
+     *        
      * No need to check if backend is available. We consider all backends in 'backendsSet' are available,
      * If not, unavailable backends will be relocated by CalocateTableBalancer first.
      */
     public TabletStatus getColocateHealthStatus(long visibleVersion, int replicationNum, Set<Long> backendsSet) {
-
-        // 1. check if replicas' backends are mismatch
+		
+		// 1. check redundant
+        if (replicas.size() > replicationNum) {
+            return TabletStatus.COLOCATE_REDUNDANT;
+        }
+        
+		// 2. check if replicas' backends are mismatch
         Set<Long> replicaBackendIds = getBackendIds();
         if (!replicaBackendIds.containsAll(backendsSet)) {
             return TabletStatus.COLOCATE_MISMATCH;
         }
 
-        // 2. check version completeness
+        // 3. check version completeness
         for (Replica replica : replicas) {
             if (!backendsSet.contains(replica.getBackendId())) {
                 // We don't care about replicas that are not in backendsSet.
@@ -561,11 +566,6 @@ public class Tablet extends MetaObject implements Writable {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
             }
-        }
-
-        // 3. check redundant
-        if (replicas.size() > replicationNum) {
-            return TabletStatus.COLOCATE_REDUNDANT;
         }
 
         return TabletStatus.HEALTHY;
