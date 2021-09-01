@@ -31,7 +31,7 @@ under the License.
 `VARCHAR json_quote(VARCHAR)`
 
 
-Enclose json_value in double quotes (")
+Enclose json_value in double quotes ("), escape special characters contained.
 
 ## example
 
@@ -52,12 +52,19 @@ MySQL> SELECT json_quote('[1, 2, 3]');
 +-------------------------+
 
 
-MySQL> SELECT json_quote('id');
+MySQL> SELECT json_quote(null);
 +------------------+
-| json_quote('id') |
+| json_quote(null) |
 +------------------+
-| "id"             |
+| NULL             |
 +------------------+
+
+MySQL> select json_quote("\n\b\r\t");
++------------------------+
+| json_quote('\n\b\r\t') |
++------------------------+
+| "\n\b\r\t"             |
++------------------------+
 ```
 ## keyword
 json_quote

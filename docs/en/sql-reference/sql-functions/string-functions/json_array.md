@@ -31,11 +31,18 @@ under the License.
 `VARCHAR json_array(VARCHAR,...)`
 
 
-Generate a json array containing the specified values
+Generate a json array containing the specified values, return empty if no values
 
 ## example
 
 ```
+MySQL> select json_array();
++--------------+
+| json_array() |
++--------------+
+| []           |
++--------------+
+
 MySQL> select json_array(null);
 +--------------------+
 | json_array('NULL') |

@@ -31,7 +31,7 @@ under the License.
 `VARCHAR json_quote(VARCHAR)`
 
 
-将json_value用双引号（"）括起来
+将json_value用双引号（"）括起来，跳过其中包含的特殊转义字符
 
 ## example
 
@@ -52,12 +52,19 @@ MySQL> SELECT json_quote('[1, 2, 3]');
 +-------------------------+
 
 
-MySQL> SELECT json_quote('id');
+MySQL> SELECT json_quote(null);
 +------------------+
-| json_quote('id') |
+| json_quote(null) |
 +------------------+
-| "id"             |
+| NULL             |
 +------------------+
+
+MySQL> select json_quote("\n\b\r\t");
++------------------------+
+| json_quote('\n\b\r\t') |
++------------------------+
+| "\n\b\r\t"             |
++------------------------+
 ```
 ## keyword
 json_quote

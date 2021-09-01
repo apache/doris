@@ -54,7 +54,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
-
+import java.text.StringCharacterIterator;
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -166,30 +166,29 @@ public class FunctionCallExpr extends Expr {
         fn = other.fn;
     }
 
-    public void parseJsonDataType(boolean useKeyCheck) throws AnalysisException {
-        String res = "";
+    public String parseJsonDataType(boolean useKeyCheck) throws AnalysisException {
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < children.size(); ++i) {
             Type type = getChild(i).getType();
-            if (type.isNull()) {                  //Not to return NULL directly, so save string, but flag is '0'
-                if(((i&1) == 0) && useKeyCheck == true) {
+            if (type.isNull()) { //Not to return NULL directly, so save string, but flag is '0'
+                if (((i & 1) == 0) && useKeyCheck == true) {
                     throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
                 }
                 children.set(i, new StringLiteral("NULL"));
-                res = res + "0";
+                sb.append("0");
             } else if (type.isBoolean()) {
-                res = res + "1";
+                sb.append("1");
             } else if (type.isFixedPointType()) {
-                res = res + "2";
-            } else if (type.isFloatingPointType() || type.isDecimalV2()){
-                res = res + "3";
-            }else if (type.isTime()) {
-                res = res + "4";
+                sb.append("2");
+            } else if (type.isFloatingPointType() || type.isDecimalV2()) {
+                sb.append("3");
+            } else if (type.isTime()) {
+                sb.append("4");
             } else {
-                res = res + "5";
+                sb.append("5");
             }
         }
-        if(children.size() == originChildSize)
-            children.add(new StringLiteral(res));
+        return sb.toString();
     }
 
     public boolean isMergeAggFn() {
@@ -240,16 +239,21 @@ public class FunctionCallExpr extends Expr {
         if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
             sb.append("DISTINCT ");
         }  
+        boolean isJsonFunction = false;
         int len = children.size();
         List<String> result = Lists.newArrayList();
         if ((fnName.getFunction().equalsIgnoreCase("json_array")) ||
             (fnName.getFunction().equalsIgnoreCase("json_object"))) {
             len = len - 1;
+            isJsonFunction = true;
         }
         for (int i = 0; i < len; ++i) {
             result.add(children.get(i).toSql());
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
+            return forJSON(sb.toString());
+        }
         return sb.toString();
     }
 
@@ -363,22 +367,21 @@ public class FunctionCallExpr extends Expr {
         }
         
         if(fnName.getFunction().equalsIgnoreCase("json_array")) {
-            if (children.isEmpty()) {
-                throw new AnalysisException(
-                        "json_array is empty, need more parameters: " + this.toSql());
+            String res = parseJsonDataType(false);
+            if (children.size() == originChildSize) {
+                children.add(new StringLiteral(res));
             }
-            parseJsonDataType(false);
             return;
         }
 
         if(fnName.getFunction().equalsIgnoreCase("json_object")) {
-            if (children.isEmpty()) {
-                throw new AnalysisException("json_object is empty, need more parameters: " + this.toSql());
-            }
-            if ((children.size()&1)==1 && (originChildSize == children.size())) {
+            if ((children.size()&1) == 1 && (originChildSize == children.size())) {
                 throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
             }
-            parseJsonDataType(true);
+            String res = parseJsonDataType(true);
+            if (children.size() == originChildSize) {
+                children.add(new StringLiteral(res));
+            }
             return;
         }
 
@@ -974,4 +977,40 @@ public class FunctionCallExpr extends Expr {
         result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
+    public String forJSON(String str){
+        final StringBuilder result = new StringBuilder();
+        StringCharacterIterator iterator = new StringCharacterIterator(str);
+        char character = iterator.current();
+        while (character != StringCharacterIterator.DONE){
+          if( character == '\"' ){
+            result.append("\\\"");
+          }
+          else if(character == '\\'){
+            result.append("\\\\");
+          }
+          else if(character == '/'){
+            result.append("\\/");
+          }
+          else if(character == '\b'){
+            result.append("\\b");
+          }
+          else if(character == '\f'){
+            result.append("\\f");
+          }
+          else if(character == '\n'){
+            result.append("\\n");
+          }
+          else if(character == '\r'){
+            result.append("\\r");
+          }
+          else if(character == '\t'){
+            result.append("\\t");
+          }
+          else {
+            result.append(character);
+          }
+          character = iterator.next();
+        }
+        return result.toString();    
+      }
 }

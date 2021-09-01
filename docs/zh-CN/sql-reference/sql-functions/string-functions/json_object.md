@@ -31,11 +31,18 @@ under the License.
 `VARCHAR json_object(VARCHAR,...)`
 
 
-生成一个包含指定Key-Value对的json object
+生成一个包含指定Key-Value对的json object, 当Key值为NULL或者传入参数为奇数个时，返回异常错误
 
 ## example
 
 ```
+MySQL> select json_object();
++---------------+
+| json_object() |
++---------------+
+| {}            |
++---------------+
+
 MySQL> select json_object('time',curtime());
 +--------------------------------+
 | json_object('time', curtime()) |

@@ -31,11 +31,19 @@ under the License.
 `VARCHAR json_object(VARCHAR,...)`
 
 
-Generate a json object containing the specified Key-Value 
+Generate a json object containing the specified Key-Value,
+an exception error is returned when Key is NULL or the number of parameters are odd.
 
 ## example
 
 ```
+MySQL> select json_object();
++---------------+
+| json_object() |
++---------------+
+| {}            |
++---------------+
+
 MySQL> select json_object('time',curtime());
 +--------------------------------+
 | json_object('time', curtime()) |

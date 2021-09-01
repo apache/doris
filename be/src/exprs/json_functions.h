@@ -130,7 +130,7 @@ private:
     static void get_parsed_paths(const std::vector<std::string>& path_exprs,
                                  std::vector<JsonPath>* parsed_paths);
     static rapidjson::Value parse_str_with_flag(const std::string& arg, const std::string& flag,
-                                                const int& num,
+                                                const int num,
                                                 rapidjson::Document::AllocatorType& allocator);
 };
 } // namespace doris

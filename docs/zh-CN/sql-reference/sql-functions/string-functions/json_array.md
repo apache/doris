@@ -31,11 +31,18 @@ under the License.
 `VARCHAR json_array(VARCHAR,...)`
 
 
-生成一个包含指定元素的json数组
+生成一个包含指定元素的json数组,未指定时返回空数组
 
 ## example
 
 ```
+MySQL> select json_array();
++--------------+
+| json_array() |
++--------------+
+| []           |
++--------------+
+
 MySQL> select json_array(null);
 +--------------------+
 | json_array('NULL') |

@@ -30,7 +30,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
+#include <iomanip>
 #include "common/logging.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
@@ -107,6 +107,7 @@ DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringV
         return DoubleVal::null();
     }
 }
+
 StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
                                     const StringVal* json_str) {
     if (json_str->is_null) {
@@ -117,6 +118,7 @@ StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     //flag: The number it contains represents the type of previous parameters
     std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
+    DCHECK(num_args-1==flag.length());
     for (int i = 0; i < num_args - 1; ++i) {
         std::string arg((char*)json_str[i].ptr, json_str[i].len);
         rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
@@ -137,6 +139,7 @@ StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
     rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     std::string flag((char*)json_str[num_args - 1].ptr, json_str[num_args - 1].len);
     document.SetObject();
+    DCHECK(num_args-1==flag.length());
     for (int i = 1; i < num_args - 1; i = i + 2) {
         std::string arg((char*)json_str[i].ptr, json_str[i].len);
         rapidjson::Value key(rapidjson::kStringType);
@@ -151,10 +154,10 @@ StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
 }
 
 rapidjson::Value JsonFunctions::parse_str_with_flag(const std::string& arg, const std::string& flag,
-                                                    const int& num,
+                                                    const int num,
                                                     rapidjson::Document::AllocatorType& allocator) {
     rapidjson::Value val;
-    if (flag[num] == '0') {   //null
+    if (flag[num] == '0') { //null
         rapidjson::Value nullObject(rapidjson::kNullType);
         val = nullObject;
     } else if (flag[num] == '1') { //bool
@@ -172,10 +175,12 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const std::string& arg, cons
         double number = 0.0;
         ss >> number;
         val.SetDouble(number);
-    } else {
+    } else if(flag[num] == '4' || flag[num] == '5') {
         std::string str = arg;
         if (flag[num] == '4') str = arg.substr(1, arg.length() - 2);
         val.SetString(str.c_str(), str.length(), allocator);
+    } else {
+        DCHECK(false)<<"parse json type error with unknown type";
     }
     return val;
 }
@@ -183,12 +188,14 @@ StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& j
     if (json_str.is_null) {
         return StringVal::null();
     }
-    std::string json_string((char*)json_str.ptr, json_str.len);
-    for (size_t i = 0; i < json_string.length(); ++i) {
-        if (json_string[i] == '\"') json_string.insert(i++, "\\");
-    }
-    json_string = '\"' + json_string + '\"';
-    return AnyValUtil::from_buffer_temp(context, json_string.c_str(), json_string.size());
+    rapidjson::Value array_obj(rapidjson::kObjectType);
+    rapidjson::Document document;
+    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+    array_obj.SetString(rapidjson::StringRef((char*)json_str.ptr, json_str.len));
+    rapidjson::StringBuffer buf;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
+    array_obj.Accept(writer);
+    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
 }
 
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
