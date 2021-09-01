@@ -20,14 +20,14 @@
 #include <snappy/snappy.h>
 #include <stdint.h> // for intptr_t
 
+#include "gen_cpp/Data_types.h"
+#include "gen_cpp/data.pb.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
+#include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "gen_cpp/Data_types.h"
-#include "gen_cpp/data.pb.h"
-#include "runtime/collection_value.h"
 
 //#include "vec/columns/column_vector.h"
 //#include "vec/core/block.h"
@@ -478,7 +478,7 @@ int RowBatch::serialize(PRowBatch* output_batch) {
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
         // smaller
-        int max_compressed_size = snappy::MaxCompressedLength(size);
+        uint32_t max_compressed_size = snappy::MaxCompressedLength(size);
 
         if (_compression_scratch.size() < max_compressed_size) {
             _compression_scratch.resize(max_compressed_size);

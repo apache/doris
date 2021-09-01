@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -54,6 +55,9 @@ public class CreateRoutineLoadStmtTest {
     private Catalog catalog;
 
     @Mocked
+    private ConnectContext ctx;
+
+    @Mocked
     OlapTable table;
 
     @Before
@@ -77,6 +81,10 @@ public class CreateRoutineLoadStmtTest {
                 table.hasDeleteSign();
                 minTimes = 0;
                 result = false;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
             }
         };
 
