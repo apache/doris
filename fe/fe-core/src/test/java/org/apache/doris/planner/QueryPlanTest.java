@@ -407,6 +407,16 @@ public class QueryPlanTest {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
+        createTable("CREATE TABLE test.table1(" +
+                "siteid INT DEFAULT '10'," +
+                "citycode SMALLINT," +
+                "username VARCHAR(32) DEFAULT ''," +
+                "pv BIGINT SUM DEFAULT '0' )" +
+                "AGGREGATE KEY(siteid, citycode, username)" +
+                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -1724,4 +1734,67 @@ public class QueryPlanTest {
         LOG.info(explainString2);
         Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
+
+    @Test
+    public void testCompoundPredicateWriteRule() throws Exception{
+        connectContext.setDatabase("default_cluster:test");
+
+        String sql1 = "select * from table1 where 2=-2 OR citycode=0;";
+        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql1);
+        Assert.assertTrue(explainString1.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString1);
+
+        String sql2 = "select * from table1 where -5=-5 OR citycode=0;";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        Assert.assertTrue(!explainString2.contains("OR"));
+        LOG.info(explainString2);
+
+        String sql3 = "select * from table1 where (-2=2 or citycode=2) and (-2=2 or siteid=2);";
+        String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql3);
+        Assert.assertTrue(explainString3.contains("PREDICATES: `citycode` = 2, `siteid` = 2"));
+        LOG.info(explainString3);
+
+        String sql4 = "select * from table1 where (2=-2) OR (citycode=0 AND 1=1);";
+        String explainString4 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql4);
+        Assert.assertTrue(explainString4.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString4);
+
+        String sql5 = "select * from table1 where citycode=0 OR -5=-5;";
+        String explainString5 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql5);
+        Assert.assertTrue(!explainString5.contains("OR"));
+        LOG.info(explainString5);
+
+        String sql6 = "select * from table1 where -5!=-5 OR citycode=0;";
+        String explainString6 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql6);
+        Assert.assertTrue(explainString6.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString6);
+
+        String sql7 = "select * from table1 where citycode=0 OR -5!=-5;";
+        String explainString7 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql7);
+        Assert.assertTrue(explainString7.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString7);
+
+
+        String sql8 = "select * from table1 where -5=-5 AND citycode=0;";
+        String explainString8 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql8);
+        Assert.assertTrue(explainString8.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString8);
+
+        String sql9 = "select * from table1 where citycode=0 AND -5=-5;";
+        String explainString9 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql9);
+        Assert.assertTrue(explainString9.contains("PREDICATES: `citycode` = 0"));
+        LOG.info(explainString9);
+
+        String sql10 = "select * from table1 where -5!=-5 AND citycode=0;";
+        String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
+        Assert.assertTrue(!explainString10.contains("FALSE"));
+        LOG.info(explainString10);
+
+        String sql11 = "select * from table1 where citycode=0 AND -5!=-5;";
+        String explainString11 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql11);
+        Assert.assertTrue(!explainString11.contains("FALSE"));
+        LOG.info(explainString11);
+
+    }
+
 }

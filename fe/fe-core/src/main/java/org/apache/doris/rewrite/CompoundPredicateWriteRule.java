@@ -47,81 +47,58 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
 
         if (!(expr instanceof CompoundPredicate)) return expr;
         CompoundPredicate cp = (CompoundPredicate) expr;
-        Expr result = expr;
 
         List<Expr> children = cp.getChildren();
         if (children.size() != 2) {
             return expr;
         }
-        //rewrite OR
-        if (cp.getOp() == CompoundPredicate.Operator.OR) {
 
-            Expr leftChild = cp.getChild(0);
-            Expr rightChild = cp.getChild(1);
+        /*
+         * following 'OR' 'AND' rewrite rule refer to Spark code
+         * Spark uses eight 'case' statements to make the code more streamlined
+         *
+         *  case true AND expr ==> expr
+         *  case expr AND true ==> expr
+         *  case false Or expr ==> expr
+         *  case expr Or false ==> expr
+         *
+         *  case false AND expr ==> false
+         *  case expr AND false ==> false
+         *  case true Or expr ==> true
+         *  case expr Or true ==> true
+         *
+         */
+        Expr leftChild = cp.getChild(0);
+        Expr rightChild = cp.getChild(1);
 
-            //OR leftChild is bool
-            // true OR expr ==> true
-            // false OR expr ==> expr
-            if (leftChild instanceof BoolLiteral) {
-                BoolLiteral boolLiteralLeftChild = (BoolLiteral) leftChild;
+        boolean opAND = (cp.getOp() == CompoundPredicate.Operator.AND);
+        boolean opOr = (cp.getOp() == CompoundPredicate.Operator.OR);
 
-                if (boolLiteralLeftChild.getValue()) {
-                    return new BoolLiteral(true);
-                } else {
-                    result = rightChild;
-                }
-            }
+        boolean leftChildTrue = (leftChild instanceof BoolLiteral)&&(((BoolLiteral)leftChild).getValue());
+        boolean leftChildFalse = (leftChild instanceof BoolLiteral)&&(!((BoolLiteral)leftChild).getValue());
 
-            //OR rightChild is bool
-            // expr OR true ==> true
-            // expr OR false ==> expr
-            if (rightChild instanceof BoolLiteral) {
-                BoolLiteral boolLiteralRightChild = (BoolLiteral) rightChild;
+        boolean rightChildTrue = (rightChild instanceof BoolLiteral)&&(((BoolLiteral)rightChild).getValue());
+        boolean rightChildFalse = (rightChild instanceof BoolLiteral)&&(!((BoolLiteral)rightChild).getValue());
 
-                if (boolLiteralRightChild.getValue()) {
-                    return new BoolLiteral(true);
-                } else {
-                    result = leftChild;
-                }
-            }
+        //case true AND expr ==> expr
+        if(leftChildTrue && opAND) return rightChild;
+        //case expr AND true ==> expr
+        if(opAND && rightChildTrue) return leftChild;
+        //case false Or expr ==> expr
+        if(leftChildFalse && opOr) return rightChild;
+        //case expr Or false ==> expr
+        if(opOr && rightChildFalse) return leftChild;
 
-            return result;
-        }
+        //case false AND expr ==> false
+        if(leftChildFalse && opAND) return new BoolLiteral(false);
+        //case expr AND false ==> false
+        if(opAND && rightChildFalse) return new BoolLiteral(false);
+        //case true Or expr ==> true
+        if(leftChildTrue && opOr) return new BoolLiteral(true);
+        //case expr Or true ==> true
+        if(opOr && rightChildTrue) return new BoolLiteral(true);
 
-        //rewrite AND
-        if (cp.getOp() == CompoundPredicate.Operator.AND) {
-
-            Expr leftChild = cp.getChild(0);
-            Expr rightChild = cp.getChild(1);
-
-            //AND leftChild is bool
-            // true AND expr ==> expr
-            // false AND expr ==> false
-            if (leftChild instanceof BoolLiteral) {
-                BoolLiteral boolLiteralLeftChild = (BoolLiteral) leftChild;
-
-                if (boolLiteralLeftChild.getValue()) {
-                    result = rightChild;
-                } else {
-                    return new BoolLiteral(false);
-                }
-            }
-
-            //AND rightChild is bool
-            // expr AND true ==> expr
-            // expr AND false ==> false
-            if (rightChild instanceof BoolLiteral) {
-                BoolLiteral boolLiteralRightChild = (BoolLiteral) rightChild;
-
-                if (boolLiteralRightChild.getValue()) {
-                    result = leftChild;
-                } else {
-                    return new BoolLiteral(false);
-                }
-            }
-            return result;
-        }
-
-        return result;
+        //other case ,return origin expr
+        return expr;
     }
 }
