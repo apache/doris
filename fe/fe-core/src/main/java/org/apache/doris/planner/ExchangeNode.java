@@ -79,7 +79,7 @@ public class ExchangeNode extends PlanNode {
     }
 
     public boolean isMergingExchange() {
-        if (planNodeName.equals(MERGING_EXCHANGE_NODE)) {
+        if (mergeInfo != null) {
             return true;
         }
         return false;

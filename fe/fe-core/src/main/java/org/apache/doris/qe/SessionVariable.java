@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,6 +36,8 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -769,22 +770,21 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
     }
-    
+
     public boolean isExtractWideRangeExpr() {
         return extractWideRangeExpr;
     }
 
-<<<<<<< HEAD
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
-=======
+    }
+
     public boolean isEnableParallelOutfile() {
         return enableParallelOutfile;
->>>>>>> a5abd677c (Support concurrent export of query results)
     }
 
     // Serialize to thrift object

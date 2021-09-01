@@ -48,8 +48,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.apache.doris.backup.S3Storage.S3_PROPERTIES_PREFIX;
-
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
     private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
@@ -382,7 +380,7 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
-            } else if (entry.getKey().toUpperCase().startsWith(S3_PROPERTIES_PREFIX)) {
+            } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             }

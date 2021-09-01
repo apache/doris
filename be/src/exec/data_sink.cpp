@@ -85,6 +85,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.result_file_sink) {
             return Status::InternalError("Missing result file sink.");
         }
+        // Result file sink is not the top sink
         if (params.__isset.destinations && params.destinations.size() > 0) {
             tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
                                           params.destinations, pool, params.sender_id, desc_tbl);

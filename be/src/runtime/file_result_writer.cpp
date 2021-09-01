@@ -454,8 +454,7 @@ Status FileResultWriter::close() {
     // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
     SCOPED_TIMER(_writer_close_timer);
-    RETURN_IF_ERROR(_close_file_writer(true, false));
-    return Status::OK();
+    return _close_file_writer(true, false);
 }
 
 } // namespace doris

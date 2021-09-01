@@ -285,6 +285,19 @@ public class Planner {
         return selectNode;
     }
 
+    /**
+     * This function is mainly used to try to push the top-level result file sink down one layer.
+     * The result file sink after the pushdown can realize the function of concurrently exporting the result set.
+     * Push down needs to meet the following conditions:
+     * 1. The query enables the session variable of the concurrent export result set
+     * 2. The top-level fragment is not a merge change node
+     * 3. The export method uses the s3 method
+     *
+     * After satisfying the above three conditions,
+     * the result file sink and the associated output expr will be pushed down to the next layer.
+     * The second plan fragment performs expression calculation and derives the result set.
+     * The top plan fragment will only summarize the status of the exported result set and return it to fe.
+     */
     private void pushDownResultFileSink(Analyzer analyzer) {
         if (fragments.size() < 1) {
             return;
@@ -324,6 +337,13 @@ public class Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
+    /**
+     * Construct a tuple for file status, the tuple schema as following:
+     * | FileNumber | Int     |
+     * | TotalRows  | Bigint  |
+     * | FileSize   | Bigint  |
+     * | URL        | Varchar |
+     */
     private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
         TupleDescriptor resultFileStatusTupleDesc =
                 analyzer.getDescTbl().createTupleDescriptor("result_file_status");
