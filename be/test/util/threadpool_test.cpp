@@ -795,6 +795,85 @@ TEST_F(ThreadPoolTest, TestNormal) {
     ASSERT_EQ(0, token5->num_tasks());
 }
 
+TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
+    ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
+                                                  .set_min_threads(3)
+                                                  .set_max_threads(3)
+                                                  .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
+                            .ok());
+
+    ASSERT_EQ(3, _pool->min_threads());
+    ASSERT_EQ(3, _pool->max_threads());
+    ASSERT_EQ(3, _pool->num_threads());
+
+    ASSERT_TRUE(!_pool->set_min_threads(4).ok());
+    ASSERT_TRUE(!_pool->set_max_threads(2).ok());
+
+    ASSERT_TRUE(_pool->set_min_threads(2).ok());
+    ASSERT_EQ(2, _pool->min_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+
+    ASSERT_TRUE(_pool->set_min_threads(3).ok());
+    ASSERT_EQ(3, _pool->min_threads());
+    ASSERT_TRUE(_pool->set_max_threads(3).ok());
+    ASSERT_EQ(3, _pool->max_threads());
+
+    CountDownLatch latch_1(1);
+    CountDownLatch latch_2(1);
+    CountDownLatch latch_3(1);
+    CountDownLatch latch_4(1);
+    CountDownLatch latch_5(1);
+    CountDownLatch latch_6(1);
+    CountDownLatch latch_7(1);
+    CountDownLatch latch_8(1);
+    CountDownLatch latch_9(1);
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_1)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_2)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_3)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_4)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_5)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_6)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_7)).ok());
+    ASSERT_EQ(3, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+    ASSERT_EQ(4, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(5).ok());
+    ASSERT_EQ(5, _pool->max_threads());
+    ASSERT_EQ(5, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(6).ok());
+    ASSERT_EQ(6, _pool->max_threads());
+    ASSERT_EQ(6, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+    latch_1.count_down();
+    latch_2.count_down();
+    latch_3.count_down();
+    SleepFor(MonoDelta::FromMilliseconds(500));
+    ASSERT_EQ(4, _pool->num_threads());
+
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_8)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_9)).ok());
+    ASSERT_EQ(4, _pool->num_threads());
+
+    ASSERT_TRUE(_pool->set_min_threads(2).ok());
+    ASSERT_EQ(2, _pool->min_threads());
+
+    latch_4.count_down();
+    latch_5.count_down();
+    latch_6.count_down();
+    latch_7.count_down();
+    latch_8.count_down();
+    latch_9.count_down();
+    SleepFor(MonoDelta::FromMilliseconds(500));
+    ASSERT_EQ(2, _pool->num_threads());
+
+    _pool->wait();
+    _pool->shutdown();
+    ASSERT_EQ(0, _pool->num_threads());
+}
+
 } // namespace doris
 
 int main(int argc, char* argv[]) {
