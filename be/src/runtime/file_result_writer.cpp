@@ -178,6 +178,22 @@ Status FileResultWriter::_get_next_file_name(std::string* file_name) {
     return Status::OK();
 }
 
+// file url format as:
+// LOCAL: file:///localhost_address/{file_path}{fragment_instance_id}_
+// S3: {file_path}{fragment_instance_id}_
+// BROKER: {file_path}{fragment_instance_id}_
+
+Status FileResultWriter::_get_file_url(std::string* file_url) {
+    std::stringstream ss;
+    if (_storage_type == TStorageBackendType::LOCAL) {
+        ss << "file:///" << BackendOptions::get_localhost();
+    }
+    ss << _file_opts->file_path;
+    ss << print_id(_fragment_instance_id) << "_";
+    *file_url = ss.str();
+    return Status::OK();
+}
+
 std::string FileResultWriter::_file_format_to_name() {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -410,8 +426,9 @@ Status FileResultWriter::_send_result() {
     row_buffer.push_int(_file_idx);                         // file number
     row_buffer.push_bigint(_written_rows_counter->value()); // total rows
     row_buffer.push_bigint(_written_data_bytes->value());   // file size
-    std::string localhost = BackendOptions::get_localhost();
-    row_buffer.push_string(localhost.c_str(), localhost.length()); // url
+    std::string file_url;
+    _get_file_url(&file_url);
+    row_buffer.push_string(file_url.c_str(), file_url.length()); // url
 
     std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
@@ -440,10 +457,11 @@ Status FileResultWriter::_fill_result_batch() {
 
     StringValue* url_str_val =
         reinterpret_cast<StringValue*>(tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
-    std::string localhost = BackendOptions::get_localhost();
-    url_str_val->ptr = (char*)_output_batch->tuple_data_pool()->allocate(localhost.length());
-    url_str_val->len = localhost.length();
-    memcpy(url_str_val->ptr, localhost.c_str(), url_str_val->len);
+    std::string file_url;
+    _get_file_url(&file_url);
+    url_str_val->ptr = (char*)_output_batch->tuple_data_pool()->allocate(file_url.length());
+    url_str_val->len = file_url.length();
+    memcpy(url_str_val->ptr, file_url.c_str(), url_str_val->len);
     
     _output_batch->commit_last_row();
     return Status::OK();

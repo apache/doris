@@ -113,6 +113,7 @@ private:
     // get next export file name
     Status _get_next_file_name(std::string* file_name);
     Status _get_success_file_name(std::string* file_name);
+    Status _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     // if only_close is true, this method will just close the file writer and return.
