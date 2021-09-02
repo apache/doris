@@ -1937,16 +1937,16 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_UPDATE_SYMBOL.get(t),
                     null,
-                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
-                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null));
+                    t.isStringType()  ? stringValGetValue : null,
+                    t.isStringType()  ? stringValSerializeOrFinalize : null));
             // Implements FIRST_VALUE for some windows that require rewrites during planning.
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "first_value_rewrite", Lists.newArrayList(t, Type.BIGINT), t, t,
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_REWRITE_UPDATE_SYMBOL.get(t),
                     null,
-                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
-                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null,
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null,
                     false));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
@@ -1954,8 +1954,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     t.isStringType() ? initNullString : initNull,
                     prefix + LAST_VALUE_UPDATE_SYMBOL.get(t),
                     prefix + LAST_VALUE_REMOVE_SYMBOL.get(t),
-                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
-                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null));
+                    t.isStringType() ? stringValGetValue : null,
+                    t.isStringType() ? stringValSerializeOrFinalize : null));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
