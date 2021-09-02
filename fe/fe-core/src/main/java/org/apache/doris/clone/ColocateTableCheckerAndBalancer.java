@@ -382,7 +382,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     if (!backendsSet.contains(destBeId) && !hostsSet.contains(destBe.getHost())) {
                         Preconditions.checkState(backendsSet.contains(srcBeId), srcBeId);
                         flatBackendsPerBucketSeq.set(seqIndex, destBeId);
-                        LOG.info("replace backend {} with backend {} in colocate group {}", srcBeId, destBeId, groupId);
+                        LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
+                                srcBeId, destBeId, groupId, seqIndex);
                         // just replace one backend at a time, src and dest BE id should be recalculated because
                         // flatBackendsPerBucketSeq is changed.
                         isChanged = true;

@@ -559,22 +559,22 @@ public class TabletScheduler extends MasterDaemon {
             throws SchedException {
         if (tabletCtx.getType() == Type.REPAIR) {
             switch (status) {
-            case REPLICA_MISSING:
-                handleReplicaMissing(tabletCtx, batchTask);
-                break;
-            case VERSION_INCOMPLETE:
-            case NEED_FURTHER_REPAIR: // same as version incomplete, it prefer to the dest replica which need further repair
-                handleReplicaVersionIncomplete(tabletCtx, batchTask);
-                break;
-            case REPLICA_RELOCATING:
-                handleReplicaRelocating(tabletCtx, batchTask);
-                break;
-            case REDUNDANT:
-                handleRedundantReplica(tabletCtx, false);
-                break;
-            case FORCE_REDUNDANT:
-                handleRedundantReplica(tabletCtx, true);
-                break;
+                case REPLICA_MISSING:
+                    handleReplicaMissing(tabletCtx, batchTask);
+                    break;
+                case VERSION_INCOMPLETE:
+                case NEED_FURTHER_REPAIR: // same as version incomplete, it prefer to the dest replica which need further repair
+                    handleReplicaVersionIncomplete(tabletCtx, batchTask);
+                    break;
+                case REPLICA_RELOCATING:
+                    handleReplicaRelocating(tabletCtx, batchTask);
+                    break;
+                case REDUNDANT:
+                    handleRedundantReplica(tabletCtx, false);
+                    break;
+                case FORCE_REDUNDANT:
+                    handleRedundantReplica(tabletCtx, true);
+                    break;
                 case REPLICA_MISSING_IN_CLUSTER:
                     handleReplicaClusterMigration(tabletCtx, batchTask);
                     break;
