@@ -6581,6 +6581,7 @@ public class Catalog {
 
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newHashMap();
+        Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
         boolean truncateEntireTable = tblRef.getPartitionNames() == null;
@@ -6601,10 +6602,12 @@ public class Catalog {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
                     origPartitions.put(partName, partition.getId());
+                    partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
                     origPartitions.put(partition.getName(), partition.getId());
+                    partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                 }
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
@@ -6629,7 +6632,7 @@ public class Catalog {
                         db.getId(), copiedTbl.getId(), copiedTbl.getBaseIndexId(),
                         newPartitionId, entry.getKey(),
                         copiedTbl.getIndexIdToMeta(),
-                        copiedTbl.getDefaultDistributionInfo(),
+                        partitionsDistributionInfo.get(oldPartitionId),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
                         copiedTbl.getPartitionInfo().getReplicationNum(oldPartitionId),
                         null /* version info */,
