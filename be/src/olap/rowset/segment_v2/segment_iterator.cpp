@@ -476,7 +476,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids, R
         ColumnBlockView dst(&column_block, row_offset);
         size_t rows_read = nrows;
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, &dst));
-        block->set_delete_state(column_block.delete_state());
         DCHECK_EQ(nrows, rows_read);
     }
     return Status::OK();
