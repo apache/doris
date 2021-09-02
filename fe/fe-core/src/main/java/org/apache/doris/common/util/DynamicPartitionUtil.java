@@ -45,16 +45,19 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.sql.Timestamp;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.DayOfWeek;
 import java.time.Month;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.Date;
+import java.util.Calendar;
 
 public class DynamicPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
@@ -230,6 +233,60 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkReservedHistoryStarts(String reservedHistoryStarts) throws DdlException{
+        String[] starts = reservedHistoryStarts.split(",");
+        if (starts.length == 0) {
+            //ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_EMPTY);
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
+        }
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Date date = null;
+        try {
+            for (int i = 0; i < starts.length; i++) {
+                date = sdf.parse(starts[i]);
+                if (!starts[i].equals(sdf.format(date))) {
+                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " value. It must be correct DATE value.");
+                }
+            }
+        } catch (ParseException e) {
+            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " value. It must be \"yyyy-MM-dd\".");
+        }
+    }
+
+    private static void checkReservedHistoryEnds(String reservedHistoryEnds) throws DdlException{
+        String[] ends = reservedHistoryEnds.split(",");
+        if (ends.length == 0) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_ENDS_EMPTY);
+            //throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+        }
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        Date date = null;
+        try {
+            for (int i = 0; i < ends.length; i++) {
+                date = sdf.parse(ends[i]);
+                if (!ends[i].equals(sdf.format(date))) {
+                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + " value. It must be correct DATE value.");
+                }
+            }
+        }  catch (ParseException e) {
+            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + " value. It must be \"yyyy-MM-dd\".");
+        }
+    }
+
+    private static void checkReservedHistoryPeriodValidate(String reservedHistoryStarts, String reservedHistoryEnds) throws DdlException {
+        String[] starts = reservedHistoryStarts.split(",");
+        String[] ends = reservedHistoryEnds.split(",");
+        if (starts.length != ends.length) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, starts.length, ends.length);
+            //throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " and " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+        }
+        for (int i = 0; i < starts.length; i++) {
+            if (starts[i].compareTo(ends[i]) > 0) {
+                //ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_LARGER_THAN_ENDS, starts[i], ends[i]);
+                throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " is larger than " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+            }
+        }
+    }
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -261,6 +318,9 @@ public class DynamicPartitionUtil {
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
+        String reservedHistoryStarts = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
+        String reservedHistoryEnds = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+
         if (!(Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
                 Strings.isNullOrEmpty(timeZone) &&
@@ -269,7 +329,9 @@ public class DynamicPartitionUtil {
                 Strings.isNullOrEmpty(end) &&
                 Strings.isNullOrEmpty(buckets) &&
                 Strings.isNullOrEmpty(createHistoryPartition) &&
-                Strings.isNullOrEmpty(historyPartitionNum))) {
+                Strings.isNullOrEmpty(historyPartitionNum) &&
+                Strings.isNullOrEmpty(reservedHistoryStarts) &&
+                Strings.isNullOrEmpty(reservedHistoryEnds))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -297,6 +359,14 @@ public class DynamicPartitionUtil {
             if (Strings.isNullOrEmpty(historyPartitionNum)) {
                 properties.put(DynamicPartitionProperty.HISTORY_PARTITION_NUM,
                         String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM));
+            }
+            if (Strings.isNullOrEmpty(reservedHistoryStarts)) {
+                properties.put(DynamicPartitionProperty.RESERVED_HISTORY_STARTS,
+                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_STARTS));
+            }
+            if (Strings.isNullOrEmpty(reservedHistoryEnds)) {
+                properties.put(DynamicPartitionProperty.RESERVED_HISTORY_ENDS,
+                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_ENDS));
             }
         }
         return true;
@@ -450,7 +520,18 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
             analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
         }
-
+        if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_STARTS)) {
+            String val = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
+            checkReservedHistoryStarts(val);
+            properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
+            analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_STARTS, val);
+        }
+        if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_ENDS)) {
+            String val = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+            checkReservedHistoryEnds(val);
+            properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+            analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_ENDS, val);
+        }
         return analyzedProperties;
     }
 
@@ -551,6 +632,21 @@ public class DynamicPartitionUtil {
         } else { // MONTH
             return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), format);
         }
+    }
+
+    public static String getHistoryPartitionRangeString(DynamicPartitionProperty dynamicPartitionProperty, String time, String format) {
+        ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
+        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        Date date = null;
+        try {
+            date = simpleDateFormat.parse(time);
+        } catch (ParseException e) {
+            e.printStackTrace();
+        }
+        Timestamp timestamp = new Timestamp(date.getTime());
+        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
+
+        return getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
     }
 
     /**

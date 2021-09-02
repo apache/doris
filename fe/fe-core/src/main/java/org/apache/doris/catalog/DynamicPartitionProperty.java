@@ -43,11 +43,16 @@ public class DynamicPartitionProperty {
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
     public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
+    public static final String RESERVED_HISTORY_STARTS = "dynamic_partition.reserved_history_starts";
+    public static final String RESERVED_HISTORY_ENDS = "dynamic_partition.reserved_history_ends";
+
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
+    public static final String NOT_SET_RESERVED_HISTORY_STARTS = "0000-01-01";
+    public static final String NOT_SET_RESERVED_HISTORY_ENDS = "0000-01-01";
 
     private boolean exist;
 
@@ -67,6 +72,8 @@ public class DynamicPartitionProperty {
     // This property are used to describe the number of partitions that need to be reserved on the high-speed storage.
     // If not set, default is 0
     private int hotPartitionNum;
+    private String reservedHistoryStarts;
+    private String reservedHistoryEnds;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -83,6 +90,8 @@ public class DynamicPartitionProperty {
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
+            this.reservedHistoryStarts = properties.getOrDefault(RESERVED_HISTORY_STARTS, NOT_SET_RESERVED_HISTORY_STARTS);
+            this.reservedHistoryEnds = properties.getOrDefault(RESERVED_HISTORY_ENDS, NOT_SET_RESERVED_HISTORY_ENDS);
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -113,6 +122,8 @@ public class DynamicPartitionProperty {
             startOfMonth = new StartOfDate(-1, 1 /* 1st of month */, -1);
         }
     }
+
+
 
     public boolean isExist() {
         return exist;
@@ -180,6 +191,22 @@ public class DynamicPartitionProperty {
         return replicaAlloc;
     }
 
+    public String getReservedHistoryStarts() {
+        return reservedHistoryStarts;
+    }
+
+    public void setReservedHistoryStarts(String reservedHistoryStarts) {
+        this.reservedHistoryStarts = reservedHistoryStarts;
+    }
+
+    public String getReservedHistoryEnds() {
+        return reservedHistoryEnds;
+    }
+
+    public void setReservedHistoryEnds(String reservedHistoryEnds) {
+        this.reservedHistoryEnds = reservedHistoryEnds;
+    }
+
     /**
      * use table replication_num as dynamic_partition.replication_num default value
      */
@@ -195,12 +222,15 @@ public class DynamicPartitionProperty {
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
                 ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
                 ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
-                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"";
+                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"" +
+                ",\n\"" + RESERVED_HISTORY_STARTS + "\" = \"" + reservedHistoryStarts + "\"" +
+                ",\n\"" + RESERVED_HISTORY_ENDS + "\" = \"" + reservedHistoryEnds + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
         }
+
         return res;
     }
 }

@@ -37,7 +37,6 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -261,14 +260,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, dynamicPartitionProperty.getStart(), partitionFormat);
         String upperBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
-                now, 0, partitionFormat);
+                now, dynamicPartitionProperty.getEnd(), partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue upperPartitionValue = new PartitionValue(upperBorder);
+        List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
             PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerPartitionValue), Collections.singletonList(partitionColumn));
             PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperPartitionValue), Collections.singletonList(partitionColumn));
             reservePartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+            reservedHistoryPartitionKeyRangeList.add(reservePartitionKeyRange);
         } catch (AnalysisException | IllegalArgumentException e) {
             // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
             // IllegalArgumentException: lb is greater than ub
@@ -276,23 +277,50 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     db.getFullName(), olapTable.getName());
             return dropPartitionClauses;
         }
+        String[] reservedHistoryStarts = dynamicPartitionProperty.getReservedHistoryStarts().split(",");
+        String[] reservedHistoryEnds = dynamicPartitionProperty.getReservedHistoryEnds().split(",");
+
+        Range<PartitionKey> reservedHistoryPartitionKeyRange;
+        for (int i = 0; i < reservedHistoryStarts.length; i++) {
+            String lowBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, reservedHistoryStarts[i], partitionFormat);
+            String upBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, reservedHistoryEnds[i], partitionFormat);
+            PartitionValue lowBorderPartitionValue = new PartitionValue(lowBorderOfReservedHistory);
+            PartitionValue upBorderPartitionValue = new PartitionValue(upBorderOfReservedHistory);
+            try {
+                PartitionKey lowerBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(lowBorderPartitionValue), Collections.singletonList(partitionColumn));
+                PartitionKey upperBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(upBorderPartitionValue), Collections.singletonList(partitionColumn));
+                reservedHistoryPartitionKeyRange = Range.closedOpen(lowerBorderBound, upperBorderBound);
+                reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
+
+            } catch (AnalysisException | IllegalArgumentException e) {
+                LOG.warn("Error in gen reserveHistoryPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
+                        db.getFullName(), olapTable.getName());
+                return dropPartitionClauses;
+            }
+        }
+
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
         idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
+        Map<Long, Boolean> isContaineds = new HashMap<>();
         for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
-            try {
-                Long checkDropPartitionId = idToItem.getKey();
-                Range<PartitionKey> checkDropPartitionKey = idToItem.getValue().getItems();
-                RangeUtils.checkRangeIntersect(reservePartitionKeyRange, checkDropPartitionKey);
-                if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) <= 0) {
-                    String dropPartitionName = olapTable.getPartition(checkDropPartitionId).getName();
-                    // Do not drop the partition "by force", or the partition will be dropped directly instread of being in
-                    // catalog recycle bin. This is for safe reason.
-                    dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
+            isContaineds.put(idToItem.getKey(), false);
+            Long checkDropPartitionId = idToItem.getKey();
+            Range<PartitionKey> checkDropPartitionKey = idToItem.getValue().getItems();
+            for (Range<PartitionKey> reserveHistoryPartitionKeyRange : reservedHistoryPartitionKeyRangeList) {
+                if (reserveHistoryPartitionKeyRange.contains(checkDropPartitionKey.lowerEndpoint()) || checkDropPartitionKey.lowerEndpoint().compareTo(reserveHistoryPartitionKeyRange.upperEndpoint()) == 0) {
+                    isContaineds.put(checkDropPartitionId, true);
                 }
-            } catch (DdlException e) {
-                break;
+            }
+        }
+        for (Long dropPartitionId : isContaineds.keySet()
+             ) {
+            // Do not drop the partition "by force", or the partition will be dropped directly instread of being in
+            // catalog recycle bin. This is for safe reason.
+            if(!isContaineds.get(dropPartitionId)) {
+                String dropPartitionName = olapTable.getPartition(dropPartitionId).getName();
+                dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
             }
         }
         return dropPartitionClauses;
