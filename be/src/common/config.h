@@ -280,7 +280,7 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_Int32(max_compaction_threads, "10");
+CONF_mInt32(max_compaction_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
