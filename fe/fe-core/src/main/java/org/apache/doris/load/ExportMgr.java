@@ -31,6 +31,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,8 +45,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-
-import com.google.gson.Gson;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
@@ -77,8 +76,8 @@ public class ExportMgr {
         lock.writeLock().unlock();
     }
 
-    public Map<Long, ExportJob> getIdToJob() {
-        return idToJob;
+    public List<ExportJob> getJobs() {
+        return Lists.newArrayList(idToJob.values());
     }
 
     public void addExportJob(ExportStmt stmt) throws Exception {
@@ -261,7 +260,6 @@ public class ExportMgr {
         } finally {
             writeUnlock();
         }
-
     }
 
     public void replayCreateExportJob(ExportJob job) {
