@@ -55,6 +55,9 @@ FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
         } else {
             _storage_type = TStorageBackendType::BROKER;
         }
+        // The new file writer needs to use fragment instance id as part of the file prefix.
+        // But during the upgrade process, the old version of fe will be called to the new version of be,
+        // resulting in no such attribute. So we need a mock here.
         _fragment_instance_id.hi = 12345678987654321;
         _fragment_instance_id.lo = 98765432123456789;
     }
