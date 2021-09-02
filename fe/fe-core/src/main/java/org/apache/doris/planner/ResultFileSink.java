@@ -43,7 +43,8 @@ public class ResultFileSink extends DataSink {
         this.fileSinkOptions = outFileClause.toSinkOptions();
         this.brokerName = outFileClause.getBrokerDesc() == null ? null :
                 outFileClause.getBrokerDesc().getName();
-        this.storageType = outFileClause.getBrokerDesc().getStorageType();
+        this.storageType = outFileClause.getBrokerDesc() == null ? StorageBackend.StorageType.LOCAL :
+                outFileClause.getBrokerDesc().getStorageType();
     }
 
     public String getBrokerName() {

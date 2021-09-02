@@ -442,13 +442,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
                 RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
-
-        sendBatchParallelism = 1;
-        if (ConnectContext.get() != null) {
-            sendBatchParallelism = ConnectContext.get().getSessionVariable().getSendBatchParallelism();
-        }
+        
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
-                sendBatchParallelism, SEND_BATCH_PARALLELISM_PRED,
+                ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
                 SEND_BATCH_PARALLELISM + " should > 0")).intValue();
 
         if (ConnectContext.get() != null) {
