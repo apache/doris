@@ -30,6 +30,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -884,7 +885,9 @@ public class OlapScanNode extends ScanNode {
         when data partition of fragment is UNPARTITION.
      */
     public DataPartition constructInputPartitionByDistributionInfo() {
-        if (Catalog.getCurrentColocateIndex().isColocateTable(olapTable.getId())
+        ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
+        if ((colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
                 || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
                 || olapTable.getPartitions().size() == 1) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
