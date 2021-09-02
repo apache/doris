@@ -1125,6 +1125,16 @@ visible_functions = [
         '_ZN5doris13JsonFunctions15json_path_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         'vec', ''],
 
+    [['json_array'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13JsonFunctions10json_arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
+    [['json_object'], 'VARCHAR', ['VARCHAR', '...'],
+            '_ZN5doris13JsonFunctions11json_objectEPN9doris_udf15FunctionContextEiPKNS1_9StringValE',
+            '', '', '', ''],
+    [['json_quote'], 'VARCHAR', ['VARCHAR'],
+            '_ZN5doris13JsonFunctions10json_quoteEPN9doris_udf15FunctionContextERKNS1_9StringValE',
+            '', '', '', ''],
+                    
     #hll function
     [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE',
@@ -1330,7 +1340,9 @@ non_null_result_with_null_param_functions = [
     'nullif',
     'null_or_empty',
     'coalesce',
-    'array'
+    'array',
+    'json_array',
+    'json_object'
 ]
 
 # Nondeterministic functions may return different results each time they are called
