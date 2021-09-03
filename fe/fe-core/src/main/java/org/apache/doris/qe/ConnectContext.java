@@ -369,12 +369,7 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        Database database = Catalog.getCurrentCatalog().getDb(db);
-        if (database == null) {
-            currentDbId = -1;
-        } else {
-            currentDbId = database.getId();
-        }
+        currentDbId = Catalog.getCurrentCatalog().getDb(db).map(Database::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {

@@ -101,8 +101,8 @@ public class AdminShowReplicaTest {
         Assert.assertEquals(4, resultSet.getResultRows().get(0).size());
 
         // update tablets' data size and row count
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable olapTable = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable olapTable = db.getOlapTableOrAnalysisException("tbl1");
         for (Partition partition : olapTable.getPartitions()) {
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
                 for (Tablet tablet : mIndex.getTablets()) {

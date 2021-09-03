@@ -195,8 +195,10 @@ public class UpdateStmtExecutor {
         boolean isPublished;
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));
-            isPublished = globalTransactionMgr.commitAndPublishTransaction(Catalog.getCurrentCatalog().getDb(dbId),
-                    Lists.newArrayList(targetTable), txnId,
+            isPublished = globalTransactionMgr.commitAndPublishTransaction(
+                    Catalog.getCurrentCatalog().getDbOrMetaException(dbId),
+                    Lists.newArrayList(targetTable),
+                    txnId,
                     TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
                     analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
         } catch (Throwable e) {
@@ -236,12 +238,7 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.targetTable = (OlapTable) updateStmt.getTargetTable();
         updateStmtExecutor.whereExpr = updateStmt.getWhereExpr();
         updateStmtExecutor.setExprs = updateStmt.getSetExprs();
-        Database database = Catalog.getCurrentCatalog().getDb(updateStmt.getTableName().getDb());
-        if (database == null) {
-            String errMsg = "Database does not exists in update stmt, db:" + updateStmt.getTableName().getDb();
-            LOG.info(errMsg);
-            throw new AnalysisException(errMsg);
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(updateStmt.getTableName().getDb());
         updateStmtExecutor.dbId = database.getId();
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();
         updateStmtExecutor.queryId = updateStmtExecutor.analyzer.getContext().queryId();

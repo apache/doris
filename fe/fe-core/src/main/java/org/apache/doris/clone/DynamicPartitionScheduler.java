@@ -302,7 +302,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Pair<Long, Long> tableInfo = iterator.next();
             Long dbId = tableInfo.first;
             Long tableId = tableInfo.second;
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 iterator.remove();
                 continue;
@@ -313,7 +313,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             String tableName;
             boolean skipAddPartition = false;
             OlapTable olapTable;
-            olapTable = (OlapTable) db.getTable(tableId);
+            olapTable = (OlapTable) db.getTableNullable(tableId);
             // Only OlapTable has DynamicPartitionProperty
             if (olapTable == null
                     || !olapTable.dynamicPartitionExists()
@@ -409,7 +409,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
     private void initDynamicPartitionTable() {
         for (Long dbId : Catalog.getCurrentCatalog().getDbIds()) {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }

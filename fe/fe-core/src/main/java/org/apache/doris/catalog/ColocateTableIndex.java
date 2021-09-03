@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -441,16 +442,9 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public void replayAddTableToGroup(ColocatePersistInfo info) {
-        Database db = Catalog.getCurrentCatalog().getDb(info.getGroupId().dbId);
-        Preconditions.checkNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable(info.getTableId());
-        if (tbl == null) {
-            LOG.warn("table {} does not exist when replaying rename rollup. db: {}",
-                    info.getTableId(), info.getGroupId().dbId);
-            return;
-        }
-
+    public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        OlapTable tbl = db.getTableOrMetaException(info.getTableId(), Table.TableType.OLAP);
         writeLock();
         try {
             if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
@@ -655,14 +649,14 @@ public class ColocateTableIndex implements Writable {
 
         for (Map.Entry<Long, Long> entry : tmpGroup2Db.entrySet()) {
             GroupId groupId = new GroupId(entry.getValue(), entry.getKey());
-            Database db = Catalog.getCurrentCatalog().getDb(groupId.dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
             Collection<Long> tableIds = tmpGroup2Tables.get(groupId.grpId);
 
             for (Long tblId : tableIds) {
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
                     continue;
                 }

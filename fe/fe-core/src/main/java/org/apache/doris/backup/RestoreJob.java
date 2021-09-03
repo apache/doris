@@ -52,6 +52,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -358,14 +359,14 @@ public class RestoreJob extends AbstractJob {
             return;
         }
 
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
             return;
         }
 
         for (IdChain idChain : fileMapping.getMapping().keySet()) {
-            OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
+            OlapTable tbl = (OlapTable) db.getTableNullable(idChain.getTblId());
             if (tbl == null) {
                 status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
                 return;
@@ -413,7 +414,7 @@ public class RestoreJob extends AbstractJob {
      * 6. make snapshot for all replicas for incremental download later.
      */
     private void checkAndPrepareMeta() {
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -431,7 +432,7 @@ public class RestoreJob extends AbstractJob {
         // Set all restored tbls' state to RESTORE
         // Table's origin state must be NORMAL and does not have unfinished load job.
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
                 continue;
             }
@@ -470,7 +471,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
-            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name));
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(backupViewInfo.name));
             if (tbl == null) {
                 continue;
             }
@@ -482,7 +483,7 @@ public class RestoreJob extends AbstractJob {
             }
         }
         for (BackupJobInfo.BackupOdbcTableInfo backupOdbcTableInfo : jobInfo.newBackupObjects.odbcTables) {
-            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(backupOdbcTableInfo.dorisTableName));
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(backupOdbcTableInfo.dorisTableName));
             if (tbl == null) {
                 continue;
             }
@@ -516,7 +517,7 @@ public class RestoreJob extends AbstractJob {
                 BackupOlapTableInfo tblInfo = olapTableEntry.getValue();
                 Table remoteTbl = backupMeta.getTable(tableName);
                 Preconditions.checkNotNull(remoteTbl);
-                Table localTbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tableName));
+                Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
                 if (localTbl != null) {
                     // table already exist, check schema
                     if (localTbl.getType() != TableType.OLAP) {
@@ -635,7 +636,7 @@ public class RestoreJob extends AbstractJob {
             // restore views
             for (BackupJobInfo.BackupViewInfo backupViewInfo : jobInfo.newBackupObjects.views) {
                 String backupViewName = backupViewInfo.name;
-                Table localTbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(backupViewName));
+                Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(backupViewName));
                 View remoteView = (View) backupMeta.getTable(backupViewName);
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.VIEW);
@@ -656,7 +657,7 @@ public class RestoreJob extends AbstractJob {
             // restore odbc external table
             for (BackupJobInfo.BackupOdbcTableInfo backupOdbcTableInfo : jobInfo.newBackupObjects.odbcTables) {
                 String backupOdbcTableName = backupOdbcTableInfo.dorisTableName;
-                Table localTbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(backupOdbcTableName));
+                Table localTbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(backupOdbcTableName));
                 OdbcTable remoteOdbcTable = (OdbcTable) backupMeta.getTable(backupOdbcTableName);
                 if (localTbl != null) {
                     Preconditions.checkState(localTbl.getType() == TableType.ODBC);
@@ -679,7 +680,7 @@ public class RestoreJob extends AbstractJob {
 
             // generate create replica tasks for all restored partitions
             for (Pair<String, Partition> entry : restoredPartitions) {
-                OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+                OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
                 Preconditions.checkNotNull(localTbl, localTbl.getName());
                 Partition restorePart = entry.second;
                 OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
@@ -745,14 +746,14 @@ public class RestoreJob extends AbstractJob {
         } else {
             ok = true;
         }
-            
+
         if (ok) {
             LOG.debug("finished to create all restored replcias. {}", this);
             // add restored partitions.
             // table should be in State RESTORE, so no other partitions can be
             // added to or removed from this table during the restore process.
             for (Pair<String, Partition> entry : restoredPartitions) {
-                OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+                OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
                 localTbl.writeLock();
                 try {
                     Partition restoredPart = entry.second;
@@ -823,7 +824,7 @@ public class RestoreJob extends AbstractJob {
         db.readLock();
         try {
             for (IdChain idChain : fileMapping.getMapping().keySet()) {
-                OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
+                OlapTable tbl = (OlapTable) db.getTableNullable(idChain.getTblId());
                 tbl.readLock();
                 try {
                     Partition part = tbl.getPartition(idChain.getPartId());
@@ -1048,11 +1049,17 @@ public class RestoreJob extends AbstractJob {
     }
 
     private void replayCheckAndPrepareMeta() {
-        Database db = catalog.getDb(dbId);
+        Database db;
+        try {
+            db = catalog.getDbOrMetaException(dbId);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replayCheckAndPrepareMeta failed", e);
+            return;
+        }
 
         // replay set all existing tables's state to RESTORE
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
                 continue;
             }
@@ -1067,7 +1074,7 @@ public class RestoreJob extends AbstractJob {
 
         // restored partitions
         for (Pair<String, Partition> entry : restoredPartitions) {
-            OlapTable localTbl = (OlapTable) db.getTable(entry.first);
+            OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
             Partition restorePart = entry.second;
             OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
             PartitionInfo localPartitionInfo = localTbl.getPartitionInfo();
@@ -1093,7 +1100,7 @@ public class RestoreJob extends AbstractJob {
                 }
             }
         }
-        
+
 
         // restored tables
         for (Table restoreTbl : restoredTbls) {
@@ -1167,7 +1174,7 @@ public class RestoreJob extends AbstractJob {
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 status = new Status(ErrCode.NOT_FOUND, "db " + dbId + " does not exist");
                 return;
@@ -1206,7 +1213,7 @@ public class RestoreJob extends AbstractJob {
                         int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
                         for (int j = 0; j < currentBatchTaskNum; j++) {
                             SnapshotInfo info = beSnapshotInfos.get(index++);
-                            Table tbl = db.getTable(info.getTblId());
+                            Table tbl = db.getTableNullable(info.getTblId());
                             if (tbl == null) {
                                 status = new Status(ErrCode.NOT_FOUND, "restored table "
                                         + info.getTabletId() + " does not exist");
@@ -1362,7 +1369,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     private Status allTabletCommitted(boolean isReplay) {
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db == null) {
             return new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
         }
@@ -1371,7 +1378,7 @@ public class RestoreJob extends AbstractJob {
         // set all tables' state to NORMAL
         setTableStateToNormal(db);
         for (long tblId : restoredVersionInfo.rowKeySet()) {
-            Table tbl = db.getTable(tblId);
+            Table tbl = db.getTableNullable(tblId);
             if (tbl == null) {
                 continue;
             }
@@ -1425,7 +1432,7 @@ public class RestoreJob extends AbstractJob {
 
             catalog.getEditLog().logRestoreJob(this);
         }
-        
+
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
     }
@@ -1530,7 +1537,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         // clean restored objs
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db != null) {
             // rollback table's state to NORMAL
             setTableStateToNormal(db);
@@ -1558,7 +1565,7 @@ public class RestoreJob extends AbstractJob {
 
             // remove restored partitions
             for (Pair<String, Partition> entry : restoredPartitions) {
-                OlapTable restoreTbl = (OlapTable) db.getTable(entry.first);
+                OlapTable restoreTbl = (OlapTable) db.getTableNullable(entry.first);
                 if (restoreTbl == null) {
                     continue;
                 }
@@ -1603,7 +1610,7 @@ public class RestoreJob extends AbstractJob {
 
     private void setTableStateToNormal(Database db) {
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
-            Table tbl = db.getTable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
                 continue;
             }

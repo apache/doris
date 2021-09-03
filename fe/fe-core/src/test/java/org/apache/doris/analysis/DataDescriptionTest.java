@@ -80,11 +80,11 @@ public class DataDescriptionTest {
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
 
-                db.getTable(anyString);
+                db.getTableNullable(anyString);
                 minTimes = 0;
                 result = tbl;
 

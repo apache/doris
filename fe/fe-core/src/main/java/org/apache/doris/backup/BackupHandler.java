@@ -245,10 +245,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -320,10 +317,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Also calculate the signature for incremental backup check.
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
-            Table tbl = db.getTable(tblName);
-            if (tbl == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-            }
+            Table tbl = db.getTableOrDdlException(tblName);
             if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
                 continue;
             }
@@ -544,10 +538,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
         
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
