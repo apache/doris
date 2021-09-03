@@ -155,10 +155,6 @@ RuntimeState::~RuntimeState() {
     if (_buffer_reservation != nullptr) {
         _buffer_reservation->Close();
     }
-
-    if (_exec_env != nullptr && _exec_env->thread_mgr() != nullptr) {
-        _exec_env->thread_mgr()->unregister_pool(_resource_pool);
-    }
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -194,11 +190,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _query_options.batch_size = DEFAULT_BATCH_SIZE;
     }
 
-    // Register with the thread mgr
-    if (exec_env != NULL) {
-        _resource_pool = exec_env->thread_mgr()->register_pool();
-        DCHECK(_resource_pool != NULL);
-    }
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
 
