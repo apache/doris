@@ -52,8 +52,6 @@ import java.io.File;
 import java.util.List;
 import java.util.UUID;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -63,7 +61,6 @@ public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
-    private static final Logger LOG = LogManager.getLogger(QueryPlanTest.class);
 
     private static ConnectContext connectContext;
 
@@ -407,16 +404,6 @@ public class QueryPlanTest {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
-        createTable("CREATE TABLE test.table_or(" +
-                "siteid INT DEFAULT '10'," +
-                "citycode SMALLINT," +
-                "username VARCHAR(32) DEFAULT ''," +
-                "pv BIGINT SUM DEFAULT '0' )" +
-                "AGGREGATE KEY(siteid, citycode, username)" +
-                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10 " +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
     }
 
     @AfterClass
@@ -1725,13 +1712,10 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         String sql = "select * from tbl_null_column_view where add_column is not null;";
         String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
-        LOG.info(explainString1);
         Assert.assertTrue(explainString1.contains("EMPTYSET"));
 
         String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
         String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
-
-        LOG.info(explainString2);
         Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
 
@@ -1739,55 +1723,55 @@ public class QueryPlanTest {
     public void testCompoundPredicateWriteRule() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
-        // false OR e ==> e
-        String sql1 = "select * from table_or where 2=-2 OR citycode=0;";
+        // false or e ==> e
+        String sql1 = "select * from test.test1 where 2=-2 OR query_time=0;";
         String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql1);
-        Assert.assertTrue(explainString1.contains("PREDICATES: `citycode` = 0"));
+        Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
 
-        //true OR e ==> true
-        String sql2 = "select * from table_or where -5=-5 OR citycode=0;";
+        //true or e ==> true
+        String sql2 = "select * from test.test1 where -5=-5 OR query_time=0;";
         String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
         Assert.assertTrue(!explainString2.contains("OR"));
 
-        //e OR true ==> true
-        String sql3 = "select * from table_or where citycode=0 OR -5=-5;";
+        //e or true ==> true
+        String sql3 = "select * from test.test1 where query_time=0 OR -5=-5;";
         String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql3);
         Assert.assertTrue(!explainString3.contains("OR"));
 
-        //e OR false ==> e
-        String sql4 = "select * from table_or where -5!=-5 OR citycode=0;";
+        //e or false ==> e
+        String sql4 = "select * from test.test1 where -5!=-5 OR query_time=0;";
         String explainString4 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql4);
-        Assert.assertTrue(explainString4.contains("PREDICATES: `citycode` = 0"));
+        Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
 
 
-        // true AND e ==> e
-        String sql5 = "select * from table_or where -5=-5 AND citycode=0;";
+        // true and e ==> e
+        String sql5 = "select * from test.test1 where -5=-5 AND query_time=0;";
         String explainString5 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql5);
-        Assert.assertTrue(explainString5.contains("PREDICATES: `citycode` = 0"));
+        Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
 
-        // e AND true ==> e
-        String sql6 = "select * from table_or where citycode=0 AND -5=-5;";
+        // e and true ==> e
+        String sql6 = "select * from test.test1 where query_time=0 AND -5=-5;";
         String explainString6 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql6);
-        Assert.assertTrue(explainString6.contains("PREDICATES: `citycode` = 0"));
+        Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
 
-        // false AND e ==> false
-        String sql7 = "select * from table_or where -5!=-5 AND citycode=0;";
+        // false and e ==> false
+        String sql7 = "select * from test.test1 where -5!=-5 AND query_time=0;";
         String explainString7 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql7);
         Assert.assertTrue(!explainString7.contains("FALSE"));
 
-        // e AND false ==> false
-        String sql8 = "select * from table_or where citycode=0 AND -5!=-5;";
+        // e and false ==> false
+        String sql8 = "select * from test.test1 where query_time=0 AND -5!=-5;";
         String explainString8 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql8);
         Assert.assertTrue(!explainString8.contains("FALSE"));
 
         // (false or expr1) and (false or expr2) ==> expr1 and expr2
-        String sql9 = "select * from table_or where (-2=2 or citycode=2) and (-2=2 or siteid=2);";
+        String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
         String explainString9 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql9);
-        Assert.assertTrue(explainString9.contains("PREDICATES: `citycode` = 2, `siteid` = 2"));
+        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2, `stmt_id` = 2"));
 
         // false or (expr and true) ==> expr
-        String sql10 = "select * from table_or where (2=-2) OR (citycode=0 AND 1=1);";
+        String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
         String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
-        Assert.assertTrue(explainString10.contains("PREDICATES: `citycode` = 0"));
+        Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
     }
 }

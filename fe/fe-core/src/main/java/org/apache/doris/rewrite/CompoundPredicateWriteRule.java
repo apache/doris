@@ -26,20 +26,21 @@ import org.apache.doris.common.AnalysisException;
 import java.util.List;
 
 /**
- * add Rewrite CompoundPredicates 'OR' 'AND' 'NOT' Rule
- * It can be applied to pre-analysis expr trees and therefore does not reanalyze
- * the transformation output itself.
- * Examples:
- * OR:
- * (-2==2 OR city_id=2) ==> city_id=2
- * (city_id=2 OR -2==2) ==> city_id=2
- * -5!=-5 OR citycode=0 ==> citycode=0
- * AND:
- * (citycode=0 AND 1=1) ==> citycode=0
- * -5=-5 AND citycode=0 AND 2=2 ==> citycode=0
+ *  Add rewrite CompoundPredicates 'OR' 'AND' rule
+ *  'OR' 'AND' rewrite rule
+ *  case true and expr ==> expr
+ *  case expr and true ==> expr
+ *  case false or expr ==> expr
+ *  case expr or false ==> expr
+ *
+ *  case false or expr ==> false
+ *  case expr or false ==> false
+ *  case true or expr ==> true
+ *  case expr or true ==> true
  */
 
 public class CompoundPredicateWriteRule implements ExprRewriteRule {
+
     public static ExprRewriteRule INSTANCE = new CompoundPredicateWriteRule();
 
     @Override
@@ -52,25 +53,11 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
         if (children.size() != 2) {
             return expr;
         }
-
-        /*
-         *  'OR' 'AND' rewrite rule
-         *  case true AND expr ==> expr
-         *  case expr AND true ==> expr
-         *  case false Or expr ==> expr
-         *  case expr Or false ==> expr
-         *
-         *  case false AND expr ==> false
-         *  case expr AND false ==> false
-         *  case true Or expr ==> true
-         *  case expr Or true ==> true
-         *
-         */
         Expr leftChild = cp.getChild(0);
         Expr rightChild = cp.getChild(1);
 
-        boolean opAnd = (cp.getOp() == CompoundPredicate.Operator.AND);
-        boolean opOr = (cp.getOp() == CompoundPredicate.Operator.OR);
+        boolean and = (cp.getOp() == CompoundPredicate.Operator.AND);
+        boolean or = (cp.getOp() == CompoundPredicate.Operator.OR);
 
         boolean leftChildTrue = (leftChild instanceof BoolLiteral) && (((BoolLiteral) leftChild).getValue());
         boolean leftChildFalse = (leftChild instanceof BoolLiteral) && (!((BoolLiteral) leftChild).getValue());
@@ -78,23 +65,23 @@ public class CompoundPredicateWriteRule implements ExprRewriteRule {
         boolean rightChildTrue = (rightChild instanceof BoolLiteral) && (((BoolLiteral) rightChild).getValue());
         boolean rightChildFalse = (rightChild instanceof BoolLiteral) && (!((BoolLiteral) rightChild).getValue());
 
-        // case true AND expr ==> expr
-        if (leftChildTrue && opAnd) return rightChild;
-        // case expr AND true ==> expr
-        if (opAnd && rightChildTrue) return leftChild;
-        // case false Or expr ==> expr
-        if (leftChildFalse && opOr) return rightChild;
-        // case expr Or false ==> expr
-        if (opOr && rightChildFalse) return leftChild;
+        // case true and expr ==> expr
+        if (leftChildTrue && and) return rightChild;
+        // case expr and true ==> expr
+        if (and && rightChildTrue) return leftChild;
+        // case false or expr ==> expr
+        if (leftChildFalse && or) return rightChild;
+        // case expr or false ==> expr
+        if (or && rightChildFalse) return leftChild;
 
-        // case false AND expr ==> false
-        if (leftChildFalse && opAnd) return new BoolLiteral(false);
-        // case expr AND false ==> false
-        if (opAnd && rightChildFalse) return new BoolLiteral(false);
-        // case true Or expr ==> true
-        if (leftChildTrue && opOr) return new BoolLiteral(true);
-        // case expr Or true ==> true
-        if (opOr && rightChildTrue) return new BoolLiteral(true);
+        // case false and expr ==> false
+        if (leftChildFalse && and) return new BoolLiteral(false);
+        // case expr and false ==> false
+        if (and && rightChildFalse) return new BoolLiteral(false);
+        // case true or expr ==> true
+        if (leftChildTrue && or) return new BoolLiteral(true);
+        // case expr or true ==> true
+        if (or && rightChildTrue) return new BoolLiteral(true);
 
         // other case ,return origin expr
         return expr;
