@@ -189,16 +189,8 @@ public class ExportStmt extends StatementBase {
     }
 
     private void checkTable(Catalog catalog) throws AnalysisException {
-        Database db = catalog.getDb(tblName.getDb());
-        if (db == null) {
-            throw new AnalysisException("Db does not exist. name: " + tblName.getDb());
-        }
-
-        Table table = db.getTable(tblName.getTbl());
-        if (table == null) {
-            throw new AnalysisException("Table[" + tblName.getTbl() + "] does not exist");
-        }
-
+        Database db = catalog.getDbOrAnalysisException(tblName.getDb());
+        Table table = db.getTableOrAnalysisException(tblName.getTbl());
         table.readLock();
         try {
             if (partitions == null) {

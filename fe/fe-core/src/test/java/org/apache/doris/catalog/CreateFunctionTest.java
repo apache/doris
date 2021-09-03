@@ -71,7 +71,7 @@ public class CreateFunctionTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
         String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n" +

@@ -1059,14 +1059,8 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentCatalog().getDb(dbName);
-        if (dbObj == null) {
-            throw new TException("database is invalid for dbName: " + dbName);
-        }
-        Table tblObj = dbObj.getTable(tblName);
-        if (tblObj == null) {
-            throw new TException("table is invalid: " + tblName);
-        }
+        Database dbObj = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
+        Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);
         txnEntry.setDb(dbObj);

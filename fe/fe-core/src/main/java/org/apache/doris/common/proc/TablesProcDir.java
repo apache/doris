@@ -65,17 +65,14 @@ public class TablesProcDir implements ProcDirInterface {
             throw new AnalysisException("TableIdStr is null");
         }
 
-        long tableId = -1L;
+        long tableId;
         try {
-            tableId = Long.valueOf(tableIdStr);
+            tableId = Long.parseLong(tableIdStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        Table table = db.getTable(tableId);
-        if (table == null) {
-            throw new AnalysisException("Table[" + tableId + "] does not exist");
-        }
+        Table table = db.getTableOrAnalysisException(tableId);
 
         return new TableProcDir(db, table);
     }

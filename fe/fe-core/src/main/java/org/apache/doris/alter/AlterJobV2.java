@@ -187,9 +187,9 @@ public abstract class AlterJobV2 implements Writable {
     * return false if table is not stable.
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -206,7 +206,7 @@ public abstract class AlterJobV2 implements Writable {
                 return false;
             } else {
                 // table is stable, set is to ROLLUP and begin altering.
-                LOG.info("table {} is stable, start {} job {}", tableId, type);
+                LOG.info("table {} is stable, start {} job {}", tableId, type, jobId);
                 tbl.setState(type == JobType.ROLLUP ? OlapTableState.ROLLUP : OlapTableState.SCHEMA_CHANGE);
                 errMsg = "";
                 return true;

@@ -62,6 +62,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
@@ -83,7 +84,7 @@ public class RebalanceTest {
     private Map<String, ClusterLoadStatistic> statisticMap;
 
     @Before
-    public void setUp() throws AnalysisException {
+    public void setUp() throws Exception {
         db = new Database(1, "test db");
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
@@ -92,7 +93,11 @@ public class RebalanceTest {
                 minTimes = 0;
                 result = db.getId();
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
+                minTimes = 0;
+                result = db;
+
+                catalog.getDbOrException(anyLong, (Function<Long, SchedException>) any);
                 minTimes = 0;
                 result = db;
 

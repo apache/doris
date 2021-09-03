@@ -115,7 +115,7 @@ public class CheckConsistencyJob {
             return false;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.debug("db[{}] does not exist", tabletMeta.getDbId());
             return false;
@@ -130,7 +130,7 @@ public class CheckConsistencyJob {
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
-        Table table = db.getTable(tabletMeta.getTableId());
+        Table table = db.getTableNullable(tabletMeta.getTableId());
         if (table == null) {
             LOG.debug("table[{}] does not exist", tabletMeta.getTableId());
             return false;
@@ -253,14 +253,14 @@ public class CheckConsistencyJob {
             return -1;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(tabletMeta.getDbId());
+        Database db = Catalog.getCurrentCatalog().getDbNullable(tabletMeta.getDbId());
         if (db == null) {
             LOG.warn("db[{}] does not exist", tabletMeta.getDbId());
             return -1;
         }
 
         boolean isConsistent = true;
-        Table table = db.getTable(tabletMeta.getTableId());
+        Table table = db.getTableNullable(tabletMeta.getTableId());
         if (table == null) {
             LOG.warn("table[{}] does not exist", tabletMeta.getTableId());
             return -1;

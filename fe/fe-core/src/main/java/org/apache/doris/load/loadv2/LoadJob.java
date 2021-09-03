@@ -241,12 +241,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public Database getDb() throws MetaNotFoundException {
-        // get db
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("Database " + dbId + " already has been deleted");
-        }
-        return db;
+        return Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
     }
 
     public long getDbId() {
@@ -565,10 +560,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws DdlException
      */
     private void checkAuthWithoutAuthInfo(String command) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbId);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
 
         // check auth
         try {

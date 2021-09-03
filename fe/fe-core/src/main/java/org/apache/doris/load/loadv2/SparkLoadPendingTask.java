@@ -131,16 +131,13 @@ public class SparkLoadPendingTask extends LoadTask {
     }
 
     private void createEtlJobConf() throws LoadException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new LoadException("db does not exist. id: " + dbId);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
 
         Map<Long, EtlTable> tables = Maps.newHashMap();
         Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
         Set<Long> allPartitionsTableIds = Sets.newHashSet();
         prepareTablePartitionInfos(db, tableIdToPartitionIds, allPartitionsTableIds);
-        List<Table> tableList = null;
+        List<Table> tableList;
         try {
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(allPartitionsTableIds));
         } catch (MetaNotFoundException e) {
@@ -153,10 +150,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 FileGroupAggKey aggKey = entry.getKey();
                 long tableId = aggKey.getTableId();
 
-                OlapTable table = (OlapTable) db.getTable(tableId);
-                if (table == null) {
-                    throw new LoadException("table does not exist. id: " + tableId);
-                }
+                OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
 
                 EtlTable etlTable = null;
                 if (tables.containsKey(tableId)) {
@@ -204,13 +198,10 @@ public class SparkLoadPendingTask extends LoadTask {
                 continue;
             }
 
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
-                Set<Long> partitionIds = null;
+                Set<Long> partitionIds;
                 if (tableIdToPartitionIds.containsKey(tableId)) {
                     partitionIds = tableIdToPartitionIds.get(tableId);
                 } else {
@@ -486,10 +477,7 @@ public class SparkLoadPendingTask extends LoadTask {
         Map<String, String> hiveTableProperties = Maps.newHashMap();
         if (fileGroup.isLoadFromTable()) {
             long srcTableId = fileGroup.getSrcTableId();
-            HiveTable srcHiveTable = (HiveTable) db.getTable(srcTableId);
-            if (srcHiveTable == null) {
-                throw new LoadException("table does not exist. id: " + srcTableId);
-            }
+            HiveTable srcHiveTable = (HiveTable) db.getTableOrException(srcTableId, s -> new LoadException("table does not exist. id: " + s));
             hiveDbTableName = srcHiveTable.getHiveDbTable();
             hiveTableProperties.putAll(srcHiveTable.getHiveProperties());
         }

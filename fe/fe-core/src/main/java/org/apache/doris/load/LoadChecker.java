@@ -226,7 +226,7 @@ public class LoadChecker extends MasterDaemon {
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -356,14 +356,14 @@ public class LoadChecker extends MasterDaemon {
 
     private Set<Long> submitPushTasks(LoadJob job, Database db) {
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
-        boolean needDecompress = (job.getEtlJobType() == EtlJobType.HADOOP) ? true : false;
+        boolean needDecompress = job.getEtlJobType() == EtlJobType.HADOOP;
         AgentBatchTask batchTask = new AgentBatchTask();
         Set<Long> jobTotalTablets = new HashSet<Long>();
 
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 // if table is dropped during load, the the job is failed
@@ -539,7 +539,7 @@ public class LoadChecker extends MasterDaemon {
         // if db is null, cancel load job
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

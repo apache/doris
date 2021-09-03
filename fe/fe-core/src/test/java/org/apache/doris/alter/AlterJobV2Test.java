@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -97,7 +98,7 @@ public class AlterJobV2Test {
         System.out.println(showResultSet.getResultRows());
     }
 
-    private void waitAlterJobDone(Map<Long, AlterJobV2> alterJobs) throws InterruptedException {
+    private void waitAlterJobDone(Map<Long, AlterJobV2> alterJobs) throws Exception {
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
@@ -106,8 +107,8 @@ public class AlterJobV2Test {
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
 
-            Database db = Catalog.getCurrentCatalog().getDb(alterJobV2.getDbId());
-            OlapTable tbl = (OlapTable) db.getTable(alterJobV2.getTableId());
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(alterJobV2.getDbId());
+            OlapTable tbl = db.getTableOrMetaException(alterJobV2.getTableId(), Table.TableType.OLAP);
             while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
                 Thread.sleep(1000);
             }
@@ -136,10 +137,8 @@ public class AlterJobV2Test {
     @Deprecated
     public void testAlterSegmentV2() throws Exception {
         // TODO this test should remove after we disable segment v1 completely
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("segmentv2");
-        Assert.assertNotNull(tbl);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = db.getTableOrMetaException("segmentv2", Table.TableType.OLAP);
         Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
 
         // 1. create a rollup r1

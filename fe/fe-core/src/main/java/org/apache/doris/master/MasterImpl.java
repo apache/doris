@@ -305,7 +305,7 @@ public class MasterImpl {
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
@@ -337,7 +337,7 @@ public class MasterImpl {
         }
         LOG.debug("push report state: {}", pushState.name());
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
@@ -516,7 +516,7 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion, finishVersionHash, 
                                           pushTask.getPushType(), pushTask.getTaskType());
@@ -551,13 +551,12 @@ public class MasterImpl {
 
         LOG.debug("push report state: {}", pushState.name());
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
         if (olapTable == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error, cannot find table[" + tableId + "] when push finished");
             return;
         }
-
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(partitionId);

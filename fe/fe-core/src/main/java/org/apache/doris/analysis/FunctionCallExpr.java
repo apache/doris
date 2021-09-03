@@ -696,7 +696,7 @@ public class FunctionCallExpr extends Expr {
                             ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                     }
-                    Database db = Catalog.getCurrentCatalog().getDb(dbName);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
                     if (db != null) {
                         Function searchDesc = new Function(
                                 fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);

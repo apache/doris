@@ -135,8 +135,8 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
@@ -154,8 +154,8 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -230,8 +230,8 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -317,7 +317,7 @@ public class SchemaChangeJobV2Test {
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
         alterClauses.add(new ModifyTablePropertiesClause(properties));
         Database db = CatalogMocker.mockDb();
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
@@ -370,7 +370,7 @@ public class SchemaChangeJobV2Test {
         alterClauses.add(new ModifyTablePropertiesClause(properties));
 
         Database db = CatalogMocker.mockDb();
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +

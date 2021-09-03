@@ -71,7 +71,7 @@ public class SyncJobManagerTest {
                 catalog.getEditLog();
                 minTimes = 0;
                 result = editLog;
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();

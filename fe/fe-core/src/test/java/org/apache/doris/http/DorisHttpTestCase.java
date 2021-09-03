@@ -204,11 +204,11 @@ abstract public class DorisHttpTestCase {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(db.getId());
+                    catalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("default_cluster:" + DB_NAME);
+                    catalog.getDbNullable("default_cluster:" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
@@ -216,11 +216,11 @@ abstract public class DorisHttpTestCase {
                     minTimes = 0;
                     result = true;
 
-                    catalog.getDb("default_cluster:emptyDb");
+                    catalog.getDbNullable("default_cluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
