@@ -287,6 +287,8 @@ distribution_info
         * `dynamic_partition.buckets`: 用于指定自动创建的分区分桶数量。
         * `dynamic_partition.create_history_partition`: 是否创建历史分区。
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
+        * `dynamic_partition.reserved_history_starts`: 用于指定保留的历史分区的起始时间。
+        * `dynamic_partition.reserved_history_ends`: 用于指定保留的历史分区的结束时间。
 
 ### Example
 

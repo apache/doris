@@ -151,6 +151,27 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     p20210523: ["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
     ```
 
+* `dynamic_partition.reserved_history_starts`
+
+    Start times of reserved history period. It should be in the form of `yyyy-MM-dd,yyyy-MM-dd,...`. The default value is `"9999-12-31"`, which means it is not set.
+
+* `dynamic_partition.reserved_history_ends`
+
+    End times of reserved history period. It should be in the form of `yyyy-MM-dd,yyyy-MM-dd,...`. The default value is `"9999-12-31"`, which means it is not set.
+
+    Let us give an example. Suppose today is 2021-09-06，partitioned by day, and the properties of dynamic partition are set to: 
+
+    ```end=3, start=-3, reserved_history_starts="2020-06-01,2020-10-31", reserved_history_ends="2020-06-20,2020-11-15"```。
+
+    The the system will automatically reserve following partitions in following period :
+
+    ```
+    ["2020-06-01","2020-06-20"),
+    ["2020-10-31","2020-11-15")
+    ```
+
+    Otherwise, `reserved_history_starts` and `reserved_history_ends` are a couple of properties. They shoule be set at the same time, and the length should also be the same. And `reserved_history_starts` can't larger than `reserved_history_ends` in the corresponding position.
+
 #### Create History Partition Rules
 
 When `create_history_partition` is `true`, i.e. history partition creation is enabled, Doris determines the number of history partitions to be created based on `dynamic_partition.start` and `dynamic_partition.history_partition_num`. 

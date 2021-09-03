@@ -311,6 +311,8 @@ Syntax:
        dynamic_partition.buckets: specifies the number of partition buckets that are automatically created
        dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
        dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
+       dynamic_partition.reserved_history_starts: Used to specify the starting dates of reserved history periods
+       dynamic_partition.reserved_history_ends: Used to specify the ending dates of reserved history periods
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:

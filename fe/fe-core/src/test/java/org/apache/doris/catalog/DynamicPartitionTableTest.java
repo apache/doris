@@ -1186,4 +1186,336 @@ public class DynamicPartitionTableTest {
         scheduler.removeRuntimeInfo(tableId);
         Assert.assertTrue(scheduler.getRuntimeInfo(tableId, key1) == FeConstants.null_string);
     }
+
+    @Test
+    public void testMissReservedHistoryStartsAndEnds() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_miss_reserved_history_starts_and_ends` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("dynamic_partition_miss_reserved_history_starts_and_ends");
+        Assert.assertEquals("9999-12-31", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryStarts());
+        Assert.assertEquals("9999-12-31", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryEnds());
+    }
+
+    @Test
+    public void testNormalReservedHisrotyStartsAndEnds() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal_reserved_history_starts_and_ends` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\"),\n" +
+                "PARTITION p4 VALUES LESS THAN (\"2020-06-01\"),\n" +
+                "PARTITION p5 VALUES LESS THAN (\"2020-06-20\"),\n" +
+                "PARTITION p6 VALUES LESS THAN (\"2020-10-25\"),\n" +
+                "PARTITION p7 VALUES LESS THAN (\"2020-11-01\"),\n" +
+                "PARTITION p8 VALUES LESS THAN (\"2020-11-11\"),\n" +
+                "PARTITION p9 VALUES LESS THAN (\"2020-11-21\"),\n" +
+                "PARTITION p10 VALUES LESS THAN (\"2021-04-20\"),\n" +
+                "PARTITION p11 VALUES LESS THAN (\"2021-05-20\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2020-06-01,2020-10-25,2021-06-01\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2020-06-20,2020-11-15,2021-06-20\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("dynamic_partition_normal_reserved_history_starts_and_ends");
+        Assert.assertEquals("2020-06-01,2020-10-25,2021-06-01", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryStarts());
+        Assert.assertEquals("2020-06-20,2020-11-15,2021-06-20", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryEnds());
+        Assert.assertEquals(table.getAllPartitions().size(), 8);
+    }
+
+    @Test
+    public void testInvalidReservedHistoryStarts() throws Exception {
+        String createOlapTblStmt1 = "CREATE TABLE test.`dynamic_partition_invalid_reserved_history_starts1` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                 "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"20210101\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2021-10-10\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Invalid dynamic_partition.reserved_history_starts value. It must be like \"yyyy-MM-dd\"",
+                () -> createTable(createOlapTblStmt1));
+
+        String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_invalid_reserved_history_starts2` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"0000-00-00\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2021-10-10\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Invalid dynamic_partition.reserved_history_starts value. It must be correct DATE value (yyyy-MM-dd)",
+                () -> createTable(createOlapTblStmt2));
+    }
+
+    @Test
+    public void testInvalidReservedHistoryEnds() throws Exception {
+        String createOlapTblStmt1 = "CREATE TABLE test.`dynamic_partition_invalid_reserved_history_ends` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2021-10-12\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"20211010\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Invalid dynamic_partition.reserved_history_ends value. It must be like \"yyyy-MM-dd\"",
+                () -> createTable(createOlapTblStmt1));
+
+        String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_invalid_reserved_history_ends2` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2021-01-01\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"0000-00-00\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Invalid dynamic_partition.reserved_history_ends value. It must be correct DATE value (yyyy-MM-dd)",
+                () -> createTable(createOlapTblStmt2));
+    }
+
+    @Test
+    public void testReservedHistoryPeriodValidate() throws Exception {
+        String createOlapTblStmt1 = "CREATE TABLE test.`dynamic_partition_reserved_history_period_validate1` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2021-01-01\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = RESERVED_HISTORY_STARTS and RESERVED_HISTORY_ENDS should have the same length. RESERVED_HISTORY_STARTS length: 1, RESERVED_HISTORY_STARTS length: 0.",
+                () -> createTable(createOlapTblStmt1));
+
+        String createOlapTblStmt2 = "CREATE TABLE test.`dynamic_partition_reserved_history_period_validate2` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2021-01-01\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = RESERVED_HISTORY_STARTS and RESERVED_HISTORY_ENDS should have the same length. RESERVED_HISTORY_STARTS length: 0, RESERVED_HISTORY_STARTS length: 1.",
+                () -> createTable(createOlapTblStmt2));
+
+    String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_reserved_history_starts_is_larger_than_ends` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2020-01-01,2021-10-01\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2020-03-01,2021-09-01\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = Invalid properties: dynamic_partition.reserved_history_starts: \"2021-10-01\" is larger than dynamic_partition.reserved_history_ends: \"2021-09-01\"",
+                () -> createTable(createOlapTblStmt3));
+
+        String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition_reserved_history_starts_and_ends_length` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_starts\" = \"2020-01-01,2021-08-01,2021-11-01\",\n" +
+                "\"dynamic_partition.reserved_history_ends\" = \"2020-03-01,2021-09-01\"\n" +
+                ");";
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = RESERVED_HISTORY_STARTS and RESERVED_HISTORY_ENDS should have the same length. RESERVED_HISTORY_STARTS length: 3, RESERVED_HISTORY_STARTS length: 2.",
+                () -> createTable(createOlapTblStmt4));
+    }
 }

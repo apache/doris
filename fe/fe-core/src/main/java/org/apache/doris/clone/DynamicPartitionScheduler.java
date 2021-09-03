@@ -260,7 +260,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, dynamicPartitionProperty.getStart(), partitionFormat);
         String upperBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
-                now, dynamicPartitionProperty.getEnd(), partitionFormat);
+                now, dynamicPartitionProperty.getEnd() + 1, partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue upperPartitionValue = new PartitionValue(upperBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
@@ -298,7 +298,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 return dropPartitionClauses;
             }
         }
-
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
@@ -309,13 +308,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Long checkDropPartitionId = idToItem.getKey();
             Range<PartitionKey> checkDropPartitionKey = idToItem.getValue().getItems();
             for (Range<PartitionKey> reserveHistoryPartitionKeyRange : reservedHistoryPartitionKeyRangeList) {
-                if (reserveHistoryPartitionKeyRange.contains(checkDropPartitionKey.lowerEndpoint()) || checkDropPartitionKey.lowerEndpoint().compareTo(reserveHistoryPartitionKeyRange.upperEndpoint()) == 0) {
+                if (reserveHistoryPartitionKeyRange.contains(checkDropPartitionKey.lowerEndpoint())
+                        || (reserveHistoryPartitionKeyRange.lowerEndpoint().compareTo(checkDropPartitionKey.lowerEndpoint()) >=0 && reserveHistoryPartitionKeyRange.upperEndpoint().compareTo(checkDropPartitionKey.upperEndpoint()) <=0)) {
                     isContaineds.put(checkDropPartitionId, true);
                 }
             }
         }
-        for (Long dropPartitionId : isContaineds.keySet()
-             ) {
+
+        for (Long dropPartitionId : isContaineds.keySet()) {
             // Do not drop the partition "by force", or the partition will be dropped directly instread of being in
             // catalog recycle bin. This is for safe reason.
             if(!isContaineds.get(dropPartitionId)) {

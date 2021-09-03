@@ -46,13 +46,12 @@ public class DynamicPartitionProperty {
     public static final String RESERVED_HISTORY_STARTS = "dynamic_partition.reserved_history_starts";
     public static final String RESERVED_HISTORY_ENDS = "dynamic_partition.reserved_history_ends";
 
-
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
-    public static final String NOT_SET_RESERVED_HISTORY_STARTS = "0000-01-01";
-    public static final String NOT_SET_RESERVED_HISTORY_ENDS = "0000-01-01";
+    public static final String NOT_SET_RESERVED_HISTORY_STARTS = "9999-12-31";
+    public static final String NOT_SET_RESERVED_HISTORY_ENDS = "9999-12-31";
 
     private boolean exist;
 
@@ -90,8 +89,8 @@ public class DynamicPartitionProperty {
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
-            this.reservedHistoryStarts = properties.getOrDefault(RESERVED_HISTORY_STARTS, NOT_SET_RESERVED_HISTORY_STARTS);
-            this.reservedHistoryEnds = properties.getOrDefault(RESERVED_HISTORY_ENDS, NOT_SET_RESERVED_HISTORY_ENDS);
+            this.reservedHistoryStarts = properties.getOrDefault(RESERVED_HISTORY_STARTS, NOT_SET_RESERVED_HISTORY_STARTS).replace(" ", "");
+            this.reservedHistoryEnds = properties.getOrDefault(RESERVED_HISTORY_ENDS, NOT_SET_RESERVED_HISTORY_ENDS).replace(" ", "");
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -122,8 +121,6 @@ public class DynamicPartitionProperty {
             startOfMonth = new StartOfDate(-1, 1 /* 1st of month */, -1);
         }
     }
-
-
 
     public boolean isExist() {
         return exist;
@@ -230,7 +227,6 @@ public class DynamicPartitionProperty {
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
         }
-
         return res;
     }
 }

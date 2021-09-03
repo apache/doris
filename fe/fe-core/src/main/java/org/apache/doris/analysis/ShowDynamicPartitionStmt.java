@@ -46,8 +46,8 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
                     .addColumn(new Column("State", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastCreatePartitionMsg", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastDropPartitionMsg", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ReservedHistoryStarts(part)", ScalarType.createVarchar(21)))
-                    .addColumn(new Column("ReservedHistoryEnds(part)", ScalarType.createVarchar(21)))
+                    .addColumn(new Column("ReservedHistoryStarts", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ReservedHistoryEnds", ScalarType.createVarchar(20)))
                     .build();
 
     ShowDynamicPartitionStmt(String db) {
