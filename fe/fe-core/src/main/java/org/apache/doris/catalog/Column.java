@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
@@ -298,7 +299,14 @@ public class Column implements Writable {
     }
 
     public String getComment() {
-        return comment;
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
+        if (!escapeQuota) {
+            return comment;
+        }
+        return SqlUtils.escapeQuota(comment);
     }
 
     public int getOlapColumnIndexSize() {
@@ -488,7 +496,7 @@ public class Column implements Writable {
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             sb.append("DEFAULT \"").append(defaultValue).append("\" ");
         }
-        sb.append("COMMENT \"").append(comment).append("\"");
+        sb.append("COMMENT \"").append(getComment(true)).append("\"");
 
         return sb.toString();
     }
