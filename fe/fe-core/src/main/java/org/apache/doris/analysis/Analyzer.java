@@ -539,15 +539,8 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        Database database = globalState.catalog.getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        Table table = database.getTable(tableName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
-        }
+        Database database = globalState.catalog.getDbOrAnalysisException(dbName);
+        Table table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
@@ -569,12 +562,9 @@ public class Analyzer {
         }
     }
 
-    public Table getTable(TableName tblName) {
-        Database db = globalState.catalog.getDb(tblName.getDb());
-        if (db == null) {
-            return null;
-        }
-        return db.getTable(tblName.getTbl());
+    public Table getTableOrAnalysisException(TableName tblName) throws AnalysisException {
+        Database db = globalState.catalog.getDbOrAnalysisException(tblName.getDb());
+        return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
     public ExprRewriter getExprRewriter() { return globalState.exprRewriter_; }

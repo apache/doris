@@ -125,7 +125,7 @@ public class RestoreJobTest {
     private BackupMeta backupMeta;
 
     @Before
-    public void setUp() throws AnalysisException {
+    public void setUp() throws Exception {
         db = CatalogMocker.mockDb();
         backupHandler = new MockBackupHandler(catalog);
         repoMgr = new MockRepositoryMgr();
@@ -134,7 +134,7 @@ public class RestoreJobTest {
 
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
         
@@ -218,7 +218,7 @@ public class RestoreJobTest {
         jobInfo.name = label;
         jobInfo.success = true;
         
-        expectedRestoreTbl = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        expectedRestoreTbl = (OlapTable) db.getTableNullable(CatalogMocker.TEST_TBL2_ID);
         BackupOlapTableInfo tblInfo = new BackupOlapTableInfo();
         tblInfo.id = CatalogMocker.TEST_TBL2_ID;
         jobInfo.backupOlapTableObjects.put(CatalogMocker.TEST_TBL2_NAME, tblInfo);
@@ -363,7 +363,7 @@ public class RestoreJobTest {
     }
 
     @Test
-    public void testSignature() {
+    public void testSignature() throws AnalysisException {
         Adler32 sig1 = new Adler32();
         sig1.update("name1".getBytes());
         sig1.update("name2".getBytes());
@@ -374,7 +374,7 @@ public class RestoreJobTest {
         sig2.update("name1".getBytes());
         System.out.println("sig2: " + Math.abs((int) sig2.getValue()));
 
-        OlapTable tbl = (OlapTable) db.getTable(CatalogMocker.TEST_TBL_NAME);
+        OlapTable tbl = db.getOlapTableOrAnalysisException(CatalogMocker.TEST_TBL_NAME);
         List<String> partNames = Lists.newArrayList(tbl.getPartitionNames());
         System.out.println(partNames);
         System.out.println("tbl signature: " + tbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames));

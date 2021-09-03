@@ -159,14 +159,15 @@ public class ShowMetaInfoAction extends RestBaseAction {
         Map<String, Long> result = new HashMap<String, Long>();
         List<String> dbNames = Catalog.getCurrentCatalog().getDbNames();
 
-        for (int i = 0; i < dbNames.size(); i++) {
-            String dbName = dbNames.get(i);
-            Database db = Catalog.getCurrentCatalog().getDb(dbName);
+        for (String dbName : dbNames) {
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
+            if (db == null) {
+                continue;
+            }
 
             long totalSize = 0;
             List<Table> tables = db.getTables();
-            for (int j = 0; j < tables.size(); j++) {
-                Table table = tables.get(j);
+            for (Table table : tables) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
@@ -195,7 +196,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
                 } // end for partitions
                 totalSize += tableSize;
             } // end for tables
-            result.put(dbName, Long.valueOf(totalSize));
+            result.put(dbName, totalSize);
         } // end for dbs
         return result;
     }

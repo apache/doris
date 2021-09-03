@@ -140,7 +140,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // get all groups
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
-            Database db = catalog.getDb(groupId.dbId);
+            Database db = catalog.getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
@@ -184,7 +184,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
         for (GroupId groupId : groupIds) {
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
-            Database db = catalog.getDb(groupId.dbId);
+            Database db = catalog.getDbNullable(groupId.dbId);
             if (db == null) {
                 continue;
             }
@@ -196,7 +196,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
 
             boolean isGroupStable = true;
             OUT: for (Long tableId : tableIds) {
-                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                OlapTable olapTable = (OlapTable) db.getTableNullable(tableId);
                 if (olapTable == null || !colocateIndex.isColocateTable(olapTable.getId())) {
                     continue;
                 }

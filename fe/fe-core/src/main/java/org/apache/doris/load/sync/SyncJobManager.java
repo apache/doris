@@ -88,10 +88,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -101,7 +98,7 @@ public class SyncJobManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
 
-            List<SyncJob> runningSyncJob = matchJobs.stream().filter(entity -> entity.isRunning())
+            List<SyncJob> runningSyncJob = matchJobs.stream().filter(SyncJob::isRunning)
                     .collect(Collectors.toList());
             if (runningSyncJob.isEmpty()) {
                 throw new DdlException("There is no running job with jobName `"
@@ -122,10 +119,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -135,7 +129,7 @@ public class SyncJobManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
 
-            List<SyncJob> pausedSyncJob = matchJobs.stream().filter(entity -> entity.isPaused())
+            List<SyncJob> pausedSyncJob = matchJobs.stream().filter(SyncJob::isPaused)
                     .collect(Collectors.toList());
             if (pausedSyncJob.isEmpty()) {
                 throw new DdlException("There is no paused job with jobName `"
@@ -156,10 +150,7 @@ public class SyncJobManager implements Writable {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         // List of sync jobs waiting to be cancelled
         List<SyncJob> syncJobs = Lists.newArrayList();
@@ -237,10 +228,7 @@ public class SyncJobManager implements Writable {
     }
 
     public boolean isJobNameExist(String dbName, String jobName) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         boolean result = false;
         readLock();
         try {

@@ -50,8 +50,6 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -99,32 +97,25 @@ public class Alter {
         String tableName = stmt.getBaseIndexName();
         // check db
         String dbName = stmt.getDBName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         // check cluster capacity
         Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
         // check db quota
         db.checkQuota();
 
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
-        ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
-                    olapTable);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
+        ((MaterializedViewHandler) materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
     }
 
     public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
         // check db
         String dbName = stmt.getTableName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         String tableName = stmt.getTableName().getTbl();
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
         // drop materialized view
-        ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+        ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -260,17 +251,11 @@ public class Alter {
         }
     }
 
-    public void replayModifyComment(ModifyCommentOperationLog operation) {
+    public void replayModifyComment(ModifyCommentOperationLog operation) throws MetaNotFoundException {
         long dbId = operation.getDbId();
         long tblId = operation.getTblId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            return;
-        }
-        Table tbl = db.getTable(tblId);
-        if (tbl == null) {
-            return;
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Table tbl = db.getTableOrMetaException(tblId);
         tbl.writeLock();
         try {
             ModifyCommentOperationLog.Type type = operation.getType();
@@ -311,14 +296,8 @@ public class Alter {
         String tableName = dbTableName.getTbl();
         final String clusterName = stmt.getClusterName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        Table table = db.getTableOrDdlException(tableName);
         List<AlterClause> alterClauses = Lists.newArrayList();
         // some operations will take long time to process, need to be done outside the table lock
         boolean needProcessOutsideTableLock = false;
@@ -342,7 +321,7 @@ public class Alter {
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
                 if (!((AddPartitionClause) alterClause).isTempPartition()) {
-                    DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
+                    DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTableOrMetaException(tableName, TableType.OLAP));
                 }
                 Catalog.getCurrentCatalog().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
@@ -376,7 +355,7 @@ public class Alter {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
-        Table newTbl = db.getTableOrThrowException(newTblName, TableType.OLAP);
+        Table newTbl = db.getTableOrMetaException(newTblName, TableType.OLAP);
         OlapTable olapNewTbl = (OlapTable) newTbl;
         db.writeLock();
         origTable.writeLock();
@@ -399,13 +378,14 @@ public class Alter {
 
     }
 
-    public void replayReplaceTable(ReplaceTableOperationLog log) {
+    public void replayReplaceTable(ReplaceTableOperationLog log) throws MetaNotFoundException {
         long dbId = log.getDbId();
         long origTblId = log.getOrigTblId();
         long newTblId = log.getNewTblId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        OlapTable origTable = (OlapTable) db.getTable(origTblId);
-        OlapTable newTbl = (OlapTable) db.getTable(newTblId);
+
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable origTable = db.getTableOrMetaException(origTblId, TableType.OLAP);
+        OlapTable newTbl = db.getTableOrMetaException(newTblId, TableType.OLAP);
 
         try {
             replaceTableInternal(db, origTable, newTbl, log.isSwapTable(), true);
@@ -457,13 +437,10 @@ public class Alter {
         TableName dbTableName = stmt.getTbl();
         String dbName = dbTableName.getDb();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         String tableName = dbTableName.getTbl();
-        View view = (View) db.getTableOrThrowException(tableName, TableType.VIEW);
+        View view = db.getTableOrMetaException(tableName, TableType.VIEW);
         modifyViewDef(db, view, stmt.getInlineViewDef(), ctx.getSessionVariable().getSqlMode(), stmt.getColumns());
     }
 
@@ -491,14 +468,15 @@ public class Alter {
         }
     }
 
-    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws DdlException {
+    public void replayModifyViewDef(AlterViewInfo alterViewInfo) throws MetaNotFoundException, DdlException {
         long dbId = alterViewInfo.getDbId();
         long tableId = alterViewInfo.getTableId();
         String inlineViewDef = alterViewInfo.getInlineViewDef();
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        View view = (View) db.getTable(tableId);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        View view = db.getTableOrMetaException(tableId, TableType.VIEW);
+
         db.writeLock();
         view.writeLock();
         try {
@@ -631,13 +609,9 @@ public class Alter {
         Catalog.getCurrentCatalog().getEditLog().logBatchModifyPartition(info);
     }
 
-    public void replayModifyPartition(ModifyPartitionInfo info) {
-        Database db = Catalog.getCurrentCatalog().getDb(info.getDbId());
-        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
-        if (olapTable == null) {
-            LOG.warn("table {} does not eixst when replaying modify partition. db: {}", info.getTableId(), info.getDbId());
-            return;
-        }
+    public void replayModifyPartition(ModifyPartitionInfo info) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
+        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();

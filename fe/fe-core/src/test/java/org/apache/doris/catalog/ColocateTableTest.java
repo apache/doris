@@ -104,8 +104,8 @@ public class ColocateTableTest {
                 ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        long tableId = db.getTable(tableName1).getId();
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        long tableId = db.getTableOrMetaException(tableName1).getId();
 
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
@@ -159,9 +159,9 @@ public class ColocateTableTest {
                 ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        long firstTblId = db.getTable(tableName1).getId();
-        long secondTblId = db.getTable(tableName2).getId();
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        long firstTblId = db.getTableOrMetaException(tableName1).getId();
+        long secondTblId = db.getTableOrMetaException(tableName2).getId();
 
         Assert.assertEquals(2, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());

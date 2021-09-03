@@ -84,11 +84,11 @@ public class LoadCheckerTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         new Expectations() {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -259,7 +259,7 @@ public class LoadCheckerTest {
         job.setDbId(dbId);
         etlJobs.add(job);
         // set table family load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 1L;
@@ -340,7 +340,7 @@ public class LoadCheckerTest {
         job.setDbId(dbId);
         etlJobs.add(job);
         // set table family load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         long newVersion = partition.getVisibleVersion() + 1;
         long newVersionHash = 0L;

@@ -91,11 +91,8 @@ public abstract class SyncJob implements Writable {
 
     public static SyncJob fromStmt(long jobId, CreateDataSyncJobStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-        SyncJob syncJob = null;
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        SyncJob syncJob;
         try {
             switch (stmt.getDataSyncJobType()) {
                 case CANAL:
