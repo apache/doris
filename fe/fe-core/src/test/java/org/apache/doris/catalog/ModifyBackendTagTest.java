@@ -116,8 +116,8 @@ public class ModifyBackendTagTest {
         // although there is no exception throw, but partition create failed, because there is no BE
         // with "default" tag
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt3));
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        Table tbl3 = db.getTable("tbl3");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        Table tbl3 = db.getTableNullable("tbl3");
         String err = Catalog.getCurrentCatalog().getDynamicPartitionScheduler().getRuntimeInfo(tbl3.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG);
         Assert.assertTrue(err.contains("Failed to find enough host with storage medium and tag"));
 
@@ -137,7 +137,7 @@ public class ModifyBackendTagTest {
         CreateTableStmt createStmt4 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         ExceptionChecker.expectThrowsNoException(() -> DdlExecutor.execute(Catalog.getCurrentCatalog(), createStmt4));
         DynamicPartitionScheduler scheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
-        OlapTable tbl = (OlapTable) db.getTable("tbl4");
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl4");
         PartitionInfo partitionInfo = tbl.getPartitionInfo();
         Assert.assertEquals(4, partitionInfo.idToItem.size());
         ReplicaAllocation replicaAlloc = new ReplicaAllocation();
@@ -184,3 +184,4 @@ public class ModifyBackendTagTest {
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
     }
 }
+

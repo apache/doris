@@ -44,15 +44,15 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 import java.io.IOException;
 import java.util.List;
@@ -137,9 +137,9 @@ public class DemoMultiBackendsTest {
         updateReplicaPathHash();
 
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);
@@ -165,7 +165,7 @@ public class DemoMultiBackendsTest {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
-        OlapTable tbl1 = (OlapTable) db.getTable("tbl1");
+        OlapTable tbl1 = (OlapTable) db.getTableNullable("tbl1");
         tbl1.readLock();
         try {
             Assert.assertEquals(2, tbl1.getBaseSchema().size());
@@ -212,3 +212,4 @@ public class DemoMultiBackendsTest {
         }
     }
 }
+

@@ -118,7 +118,7 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_normal");
-        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().etReplicaAllocation().isNotSet());
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
     }
 
     @Test

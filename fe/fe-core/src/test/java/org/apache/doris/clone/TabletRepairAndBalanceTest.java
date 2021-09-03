@@ -258,8 +258,8 @@ public class TabletRepairAndBalanceTest {
                 "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n" +
                 ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr3));
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable)db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         // alter table's replica allocation failed, tag not enough
         String alterStr = "alter table test.tbl1 set (\"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\");";
@@ -350,8 +350,8 @@ public class TabletRepairAndBalanceTest {
                 ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr5));
 
-        OlapTable colTbl1 = (OlapTable) db.getTable("col_tbl1");
-        OlapTable colTbl2 = (OlapTable) db.getTable("col_tbl2");
+        OlapTable colTbl1 = (OlapTable) db.getTableNullable("col_tbl1");
+        OlapTable colTbl2 = (OlapTable) db.getTableNullable("col_tbl2");
         Assert.assertNotNull(colTbl1);
         Assert.assertNotNull(colTbl2);
         ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
@@ -434,7 +434,7 @@ public class TabletRepairAndBalanceTest {
                 ")\n" +
                 "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStmt));
-        OlapTable tbl2 = (OlapTable) db.getTable("tbl2");
+        OlapTable tbl2 = (OlapTable) db.getTableNullable("tbl2");
         ReplicaAllocation defaultAlloc = new ReplicaAllocation((short) 3);
         Assert.assertEquals(defaultAlloc, tbl2.getDefaultReplicaAllocation());
         for (Partition partition : tbl2.getPartitions()) {
@@ -511,4 +511,5 @@ public class TabletRepairAndBalanceTest {
         System.out.println("table " + tbl.getId() + " is stable");
     }
 }
+
 
