@@ -51,7 +51,7 @@ public class TableNameComparedLowercaseTest {
         Config.lower_case_table_names = 2;
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String table1 = "CREATE TABLE db1.TABLE1 (\n" +
                 "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
                 "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
