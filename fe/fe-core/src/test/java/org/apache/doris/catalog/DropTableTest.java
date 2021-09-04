@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -41,7 +42,7 @@ public class DropTableTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -79,8 +80,8 @@ public class DropTableTest {
 
     @Test
     public void testNormalDropTable() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable table = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl1";
@@ -90,15 +91,15 @@ public class DropTableTest {
         String recoverDbSql = "recover table test.tbl1";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
-        table = (OlapTable) db.getTable("tbl1");
+        table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
     }
 
     @Test
     public void testForceDropTable() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable table = (OlapTable) db.getTable("tbl2");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl2");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl2 force";

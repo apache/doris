@@ -22,6 +22,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -42,6 +43,7 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import javax.annotation.Nullable;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -51,6 +53,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -103,6 +106,8 @@ public class Database extends MetaObject implements Writable {
 
     private String attachDbName;
     private DbState dbState;
+
+    private DatabaseProperty dbProperties = new DatabaseProperty();
 
     public Database() {
         this(0, null);
@@ -297,6 +302,7 @@ public class Database extends MetaObject implements Writable {
         return nameToTable.containsKey(tableName);
     }
 
+    // return pair <success?, table exist?>
     public Pair<Boolean, Boolean> createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
@@ -360,7 +366,7 @@ public class Database extends MetaObject implements Writable {
         if (Catalog.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
-        Table table = getTable(tableName);
+        Table table = getTableNullable(tableName);
         if (table != null) {
             this.nameToTable.remove(tableName);
             this.idToTable.remove(table.getId());
@@ -415,11 +421,9 @@ public class Database extends MetaObject implements Writable {
 
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
-     *
-     * @param tableName
-     * @return
      */
-    public Table getTable(String tableName) {
+    @Nullable
+    public Table getTableNullable(String tableName) {
         if (Catalog.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
@@ -433,50 +437,92 @@ public class Database extends MetaObject implements Writable {
     }
 
     /**
-     * This is a thread-safe method when nameToTable is a concurrent hash map
-     *
-     * @param tableName
-     * @param tableType
-     * @return
-     */
-    public Table getTableOrThrowException(String tableName, TableType tableType) throws MetaNotFoundException {
-        Table table = getTable(tableName);
-        if (table == null) {
-            throw new MetaNotFoundException("unknown table, table=" + tableName);
-        }
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType + ", table=" + tableName + ", type=" + table.getClass());
-        }
-        return table;
-    }
-
-    /**
      * This is a thread-safe method when idToTable is a concurrent hash map
-     *
-     * @param tableId
-     * @return
      */
-    public Table getTable(long tableId) {
+    @Nullable
+    public Table getTableNullable(long tableId) {
         return idToTable.get(tableId);
     }
 
+    public Optional<Table> getTable(String tableName) {
+        return Optional.ofNullable(getTableNullable(tableName));
+    }
 
-    /**
-     * This is a thread-safe method when idToTable is a concurrent hash map
-     *
-     * @param tableId
-     * @param tableType
-     * @return
-     */
-    public Table getTableOrThrowException(long tableId, TableType tableType) throws MetaNotFoundException {
-        Table table = idToTable.get(tableId);
+    public Optional<Table> getTable(long tableId) {
+        return Optional.ofNullable(getTableNullable(tableId));
+    }
+
+    public <E extends Exception> Table getTableOrException(String tableName, java.util.function.Function<String, E> e) throws E {
+        Table table = getTableNullable(tableName);
         if (table == null) {
-            throw new MetaNotFoundException("unknown table, tableId=" + tableId);
-        }
-        if (table.getType() != tableType) {
-            throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getClass());
+            throw e.apply(tableName);
         }
         return table;
+    }
+
+    public <E extends Exception> Table getTableOrException(long tableId, java.util.function.Function<Long, E> e) throws E {
+        Table table = getTableNullable(tableId);
+        if (table == null) {
+            throw e.apply(tableId);
+        }
+        return table;
+    }
+
+    public Table getTableOrMetaException(String tableName) throws MetaNotFoundException {
+        return getTableOrException(tableName, t -> new MetaNotFoundException("unknown table, tableName=" + t));
+    }
+
+    public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
+        return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
+    }
+    @SuppressWarnings("unchecked")
+    public <T extends Table> T getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
+        Table table = getTableOrMetaException(tableName);
+        if (table.getType() != tableType) {
+            throw new MetaNotFoundException("table type is not " + tableType + ", tableName=" + tableName + ", type=" + table.getType());
+        }
+        return (T) table;
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T extends Table> T getTableOrMetaException(long tableId, TableType tableType) throws MetaNotFoundException {
+        Table table = getTableOrMetaException(tableId);
+        if (table.getType() != tableType) {
+            throw new MetaNotFoundException("table type is not " + tableType + ", tableId=" + tableId + ", type=" + table.getType());
+        }
+        return (T) table;
+    }
+
+    public Table getTableOrDdlException(String tableName) throws DdlException {
+        return getTableOrException(tableName, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+    }
+
+    public OlapTable getOlapTableOrDdlException(String tableName) throws DdlException {
+        Table table = getTableOrDdlException(tableName);
+        if (!(table instanceof OlapTable)) {
+            throw new DdlException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
+        }
+        return (OlapTable) table;
+    }
+
+    public Table getTableOrDdlException(long tableId) throws DdlException {
+        return getTableOrException(tableId, t -> new DdlException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+    }
+
+    public Table getTableOrAnalysisException(String tableName) throws AnalysisException {
+        return getTableOrException(tableName, t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
+    }
+
+    public OlapTable getOlapTableOrAnalysisException(String tableName) throws AnalysisException {
+        Table table = getTableOrAnalysisException(tableName);
+        if (!(table instanceof OlapTable)) {
+            throw new AnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE.formatErrorMsg(tableName));
+        }
+        return (OlapTable) table;
+    }
+
+    public Table getTableOrAnalysisException(long tableId) throws AnalysisException {
+        return getTableOrException(tableId, t -> new AnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR.formatErrorMsg(t)));
     }
 
     public int getMaxReplicationNum() {
@@ -491,7 +537,7 @@ public class Database extends MetaObject implements Writable {
                 table.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                         if (ret < replicationNum) {
                             ret = replicationNum;
                         }
@@ -553,6 +599,7 @@ public class Database extends MetaObject implements Writable {
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
+        dbProperties.write(out);
     }
 
     @Override
@@ -608,6 +655,10 @@ public class Database extends MetaObject implements Writable {
             replicaQuotaSize = in.readLong();
         } else {
             replicaQuotaSize = FeConstants.default_db_replica_quota_size;
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
+            dbProperties = DatabaseProperty.read(in);
         }
     }
 

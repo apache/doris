@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
 
@@ -57,7 +58,7 @@ public class UserPropertyTest {
     }
 
     @Test
-    public void testUpdate() throws DdlException {
+    public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.create("MAX_USER_CONNECTIONS", "100"));
         properties.add(Pair.create("resource.cpu_share", "101"));

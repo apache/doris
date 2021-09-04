@@ -68,7 +68,7 @@ public class CreateDataSyncJobStmtTest {
         properties = Maps.newHashMap();
         new Expectations() {
             {
-                catalog.getDb("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = database;
 
@@ -84,7 +84,7 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = true;
 
-                database.getTable("testTbl");
+                database.getTableNullable("testTbl");
                 minTimes = 0;
                 result = table;
 

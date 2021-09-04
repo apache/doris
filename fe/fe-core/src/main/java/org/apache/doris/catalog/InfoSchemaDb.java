@@ -71,8 +71,8 @@ public class InfoSchemaDb extends Database {
     }
 
     @Override
-    public Table getTable(String name) {
-        return super.getTable(name.toLowerCase());
+    public Table getTableNullable(String name) {
+        return super.getTableNullable(name.toLowerCase());
     }
 
     public static String getFullInfoSchemaDbName(String cluster) {

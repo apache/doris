@@ -25,14 +25,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
-
-import java.io.File;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.UUID;
 
 public class ColocatePlanTest {
     private static final String COLOCATE_ENABLE = "colocate: true";
@@ -42,7 +41,7 @@ public class ColocatePlanTest {
     @BeforeClass
     public static void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir, 2);
+        UtFrameUtils.createDorisCluster(runningDir, 2);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);

@@ -51,6 +51,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -1333,7 +1334,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId, newSchemaHash, medium);
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+                ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
+                Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = catalog.getNextId();
@@ -1366,7 +1368,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         healthyReplicaNum++;
                     }
 
-                    if (healthyReplicaNum < replicationNum / 2 + 1) {
+                    if (healthyReplicaNum < totalReplicaNum / 2 + 1) {
                         /*
                          * TODO(cmy): This is a bad design.
                          * Because in the schema change job, we will only send tasks to the shadow replicas that have been created,
@@ -1520,13 +1522,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // handle cancelled schema change jobs
         for (AlterJob alterJob : cancelledJobs) {
-            Database db = Catalog.getCurrentCatalog().getDb(alterJob.getDbId());
+            Database db = Catalog.getCurrentCatalog().getDbNullable(alterJob.getDbId());
             if (db == null) {
                 cancelInternal(alterJob, null, null);
                 continue;
             }
 
-            OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
+            OlapTable olapTable = (OlapTable) db.getTableNullable(alterJob.getTableId());
             if (olapTable != null) {
                 olapTable.writeLock();
             }
@@ -1608,7 +1610,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         for (AlterJob selectedJob : selectedJobs) {
-            OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+            OlapTable olapTable = (OlapTable) db.getTableNullable(selectedJob.getTableId());
             if (olapTable == null) {
                 continue;
             }
@@ -1673,12 +1675,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-                        Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Preconditions.checkNotNull(properties.get("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+                        Catalog.getCurrentCatalog().modifyTableDefaultReplicaAllocation(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Catalog.getCurrentCatalog().modifyTableReplicaAllocation(db, olapTable, properties);
                         return;
                     }
                 }
@@ -1788,7 +1790,7 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws UserException {
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         olapTable.readLock();
         try {
             partitions.addAll(olapTable.getPartitions());
@@ -1820,7 +1822,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                              String tableName,
                                              List<String> partitionNames,
                                              Map<String, String> properties) throws DdlException, MetaNotFoundException {
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
         if (isInMemory == olapTable.isInMemory()) {
             return;
@@ -1847,7 +1849,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                             boolean isInMemory) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
-        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         olapTable.readLock();
         try {
             Partition partition = olapTable.getPartition(partitionName);
@@ -1927,20 +1929,12 @@ public class SchemaChangeHandler extends AlterHandler {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         AlterJob schemaChangeJob = null;
         AlterJobV2 schemaChangeJobV2 = null;
 
-        OlapTable olapTable = null;
-        try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLock();
         try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&

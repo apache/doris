@@ -29,6 +29,7 @@ import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
+import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -143,8 +144,8 @@ public class SystemHandler extends AlterHandler {
                     && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
-            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), 
-                addBackendClause.isFree(), addBackendClause.getDestCluster());
+            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(),
+                    addBackendClause.isFree(), addBackendClause.getDestCluster(), addBackendClause.getTag());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
@@ -188,6 +189,8 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AlterLoadErrorUrlClause) {
             AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
             Catalog.getCurrentCatalog().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
+        } else if (alterClause instanceof ModifyBackendClause) {
+            Catalog.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }

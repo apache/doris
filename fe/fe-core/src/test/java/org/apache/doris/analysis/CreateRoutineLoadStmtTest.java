@@ -70,11 +70,11 @@ public class CreateRoutineLoadStmtTest {
         };
         new Expectations() {
             {
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
 
-                database.getTable(anyString);
+                database.getTableNullable(anyString);
                 minTimes = 0;
                 result = table;
 

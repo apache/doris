@@ -66,14 +66,10 @@ public class RowCountAction extends RestBaseController {
 
         String fullDbName = getFullDbName(dbName);
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database[" + fullDbName + "] does not exist");
-        }
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
