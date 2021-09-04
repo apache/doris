@@ -45,6 +45,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .add("Name").add("IP").add("HostName").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
             .add("ReplayedJournalId").add("LastHeartbeat").add("IsHelper").add("ErrMsg").add("Version")
+            .add("CurrentConnected")
             .build();
     
     public static final int HOSTNAME_INDEX = 2;
@@ -82,13 +83,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // this may happen when majority of FOLLOWERS are down and no MASTER right now.
             LOG.warn("failed to get leader: {}", e.getMessage());
         }
-        
+
         // get all node which are joined in bdb group
         List<InetSocketAddress> allFe = catalog.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(catalog.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
         List<Pair<String, Integer>> helperNodes = catalog.getHelperNodes();
-        
+
+        Pair<String, Integer> selfNode = Catalog.getCurrentCatalog().getSelfNode();
+
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
 
             List<String> info = new ArrayList<String>();
@@ -121,12 +124,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 info.add(Long.toString(fe.getReplayedJournalId()));
             }
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
-            
             info.add(String.valueOf(isHelperNode(helperNodes, fe)));
-
             info.add(fe.getHeartbeatErrMsg());
-
             info.add(fe.getVersion());
+            // To indicate which FE we currently connected
+            info.add(fe.getHost().equals(selfNode.first) ? "Yes" : "No");
 
             infos.add(info);
         }

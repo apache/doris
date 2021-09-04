@@ -44,9 +44,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
+
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -69,7 +69,7 @@ public class QueryPlanTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();

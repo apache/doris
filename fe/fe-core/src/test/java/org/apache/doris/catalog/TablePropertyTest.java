@@ -18,6 +18,9 @@
 package org.apache.doris.catalog;
 
 
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -41,6 +44,9 @@ public class TablePropertyTest {
 
     @Test
     public void testNormal() throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
@@ -55,6 +61,7 @@ public class TablePropertyTest {
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
         properties.put("otherProperty", "unknownProperty");
         TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.setReplicaAlloc(ReplicaAllocation.DEFAULT_ALLOCATION);
         tableProperty.write(out);
         out.flush();
         out.close();
@@ -71,6 +78,7 @@ public class TablePropertyTest {
         Assert.assertEquals(readDynamicPartitionProperty.getStart(), dynamicPartitionProperty.getStart());
         Assert.assertEquals(readDynamicPartitionProperty.getEnd(), dynamicPartitionProperty.getEnd());
         Assert.assertEquals(readDynamicPartitionProperty.getTimeUnit(), dynamicPartitionProperty.getTimeUnit());
+        Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, readTableProperty.getReplicaAllocation());
         in.close();
     }
 }

@@ -17,9 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -27,8 +28,12 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageFormat;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,18 +44,19 @@ import java.util.Map;
 /**  TableProperty contains additional information about OlapTable
  *  TableProperty includes properties to persistent the additional information
  *  Different properties is recognized by prefix such as dynamic_partition
- *  If there is different type properties is added.Write a method such as buildDynamicProperty to build it.
+ *  If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
+    private static final Logger LOG = LogManager.getLogger(TableProperty.class);
+
     public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    // the follower variables are built from "properties"
     private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
-    // table's default replication num
-    private Short replicationNum = FeConstants.default_replication_num;
-
+    private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private boolean isInMemory = false;
 
     /*
@@ -82,7 +88,7 @@ public class TableProperty implements Writable {
                 executeBuildDynamicProperty();
                 break;
             case OperationType.OP_MODIFY_REPLICATION_NUM:
-                buildReplicationNum();
+                buildReplicaAllocation();
                 break;
             case OperationType.OP_MODIFY_IN_MEMORY:
                 buildInMemory();
@@ -116,12 +122,6 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildReplicationNum() {
-        replicationNum = Short.parseShort(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                String.valueOf(FeConstants.default_replication_num)));
-        return this;
-    }
-
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
         return this;
@@ -135,6 +135,17 @@ public class TableProperty implements Writable {
 
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
+    }
+
+    public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
+        this.replicaAlloc = replicaAlloc;
+        // set it to "properties" so that this info can be persisted
+        properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                replicaAlloc.toCreateStmt());
+    }
+
+    public ReplicaAllocation getReplicaAllocation() {
+        return replicaAlloc;
     }
 
     public void modifyTableProperties(String key, String value) {
@@ -159,10 +170,6 @@ public class TableProperty implements Writable {
         return origProp;
     }
 
-    public Short getReplicationNum() {
-        return replicationNum;
-    }
-
     public boolean isInMemory() {
         return isInMemory;
     }
@@ -171,16 +178,42 @@ public class TableProperty implements Writable {
         return storageFormat;
     }
 
+    public void buildReplicaAllocation() {
+        try {
+            // Must copy the properties because "analyzeReplicaAllocation" with remove the property
+            // from the properties.
+            Map<String, String> copiedProperties = Maps.newHashMap(properties);
+            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
+        } catch (AnalysisException e) {
+            // should not happen
+            LOG.error("should not happen when build replica allocation", e);
+            this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        }
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static TableProperty read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
+        TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
-                .buildReplicationNum()
                 .buildInMemory()
                 .buildStorageFormat();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            // get replica num from property map and create replica allocation
+            String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
+            if (!Strings.isNullOrEmpty(repNum)) {
+                ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(repNum));
+                tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        replicaAlloc.toCreateStmt());
+            } else {
+                tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
+            }
+        }
+        tableProperty.buildReplicaAllocation();
+        return tableProperty;
     }
 }

@@ -23,11 +23,13 @@ import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -50,6 +52,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
+    public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
@@ -92,6 +95,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
+
+    public static final String TAG_LOCATION = "tag.location";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -173,13 +178,14 @@ public class PropertyAnalyzer {
 
         return shortKeyColumnCount;
     }
-    
-    public static Short analyzeReplicationNum(Map<String, String> properties, short oldReplicationNum)
+
+    private static Short analyzeReplicationNum(Map<String, String> properties, String prefix, short oldReplicationNum)
             throws AnalysisException {
         Short replicationNum = oldReplicationNum;
-        if (properties != null && properties.containsKey(PROPERTIES_REPLICATION_NUM)) {
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties != null && properties.containsKey(propKey)) {
             try {
-                replicationNum = Short.valueOf(properties.get(PROPERTIES_REPLICATION_NUM));
+                replicationNum = Short.valueOf(properties.get(propKey));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
@@ -188,21 +194,7 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
             }
 
-            properties.remove(PROPERTIES_REPLICATION_NUM);
-        }
-        return replicationNum;
-    }
-
-    public static Short analyzeReplicationNum(Map<String, String> properties, boolean isDefault) throws AnalysisException {
-        String key = "default.";
-        if (isDefault) {
-            key += PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        } else {
-            key = PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        }
-        short replicationNum = Short.valueOf(properties.get(key));
-        if (replicationNum <= 0) {
-            throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            properties.remove(propKey);
         }
         return replicationNum;
     }
@@ -456,9 +448,71 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
         PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
-        if (!type.isFixedPointType() && !type.isDateType())  {
+        if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
         return ScalarType.createType(type);
     }
+
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties) throws AnalysisException {
+        if (properties.containsKey(TAG_LOCATION)) {
+            String tagVal = properties.remove(TAG_LOCATION);
+            return Tag.create(Tag.TYPE_LOCATION, tagVal);
+        }
+        return Tag.DEFAULT_BACKEND_TAG;
+    }
+
+    // There are 2 kinds of replication property:
+    // 1. "replication_num" = "3"
+    // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
+    // These 2 kinds of property will all be converted to a ReplicaAllocation and return.
+    // Return ReplicaAllocation.NOT_SET if no replica property is set.
+    //
+    // prefix is for property key such as "dynamic_partition.replication_num", which prefix is "dynamic_partition"
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return ReplicaAllocation.NOT_SET;
+        }
+        // if give "replication_num" property, return with default backend tag
+        Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
+        if (replicaNum > 0) {
+            return new ReplicaAllocation(replicaNum);
+        }
+
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        // if not set, return default replication allocation
+        if (!properties.containsKey(propKey)) {
+            return ReplicaAllocation.NOT_SET;
+        }
+
+        // analyze user specified replication allocation
+        // format is as: "tag.location.zone1: 2, tag.location.zone2: 1"
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation();
+        String allocationVal = properties.remove(propKey);
+        allocationVal = allocationVal.replaceAll(" ", "");
+        String[] locations = allocationVal.split(",");
+        for (String location : locations) {
+            String[] parts = location.split(":");
+            if (parts.length != 2) {
+                throw new AnalysisException("Invalid replication allocation property: " + location);
+            }
+            if (!parts[0].startsWith(TAG_LOCATION)) {
+                throw new AnalysisException("Invalid replication allocation tag property: " + location);
+            }
+            String locationVal = parts[0].substring(TAG_LOCATION.length() + 1); // +1 to skip dot.
+            if (Strings.isNullOrEmpty(locationVal)) {
+                throw new AnalysisException("Invalid replication allocation location tag property: " + location);
+            }
+
+            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), Short.valueOf(parts[1]));
+        }
+
+        if (replicaAlloc.isEmpty()) {
+            throw new AnalysisException("Not specified replica allocation property");
+        }
+        return replicaAlloc;
+    }
+
 }
