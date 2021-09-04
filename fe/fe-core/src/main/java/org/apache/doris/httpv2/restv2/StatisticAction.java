@@ -33,6 +33,7 @@ import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,6 +46,9 @@ public class StatisticAction extends RestBaseController {
 
     @RequestMapping(path = "/api/cluster_overview", method = RequestMethod.GET)
     public Object clusterOverview(HttpServletRequest request, HttpServletResponse response) {
+        if (!Catalog.getCurrentCatalog().isMaster()) {
+            return redirectToMaster(request, response);
+        }
         Map<String, Object> resultMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -56,7 +60,7 @@ public class StatisticAction extends RestBaseController {
         resultMap.put("feCount", catalog.getFrontends(null).size());
         resultMap.put("remainDisk", getRemainDisk(infoService));
 
-        return  ResponseEntityBuilder.ok(resultMap);
+        return ResponseEntityBuilder.ok(resultMap);
     }
 
     private int getTblCount(Catalog catalog) {
