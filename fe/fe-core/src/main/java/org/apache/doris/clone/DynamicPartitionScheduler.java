@@ -201,11 +201,13 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             // construct partition desc
             PartitionKeyDesc partitionKeyDesc = PartitionKeyDesc.createFixed(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
-            HashMap<String, String> partitionProperties = Maps.newHashMap();
-            if (dynamicPartitionProperty.getReplicationNum() == DynamicPartitionProperty.NOT_SET_REPLICATION_NUM) {
-                partitionProperties.put("replication_num", String.valueOf(olapTable.getDefaultReplicationNum()));
+            HashMap<String, String> partitionProperties = new HashMap<>(1);
+            if (dynamicPartitionProperty.getReplicaAllocation().isNotSet()) {
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        olapTable.getDefaultReplicaAllocation().toCreateStmt());
             } else {
-                partitionProperties.put("replication_num", String.valueOf(dynamicPartitionProperty.getReplicationNum()));
+                partitionProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                        dynamicPartitionProperty.getReplicaAllocation().toCreateStmt());
             }
 
             if (hotPartitionNum > 0) {

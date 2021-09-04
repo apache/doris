@@ -26,6 +26,7 @@ import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Status;
 import org.apache.doris.proto.Types;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -33,6 +34,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -148,7 +150,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execPlanFragmentParams;
 
-                systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyString,
+                        (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = backendIds;
 

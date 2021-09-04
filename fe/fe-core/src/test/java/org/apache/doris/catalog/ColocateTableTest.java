@@ -24,10 +24,9 @@ import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.collect.Multimap;
-
+import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -37,8 +36,10 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Table;
+
 import java.io.File;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -58,7 +59,7 @@ public class ColocateTableTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
 
     }
@@ -110,7 +111,7 @@ public class ColocateTableTest {
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
-        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(1, Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
@@ -120,8 +121,8 @@ public class ColocateTableTest {
         Assert.assertEquals(dbId, index.getGroup(tableId).dbId);
 
         GroupId groupId = index.getGroup(tableId);
-        List<Long> backendIds = index.getBackendsPerBucketSeq(groupId).get(0);
-        Assert.assertEquals(1, backendIds.size());
+        Map<Tag, List<List<Long>>> backendIds = index.getBackendsPerBucketSeq(groupId);
+        Assert.assertEquals(1, backendIds.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
 
         String fullGroupName = dbId + "_" + groupName;
         Assert.assertEquals(tableId, index.getTableIdByGroup(fullGroupName));
@@ -129,7 +130,7 @@ public class ColocateTableTest {
         Assert.assertNotNull(groupSchema);
         Assert.assertEquals(dbId, groupSchema.getGroupId().dbId);
         Assert.assertEquals(1, groupSchema.getBucketsNum());
-        Assert.assertEquals(1, groupSchema.getReplicationNum());
+        Assert.assertEquals((short) 1, groupSchema.getReplicaAlloc().getTotalReplicaNum());
     }
 
     @Test
@@ -166,7 +167,7 @@ public class ColocateTableTest {
         Assert.assertEquals(2, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(2, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
-        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+        Assert.assertEquals(1, Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
@@ -181,7 +182,7 @@ public class ColocateTableTest {
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(1,
-                Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+                Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
@@ -194,7 +195,7 @@ public class ColocateTableTest {
         Assert.assertEquals(0, index.getAllGroupIds().size());
         Assert.assertEquals(0, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(0,
-                Deencapsulation.<Map<GroupId, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+                Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
@@ -246,7 +247,7 @@ public class ColocateTableTest {
                 ");");
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Colocate tables must have same replication num: 1");
+        expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
                 " `k1` int NULL COMMENT \"\",\n" +
                 " `k2` varchar(10) NULL COMMENT \"\"\n" +

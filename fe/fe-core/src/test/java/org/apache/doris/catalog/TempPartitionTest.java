@@ -69,7 +69,7 @@ public class TempPartitionTest {
     @BeforeClass
     public static void setup() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 100;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
     }
 

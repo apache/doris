@@ -17,18 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
 
-import org.apache.arrow.flatbuf.Bool;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,8 +33,9 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class TabletTest {
 
@@ -179,7 +175,8 @@ public class TabletTest {
             }
             tablet.addReplica(new Replica(replicaId++, pair.first, versionAndSuccessVersion, 0L, 0, 200000L, 3000L, ReplicaState.NORMAL, lastFailVersion, 0, versionAndSuccessVersion, 0));
         }
-        Assert.assertEquals(tablet.getColocateHealthStatus(100L, 3, Sets.newHashSet(1L, 2L, 3L)), exceptedTabletStatus);
+        Assert.assertEquals(tablet.getColocateHealthStatus(100L, new ReplicaAllocation((short) 3),
+                Sets.newHashSet(1L, 2L, 3L)), exceptedTabletStatus);
     }
 
     @Test

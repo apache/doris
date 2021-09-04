@@ -116,7 +116,8 @@ public class LoadAction extends RestBaseAction {
             redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
         } else {
             // Choose a backend sequentially.
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                    1, true, false, clusterName, null, null);
             if (backendIds == null) {
                 throw new DdlException("No backend alive.");
             }

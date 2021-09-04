@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -34,6 +35,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
@@ -45,12 +47,12 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -202,9 +204,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private int tabletOrderIdx = -1;
 
     private SystemInfoService infoService;
-    
+
+    // replicaAlloc is only set for REPAIR task
+    private ReplicaAllocation replicaAlloc;
+    // tag is only set for BALANCE task, used to identify which resource group this Balance job is in
+    private Tag tag;
+
     public TabletSchedCtx(Type type, String cluster, long dbId, long tblId, long partId,
-            long idxId, long tabletId, long createTime) {
+                          long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
         this.cluster = cluster;
         this.dbId = dbId;
@@ -215,8 +222,21 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.createTime = createTime;
         this.infoService = Catalog.getCurrentSystemInfo();
         this.state = State.PENDING;
+        this.replicaAlloc = replicaAlloc;
     }
-    
+
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
+    }
+
+    public void setTag(Tag tag) {
+        this.tag = tag;
+    }
+
+    public Tag getTag() {
+        return tag;
+    }
+
     public void setType(Type type) {
         this.type = type;
     }
@@ -720,7 +740,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // we create a new replica with state CLONE
         if (tabletStatus == TabletStatus.REPLICA_MISSING || tabletStatus == TabletStatus.REPLICA_MISSING_IN_CLUSTER
                 || tabletStatus == TabletStatus.REPLICA_RELOCATING || type == Type.BALANCE
-                || tabletStatus == TabletStatus.COLOCATE_MISMATCH) {
+                || tabletStatus == TabletStatus.COLOCATE_MISMATCH || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
                     -1 /* version */, 0 /* version hash */, schemaHash,
@@ -822,9 +842,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
 
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
-            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+            ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicationNum,
+                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicaAlloc,
                     aliveBeIdsInCluster);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");

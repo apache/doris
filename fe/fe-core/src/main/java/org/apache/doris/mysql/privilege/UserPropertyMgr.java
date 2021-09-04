@@ -22,8 +22,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
 
@@ -106,7 +108,7 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
-    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws DdlException {
+    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws UserException {
         UserProperty property = propertyMap.get(user);
         if (property == null) {
             throw new DdlException("Unknown user(" + user + ")");
@@ -129,6 +131,14 @@ public class UserPropertyMgr implements Writable {
             return Config.default_max_query_instances;
         }
         return existProperty.getMaxQueryInstances();
+    }
+
+    public Set<Tag> getResourceTags(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return UserProperty.INVALID_RESOURCE_TAGS;
+        }
+        return existProperty.getCopiedResourceTags();
     }
 
     public int getPropertyMapSize() {

@@ -405,7 +405,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
             LOG.warn("execute Exception", e);
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);

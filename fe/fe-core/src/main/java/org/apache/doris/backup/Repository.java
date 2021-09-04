@@ -304,9 +304,10 @@ public class Repository implements Writable {
                 DIR_SNAPSHOT_CONTENT,
                 childPath);
         try {
-            return new URI(path).normalize().toString();
-        } catch (URISyntaxException e) {
-            LOG.warn("failed to normalize path: {}", path, e);
+            URI uri = new URI(path);
+            return uri.normalize().toString();
+        } catch (Exception e) {
+            LOG.warn("Invalid path: " + path, e);
             return null;
         }
     }
@@ -314,17 +315,23 @@ public class Repository implements Writable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
-        String checkPath = Paths.get(location, joinPrefix(PREFIX_REPO, name)).toString();
-        Status st = storage.checkPathExist(checkPath);
-        if (!st.ok()) {
-            errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
+        String path = location + "/" + joinPrefix(PREFIX_REPO, name);
+        try {
+            URI checkUri = new URI(path);
+            Status st = storage.checkPathExist(checkUri.normalize().toString());
+            if (!st.ok()) {
+                errMsg = TimeUtils.longToTimeString(System.currentTimeMillis()) + ": " + st.getErrMsg();
+                return false;
+            }
+            // clear err msg
+            errMsg = null;
+
+            return true;
+        } catch (URISyntaxException e) {
+            errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
+                    + ": Invalid path. " + path + ", error: " + e.getMessage();
             return false;
         }
-
-        // clear err msg
-        errMsg = null;
-
-        return true;
     }
 
     // Visit the repository, and list all existing snapshot names
