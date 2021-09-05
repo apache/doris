@@ -19,21 +19,42 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-export DORIS_MANAGER_HOME=`cd "$curdir/.."; pwd`
-export PID_DIR=`cd "$curdir"; pwd`
+OPTS=$(getopt \
+  -n $0 \
+  -o '' \
+  -l 'url:' \
+  -l 'installDir:' \
+  -- "$@")
 
-pidfile=$PID_DIR/doris-manager.pid
+eval set -- "$OPTS"
 
-if [ -f $pidfile ]; then
-   pid=`cat $pidfile`
-   pidcomm=`ps -p $pid -o comm=`
+URL=
+DORIS_HOME=
+while true; do
+    case "$1" in
+        --url) URL=$2 ; shift 2;;
+        --installDir) DORIS_HOME=$2 ; shift 2;;
+        --) shift ;  break ;;
+        *) echo "Internal error" ; exit 1 ;;
+    esac
+done
 
-   if [ "java" != "$pidcomm" ]; then
-       echo "ERROR: pid process may not be doris manager. "
-   fi
-
-   if kill -9 $pid > /dev/null 2>&1; then
-        echo "stop $pidcomm, and remove pid file. "
-        rm $pidfile
-   fi
+if [ x"$DORIS_HOME" == x"" ]; then
+    echo "--installDir can not empty!"
+    exit 1
 fi
+
+if [ x"$URL" == x"" ]; then
+    echo "--url can not empty!"
+    exit 1
+fi
+
+if [ ! -d $DORIS_HOME ]; then
+    mkdir -p $DORIS_HOME
+fi
+
+wget  $URL -O doris-be.tar.gz --quiet
+if [ $? -ne 0 ] ;then exit 1;fi
+
+tar -zxvf doris-be.tar.gz -C $DORIS_HOME
+if [ $? -ne 0 ] ;then exit 1;fi

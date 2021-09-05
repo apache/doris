@@ -19,42 +19,22 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-export DOIRS_MANAGER_HOME=`cd "$curdir/.."; pwd`
-
-#
-# JAVA_OPTS
-# SERVER_PARAMS
-# LOG_DIR
-# PID_DIR
-export JAVA_OPTS="-Xmx1024m"
-export LOG_DIR="$DOIRS_MANAGER_HOME/log"
+export AGENT_HOME=`cd "$curdir/.."; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 
-# java
-if [ "$JAVA_HOME" = "" ]; then
-  echo "Error: JAVA_HOME is not set."
-  exit 1
-fi
-JAVA=$JAVA_HOME/bin/java
-
-# need check and create if the log directory existed before outing message to the log file.
-if [ ! -d $LOG_DIR ]; then
-    mkdir -p $LOG_DIR
-fi
-
-echo $JAVA_OPTS >> $LOG_DIR/doris-manager.out
-
-pidfile=$PID_DIR/doris-manager.pid
+pidfile=$PID_DIR/agent.pid
 
 if [ -f $pidfile ]; then
-  if kill -0 `cat $pidfile` > /dev/null 2>&1; then
-    echo doris-manager running as process `cat $pidfile`.  Stop it first.
-    exit 1
-  fi
+   pid=`cat $pidfile`
+   pidcomm=`ps -p $pid -o comm=`
+
+   if [ "java" != "$pidcomm" ]; then
+       echo "ERROR: pid process may not be agent. "
+   fi
+
+   if kill -9 $pid > /dev/null 2>&1; then
+        echo "stop $pidcomm, and remove pid file. "
+        rm $pidfile
+   fi
 fi
 
-echo `date` >> $LOG_DIR/doris-manager.out
-
-nohup $JAVA $JAVA_OPTS -jar ${DOIRS_MANAGER_HOME}/lib/dm-server.jar $SERVER_PARAMS >> $LOG_DIR/doris-manager.out 2>&1 </dev/null &
-
-echo $! > $pidfile

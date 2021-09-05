@@ -17,12 +17,15 @@
 
 package org.apache.doris.stack.agent;
 
+import com.alibaba.fastjson.JSON;
+import com.google.common.collect.Maps;
 import org.apache.doris.manager.common.domain.RResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * agent rest api
@@ -34,6 +37,8 @@ public class AgentRest {
     private static final String AGENT_TASK_INFO = "http://%s:%s/command/result?taskId={taskId}";
     private static final String AGENT_TASK_STD_LOG = "http://%s:%s/command/stdlog?taskId={taskId}&offset={offset}";
     private static final String AGENT_TASK_ERR_LOG = "http://%s:%s/command/errlog?taskId={taskId}&offset={offset}";
+    private static final String SERVICE_CONFIG = "http://%s:%s/service/config?serviceRole={serviceRole}";
+
     @Autowired
     private RestTemplate restTemplate;
 
@@ -59,5 +64,17 @@ public class AgentRest {
         String restUrl = String.format(AGENT_TASK_ERR_LOG, host, port);
         RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
         return result;
+    }
+
+    public Properties roleConfig(String host, Integer port, String serviceRole) {
+        String restUrl = String.format(SERVICE_CONFIG, host, port);
+        Map<String, Object> param = Maps.newHashMap();
+        param.put("serviceRole", serviceRole);
+        RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
+        Properties roleConf = new Properties();
+        if (result.getCode() == 0) {
+            roleConf = JSON.parseObject(JSON.toJSONString(result.getData()), Properties.class);
+        }
+        return roleConf;
     }
 }

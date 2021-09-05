@@ -49,6 +49,9 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
     @Autowired
     private AgentRepository agentRepository;
 
+    @Autowired
+    private AgentCache agentCache;
+
     @Override
     public void run(ApplicationArguments args) throws Exception {
         this.scheduler.scheduleWithFixedDelay(() -> {
@@ -76,6 +79,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
             if (diff > HEALTH_TIME) {
                 agent.setStatus(AgentStatus.STOP.name());
                 agentRepository.save(agent);
+                agentCache.putAgent(agent);
                 log.warn("agent {} is unhealthly", agent.getHost());
             }
         }

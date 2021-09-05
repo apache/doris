@@ -18,10 +18,13 @@
 package org.apache.doris.stack.util;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.stack.constants.Constants;
+import org.apache.doris.stack.exceptions.ServerException;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 /**
@@ -30,8 +33,20 @@ import java.sql.SQLException;
 @Slf4j
 public class JdbcUtil {
 
-    public static Connection getConn(String host, String port, String user, String password, String database) throws ClassNotFoundException, SQLException {
-        Class.forName("com.mysql.jdbc.Driver");
+    static {
+        try {
+            Class.forName("com.mysql.jdbc.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new ServerException("fail to load JDBC driver.");
+        }
+    }
+
+    public static Connection getConnection(String host, Integer port) throws SQLException {
+        String url = "jdbc:mysql://" + host + ":" + port + "?user=" + Constants.DORIS_DEFAULT_QUERY_USER + "&password=" + Constants.DORIS_DEFAULT_QUERY_PASSWORD;
+        return DriverManager.getConnection(url);
+    }
+
+    public static Connection getConnection(String host, Integer port, String user, String password, String database) throws SQLException {
         String url = "jdbc:mysql://" + host + ":" + port + "/" + database + "?user=" + user + "&password=" + password;
         return DriverManager.getConnection(url);
     }
@@ -68,6 +83,16 @@ public class JdbcUtil {
             }
         } catch (SQLException e) {
             log.error("close statement error:", e);
+        }
+    }
+
+    public static void closeRs(ResultSet rs) {
+        try {
+            if (rs != null) {
+                rs.close();
+            }
+        } catch (SQLException e) {
+            log.error("close resultset error:", e);
         }
     }
 }

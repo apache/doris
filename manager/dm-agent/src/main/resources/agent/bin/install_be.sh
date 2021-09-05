@@ -24,19 +24,16 @@ OPTS=$(getopt \
   -o '' \
   -l 'url:' \
   -l 'installDir:' \
-  -l 'mkBeStorageDir' \
   -- "$@")
 
 eval set -- "$OPTS"
 
 URL=
 DORIS_HOME=
-MKDIR_BE_STORAGE_DIR=0
 while true; do
     case "$1" in
         --url) URL=$2 ; shift 2;;
         --installDir) DORIS_HOME=$2 ; shift 2;;
-        --mkBeStorageDir) MKDIR_BE_STORAGE_DIR=1 ; shift ;;
         --) shift ;  break ;;
         *) echo "Internal error" ; exit 1 ;;
     esac
@@ -60,9 +57,4 @@ wget  $URL -O doris-be.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
 tar -zxvf doris-be.tar.gz -C $DORIS_HOME
-if [ $? -ne 0 ] ;then exit 1;fi
-
-if [[ ${MKDIR_BE_STORAGE_DIR} -eq 1 ]] && [[ ! -d "$DORIS_HOME/storage" ]]; then
-  mkdir $DORIS_HOME/storage
-fi
 if [ $? -ne 0 ] ;then exit 1;fi
