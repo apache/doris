@@ -24,7 +24,7 @@ mkdir -p output/
 mvn clean install
 mv manager-server/target/manager-server-1.0.0.jar output/doris-manager.jar
 cp -r conf output/
-cp manager-bin/* output/
+cp -r manager-bin/* output/
 
 mkdir -p output/agent/lib
-mv dm-agent/target/dm-agent-1.0.0.jar /output/agent/lib/dm-agent-1.0.0.jar
+mv dm-agent/target/dm-agent-1.0.0.jar output/agent/lib/dm-agent.jar
