@@ -53,6 +53,5 @@ public class DeployConfig {
     public void setConf(String conf) {
         this.conf = conf;
     }
-
-
+    
 }
