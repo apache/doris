@@ -33,8 +33,8 @@ import java.util.List;
  *  case false or expr ==> expr
  *  case expr or false ==> expr
  *
- *  case false or expr ==> false
- *  case expr or false ==> false
+ *  case false and expr ==> false
+ *  case expr and false ==> false
  *  case true or expr ==> true
  *  case expr or true ==> true
  */
