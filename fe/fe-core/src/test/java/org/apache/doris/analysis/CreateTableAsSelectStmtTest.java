@@ -60,7 +60,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"varchar_table\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");";
@@ -72,7 +72,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"decimal_table\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");";
@@ -84,7 +84,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"join_table\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");";
@@ -131,7 +131,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
@@ -149,7 +149,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet1.getResultRows().get(0).get(1));
@@ -164,7 +164,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`_col0`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet2.getResultRows().get(0).get(1));
@@ -182,7 +182,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`amount`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet1.getResultRows().get(0).get(1));
@@ -196,7 +196,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet2.getResultRows().get(0).get(1));
@@ -217,7 +217,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
@@ -238,7 +238,7 @@ public class CreateTableAsSelectStmtTest {
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet.getResultRows().get(0).get(1));
