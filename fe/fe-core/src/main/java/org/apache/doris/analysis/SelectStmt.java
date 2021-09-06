@@ -188,7 +188,7 @@ public class SelectStmt extends QueryStmt {
     }
 
     @Override
-    public SelectStmt clone() {
+    public QueryStmt clone() {
         return new SelectStmt(this);
     }
 
