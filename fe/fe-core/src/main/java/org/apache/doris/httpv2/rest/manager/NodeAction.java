@@ -109,7 +109,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/frontends");
+        return fetchNodeInfo(request, response, "/frontends");
     }
 
     // Returns all be information, similar to 'show backends'.
@@ -118,7 +118,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/backends");
+        return fetchNodeInfo(request, response, "/backends");
     }
 
     // Returns all broker information, similar to 'show broker'.
@@ -127,7 +127,7 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        return fetchNodeInfo("/brokers");
+        return fetchNodeInfo(request, response, "/brokers");
     }
 
     // {
@@ -140,7 +140,12 @@ public class NodeAction extends RestBaseController {
     //		    ]
     //	    ]
     // }
-    private Object fetchNodeInfo(String procPath) throws AnalysisException {
+    private Object fetchNodeInfo(HttpServletRequest request, HttpServletResponse response, String procPath)
+            throws AnalysisException {
+        if (!Catalog.getCurrentCatalog().isMaster()) {
+            return redirectToMaster(request, response);
+        }
+
         try {
             ProcResult procResult = ProcService.getInstance().open(procPath).fetchResult();
             List<String> columnNames = Lists.newArrayList(procResult.getColumnNames());
@@ -202,7 +207,7 @@ public class NodeAction extends RestBaseController {
         return ResponseEntityBuilder.ok(result);
     }
 
-    // Return all living fe and be nodes.
+    // Return all fe and be nodes.
     // {
     //		"frontend": [
     //			"host:httpPort"
@@ -224,13 +229,13 @@ public class NodeAction extends RestBaseController {
 
     private static List<String> getFeList() {
         return Catalog.getCurrentCatalog().getFrontends(null)
-                .stream().filter(Frontend::isAlive)
+                .stream()
                 .map(fe -> fe.getHost() + ":" + Config.http_port)
                 .collect(Collectors.toList());
     }
 
     private static List<String> getBeList() {
-        return Catalog.getCurrentSystemInfo().getBackendIds(true)
+        return Catalog.getCurrentSystemInfo().getBackendIds(false)
                 .stream().map(beId -> {
                     Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
                     return be.getHost() + ":" + be.getHttpPort();
