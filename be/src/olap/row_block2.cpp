@@ -108,5 +108,14 @@ std::string RowBlockRow::debug_string() const {
     ss << "]";
     return ss.str();
 }
-
+std::string RowBlockV2::debug_string() {
+    std::stringstream ss;
+    for (int i = 0; i < num_rows(); ++i) {
+        ss << row(i).debug_string();
+        if (i != num_rows() - 1) {
+            ss << "\n";
+       }
+    }
+    return ss.str();
+}
 } // namespace doris

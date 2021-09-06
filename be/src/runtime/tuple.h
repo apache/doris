@@ -58,7 +58,7 @@ public:
         return result;
     }
 
-    void init(int size) { bzero(this, size); }
+    void init(int size) { bzero(_data, size); }
 
     // The total size of all data represented in this tuple (tuple data and referenced
     // string and collection data).
@@ -120,69 +120,68 @@ public:
     // this is a no-op (but we don't have to branch to check is slots are nulalble).
     void set_null(const NullIndicatorOffset& offset) {
         //DCHECK(offset.bit_mask != 0);
-        char* null_indicator_byte = reinterpret_cast<char*>(this) + offset.byte_offset;
+        char* null_indicator_byte = &_data[offset.byte_offset];
         *null_indicator_byte |= offset.bit_mask;
     }
 
     // Turn null indicator bit off.
     void set_not_null(const NullIndicatorOffset& offset) {
-        char* null_indicator_byte = reinterpret_cast<char*>(this) + offset.byte_offset;
+        char* null_indicator_byte = &_data[offset.byte_offset];
         *null_indicator_byte &= ~offset.bit_mask;
     }
 
     bool is_null(const NullIndicatorOffset& offset) const {
-        const char* null_indicator_byte = reinterpret_cast<const char*>(this) + offset.byte_offset;
+        const char* null_indicator_byte = &_data[offset.byte_offset];
         return (*null_indicator_byte & offset.bit_mask) != 0;
     }
 
     void* get_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<char*>(this) + offset;
+        return &_data[offset];
     }
 
     const void* get_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const char*>(this) + offset;
+        return &_data[offset];
     }
 
     StringValue* get_string_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<StringValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<StringValue*>(&_data[offset]);
     }
 
     const StringValue* get_string_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
+        return reinterpret_cast<const StringValue*>(&_data[offset]);
     }
 
     CollectionValue* get_collection_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<CollectionValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<CollectionValue*>(&_data[offset]);
     }
 
     const CollectionValue* get_collection_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const CollectionValue*>(reinterpret_cast<const char*>(this) +
-                                                        offset);
+        return reinterpret_cast<const CollectionValue*>(&_data[offset]);
     }
 
     DateTimeValue* get_datetime_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DateTimeValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<DateTimeValue*>(&_data[offset]);
     }
 
     DecimalV2Value* get_decimalv2_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<DecimalV2Value*>(&_data[offset]);
     }
 
-    void* get_data() { return this; }
+    void* get_data() { return _data; }
 
     std::string to_string(const TupleDescriptor& d) const;
     static std::string to_string(const Tuple* t, const TupleDescriptor& d);
 
 private:
-    void* _data;
+    char _data[0];
 };
 
 } // namespace doris

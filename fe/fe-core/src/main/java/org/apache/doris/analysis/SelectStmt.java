@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
@@ -300,14 +301,8 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(tableName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
                 }
-                Database db = analyzer.getCatalog().getDb(dbName);
-                if (db == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-                }
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
+                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+                Table table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -508,7 +503,12 @@ public class SelectStmt extends QueryStmt {
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
-                groupingInfo.substituteGroupingFn(sortInfo.getOrderingExprs(), analyzer);
+                // List of executable exprs in select clause has been substituted, only the unique expr in Ordering
+                // exprs needs to be substituted.
+                // Otherwise, if substitute twice for `Grouping Func Expr`, a null pointer will be reported.
+                List<Expr> orderingExprNotInSelect = sortInfo.getOrderingExprs().stream()
+                        .filter(item -> !resultExprs.contains(item)).collect(Collectors.toList());
+                groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
         analyzeAggregation(analyzer);
@@ -1353,6 +1353,9 @@ public class SelectStmt extends QueryStmt {
                 registerExprId(ref.onClause);
                 exprMap.put(ref.onClause.getId().toString(), ref.onClause);
             }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().collectExprs(exprMap);
+            }
         }
 
         if (whereClause != null) {
@@ -1458,6 +1461,9 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             if (ref.onClause != null) {
                 ref.setOnClause(rewrittenExprMap.get(ref.onClause.getId().toString()));
+            }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().putBackExprs(rewrittenExprMap);
             }
         }
 

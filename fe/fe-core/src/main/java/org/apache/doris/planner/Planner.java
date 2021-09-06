@@ -28,6 +28,7 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
@@ -56,7 +57,7 @@ public class Planner {
 
     private boolean isBlockQuery = false;
 
-    private ArrayList<PlanFragment> fragments = Lists.newArrayList();
+    protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
     private PlannerContext plannerContext;
     private SingleNodePlanner singleNodePlanner;
@@ -101,9 +102,7 @@ public class Planner {
                             }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
-                        // TODO output scale
-                        // int outputScale = slotDesc.getColumn().getType().getScale();
-                        int outputScale = 10;
+                        int outputScale = slotDesc.getColumn().getScale();
                         if (outputScale >= 0) {
                             if (outputScale > expr.getOutputScale()) {
                                 expr.setOutputScale(outputScale);
@@ -167,6 +166,10 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
+        if (VectorizedUtil.isVectorized()) {
+            singleNodePlan.convertToVectoriezd();
+        }
+
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
@@ -225,7 +228,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	if (statement instanceof InsertStmt) {
+	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

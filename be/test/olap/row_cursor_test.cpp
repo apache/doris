@@ -21,6 +21,7 @@
 
 #include "common/object_pool.h"
 #include "olap/row.h"
+#include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
@@ -111,7 +112,7 @@ void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
     column_9->set_name("column_9");
     column_9->set_type("VARCHAR");
     column_9->set_is_nullable(true);
-    column_9->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_9->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_9->set_aggregation("REPLACE");
     column_9->set_is_key(false);
 
@@ -164,7 +165,7 @@ void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
     column_2->set_type("VARCHAR");
     column_2->set_is_key(true);
     column_2->set_is_nullable(true);
-    column_2->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_2->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_2->set_index_length(20);
 
     ColumnPB* column_3 = tablet_schema_pb.add_column();
@@ -242,7 +243,7 @@ void set_tablet_schema_for_cmp_and_aggregate(TabletSchema* tablet_schema) {
     column_6->set_name("column_6");
     column_6->set_type("VARCHAR");
     column_6->set_is_nullable(true);
-    column_6->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_6->set_length(16 + OLAP_VARCHAR_MAX_BYTES);
     column_6->set_aggregation("REPLACE");
     column_6->set_is_key(false);
 
@@ -310,8 +311,11 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     scan_keys.push_back("char_exceed_length");
     scan_keys.push_back("varchar_exceed_length");
 
+    std::vector<uint32_t> columns{0, 1};
+    std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
+
     RowCursor row;
-    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys);
+    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys, schema);
     ASSERT_EQ(res, OLAP_SUCCESS);
     ASSERT_EQ(row.get_fixed_len(), 34);
     ASSERT_EQ(row.get_variable_len(), 39);

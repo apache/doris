@@ -34,6 +34,8 @@ class Field;
 // 代理一行数据的操作
 class RowCursor {
 public:
+    static const int DEFAULT_TEXT_LENGTH = 128;
+
     RowCursor();
 
     // 遍历销毁field指针
@@ -54,6 +56,10 @@ public:
     // 用传入的key的size来初始化
     // 目前仅用在拆分key区间的时候
     OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
+
+    OLAPStatus init_scan_key(const TabletSchema& schema,
+                             const std::vector<std::string>& keys,
+                             const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
     OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
@@ -143,8 +149,14 @@ public:
     char* row_ptr() const { return _fixed_buf; }
 
 private:
+    OLAPStatus _init(const std::vector<uint32_t>& columns);
+    OLAPStatus _init(const std::shared_ptr<Schema>& shared_schema,
+                     const std::vector<uint32_t>& columns);
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
+    inline OLAPStatus _alloc_buf();
+
+    OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
 
     std::unique_ptr<Schema> _schema;
 
@@ -154,6 +166,8 @@ private:
 
     char* _variable_buf = nullptr;
     size_t _variable_len;
+    size_t _string_field_count;
+    char** _long_text_buf;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };

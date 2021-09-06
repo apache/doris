@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAggregateExpr;
@@ -42,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,8 +52,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
-
+import java.text.StringCharacterIterator;
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -72,6 +76,13 @@ public class FunctionCallExpr extends Expr {
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
+    //use to record the num of json_object parameters 
+    private int originChildSize;
+    // Save the functionCallExpr in the original statement
+    private Expr originStmtFnExpr;
+
+    private boolean isRewrote = false;
+    
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -82,6 +93,10 @@ public class FunctionCallExpr extends Expr {
 
     public FunctionName getFnName() {
         return fnName;
+    }
+
+    public FunctionParams getFnParams() {
+        return fnParams;
     }
 
     // only used restore from readFields.
@@ -113,6 +128,7 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = isMergeAggFn;
         if (params.exprs() != null) {
             children.addAll(params.exprs());
+            originChildSize = children.size();
         }
     }
 
@@ -150,6 +166,31 @@ public class FunctionCallExpr extends Expr {
         fn = other.fn;
     }
 
+    public String parseJsonDataType(boolean useKeyCheck) throws AnalysisException {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < children.size(); ++i) {
+            Type type = getChild(i).getType();
+            if (type.isNull()) { //Not to return NULL directly, so save string, but flag is '0'
+                if (((i & 1) == 0) && useKeyCheck == true) {
+                    throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
+                }
+                children.set(i, new StringLiteral("NULL"));
+                sb.append("0");
+            } else if (type.isBoolean()) {
+                sb.append("1");
+            } else if (type.isFixedPointType()) {
+                sb.append("2");
+            } else if (type.isFloatingPointType() || type.isDecimalV2()) {
+                sb.append("3");
+            } else if (type.isTime()) {
+                sb.append("4");
+            } else {
+                sb.append("5");
+            }
+        }
+        return sb.toString();
+    }
+
     public boolean isMergeAggFn() {
         return isMergeAggFn;
     }
@@ -184,15 +225,35 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
         StringBuilder sb = new StringBuilder();
-        sb.append(fnName).append("(");
-        if (fnParams.isStar()) {
+        sb.append(((FunctionCallExpr) expr).fnName).append("(");
+        if (((FunctionCallExpr) expr).fnParams.isStar()) {
             sb.append("*");
         }
-        if (fnParams.isDistinct()) {
+        if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
             sb.append("DISTINCT ");
+        }  
+        boolean isJsonFunction = false;
+        int len = children.size();
+        List<String> result = Lists.newArrayList();
+        if ((fnName.getFunction().equalsIgnoreCase("json_array")) ||
+            (fnName.getFunction().equalsIgnoreCase("json_object"))) {
+            len = len - 1;
+            isJsonFunction = true;
         }
-        sb.append(Joiner.on(", ").join(childrenToSql())).append(")");
+        for (int i = 0; i < len; ++i) {
+            result.add(children.get(i).toSql());
+        }
+        sb.append(Joiner.on(", ").join(result)).append(")");
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
+            return forJSON(sb.toString());
+        }
         return sb.toString();
     }
 
@@ -301,6 +362,25 @@ public class FunctionCallExpr extends Expr {
                 if (child.type.isOnlyMetricType()) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
+            }
+            return;
+        }
+        
+        if(fnName.getFunction().equalsIgnoreCase("json_array")) {
+            String res = parseJsonDataType(false);
+            if (children.size() == originChildSize) {
+                children.add(new StringLiteral(res));
+            }
+            return;
+        }
+
+        if(fnName.getFunction().equalsIgnoreCase("json_object")) {
+            if ((children.size()&1) == 1 && (originChildSize == children.size())) {
+                throw new AnalysisException("json_object can't be odd parameters, need even parameters: " + this.toSql());
+            }
+            String res = parseJsonDataType(true);
+            if (children.size() == originChildSize) {
+                children.add(new StringLiteral(res));
             }
             return;
         }
@@ -443,6 +523,16 @@ public class FunctionCallExpr extends Expr {
             fnParams.setIsDistinct(false);
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("percentile")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("percentile(expr, DOUBLE) requires two parameters");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException("percentile requires second parameter must be a constant : "
+                        + this.toSql());
+            }
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("percentile_approx")) {
             if (children.size() != 2 && children.size() != 3) {
                 throw new AnalysisException("percentile_approx(expr, DOUBLE [, B]) requires two or three parameters");
@@ -482,6 +572,7 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
+
     }
 
     // Provide better error message for some aggregate builtins. These can be
@@ -563,7 +654,11 @@ public class FunctionCallExpr extends Expr {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
             }
-            Type type = getChild(0).type.getMaxResolutionType();
+            // Prevent the cast type in vector exec engine
+            Type type = getChild(0).type;
+            if (!VectorizedUtil.isVectorized()) {
+                type = getChild(0).type.getMaxResolutionType();
+            }
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
@@ -601,10 +696,10 @@ public class FunctionCallExpr extends Expr {
                             ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                     }
-                    Database db = Catalog.getCurrentCatalog().getDb(dbName);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbName);
                     if (db != null) {
                         Function searchDesc = new Function(
-                                fnName, collectChildReturnTypes(), Type.INVALID, false);
+                                fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
                         fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                     }
                 }
@@ -729,6 +824,75 @@ public class FunctionCallExpr extends Expr {
         }
     }
 
+    /**
+     * rewrite alias function to real function
+     * reset function name, function params and it's children to real function's
+     * @return
+     * @throws AnalysisException
+     */
+    public Expr rewriteExpr() throws AnalysisException {
+        if (isRewrote) {
+            return this;
+        }
+        // clone a new functionCallExpr to rewrite
+        FunctionCallExpr retExpr = (FunctionCallExpr) clone();
+        // clone origin function call expr in origin stmt
+        retExpr.originStmtFnExpr = clone();
+        // clone alias function origin expr for alias
+        FunctionCallExpr oriExpr = (FunctionCallExpr) ((AliasFunction) retExpr.fn).getOriginFunction().clone();
+        // reset fn name
+        retExpr.fnName = oriExpr.getFnName();
+        // reset fn params
+        List<Expr> inputParamsExprs = retExpr.fnParams.exprs();
+        List<String> parameters = ((AliasFunction) retExpr.fn).getParameters();
+        Preconditions.checkArgument(inputParamsExprs.size() == parameters.size(),
+                "Alias function [" + retExpr.fn.getFunctionName().getFunction() + "] args number is not equal to it's definition");
+        List<Expr> oriParamsExprs = oriExpr.fnParams.exprs();
+
+        // replace origin function params exprs' with input params expr depending on parameter name
+        for (int i = 0; i < oriParamsExprs.size(); i++) {
+            Expr expr = replaceParams(parameters, inputParamsExprs, oriParamsExprs.get(i));
+            oriParamsExprs.set(i, expr);
+        }
+
+        retExpr.fnParams = new FunctionParams(oriExpr.fnParams.isDistinct(), oriParamsExprs);
+
+        // reset children
+        retExpr.children.clear();
+        retExpr.children.addAll(oriExpr.getChildren());
+        retExpr.isRewrote = true;
+        return retExpr;
+    }
+
+    /**
+     * replace origin function expr and it's children with input params exprs depending on parameter name
+     * @param parameters
+     * @param inputParamsExprs
+     * @param oriExpr
+     * @return
+     * @throws AnalysisException
+     */
+    private Expr replaceParams(List<String> parameters, List<Expr> inputParamsExprs, Expr oriExpr) throws AnalysisException {
+        for (int i = 0; i < oriExpr.getChildren().size(); i++) {
+            Expr retExpr = replaceParams(parameters, inputParamsExprs, oriExpr.getChild(i));
+            oriExpr.setChild(i, retExpr);
+        }
+        if (oriExpr instanceof SlotRef) {
+            String columnName = ((SlotRef) oriExpr).getColumnName();
+            int index = parameters.indexOf(columnName);
+            if (index != -1) {
+                return inputParamsExprs.get(index);
+            }
+        }
+        // Initialize literalExpr without type information, because literalExpr does not save type information
+        // when it is persisted, so after fe restart, read the image,
+        // it will be missing type and report an error during analyze.
+        if (oriExpr instanceof LiteralExpr && oriExpr.getType().equals(Type.INVALID)) {
+            oriExpr = LiteralExpr.init((LiteralExpr) oriExpr);
+        }
+        return oriExpr;
+    }
+
     @Override
     public boolean isVectorized() {
         return false;
@@ -813,4 +977,40 @@ public class FunctionCallExpr extends Expr {
         result = 31 * result + Objects.hashCode(fnParams);
         return result;
     }
+    public String forJSON(String str){
+        final StringBuilder result = new StringBuilder();
+        StringCharacterIterator iterator = new StringCharacterIterator(str);
+        char character = iterator.current();
+        while (character != StringCharacterIterator.DONE){
+          if( character == '\"' ){
+            result.append("\\\"");
+          }
+          else if(character == '\\'){
+            result.append("\\\\");
+          }
+          else if(character == '/'){
+            result.append("\\/");
+          }
+          else if(character == '\b'){
+            result.append("\\b");
+          }
+          else if(character == '\f'){
+            result.append("\\f");
+          }
+          else if(character == '\n'){
+            result.append("\\n");
+          }
+          else if(character == '\r'){
+            result.append("\\r");
+          }
+          else if(character == '\t'){
+            result.append("\\t");
+          }
+          else {
+            result.append(character);
+          }
+          character = iterator.next();
+        }
+        return result.toString();    
+      }
 }

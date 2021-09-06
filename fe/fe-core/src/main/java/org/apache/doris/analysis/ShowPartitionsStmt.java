@@ -109,11 +109,8 @@ public class ShowPartitionsStmt extends ShowStmt {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         table.readLock();
         try {
             // build proc path

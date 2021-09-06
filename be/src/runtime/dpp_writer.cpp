@@ -178,6 +178,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
         }
         case TYPE_VARCHAR: {
         case TYPE_HLL:
+        case TYPE_STRING:
             const StringValue* str_val = (const StringValue*)(item);
             if (UNLIKELY(str_val->ptr == nullptr && str_val->len != 0)) {
                 return Status::InternalError("String value ptr is null");

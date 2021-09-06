@@ -27,6 +27,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+
 /**
  * @author wangcong
  * @version 1.0
@@ -38,11 +40,15 @@ public class CreateTableLikeStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final TableName tableName;
     private final TableName existedTableName;
+    private final ArrayList<String> rollupNames;
+    private final boolean withAllRollup;
 
-    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName) {
+    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
+        this.rollupNames = rollupNames;
+        this.withAllRollup = withAllRollup;
     }
 
     public boolean isIfNotExists() {
@@ -63,6 +69,14 @@ public class CreateTableLikeStmt extends DdlStmt {
 
     public String getExistedTableName() {
         return existedTableName.getTbl();
+    }
+
+    public ArrayList<String> getRollupNames() {
+        return rollupNames;
+    }
+
+    public boolean isWithAllRollup() {
+        return withAllRollup;
     }
 
     @Override

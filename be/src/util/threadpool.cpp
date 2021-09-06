@@ -80,12 +80,20 @@ Status ThreadPoolBuilder::build(std::unique_ptr<ThreadPool>* pool) const {
     return Status::OK();
 }
 
-ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode)
+ThreadPoolToken::ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency)
         : _mode(mode),
           _pool(pool),
           _state(State::IDLE),
           _not_running_cond(&pool->_lock),
-          _active_threads(0) {}
+          _active_threads(0),
+          _max_concurrency(max_concurrency),
+          _num_submitted_tasks(0),
+          _num_unsubmitted_tasks(0) {
+
+    if (max_concurrency == 1 && mode != ThreadPool::ExecutionMode::SERIAL) {
+        _mode = ThreadPool::ExecutionMode::SERIAL;
+    }
+}
 
 ThreadPoolToken::~ThreadPoolToken() {
     shutdown();
@@ -240,6 +248,11 @@ const char* ThreadPoolToken::state_to_string(State s) {
     return "<cannot reach here>";
 }
 
+bool ThreadPoolToken::need_dispatch() {
+    return _state == ThreadPoolToken::State::IDLE 
+        || (_mode == ThreadPool::ExecutionMode::CONCURRENT && _num_submitted_tasks < _max_concurrency);
+}
+
 ThreadPool::ThreadPool(const ThreadPoolBuilder& builder)
         : _name(builder._name),
           _min_threads(builder._min_threads),
@@ -294,6 +307,7 @@ void ThreadPool::shutdown() {
     // wanting to access the ThreadPool. The task's destructors may acquire
     // locks, etc, so this also prevents lock inversions.
     _queue.clear();
+
     std::deque<std::deque<Task>> to_release;
     for (auto* t : _tokens) {
         if (!t->_entries.empty()) {
@@ -336,9 +350,9 @@ void ThreadPool::shutdown() {
     }
 }
 
-std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode) {
+std::unique_ptr<ThreadPoolToken> ThreadPool::new_token(ExecutionMode mode, int max_concurrency) {
     MutexLock unique_lock(&_lock);
-    std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode));
+    std::unique_ptr<ThreadPoolToken> t(new ThreadPoolToken(this, mode, max_concurrency));
     InsertOrDie(&_tokens, t.get());
     return t;
 }
@@ -416,11 +430,22 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     ThreadPoolToken::State state = token->state();
     DCHECK(state == ThreadPoolToken::State::IDLE || state == ThreadPoolToken::State::RUNNING);
     token->_entries.emplace_back(std::move(task));
-    if (state == ThreadPoolToken::State::IDLE || token->mode() == ExecutionMode::CONCURRENT) {
+    // When we need to execute the task in the token, we submit the token object to the queue.
+    // There are currently two places where tokens will be submitted to the queue:
+    // 1. When submitting a new task, if the token is still in the IDLE state, 
+    //    or the concurrency of the token has not reached the online level, it will be added to the queue.
+    // 2. When the dispatch thread finishes executing a task:
+    //    1. If it is a SERIAL token, and there are unsubmitted tasks, submit them to the queue.
+    //    2. If it is a CONCURRENT token, and there are still unsubmitted tasks, and the upper limit of concurrency is not reached,
+    //       then submitted to the queue. 
+    if (token->need_dispatch()) {
         _queue.emplace_back(token);
+        ++token->_num_submitted_tasks;
         if (state == ThreadPoolToken::State::IDLE) {
             token->transition(ThreadPoolToken::State::RUNNING);
         }
+    } else {
+        ++token->_num_unsubmitted_tasks;
     }
     _total_queued_tasks++;
 
@@ -447,7 +472,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
             }
             // If we failed to create a thread, but there are still some other
             // worker threads, log a warning message and continue.
-            LOG(ERROR) << "Thread pool failed to create thread: " << status.to_string();
+            LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
         }
     }
 
@@ -484,9 +509,6 @@ void ThreadPool::dispatch_thread() {
     DCHECK_GT(_num_threads_pending_start, 0);
     _num_threads++;
     _num_threads_pending_start--;
-    // If we are one of the first '_min_threads' to start, we must be
-    // a "permanent" thread.
-    bool permanent = _num_threads <= _min_threads;
 
     // Owned by this worker thread and added/removed from _idle_threads as needed.
     IdleThread me(&_lock);
@@ -495,6 +517,10 @@ void ThreadPool::dispatch_thread() {
         // Note: Status::Aborted() is used to indicate normal shutdown.
         if (!_pool_status.ok()) {
             VLOG_CRITICAL << "DispatchThread exiting: " << _pool_status.to_string();
+            break;
+        }
+
+        if (_num_threads + _num_threads_pending_start > _max_threads) {
             break;
         }
 
@@ -511,21 +537,17 @@ void ThreadPool::dispatch_thread() {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
             });
-            if (permanent) {
-                me.not_empty.wait();
-            } else {
-                if (!me.not_empty.wait_for(_idle_timeout)) {
-                    // After much investigation, it appears that pthread condition variables have
-                    // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
-                    // another thread did in fact signal. Apparently after a timeout there is some
-                    // brief period during which another thread may actually grab the internal mutex
-                    // protecting the state, signal, and release again before we get the mutex. So,
-                    // we'll recheck the empty queue case regardless.
-                    if (_queue.empty()) {
+            if (!me.not_empty.wait_for(_idle_timeout)) {
+                // After much investigation, it appears that pthread condition variables have
+                // a weird behavior in which they can return ETIMEDOUT from timed_wait even if
+                // another thread did in fact signal. Apparently after a timeout there is some
+                // brief period during which another thread may actually grab the internal mutex
+                // protecting the state, signal, and release again before we get the mutex. So,
+                // we'll recheck the empty queue case regardless.
+                if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
                         VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << _idle_timeout.ToMilliseconds() << "ms of idle time.";
                         break;
-                    }
                 }
             }
             continue;
@@ -563,7 +585,9 @@ void ThreadPool::dispatch_thread() {
         ThreadPoolToken::State state = token->state();
         DCHECK(state == ThreadPoolToken::State::RUNNING ||
                state == ThreadPoolToken::State::QUIESCING);
-        if (--token->_active_threads == 0) {
+        --token->_active_threads;
+        --token->_num_submitted_tasks;
+        if (token->_active_threads == 0) {
             if (state == ThreadPoolToken::State::QUIESCING) {
                 DCHECK(token->_entries.empty());
                 token->transition(ThreadPoolToken::State::QUIESCED);
@@ -571,8 +595,16 @@ void ThreadPool::dispatch_thread() {
                 token->transition(ThreadPoolToken::State::IDLE);
             } else if (token->mode() == ExecutionMode::SERIAL) {
                 _queue.emplace_back(token);
+                ++token->_num_submitted_tasks;
+                --token->_num_unsubmitted_tasks;
             }
+        } else if (token->mode() == ExecutionMode::CONCURRENT && token->_num_submitted_tasks < token->_max_concurrency
+                && token->_num_unsubmitted_tasks > 0) {
+            _queue.emplace_back(token);
+            ++token->_num_submitted_tasks;
+            --token->_num_unsubmitted_tasks;
         }
+
         if (--_active_threads == 0) {
             _idle_cond.notify_all();
         }
@@ -608,6 +640,53 @@ void ThreadPool::check_not_pool_thread_unlocked() {
                 "name '$1' called pool function that would result in deadlock",
                 _name, current->name());
     }
+}
+
+Status ThreadPool::set_min_threads(int min_threads) {
+    MutexLock unique_lock(&_lock);
+    if (min_threads > _max_threads) {
+        // min threads can not be set greater than max threads
+        return Status::InternalError("set thread pool min_threads failed");
+    }
+
+    _min_threads = min_threads;
+    if (min_threads > _num_threads + _num_threads_pending_start) {
+        int addition_threads = min_threads - _num_threads - _num_threads_pending_start;
+        _num_threads_pending_start += addition_threads;
+        for (int i = 0; i < addition_threads; i++) {
+            Status status = create_thread();
+            if (!status.ok()) {
+                _num_threads_pending_start--;
+                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                return status;
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status ThreadPool::set_max_threads(int max_threads) {
+    MutexLock unique_lock(&_lock);
+    if (_min_threads > max_threads) {
+        // max threads can not be set less than min threads
+        return Status::InternalError("set thread pool max_threads failed");
+    }
+
+    _max_threads = max_threads;
+    if (_max_threads > _num_threads + _num_threads_pending_start) {
+        int addition_threads = _max_threads - _num_threads - _num_threads_pending_start;
+        addition_threads = std::min(addition_threads, _total_queued_tasks);
+        _num_threads_pending_start += addition_threads;
+        for (int i = 0; i < addition_threads; i++) {
+            Status status = create_thread();
+            if (!status.ok()) {
+                _num_threads_pending_start--;
+                LOG(WARNING) << "Thread pool failed to create thread: " << status.to_string();
+                return status;
+            }
+        }
+    }
+    return Status::OK();
 }
 
 std::ostream& operator<<(std::ostream& o, ThreadPoolToken::State s) {

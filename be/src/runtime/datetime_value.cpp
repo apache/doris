@@ -28,19 +28,15 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-
 const uint64_t log_10_int[] = {1,           10,           100,           1000,
                                10000UL,     100000UL,     1000000UL,     10000000UL,
                                100000000UL, 1000000000UL, 10000000000UL, 100000000000UL};
 
 static int s_days_in_month[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-static const char* s_month_name[] = {"",        "January",  "February", "March",  "April",
-                                     "May",     "June",     "July",     "August", "September",
-                                     "October", "November", "December", NULL};
+
 static const char* s_ab_month_name[] = {"",    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
-static const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                   "Friday", "Saturday", "Sunday",    NULL};
+
 static const char* s_ab_day_name[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", NULL};
 
 uint8_t mysql_week_mode(uint32_t mode) {
@@ -341,7 +337,7 @@ bool DateTimeValue::from_time_int64(int64_t value) {
     return true;
 }
 
-char* DateTimeValue::append_date_string(char* to) const {
+char* DateTimeValue::append_date_buffer(char* to) const {
     uint32_t temp;
     // Year
     temp = _year / 100;
@@ -361,7 +357,7 @@ char* DateTimeValue::append_date_string(char* to) const {
     return to;
 }
 
-char* DateTimeValue::append_time_string(char* to) const {
+char* DateTimeValue::append_time_buffer(char* to) const {
     if (_neg) {
         *to++ = '-';
     }
@@ -396,42 +392,38 @@ char* DateTimeValue::append_time_string(char* to) const {
     return to;
 }
 
-char* DateTimeValue::to_datetime_string(char* to) const {
-    to = append_date_string(to);
+char* DateTimeValue::to_datetime_buffer(char* to) const {
+    to = append_date_buffer(to);
     *to++ = ' ';
-    to = append_time_string(to);
-    *to++ = '\0';
-    return to;
+    return append_time_buffer(to);
 }
 
-char* DateTimeValue::to_date_string(char* to) const {
-    to = append_date_string(to);
-    *to++ = '\0';
-    return to;
+char* DateTimeValue::to_date_buffer(char* to) const {
+    return append_date_buffer(to);
 }
 
-char* DateTimeValue::to_time_string(char* to) const {
-    to = append_time_string(to);
-    *to++ = '\0';
-    return to;
+char* DateTimeValue::to_time_buffer(char* to) const {
+    return append_time_buffer(to);
+}
+
+int32_t DateTimeValue::to_buffer(char* buffer) const {
+    switch (_type) {
+        case TIME_TIME:
+            return to_time_buffer(buffer) - buffer;
+        case TIME_DATE:
+            return to_date_buffer(buffer) - buffer;
+        case TIME_DATETIME:
+            return to_datetime_buffer(buffer) - buffer;
+        default:
+            break;
+    }
+    return 0;
 }
 
 char* DateTimeValue::to_string(char* to) const {
-    switch (_type) {
-    case TIME_TIME:
-        to = to_time_string(to);
-        break;
-    case TIME_DATE:
-        to = to_date_string(to);
-        break;
-    case TIME_DATETIME:
-        to = to_datetime_string(to);
-        break;
-    default:
-        *to++ = '\0';
-        break;
-    }
-    return to;
+    int len = to_buffer(to);
+    *(to + len) = '\0';
+    return to + len + 1;
 }
 
 int64_t DateTimeValue::to_datetime_int64() const {
@@ -1150,7 +1142,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
                 date_part_used = true;
                 break;
             case 'M':
-                int_value = check_word(s_month_name, val, val_end, &val);
+                int_value = check_word(const_cast<const char**>(s_month_name), val, val_end, &val);
                 if (int_value < 0) {
                     return false;
                 }
@@ -1245,7 +1237,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
                 break;
                 // Weekday
             case 'W':
-                int_value = check_word(s_day_name, val, val_end, &val);
+                int_value = check_word(const_cast<const char**>(s_day_name), val, val_end, &val);
                 if (int_value < 0) {
                     return false;
                 }
@@ -1440,7 +1432,7 @@ bool DateTimeValue::from_date_format_str(const char* format, int format_len, con
             (!strict_week_number && strict_week_number_year >= 0)) {
             return false;
         }
-        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : _year, 1, 1);
+        uint64_t days = calc_daynr(strict_week_number ? strict_week_number_year : year, 1, 1);
 
         uint8_t weekday_b = calc_weekday(days, sunday_first);
 

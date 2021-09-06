@@ -32,7 +32,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.persist.BatchRemoveTransactionsOperation;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TWaitingTxnStatusRequest;
+import org.apache.doris.thrift.TWaitingTxnStatusResult;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
@@ -52,6 +55,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Transaction Manager
@@ -157,6 +161,16 @@ public class GlobalTransactionMgr implements Writable {
             return TransactionStatus.UNKNOWN;
         }
 
+    }
+
+    public Long getTransactionId(long dbId, String label) {
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.getTransactionId(label);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction id by label " + label + " failed", e);
+            return null;
+        }
     }
 
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
@@ -323,23 +337,23 @@ public class GlobalTransactionMgr implements Writable {
 
     // for replay idToTransactionState
     // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
-    public void replayUpsertTransactionState(TransactionState transactionState) {
+    public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
             dbTransactionMgr.replayUpsertTransactionState(transactionState);
         } catch (AnalysisException e) {
-            LOG.warn("replay upsert transaction [" + transactionState.getTransactionId() + "] failed", e);
+            throw new MetaNotFoundException(e);
         }
     }
 
     @Deprecated
     // Use replayBatchDeleteTransactions instead
-    public void replayDeleteTransactionState(TransactionState transactionState) {
+    public void replayDeleteTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
             dbTransactionMgr.replayDeleteTransaction(transactionState);
         } catch (AnalysisException e) {
-            LOG.warn("replay delete transaction [" + transactionState.getTransactionId() + "] failed", e);
+            throw new MetaNotFoundException(e);
         }
     }
 
@@ -361,7 +375,7 @@ public class GlobalTransactionMgr implements Writable {
         for (long dbId : dbIds) {
             List<Comparable> info = new ArrayList<Comparable>();
             info.add(dbId);
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -494,5 +508,41 @@ public class GlobalTransactionMgr implements Writable {
     public void updateDatabaseUsedQuotaData(long dbId, long usedQuotaDataBytes) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.updateDatabaseUsedQuotaData(usedQuotaDataBytes);
+    }
+
+    public TWaitingTxnStatusResult getWaitingTxnStatus(TWaitingTxnStatusRequest request) throws AnalysisException, TimeoutException {
+        long dbId = request.getDbId();
+        int commitTimeoutSec = Config.commit_timeout_second;
+        for (int i = 0; i < commitTimeoutSec; ++i) {
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+            TWaitingTxnStatusResult statusResult = new TWaitingTxnStatusResult();
+            statusResult.status = new TStatus();
+            TransactionStatus txnStatus = null;
+            if (request.isSetTxnId()) {
+                long txnId = request.getTxnId();
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().
+                        getTransactionState(dbId, txnId);
+                if (txnState == null) {
+                    throw new AnalysisException("txn does not exist: " + txnId);
+                }
+                txnStatus = txnState.getTransactionStatus();
+                if (!txnState.getReason().trim().isEmpty()) {
+                    statusResult.status.setErrorMsgsIsSet(true);
+                    statusResult.status.addToErrorMsgs(txnState.getReason());
+                }
+            } else {
+                txnStatus = getLabelState(dbId, request.getLabel());
+            }
+            if (txnStatus == TransactionStatus.UNKNOWN || txnStatus.isFinalStatus()) {
+                statusResult.setTxnStatusId(txnStatus.value());
+                return statusResult;
+            }
+            try {
+                Thread.sleep(1000L);
+            } catch (InterruptedException e) {
+                LOG.info("commit sleep exception.", e);
+            }
+        }
+        throw new TimeoutException("Operation is timeout");
     }
 }

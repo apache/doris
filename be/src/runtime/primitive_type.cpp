@@ -78,6 +78,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
 
+    case TPrimitiveType::STRING:
+        return TYPE_STRING;
+
     case TPrimitiveType::BINARY:
         return TYPE_BINARY;
 
@@ -145,6 +148,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_VARCHAR:
         return TPrimitiveType::VARCHAR;
 
+    case TYPE_STRING:
+        return TPrimitiveType::STRING;
+
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;
 
@@ -211,6 +217,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_VARCHAR:
         return "VARCHAR";
+
+    case TYPE_STRING:
+        return "STRING";
 
     case TYPE_BINARY:
         return "BINARY";
@@ -280,6 +289,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
     case TYPE_VARCHAR:
         return "string";
 
+    case TYPE_STRING:
+        return "string";
+
     case TYPE_BINARY:
         return "binary";
 
@@ -336,6 +348,7 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_HLL:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return sizeof(StringValue);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);

@@ -31,14 +31,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -108,6 +106,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_MAX_BATCH_SIZE = 100 * 1024 * 1024; // 100MB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
+    public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -167,6 +166,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // if current error rate is more than max error rate, the job will be paused
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
+    protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
@@ -283,8 +283,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getExecMemLimit() != -1) {
             this.execMemLimit = stmt.getExecMemLimit();
         }
+        if (stmt.getSendBatchParallelism() > 0) {
+            this.sendBatchParallelism = stmt.getSendBatchParallelism();
+        }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
+        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
+        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
             jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
@@ -395,12 +401,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getDbFullName() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
-
-        return database.getFullName();
+        return Catalog.getCurrentCatalog().getDbOrMetaException(dbId).getFullName();
     }
 
     public long getTableId() {
@@ -408,17 +409,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getTableName() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
-
-        Table table = database.getTable(tableId);
-        if (table == null) {
-            throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
-        }
-        return table.getName();
-
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        return database.getTableOrMetaException(tableId).getName();
     }
 
     public JobState getState() {
@@ -552,6 +544,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public boolean isFuzzyParse() {
         return Boolean.valueOf(jobProperties.get(PROPS_FUZZY_PARSE));
+    }
+
+    @Override
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
     }
 
     @Override
@@ -775,20 +772,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void initPlanner() throws UserException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("db " + dbId + " does not exist");
-        }
-        planner = new StreamLoadPlanner(db, (OlapTable) db.getTable(this.tableId), this);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        planner = new StreamLoadPlanner(db, db.getTableOrMetaException(this.tableId, Table.TableType.OLAP), this);
     }
 
     public TExecPlanFragmentParams plan(TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("db " + dbId + " does not exist");
-        }
-        Table table = db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         table.readLock();
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
@@ -1077,17 +1068,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
     }
 
-    protected static void checkMeta(Database db, String tblName, RoutineLoadDesc routineLoadDesc)
-            throws UserException {
-        Table table = db.getTable(tblName);
-        if (table == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-        }
-
-        if (table.getType() != Table.TableType.OLAP) {
-            throw new AnalysisException("Only olap table support routine load");
-        }
-        
+    protected static void checkMeta(OlapTable olapTable, RoutineLoadDesc routineLoadDesc) throws UserException {
         if (routineLoadDesc == null) {
             return;
         }
@@ -1098,7 +1079,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
         
         // check partitions
-        OlapTable olapTable = (OlapTable) table;
         olapTable.readLock();
         try {
             for (String partName : partitionNames.getPartitionNames()) {
@@ -1197,7 +1177,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public void update() throws UserException {
         // check if db and table exist
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (database == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                              .add("db_id", dbId)
@@ -1216,7 +1196,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // check table belong to database
-        Table table = database.getTable(tableId);
+        Table table = database.getTableNullable(tableId);
         if (table == null) {
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id).add("db_id", dbId)
                              .add("table_id", tableId)
@@ -1267,8 +1247,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected abstract String getStatistic();
 
     public List<String> getShowInfo() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        Table tbl = (db == null) ? null : db.getTable(tableId);
+        Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
+        Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
 
         readLock();
         try {
@@ -1278,8 +1258,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(TimeUtils.longToTimeString(createTimestamp));
             row.add(TimeUtils.longToTimeString(pauseTimestamp));
             row.add(TimeUtils.longToTimeString(endTimestamp));
-            row.add(db == null ? String.valueOf(dbId) : db.getFullName());
-            row.add(tbl == null ? String.valueOf(tableId) : tbl.getName());
+            row.add(database.map(Database::getFullName).orElse(String.valueOf(dbId)));
+            row.add(table.map(Table::getName).orElse(String.valueOf(tableId)));
             row.add(getState().name());
             row.add(dataSourceType.name());
             row.add(String.valueOf(getSizeOfRoutineLoadTaskInfoList()));
@@ -1313,22 +1293,22 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public String getShowCreateInfo() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        Table tbl = (db == null) ? null : db.getTable(tableId);
+        Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
+        Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
         StringBuilder sb = new StringBuilder();
         // 1.job_name
         sb.append("CREATE ROUTINE LOAD ").append(name);
         // 2.tbl_name
-        sb.append(" ON ").append(tbl == null ? String.valueOf(tableId) : tbl.getName()).append("\n");
+        sb.append(" ON ").append(table.map(Table::getName).orElse(String.valueOf(tableId))).append("\n");
         // 3.merge_type
         sb.append("WITH ").append(mergeType.name()).append("\n");
         // 4.load_properties
         // 4.1.column_separator
         if (columnSeparator != null) {
-            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getSeparator()).append("\",\n");
+            sb.append("COLUMNS TERMINATED BY \"").append(columnSeparator.getOriSeparator()).append("\",\n");
         }
         // 4.2.columns_mapping
-        if (columnDescs != null) {
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
             sb.append("COLUMNS(").append(Joiner.on(",").join(columnDescs.descs)).append("),\n");
         }
         // 4.3.where_predicates
@@ -1352,22 +1332,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             sb.append("PRECEDING FILTER ").append(precedingFilter.toSql()).append(",\n");
         }
         // remove the last ,
-        if (",".equals(sb.charAt(sb.length() - 2))) {
+        if (sb.charAt(sb.length() - 2) == ',') {
             sb.replace(sb.length() - 2, sb.length() - 1, "");
         }
-        // 5.job_properties
+        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
+        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY, maxBatchIntervalS, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY, maxBatchRows, false);
         appendProperties(sb, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY, maxBatchSizeBytes, false);
-        appendProperties(sb, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
-        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
-        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
         appendProperties(sb, PROPS_FORMAT, getFormat(), false);
         appendProperties(sb, PROPS_JSONPATHS, getJsonPaths(), false);
         appendProperties(sb, PROPS_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
+        appendProperties(sb, PROPS_NUM_AS_STRING, isNumAsString(), false);
+        appendProperties(sb, PROPS_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, PROPS_JSONROOT, getJsonRoot(), true);
+        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
@@ -1375,13 +1358,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         sb.append("(\n");
         getDataSourceProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
         getCustomProperties().forEach((k, v) -> appendProperties(sb, k, v, false));
-        // remove the last ,
+        if (progress instanceof KafkaProgress) {
+            // append partitions and offsets.
+            // the offsets is the next offset to be consumed.
+            List<Pair<Integer, String>> pairs = ((KafkaProgress) progress).getPartitionOffsetPairs(false);
+            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY,
+                    Joiner.on(", ").join(pairs.stream().map(p -> p.first).toArray()), false);
+            appendProperties(sb, CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY,
+                    Joiner.on(", ").join(pairs.stream().map(p -> p.second).toArray()), false);
+        }
+        // remove the last ","
         sb.replace(sb.length() - 2, sb.length() - 1, "");
         sb.append(");");
         return sb.toString();
     }
 
     private static void appendProperties(StringBuilder sb, String key, Object value, boolean end) {
+        if (value == null || Strings.isNullOrEmpty(value.toString())) {
+            return;
+        }
         sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
         if (!end) {
             sb.append(",\n");
@@ -1391,12 +1386,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public List<String> getShowStatistic() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
 
         List<String> row = Lists.newArrayList();
         row.add(name);
         row.add(String.valueOf(id));
-        row.add(db == null ? String.valueOf(dbId) : db.getFullName());
+        row.add(database.map(Database::getFullName).orElse(String.valueOf(dbId)));
         row.add(getStatistic());
         row.add(getTaskStatistic());
         return row;

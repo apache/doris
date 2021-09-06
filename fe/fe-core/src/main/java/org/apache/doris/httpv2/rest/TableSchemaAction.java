@@ -62,13 +62,10 @@ public class TableSchemaAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
-            }
-            Table table = null;
+            Table table;
             try {
-                table = db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }

@@ -375,4 +375,31 @@ public class CaseExpr extends Expr {
         return false;
     }
 
+    @Override
+    public boolean isNullable() {
+        int loopStart;
+        int loopEnd = children.size();
+        if (hasCaseExpr) {
+            loopStart = 2;
+        } else {
+            loopStart = 1;
+        }
+        if (hasElseExpr) {
+            --loopEnd;
+        }
+        for (int i = loopStart; i < loopEnd; i += 2) {
+            Expr thenExpr = children.get(i);
+            if (thenExpr.isNullable()) {
+                return true;
+            }
+        }
+        if (hasElseExpr) {
+            if (children.get(children.size() - 1).isNullable()) {
+                return true;
+            }
+        } else {
+            return true;
+        }
+        return false;
+    }
 }

@@ -68,10 +68,7 @@ public class DbsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        Database db = catalog.getDb(dbId);
-        if (db == null) {
-            throw new AnalysisException("Database[" + dbId + "] does not exist.");
-        }
+        Database db = catalog.getDbOrAnalysisException(dbId);
 
         return new TablesProcDir(db);
     }
@@ -91,7 +88,7 @@ public class DbsProcDir implements ProcDirInterface {
         // get info
         List<List<Comparable>> dbInfos = new ArrayList<List<Comparable>>();
         for (String dbName : dbNames) {
-            Database db = catalog.getDb(dbName);
+            Database db = catalog.getDbNullable(dbName);
             if (db == null) {
                 continue;
             }

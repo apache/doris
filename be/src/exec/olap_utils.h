@@ -70,6 +70,7 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return compare_large<StringValue>;
 
     default:

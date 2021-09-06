@@ -59,8 +59,14 @@ Intermediate Type: NULL
     Function Type: Aggregate
 Intermediate Type: NULL
        Properties: {"object_file":"http://host:port/libudasample.so","finalize_fn":"_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE","init_fn":"_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE","merge_fn":"_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_","md5":"37d185f80f95569e2676da3d5b5b9d2f","update_fn":"_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE"}
+*************************** 3. row ***************************
+        Signature: id_masking(INT)
+      Return Type: VARCHAR
+    Function Type: Alias
+Intermediate Type: NULL
+       Properties: {"parameter":"id","origin_function":"concat(left(`id`, 3), `****`, right(`id`, 4))"}
 
-2 rows in set (0.00 sec)
+3 rows in set (0.00 sec)
 mysql> show builtin functions in testDb like 'year%';
 +---------------+
 | Function Name |

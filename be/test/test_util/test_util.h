@@ -17,7 +17,12 @@
 
 #pragma once
 
+#include <chrono>
+#include <cstdlib>
+#include <random>
 #include <string>
+
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -35,5 +40,12 @@ std::string GetCurrentRunningDir();
 
 // Initialize config file.
 void InitConfig();
+
+bool equal_ignore_case(std::string lhs, std::string rhs);
+
+int rand_rng_int(int l, int r);
+char rand_rng_char();
+std::string rand_rng_string(size_t length = 8);
+std::string rand_rng_by_type(FieldType fieldType);
 
 } // namespace doris

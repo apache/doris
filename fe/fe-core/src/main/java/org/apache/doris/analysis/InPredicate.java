@@ -68,19 +68,19 @@ public class InPredicate extends Predicate {
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_ITERATE,
-                    Lists.newArrayList(t, t), true, Type.BOOLEAN,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_iterate", null, null, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
-                    Lists.newArrayList(t, t), true, Type.BOOLEAN,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_iterate", null, null, false));
 
             String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
             String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
-                    Lists.newArrayList(t, t), true, Type.BOOLEAN,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
-                    Lists.newArrayList(t, t), true, Type.BOOLEAN,
+                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
 
         }

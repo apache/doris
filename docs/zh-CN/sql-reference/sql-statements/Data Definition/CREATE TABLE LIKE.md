@@ -28,7 +28,7 @@ under the License.
 
 ## description
 
-该语句用于创建一个表结构和另一张表完全相同的空表。
+该语句用于创建一个表结构和另一张表完全相同的空表，同时也能够可选复制一些rollup。
 语法：
 
 ```
@@ -39,6 +39,7 @@ under the License.
     1. 复制的表结构包括Column Definition、Partitions、Table Properties等
     2. 用户需要对复制的原表有`SELECT`权限
     3. 支持复制MySQL等外表
+    4. 支持复制OLAP Table的rollup
 
 ## Example
     1. 在test1库下创建一张表结构和table1相同的空表，表名为table2
@@ -49,7 +50,23 @@ under the License.
 
         CREATE TABLE test2.table2 LIKE test1.table1
 
-    3. 在test1库下创建一张表结构和MySQL外表table1相同的空表，表名为table2
+    3. 在test1库下创建一张表结构和table1相同的空表，表名为table2，同时复制table1的r1，r2两个rollup
+
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+
+    4. 在test1库下创建一张表结构和table1相同的空表，表名为table2，同时复制table1的所有rollup
+
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP ALL
+
+    5. 在test2库下创建一张表结构和test1.table1相同的空表，表名为table2，同时复制table1的r1，r2两个rollup
+
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+
+    6. 在test2库下创建一张表结构和test1.table1相同的空表，表名为table2，同时复制table1的所有rollup
+
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP ALL
+
+    7. 在test1库下创建一张表结构和MySQL外表table1相同的空表，表名为table2
 
         CREATE TABLE test1.table2 LIKE test1.table1
 

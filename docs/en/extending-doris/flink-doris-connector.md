@@ -26,7 +26,7 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector can support reading data stored in Doris through Flink.
+Flink Doris Connector can support read and write data stored in Doris through Flink.
 
 - You can map the `Doris` table to` DataStream` or `Table`.
 
@@ -35,11 +35,32 @@ Flink Doris Connector can support reading data stored in Doris through Flink.
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
+| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
 
+**For Flink 1.13.x version adaptation issues**
+
+```xml
+     <properties>
+         <scala.version>2.12</scala.version>
+         <flink.version>1.11.2</flink.version>
+         <libthrift.version>0.9.3</libthrift.version>
+         <arrow.version>0.15.1</arrow.version>
+         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+         <doris.home>${basedir}/../../</doris.home>
+         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+     </properties>
+```
+
+Just change the `flink.version` here to be the same as your Flink cluster version, and edit again
 
 ## Build and Install
 
 Execute following command in dir `extension/flink-doris-connector/`:
+
+**Notice:**
+
+1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
+2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
 
 ```bash
 sh build.sh
@@ -131,6 +152,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 | sink.batch.size                        | 100            | Maximum number of lines in a single write BE                                             |
 | sink.max-retries                        | 1            | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 1s            | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 1 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
+| sink.properties.*     | --               | The stream load parameters.eg:sink.properties.column_separator' = ','. |
 
 
 ## Doris & Flink Column Type Mapping

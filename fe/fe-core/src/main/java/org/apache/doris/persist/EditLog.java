@@ -26,19 +26,21 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeyHelper;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.EncryptKey;
-import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -59,6 +61,7 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -192,11 +195,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = catalog.getDb(info.getDbId());
-                    if (db == null) {
-                        LOG.warn("failed to get db[{}]", info.getDbId());
-                        break;
-                    }
+                    Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
                             + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
@@ -427,6 +426,11 @@ public class EditLog {
                     Catalog.getCurrentSystemInfo().replayDropBackend(be);
                     break;
                 }
+                case OperationType.OP_MODIFY_BACKEND: {
+                    Backend be = (Backend) journal.getData();
+                    Catalog.getCurrentSystemInfo().replayModifyBackend(be);
+                    break;
+                }
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().updateBackendState(be);
@@ -483,6 +487,11 @@ public class EditLog {
                 case OperationType.OP_SET_PASSWORD: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     catalog.getAuth().replaySetPassword(privInfo);
+                    break;
+                }
+                case OperationType.OP_SET_LDAP_PASSWORD: {
+                    LdapInfo ldapInfo = (LdapInfo) journal.getData();
+                    catalog.getAuth().replaySetLdapPassword(ldapInfo);
                     break;
                 }
                 case OperationType.OP_CREATE_ROLE: {
@@ -710,6 +719,16 @@ public class EditLog {
                     catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
+                case OperationType.OP_CREATE_SYNC_JOB: {
+                    SyncJob syncJob = (SyncJob) journal.getData();
+                    catalog.getSyncJobManager().replayAddSyncJob(syncJob);
+                    break;
+                }
+                case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
+                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
+                    catalog.getSyncJobManager().replayUpdateSyncJobState(info);
+                    break;
+                }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                     FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
                     catalog.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
@@ -807,6 +826,11 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_MODIFY_COMMENT: {
+                    ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
+                    catalog.getAlterInstance().replayModifyComment(operation);
+                    break;
+                }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
                     AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
                     catalog.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
@@ -822,12 +846,41 @@ public class EditLog {
                     catalog.getAlterInstance().replayReplaceTable(log);
                     break;
                 }
+                case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayCreate(rule);
+                    break;
+                }
+                case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayAlter(rule);
+                    break;
+                }
+                case OperationType.OP_DROP_SQL_BLOCK_RULE: {
+                    DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
                     throw e;
                 }
             }
+        } catch (MetaNotFoundException e) {
+            /**
+             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * 1. Thread 1: get TableA object
+             * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * **The modified edit log is after the dropped edit log**
+             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta like DB.
+             */
+            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
             LOG.error("Operation Type {}", opCode, e);
             System.exit(-1);
@@ -1064,6 +1117,10 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_BACKEND, be);
     }
 
+    public void logModifyBackend(Backend be) {
+        logEdit(OperationType.OP_MODIFY_BACKEND, be);
+    }
+
     public void logAddFrontend(Frontend fe) {
         logEdit(OperationType.OP_ADD_FRONTEND, fe);
     }
@@ -1126,6 +1183,10 @@ public class EditLog {
 
     public void logSetPassword(PrivInfo info) {
         logEdit(OperationType.OP_SET_PASSWORD, info);
+    }
+
+    public void logSetLdapPassword(LdapInfo info) {
+        logEdit(OperationType.OP_SET_LDAP_PASSWORD, info);
     }
 
     public void logCreateRole(PrivInfo info) {
@@ -1326,6 +1387,14 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
+    public void logCreateSyncJob(SyncJob syncJob) {
+        logEdit(OperationType.OP_CREATE_SYNC_JOB, syncJob);
+    }
+
+    public void logUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
+        logEdit(OperationType.OP_UPDATE_SYNC_JOB_STATE, info);
+    }
+
     public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
         logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
     }
@@ -1408,5 +1477,21 @@ public class EditLog {
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
+    }
+
+    public void logModifyComment(ModifyCommentOperationLog op) {
+        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+    }
+
+    public void logCreateSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_CREATE_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logAlterSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_ALTER_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logDropSqlBlockRule(List<String> ruleNames) {
+        logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
     }
 }

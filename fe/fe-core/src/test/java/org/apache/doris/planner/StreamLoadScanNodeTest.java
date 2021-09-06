@@ -340,7 +340,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {{
             catalog.getFunction((Function) any, (Function.CompareMode) any);
-            result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false);
+            result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false, true);
         }};
         
         new Expectations() {
@@ -390,7 +390,7 @@ public class StreamLoadScanNodeTest {
         new Expectations() {
             {
                 catalog.getFunction((Function) any, (Function.CompareMode) any);
-                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
+                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false, true);
                 minTimes = 0;
             }
         };
@@ -692,7 +692,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                db.getTable(anyInt);
+                db.getTableNullable(anyInt);
                 result = dstTable;
                 minTimes = 0;
                 dstTable.hasSequenceCol();
@@ -762,7 +762,7 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                db.getTable(anyInt);
+                db.getTableNullable(anyInt);
                 result = dstTable;
                 minTimes = 0;
                 dstTable.hasSequenceCol();

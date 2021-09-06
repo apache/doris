@@ -442,6 +442,8 @@ int FloatToBuffer(float i, int width, char* buffer);
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 
+int FastDoubleToBuffer(double i, char* buffer);
+int FastFloatToBuffer(float i, char* buffer);
 // In practice, doubles should never need more than 24 bytes and floats
 // should never need more than 14 (including null terminators), but we
 // overestimate to be safe.
@@ -460,6 +462,9 @@ string SimpleItoaWithCommas(int32 i);
 string SimpleItoaWithCommas(uint32 i);
 string SimpleItoaWithCommas(int64 i);
 string SimpleItoaWithCommas(uint64 i);
+
+char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size);
+char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);
 
 // ----------------------------------------------------------------------
 // ItoaKMGT()

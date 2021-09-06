@@ -66,9 +66,9 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
     while (row_idx < block->capacity() && _rows_returned < _num_rows) {
         RowBlockRow row = block->row(row_idx);
 
-        for (int i = 0; i < _schema.columns().size(); ++i) {
+        for (int i = 0; i < _schema.num_columns(); ++i) {
             row.set_is_null(i, false);
-            auto& col_schema = _schema.columns()[i];
+            const auto* col_schema = _schema.column(i);
             switch (col_schema->type()) {
             case OLAP_FIELD_TYPE_SMALLINT:
                 *(int16_t*)row.cell_ptr(i) = _rows_returned + i;
@@ -142,8 +142,6 @@ public:
     // Only when this function return true, current_row()
     // will return a valid row
     bool valid() const { return _valid; }
-
-    int is_partial_delete() const { return _block.delete_state() == DEL_PARTIAL_SATISFIED; }
 
     uint64_t data_id() const { return _iter->data_id(); }
 
@@ -276,10 +274,6 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
         // copy current row to block
         copy_row(&dst_row, ctx->current_row(), block->pool());
 
-        // TODO(hkp): refactor conditions and filter rows here with delete conditions
-        if (ctx->is_partial_delete()) {
-            block->set_delete_state(DEL_PARTIAL_SATISFIED);
-        }
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
             _merge_heap->push(ctx);

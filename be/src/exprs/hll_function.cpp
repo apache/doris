@@ -29,6 +29,10 @@ using doris_udf::StringVal;
 void HllFunctions::init() {}
 
 StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
+    return AnyValUtil::from_string_temp(ctx, hll_hash(input));
+}
+
+std::string HllFunctions::hll_hash(const StringVal& input) {
     HyperLogLog hll;
     if (!input.is_null) {
         uint64_t hash_value = HashUtil::murmur_hash64A(input.ptr, input.len, HashUtil::MURMUR_SEED);
@@ -37,7 +41,8 @@ StringVal HllFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     std::string buf;
     buf.resize(hll.max_serialized_size());
     buf.resize(hll.serialize((uint8_t*)buf.c_str()));
-    return AnyValUtil::from_string_temp(ctx, buf);
+
+    return buf;
 }
 
 void HllFunctions::hll_init(FunctionContext*, StringVal* dst) {
@@ -45,6 +50,7 @@ void HllFunctions::hll_init(FunctionContext*, StringVal* dst) {
     dst->len = sizeof(HyperLogLog);
     dst->ptr = (uint8_t*)new HyperLogLog();
 }
+
 StringVal HllFunctions::hll_empty(FunctionContext* ctx) {
     return AnyValUtil::from_string_temp(ctx, HyperLogLog::empty());
 }

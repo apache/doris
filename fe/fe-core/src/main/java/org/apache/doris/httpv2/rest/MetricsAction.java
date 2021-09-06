@@ -46,7 +46,7 @@ public class MetricsAction {
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
             visitor = new SimpleCoreMetricVisitor("doris_fe");
-        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("agent")) {
+        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
             visitor = new JsonMetricVisitor("doris_fe");
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");

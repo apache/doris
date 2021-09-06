@@ -57,7 +57,7 @@ public class SelectStmtTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
@@ -705,6 +705,25 @@ public class SelectStmtTest {
             SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testSystemViewCaseInsensitive() throws Exception {
+        String sql1 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
+        // The system view names in information_schema are case-insensitive,
+        dorisAssert.query(sql1).explainQuery();
+
+        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA\n";
+        try {
+            // Should not refer to one of system views using different cases within the same statement.
+            // sql2 is wrong because 'ROUTINES' and 'routines' are used.
+            dorisAssert.query(sql2).explainQuery();
+            Assert.fail("Refer to one of system views using different cases within the same statement is wrong.");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
         }
     }
 }

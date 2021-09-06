@@ -67,7 +67,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     const QueryFragmentsCtx* fragments_ctx) {
+                                     QueryFragmentsCtx* fragments_ctx) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
@@ -79,6 +79,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     const TQueryGlobals& query_globals =
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
+    _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
@@ -135,8 +136,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                              _exec_env->process_mem_tracker(), true, false, MemTrackerLevel::TASK);
     _runtime_state->set_fragment_mem_tracker(_mem_tracker);
 
-    LOG(INFO) << "Using query memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
-
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
     // set up desc tbl
@@ -162,6 +161,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
                                     _plan);
     }
 
+
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
     _plan->collect_nodes(TPlanNodeType::EXCHANGE_NODE, &exch_nodes);
@@ -169,7 +169,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_EQ(exch_node->type(), TPlanNodeType::EXCHANGE_NODE);
         int num_senders = find_with_default(params.per_exch_num_senders, exch_node->id(), 0);
         DCHECK_GT(num_senders, 0);
-        static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+        if (_runtime_state->enable_vectorized_exec()) {
+        } else {
+            static_cast<ExchangeNode *>(exch_node)->set_num_senders(num_senders);
+        }
     }
 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
@@ -197,7 +200,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -235,7 +238,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
 Status PlanFragmentExecutor::open() {
     LOG(INFO) << "Open(): fragment_instance_id="
-              << print_id(_runtime_state->fragment_instance_id());
+              << print_id(_runtime_state->fragment_instance_id())
+              << ", Using query memory limit: "
+              << PrettyPrinter::print(_runtime_state->fragment_mem_tracker()->limit(), TUnit::BYTES);
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -249,8 +254,11 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
         _report_thread_active = true;
     }
-
-    Status status = open_internal();
+    Status status = Status::OK();
+    if (_runtime_state->enable_vectorized_exec()) {
+    } else {
+        status = open_internal();
+    }
 
     if (!status.ok() && !status.is_cancelled() && _runtime_state->log_has_space()) {
         // Log error message in addition to returning in Status. Queries that do not
@@ -580,6 +588,7 @@ void PlanFragmentExecutor::close() {
             _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();
         }
+		LOG(INFO) << "Close() fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
     }
 
     // _mem_tracker init failed

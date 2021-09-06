@@ -22,14 +22,16 @@ import org.apache.flink.core.io.InputSplit;
 /**
  * DorisTableInputSplit
  **/
-public class DorisTableInputSplit implements InputSplit, java.io.Serializable{
+public class DorisTableInputSplit implements InputSplit, java.io.Serializable {
 
-    /** The number of the split. */
+    /**
+     * The number of the split.
+     */
     private final int splitNumber;
 
     protected final PartitionDefinition partition;
 
-    public DorisTableInputSplit(int splitNumber,PartitionDefinition partition) {
+    public DorisTableInputSplit(int splitNumber, PartitionDefinition partition) {
         super();
         this.splitNumber = splitNumber;
         this.partition = partition;

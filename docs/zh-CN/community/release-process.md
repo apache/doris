@@ -294,7 +294,7 @@ $ git checkout -b branch-0.9
 1. 下载编译镜像
 
 	```
-	docker pull apache/incubator-doris:build-env-1.2
+	docker pull apache/incubator-doris:build-env-1.3.1
 	```
 
 2. 使用官方文档编译新分支，编译方式见[Docker 开发镜像编译](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -497,12 +497,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3
+$ docker pull apache/incubator-doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3
+$ docker run -it apache/incubator-doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.

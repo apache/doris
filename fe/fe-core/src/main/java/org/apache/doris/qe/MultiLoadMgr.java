@@ -19,13 +19,13 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -91,8 +91,8 @@ public class MultiLoadMgr {
                 throw new LabelAlreadyUsedException(label);
             }
             MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1,
-                    true, false, ConnectContext.get().getClusterName());
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
+                    true, false, ConnectContext.get().getClusterName(), null, null);
             if (backendIds == null) {
                 throw new DdlException("No backend alive.");
             }

@@ -18,7 +18,9 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.Lists;
 
 import org.junit.After;
@@ -59,7 +61,7 @@ public class BatchModifyPartitionsInfoTest {
         List<Long> partitionIds = Lists.newArrayList(PARTITION_ID_1, PARTITION_ID_2, PARTITION_ID_3);
         for (long partitionId : partitionIds) {
             ModifyInfos.add(new ModifyPartitionInfo(DB_ID, TB_ID, partitionId,
-                    DataProperty.DEFAULT_DATA_PROPERTY, (short) 3, true));
+                    DataProperty.DEFAULT_DATA_PROPERTY, ReplicaAllocation.DEFAULT_ALLOCATION, true));
         }
 
         BatchModifyPartitionsInfo batchModifyPartitionsInfo = new BatchModifyPartitionsInfo(ModifyInfos);

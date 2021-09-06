@@ -197,11 +197,7 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
 
@@ -216,7 +212,7 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        this.exportTable = db.getTable(stmt.getTblName().getTbl());
+        this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -225,9 +221,6 @@ public class ExportJob implements Writable {
         exportTable.readLock();
         try {
             this.dbId = db.getId();
-            if (exportTable == null) {
-                throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
-            }
             this.tableId = exportTable.getId();
             this.tableName = stmt.getTblName();
             genExecFragment();
@@ -376,9 +369,7 @@ public class ExportJob implements Writable {
         switch (exportTable.getType()) {
             case OLAP:
                 scanNode = new OlapScanNode(new PlanNodeId(0), exportTupleDesc, "OlapScanNodeForExport");
-                ((OlapScanNode) scanNode).setColumnFilters(Maps.newHashMap());
-                ((OlapScanNode) scanNode).setIsPreAggregation(false, "This an export operation");
-                ((OlapScanNode) scanNode).setCanTurnOnPreAggr(false);
+                ((OlapScanNode) scanNode).closePreAggregation("This an export operation");
                 ((OlapScanNode) scanNode).selectBestRollupByRollupSelector(analyzer);
                 break;
             case ODBC:
@@ -461,7 +452,7 @@ public class ExportJob implements Writable {
             ScanNode scanNode = nodes.get(i);
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
-                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName,
+                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
                     TimeUtils.DEFAULT_TIME_ZONE);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);

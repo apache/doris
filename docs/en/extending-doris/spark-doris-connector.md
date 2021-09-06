@@ -37,14 +37,21 @@ Spark Doris Connector can support reading data stored in Doris through Spark.
 | Connector | Spark | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 2.x   | 0.12+  | 8    | 2.11  |
+| 1.0.0     | 3.x   | 0.12.+ | 8    | 2.12  |
 
 
 ## Build and Install
 
 Execute following command in dir `extension/spark-doris-connector/`:
 
+**Notice:**
+
+1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
+2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
+
 ```bash
-sh build.sh
+sh build.sh 3 ## spark 3.x version, the default is 3.1.2
+sh build.sh 2 ## soark 2.x version, the default is 2.3.4
 ```
 
 After successful compilation, the file `doris-spark-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.

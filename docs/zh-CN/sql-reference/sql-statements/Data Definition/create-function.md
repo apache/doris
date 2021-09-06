@@ -25,30 +25,40 @@ under the License.
 -->
 
 # CREATE FUNCTION
-## description
+## Description
 ### Syntax
 
 ```
-CREATE [AGGREGATE] FUNCTION function_name
+CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
     (arg_type [, ...])
-    RETURNS ret_type
+    [RETURNS ret_type]
     [INTERMEDIATE inter_type]
+    [WITH PARAMETER(param [,...]) AS origin_function]
     [PROPERTIES ("key" = "value" [, ...]) ]
 ```
 
 ### Parameters
 
-> `AGGREGATE`: 如果有此项，表示的是创建的函数是一个聚合函数，否则创建的是一个标量函数。
->
+> `AGGREGATE`: 如果有此项，表示的是创建的函数是一个聚合函数。
+> 
+> `ALIAS`：如果有此项，表示的是创建的函数是一个别名函数。
+> 
+> 如果没有上述两项，表示创建的函数是一个标量函数
+> 
 > `function_name`: 要创建函数的名字, 可以包含数据库的名字。比如：`db1.my_func`。
 >
 > `arg_type`: 函数的参数类型，与建表时定义的类型一致。变长参数时可以使用`, ...`来表示，如果是变长类型，那么变长部分参数的类型与最后一个非变长参数类型一致。
+> **注意**：`ALIAS FUNCTION` 不支持变长参数，且至少有一个参数。
 > 
-> `ret_type`: 函数返回类型。
+> `ret_type`: 对创建新的函数来说，是必填项。如果是给已有函数取别名则可不用填写该参数。
 > 
 > `inter_type`: 用于表示聚合函数中间阶段的数据类型。
 > 
-> `properties`: 用于设定此函数相关属性，能够设置的属性包括
+> `param`：用于表示别名函数的参数，至少包含一个。
+> 
+> `origin_function`：用于表示别名函数对应的原始函数。
+> 
+> `properties`: 用于设定聚合函数和标量函数相关属性，能够设置的属性包括
 >       
 >           "object_file": 自定义函数动态库的URL路径，当前只支持 HTTP/HTTPS 协议，此路径需要在函数整个生命周期内保持有效。此选项为必选项
 >
@@ -97,7 +107,7 @@ CREATE [AGGREGATE] FUNCTION function_name
 	);
 	```
 
-2. 创建一个自定义聚合函数
+3. 创建一个自定义聚合函数
 
 	```
 	CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
@@ -109,14 +119,21 @@ CREATE [AGGREGATE] FUNCTION function_name
 	);
 	```
 
-3. 创建一个变长参数的标量函数
+4. 创建一个变长参数的标量函数
 
-       ```
-       CREATE FUNCTION strconcat(varchar, ...) RETURNS varchar properties (
-           "symbol" = "_ZN9doris_udf6StrConcatUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-           "object_file" = "http://host:port/libmyStrConcat.so"
-       );
-       ```
+    ```
+    CREATE FUNCTION strconcat(varchar, ...) RETURNS varchar properties (
+        "symbol" = "_ZN9doris_udf6StrConcatUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+        "object_file" = "http://host:port/libmyStrConcat.so"
+    );
+    ```
+
+5. 创建一个自定义别名函数
+
+    ```
+    CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) 
+        AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+    ```
 
 ## keyword
 

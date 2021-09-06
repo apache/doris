@@ -220,14 +220,6 @@ private:
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
     };
 
-    // add alter task to base_tablet and new_tablet.
-    // add A->(B|C|...) relation chain to all of them.
-    OLAPStatus _add_alter_task(AlterTabletType alter_tablet_type, TabletSharedPtr base_tablet,
-                               TabletSharedPtr new_tablet,
-                               const std::vector<Version>& versions_to_be_changed);
-    OLAPStatus _save_alter_state(AlterTabletState state, TabletSharedPtr base_tablet,
-                                 TabletSharedPtr new_tablet);
-
     OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
     OLAPStatus _validate_alter_result(TabletSharedPtr new_tablet, const TAlterTabletReqV2& request);

@@ -74,6 +74,7 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParams;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -83,6 +84,11 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.commons.collections.map.HashedMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -91,11 +97,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
-
-import org.apache.commons.collections.map.HashedMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -201,7 +202,6 @@ public class Coordinator {
     private TResourceInfo tResourceInfo;
     private boolean needReport;
 
-    private String clusterName;
     // parallel execute
     private final TUniqueId nextInstanceId;
 
@@ -225,6 +225,9 @@ public class Coordinator {
         this.descTable = analyzer.getDescTbl().toThrift();
         this.returnedAllResults = false;
         this.queryOptions = context.getSessionVariable().toThrift();
+
+        setFromUserProperty(analyzer);
+
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
         this.queryGlobals.setTimestampMs(new Date().getTime());
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
@@ -235,16 +238,15 @@ public class Coordinator {
         this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
                 context.getSessionVariable().getResourceGroup());
         this.needReport = context.getSessionVariable().isReportSucc();
-        this.clusterName = context.getClusterName();
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
         this.assignedRuntimeFilters = analyzer.getAssignedRuntimeFilter();
     }
 
-    // Used for broker load task/export task coordinator
+    // Used for broker load task/export task/update coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster, String timezone) {
+            List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone) {
         this.isBlockQuery = true;
         this.jobId = jobId;
         this.queryId = queryId;
@@ -257,10 +259,21 @@ public class Coordinator {
         this.queryGlobals.setTimeZone(timezone);
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
-        this.clusterName = cluster;
         this.nextInstanceId = new TUniqueId();
         nextInstanceId.setHi(queryId.hi);
         nextInstanceId.setLo(queryId.lo + 1);
+    }
+
+    private void setFromUserProperty(Analyzer analyzer) {
+        // set cpu resource limit
+        String qualifiedUser = analyzer.getQualifiedUser();
+        int limit = Catalog.getCurrentCatalog().getAuth().getCpuResourceLimit(qualifiedUser);
+        if (limit > 0) {
+            // overwrite the cpu resource limit from session variable;
+            TResourceLimit resourceLimit = new TResourceLimit();
+            resourceLimit.setCpuLimit(limit);
+            this.queryOptions.setResourceLimit(resourceLimit);
+        }
     }
 
     public long getJobId() {
@@ -455,6 +468,7 @@ public class Coordinator {
         } else {
             // This is a load process.
             this.queryOptions.setIsReportSuccess(true);
+            this.queryOptions.setEnableVectorizedEngine(false);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
@@ -1007,12 +1021,25 @@ public class Coordinator {
 
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
-                TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                TNetworkAddress execHostport;
+                if (ConnectContext.get() != null && ConnectContext.get().isResourceTagsSet()
+                        && !addressToBackendID.isEmpty()) {
+                    // In this case, we only use the BE where the replica selected by the tag is located to execute this query.
+                    // Otherwise, except for the scan node, the rest of the execution nodes of the query can be executed on any BE.
+                    // addressToBackendID can be empty when this is a constant select stmt like:
+                    //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
+                    execHostport = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+                } else {
+                    execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                }
                 if (execHostport == null) {
                     LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend");
                     throw new UserException("there is no scanNode Backend");
                 }
-                this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                if (backendIdRef.getRef() != null) {
+                    // backendIdRef can be null is we call getHostByCurrentBackend() before
+                    this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                }
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
                         0, params);
                 params.instanceExecParams.add(instanceParam);
@@ -1124,11 +1151,23 @@ public class Coordinator {
 
             if (params.instanceExecParams.isEmpty()) {
                 Reference<Long> backendIdRef = new Reference<Long>();
-                TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                TNetworkAddress execHostport;
+                if (ConnectContext.get() != null && !ConnectContext.get().isResourceTagsSet() && !addressToBackendID.isEmpty()) {
+                    // In this case, we only use the BE where the replica selected by the tag is located to execute this query.
+                    // Otherwise, except for the scan node, the rest of the execution nodes of the query can be executed on any BE.
+                    // addressToBackendID can be empty when this is a constant select stmt like:
+                    //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
+                    execHostport = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+                } else {
+                    execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                }
                 if (execHostport == null) {
                     throw new UserException("there is no scanNode Backend");
                 }
-                this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                if (backendIdRef.getRef() != null) {
+                    // backendIdRef can be null is we call getHostByCurrentBackend() before
+                    this.addressToBackendID.put(execHostport, backendIdRef.getRef());
+                }
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport,
                         0, params);
                 params.instanceExecParams.add(instanceParam);

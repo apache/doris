@@ -36,12 +36,12 @@ import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -278,34 +278,19 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     // return true if allocate successfully. return false if failed.
     // throw exception if unrecoverable errors happen.
     private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
-        if (routineLoadTaskInfo.getPreviousBeId() != -1L) {
-            if (routineLoadManager.checkBeToTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName())) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
-                                      .add("job_id", routineLoadTaskInfo.getJobId())
-                                      .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
-                                      .add("msg", "task use the previous be id")
-                                      .build());
-                }
-                routineLoadTaskInfo.setBeId(routineLoadTaskInfo.getPreviousBeId());
-                return true;
-            }
-        }
-
-        // the previous BE is not available, try to find a better one
-        long beId = routineLoadManager.getMinTaskBeId(routineLoadTaskInfo.getClusterName());
-        if (beId < 0) {
+        long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
+        if (beId == -1L) {
             return false;
         }
 
-        routineLoadTaskInfo.setBeId(beId);
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
-                              .add("job_id", routineLoadTaskInfo.getJobId())
-                              .add("be_id", routineLoadTaskInfo.getBeId())
-                              .add("msg", "task has been allocated to be")
-                              .build());
+                    .add("job_id", routineLoadTaskInfo.getJobId())
+                    .add("previous_be_id", routineLoadTaskInfo.getPreviousBeId())
+                    .add("assigned_be_id", beId)
+                    .build());
         }
+        routineLoadTaskInfo.setBeId(beId);
         return true;
     }
 }

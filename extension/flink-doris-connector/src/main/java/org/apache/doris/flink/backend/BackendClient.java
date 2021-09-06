@@ -112,6 +112,7 @@ public class BackendClient {
 
     /**
      * Open a scanner for reading Doris data.
+     *
      * @param openParams thrift struct to required by request
      * @return scan open result
      * @throws ConnectedFailedException throw if cannot connect to Doris BE
@@ -147,6 +148,7 @@ public class BackendClient {
 
     /**
      * get next row batch from Doris BE
+     *
      * @param nextBatchParams thrift struct to required by request
      * @return scan batch result
      * @throws ConnectedFailedException throw if cannot connect to Doris BE
@@ -161,7 +163,7 @@ public class BackendClient {
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to getNext {}.", attempt, routing);
             try {
-                result  = client.get_next(nextBatchParams);
+                result = client.get_next(nextBatchParams);
                 if (result == null) {
                     logger.warn("GetNext result from {} is null.", routing);
                     continue;
@@ -189,6 +191,7 @@ public class BackendClient {
 
     /**
      * close an scanner.
+     *
      * @param closeParams thrift struct to required by request
      */
     public void closeScanner(TScanCloseParams closeParams) {
