@@ -101,9 +101,9 @@ Status S3Writer::_sync() {
     if (!_temp_file) {
         return Status::BufferAllocFailed("The internal temporary file is not writable.");
     }
-    if (!_sync_needed) {
-        return Status::OK();
-    }
+//    if (!_sync_needed) {
+//        return Status::OK();
+//    }
     CHECK_S3_CLIENT(_client);
     Aws::S3::Model::PutObjectRequest request;
     request.WithBucket(_uri.get_bucket()).WithKey(_uri.get_key());
