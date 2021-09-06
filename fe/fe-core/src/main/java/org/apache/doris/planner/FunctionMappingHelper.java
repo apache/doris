@@ -36,32 +36,39 @@ public class FunctionMappingHelper {
     public final static Map<String, String> SQLSERVER_MAPPING_FUNCTION = Maps.newTreeMap();
     public final static Map<String, String> POSTGRESQL_MAPPING_FUNCTION = Maps.newTreeMap();
 
-    static {
-        // Add mapping function.
-        addFunctionMapping("mysql","get_json_string", "json_extract");
+    public enum DatabaseType {
+        MYSQL,
+        ORACLE,
+        SQLSERVER,
+        POSTGRESQL
     }
 
-    public static void addFunctionMapping(String databaseType, String sourceFunction, String targetFunction) {
+    static {
+        // Add mapping function.
+        addFunctionMapping(DatabaseType.MYSQL,"get_json_string", "json_extract");
+    }
+
+    public static void addFunctionMapping(DatabaseType databaseType, String sourceFunction, String targetFunction) {
         switch (databaseType) {
-            case "mysql":
+            case MYSQL:
                 MYSQL_MAPPING_FUNCTION.put(sourceFunction, targetFunction);
                 break;
-            case "oracle":
+            case ORACLE:
                 ORACLE_MAPPING_FUNCTION.put(sourceFunction, targetFunction);
                 break;
-            case "sqlserver":
+            case SQLSERVER:
                 SQLSERVER_MAPPING_FUNCTION.put(sourceFunction, targetFunction);
                 break;
-            case "postgresql":
+            case POSTGRESQL:
                 POSTGRESQL_MAPPING_FUNCTION.put(sourceFunction, targetFunction);
                 break;
             default:
                 break;
         }
-        EXTERNAL_DATABASE_FUNCTION_MAPPING.put("mysql", MYSQL_MAPPING_FUNCTION);
-        EXTERNAL_DATABASE_FUNCTION_MAPPING.put("oracle", ORACLE_MAPPING_FUNCTION);
-        EXTERNAL_DATABASE_FUNCTION_MAPPING.put("sqlserver", SQLSERVER_MAPPING_FUNCTION);
-        EXTERNAL_DATABASE_FUNCTION_MAPPING.put("postgresql", POSTGRESQL_MAPPING_FUNCTION);
+        EXTERNAL_DATABASE_FUNCTION_MAPPING.put(DatabaseType.MYSQL.name(), MYSQL_MAPPING_FUNCTION);
+        EXTERNAL_DATABASE_FUNCTION_MAPPING.put(DatabaseType.ORACLE.name(), ORACLE_MAPPING_FUNCTION);
+        EXTERNAL_DATABASE_FUNCTION_MAPPING.put(DatabaseType.SQLSERVER.name(), SQLSERVER_MAPPING_FUNCTION);
+        EXTERNAL_DATABASE_FUNCTION_MAPPING.put(DatabaseType.POSTGRESQL.name(), POSTGRESQL_MAPPING_FUNCTION);
     }
 
     public static void mappingEngineFunction(Expr expr, String engineType) {

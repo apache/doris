@@ -23,6 +23,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.common.Config;
@@ -132,7 +133,7 @@ public class MysqlScanNode extends ScanNode {
         ArrayList<Expr> mysqlConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : mysqlConjuncts) {
             if (Config.enable_external_database_function_push_down) {
-                FunctionMappingHelper.mappingEngineFunction(p, "mysql");
+                FunctionMappingHelper.mappingEngineFunction(p, FunctionMappingHelper.DatabaseType.MYSQL.name());
                 filters.add(p.toMySql());
                 conjuncts.remove(p);
             }

@@ -156,7 +156,7 @@ public class OdbcScanNode extends ScanNode {
         ArrayList<Expr> odbcConjuncts = Expr.cloneList(conjuncts, sMap);
         for (Expr p : odbcConjuncts) {
             if (Config.enable_external_database_function_push_down) {
-                FunctionMappingHelper.mappingEngineFunction(p, odbcType.name().toLowerCase());
+                FunctionMappingHelper.mappingEngineFunction(p, odbcType.name());
                 String filter = p.toMySql();
                 filters.add(filter);
                 conjuncts.remove(p);
