@@ -1754,23 +1754,15 @@ public class ShowExecutor {
     private void handleAdminShowConfig() throws AnalysisException {
         AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
         List<List<String>> results;
-        try {
-            PatternMatcher matcher = null;
-            if (showStmt.getPattern() != null) {
-                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.CONFIG.getCaseSensibility());
-            }
-            results = ConfigBase.getConfigInfo(matcher);
-            // Sort all configs by config key.
-            Collections.sort(results, new Comparator<List<String>>() {
-                @Override
-                public int compare(List<String> o1, List<String> o2) {
-                    return o1.get(0).compareTo(o2.get(0));
-                }
-            });
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
+
+        PatternMatcher matcher = null;
+        if (showStmt.getPattern() != null) {
+            matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                    CaseSensibility.CONFIG.getCaseSensibility());
         }
+        results = ConfigBase.getConfigInfo(matcher);
+        // Sort all configs by config key.
+        results.sort(Comparator.comparing(o -> o.get(0)));
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
