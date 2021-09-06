@@ -20,12 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
@@ -46,6 +48,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -269,6 +272,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         selectivity = other.selectivity;
         numDistinctValues = other.numDistinctValues;
         opcode = other.opcode;
+        outputScale = other.outputScale;
         isConstant_ = other.isConstant_;
         fn = other.fn;
         printSqlInParens = other.printSqlInParens;
@@ -898,6 +902,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return result;
     }
 
+    public void setFn(Function fn) {
+        this.fn = fn;
+    }
+
     // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
         TExprNode msg = new TExprNode();
@@ -910,6 +918,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         msg.output_scale = getOutputScale();
+        msg.setIsNullable(isNullable());
         toThrift(msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -1234,6 +1243,43 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
+        if (targetType.getPrimitiveType().equals(type.getPrimitiveType())) {
+            return this;
+        }
+        // bitmap must match exactly
+        if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
+            throw new AnalysisException("bitmap column require the function return type is BITMAP");
+        }
+        // TargetTable's hll column must be hll_hash's result
+        if (targetType.getPrimitiveType() == PrimitiveType.HLL) {
+            checkHllCompatibility();
+            return this;
+        }
+        Expr newExpr = castTo(targetType);
+        newExpr.checkValueValid();
+        return newExpr;
+    }
+
+    private void checkHllCompatibility() throws AnalysisException {
+        final String hllMismatchLog = "Column's type is HLL,"
+                + " SelectList must contains HLL or hll_hash or hll_empty function's result";
+        if (this instanceof SlotRef) {
+            final SlotRef slot = (SlotRef) this;
+            if (!slot.getType().equals(Type.HLL)) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else if (this instanceof FunctionCallExpr) {
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) this;
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
+                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else {
+            throw new AnalysisException(hllMismatchLog);
+        }
+    }
+
     /**
      * Checks validity of cast, and
      * calls uncheckedCastTo() to
@@ -1517,7 +1563,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             Analyzer analyzer, String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
         Function f = Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
             if (this.children.size() == 1
@@ -1782,4 +1829,64 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return false;
     }
 
+    protected boolean hasNullableChild() {
+        for (Expr expr : children) {
+            if (expr.isNullable()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * For excute expr the result is nullable
+     * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
+     * overwrite this method to plan correct
+     */
+    public boolean isNullable() {
+        if (fn == null) {
+            return true;
+        }
+        switch (fn.getNullableMode()) {
+            case DEPEND_ON_ARGUMENT:
+                return hasNullableChild();
+            case ALWAYS_NOT_NULLABLE:
+                return false;
+            case CUSTOM:
+                return customNullableAlgorithm();
+            case ALWAYS_NULLABLE:
+            default:
+                return true;
+        }
+    }
+
+    private boolean customNullableAlgorithm() {
+        Preconditions.checkState(fn.getNullableMode() == Function.NullableMode.CUSTOM);
+        if (fn.functionName().equalsIgnoreCase("if")) {
+            Preconditions.checkState(children.size() == 3);
+            for (int i = 1; i < children.size(); i++) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("ifnull")) {
+            Preconditions.checkState(children.size() == 2);
+            if (children.get(0).isNullable()) {
+                return children.get(1).isNullable();
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("coalesce")) {
+            for (Expr expr : children) {
+                if (!expr.isNullable()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (fn.functionName().equalsIgnoreCase("concat_ws")) {
+            return children.get(0).isNullable();
+        }
+        return true;
+    }
 }

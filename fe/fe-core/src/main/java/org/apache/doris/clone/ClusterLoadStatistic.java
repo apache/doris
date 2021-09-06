@@ -17,18 +17,20 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.TreeMultimap;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.TreeMultimap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,7 +41,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /*
- * Load statistics of a cluster
+ * Load statistics of a cluster with specified tag
  */
 public class ClusterLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(ClusterLoadStatistic.class);
@@ -48,6 +50,7 @@ public class ClusterLoadStatistic {
     private TabletInvertedIndex invertedIndex;
 
     private String clusterName;
+    private Tag tag;
 
     private Map<TStorageMedium, Long> totalCapacityMap = Maps.newHashMap();
     private Map<TStorageMedium, Long> totalUsedCapacityMap = Maps.newHashMap();
@@ -61,18 +64,27 @@ public class ClusterLoadStatistic {
     private Map<TStorageMedium, TreeMultimap<Long, Long>> beByTotalReplicaCountMaps = Maps.newHashMap();
     private Map<TStorageMedium, TreeMultimap<Long, TabletInvertedIndex.PartitionBalanceInfo>> skewMaps = Maps.newHashMap();
 
-    public ClusterLoadStatistic(String clusterName, SystemInfoService infoService,
+    public ClusterLoadStatistic(String clusterName, Tag tag, SystemInfoService infoService,
                                 TabletInvertedIndex invertedIndex) {
         this.clusterName = clusterName;
+        this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
     }
 
+    public String getClusterName() {
+        return clusterName;
+    }
+
+    public Tag getTag() {
+        return tag;
+    }
+
     public void init() {
-        ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(clusterName);
-        for (Backend backend : backends.values()) {
+        List<Backend> backends = infoService.getBackendsByTagInCluster(clusterName, tag);
+        for (Backend backend : backends) {
             BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
-                    backend.getOwnerClusterName(), infoService, invertedIndex);
+                    backend.getOwnerClusterName(), backend.getTag(), infoService, invertedIndex);
             try {
                 beStatistic.init();
             } catch (LoadBalanceException e) {

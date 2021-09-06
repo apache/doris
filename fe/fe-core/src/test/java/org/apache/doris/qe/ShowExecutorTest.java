@@ -29,6 +29,7 @@ import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
+import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -158,7 +159,7 @@ public class ShowExecutorTest {
                 db.readUnlock();
                 minTimes = 0;
 
-                db.getTable(anyString);
+                db.getTableNullable(anyString);
                 minTimes = 0;
                 result = table;
             }
@@ -171,11 +172,11 @@ public class ShowExecutorTest {
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDb("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb("testCluster:emptyDb");
+                catalog.getDbNullable("testCluster:emptyDb");
                 minTimes = 0;
                 result = null;
 
@@ -482,7 +483,7 @@ public class ShowExecutorTest {
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:emptyDb.testTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
 
         // empty table
@@ -491,7 +492,7 @@ public class ShowExecutorTest {
         executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:testDb.emptyTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
     }
 
@@ -588,5 +589,18 @@ public class ShowExecutorTest {
         resultSet = executor.execute();
 
         Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowSqlBlockRule() throws AnalysisException {
+        ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_rule");
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+        Assert.assertEquals(5, resultSet.getMetaData().getColumnCount());
+        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Sql", resultSet.getMetaData().getColumn(1).getName());
+        Assert.assertEquals("SqlHash", resultSet.getMetaData().getColumn(2).getName());
+        Assert.assertEquals("Global", resultSet.getMetaData().getColumn(3).getName());
+        Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(4).getName());
     }
 }

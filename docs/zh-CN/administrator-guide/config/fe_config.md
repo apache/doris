@@ -1063,6 +1063,18 @@ colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 导出检查器的运行间隔
 
+### default_load_parallelism
+
+默认值：1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+单个节点broker load导入的默认并发度。
+如果用户在提交broker load任务时，在properties中自行指定了并发度，则采用用户自定义的并发度。
+此参数将与`max_broker_concurrency`、`min_bytes_per_broker_scanner`等多个配置共同决定导入任务的并发度。
+
 ### max_broker_concurrency
 
 默认值：10
@@ -1081,7 +1093,7 @@ broker scanner 的最大并发数。
 
 是否为 Master FE 节点独有的配置项：true
 
-单个 broker scanner 将读取的最大字节数。
+单个 broker scanner 将读取的最小字节数。
 
 ### catalog_trash_expire_second
 
@@ -2012,6 +2024,18 @@ HOUR: log前缀是：yyyyMMddHH
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
+### delete_info_keep_max_second
+
+默认值：3 * 24 * 3600  (3天)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+删除元数据中创建时间大于`delete_info_keep_max_second`的delete信息。
+
+设置较短的时间将减少 FE 内存使用量和镜像文件大小。（因为所有的deleteInfo在被删除之前都存储在内存和镜像文件中）
+
 ### transaction_clean_interval_second
 
 默认值：30
@@ -2019,7 +2043,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
 
 
-### `default_max_query_instances`
+### default_max_query_instances
 
 默认值：-1
 

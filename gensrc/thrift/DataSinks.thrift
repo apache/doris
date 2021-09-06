@@ -32,7 +32,9 @@ enum TDataSinkType {
     EXPORT_SINK,
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK,
-    ODBC_TABLE_SINK
+    ODBC_TABLE_SINK,
+    VRESULT_SINK,
+    VDATA_STREAM_SINK,
 }
 
 enum TResultSinkType {
@@ -74,7 +76,7 @@ struct TDataStreamSink {
 
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options;
+    2: optional TResultFileSinkOptions file_options
 }
 
 struct TMysqlTableSink {
@@ -114,7 +116,7 @@ struct TExportSink {
     4: required string line_delimiter
     // properties need to access broker.
     5: optional list<Types.TNetworkAddress> broker_addresses
-    6: optional map<string, string> properties;
+    6: optional map<string, string> properties
 }
 
 struct TOlapTableSink {
@@ -132,6 +134,7 @@ struct TOlapTableSink {
     12: required Descriptors.TOlapTableLocationParam location
     13: required Descriptors.TPaloNodesInfo nodes_info
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
+    15: optional i32 send_batch_parallelism
 }
 
 struct TDataSink {

@@ -36,17 +36,17 @@ import java.util.List;
  * DorisSource
  **/
 
-public class DorisSourceFunction<T> extends RichSourceFunction<T> implements ResultTypeQueryable<T> {
+public class DorisSourceFunction extends RichSourceFunction<List<?>> implements ResultTypeQueryable<List<?>> {
 
-    private  static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
+    private static final Logger logger = LoggerFactory.getLogger(DorisSourceFunction.class);
 
-    private DorisDeserializationSchema deserializer;
-    private DorisOptions options;
-    private DorisReadOptions readOptions;
-    private List<PartitionDefinition>  dorisPartitions;
+    private final DorisDeserializationSchema<List<?>> deserializer;
+    private final DorisOptions options;
+    private final DorisReadOptions readOptions;
+    private List<PartitionDefinition> dorisPartitions;
     private ScalaValueReader scalaValueReader;
 
-    public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema deserializer)  {
+    public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema<List<?>> deserializer) {
         this.deserializer = deserializer;
         this.options = streamOptions.getOptions();
         this.readOptions = streamOptions.getReadOptions();
@@ -55,15 +55,15 @@ public class DorisSourceFunction<T> extends RichSourceFunction<T> implements Res
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
-        this.dorisPartitions =  RestService.findPartitions(options,readOptions,logger);
+        this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
     }
 
     @Override
-    public void run(SourceContext sourceContext) throws Exception{
-        for(PartitionDefinition partitions : dorisPartitions){
-            scalaValueReader = new ScalaValueReader(partitions, options,readOptions);
-            while (scalaValueReader.hasNext()){
-                Object next = scalaValueReader.next();
+    public void run(SourceContext<List<?>> sourceContext) {
+        for (PartitionDefinition partitions : dorisPartitions) {
+            scalaValueReader = new ScalaValueReader(partitions, options, readOptions);
+            while (scalaValueReader.hasNext()) {
+                List<?> next = scalaValueReader.next();
                 sourceContext.collect(next);
             }
         }
@@ -76,7 +76,7 @@ public class DorisSourceFunction<T> extends RichSourceFunction<T> implements Res
 
 
     @Override
-    public TypeInformation<T> getProducedType() {
+    public TypeInformation<List<?>> getProducedType() {
         return this.deserializer.getProducedType();
     }
 }

@@ -301,14 +301,8 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(tableName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
                 }
-                Database db = analyzer.getCatalog().getDb(dbName);
-                if (db == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-                }
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
+                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+                Table table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -1359,6 +1353,9 @@ public class SelectStmt extends QueryStmt {
                 registerExprId(ref.onClause);
                 exprMap.put(ref.onClause.getId().toString(), ref.onClause);
             }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().collectExprs(exprMap);
+            }
         }
 
         if (whereClause != null) {
@@ -1464,6 +1461,9 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             if (ref.onClause != null) {
                 ref.setOnClause(rewrittenExprMap.get(ref.onClause.getId().toString()));
+            }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().putBackExprs(rewrittenExprMap);
             }
         }
 

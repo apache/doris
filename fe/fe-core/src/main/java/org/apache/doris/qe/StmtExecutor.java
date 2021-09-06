@@ -56,6 +56,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -152,6 +153,7 @@ public class StmtExecutor implements ProfileWriter {
     private RuntimeProfile plannerRuntimeProfile;
     private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
+    private String queryType = "Query";
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -185,6 +187,10 @@ public class StmtExecutor implements ProfileWriter {
         this.isProxy = false;
     }
 
+    public void setCoord(Coordinator coord) {
+        this.coord = coord;
+    }
+
     // At the end of query execution, we begin to add up profile
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
         long currentTimestamp = System.currentTimeMillis();
@@ -195,10 +201,13 @@ public class StmtExecutor implements ProfileWriter {
             profile.addChild(summaryProfile);
             summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
+            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
             summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
@@ -209,8 +218,12 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(coord.getQueryProfile());
         } else {
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
@@ -324,7 +337,7 @@ public class StmtExecutor implements ProfileWriter {
                         if (i > 0) {
                             UUID uuid = UUID.randomUUID();
                             TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                            AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
@@ -360,6 +373,7 @@ public class StmtExecutor implements ProfileWriter {
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
+                        queryType = "Insert";
                         writeProfile(true);
                     }
                 } catch (Throwable t) {
@@ -395,7 +409,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
             LOG.warn("execute Exception", e);
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -428,7 +442,6 @@ public class StmtExecutor implements ProfileWriter {
                 }
             }
         }
-
     }
 
     private void analyzeVariablesInStmt() throws DdlException {
@@ -1082,14 +1095,8 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentCatalog().getDb(dbName);
-        if (dbObj == null) {
-            throw new TException("database is invalid for dbName: " + dbName);
-        }
-        Table tblObj = dbObj.getTable(tblName);
-        if (tblObj == null) {
-            throw new TException("table is invalid: " + tblName);
-        }
+        Database dbObj = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
+        Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);
         txnEntry.setDb(dbObj);
@@ -1239,9 +1246,7 @@ public class StmtExecutor implements ProfileWriter {
                     Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
                             insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                     context.getState().setOk();
-                    return;
-                }
-                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1283,9 +1288,18 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 2 cases
+            // 1. transaction aborted for no data inserted into table, or
+            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 3 cases
+
+            String message = "";
+            if (txnStatus == TransactionStatus.ABORTED) {
+                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+            } else if (throwable != null) {
+                message = throwable.getMessage();
+            }
 
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1294,7 +1308,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        throwable == null ? "" : throwable.getMessage(),
+                        message,
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);

@@ -128,6 +128,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
+    /**
+     * The default parallelism of the load execution plan
+     * on a single node when the broker load is submitted
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int default_load_parallelism = 1;
+
     // For some high frequency load job such as
     // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
     // Remove the finished job or task if expired.
@@ -145,6 +152,14 @@ public class Config extends ConfigBase {
      * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
      */
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
+
+    /**
+     * Delete all deleteInfo older than *delete_info_keep_max_second*
+     * Setting a shorter time will reduce FE memory usage and image file size
+     * (Because all deleteInfo is stored in memory and image files before being deleted)
+     */
+    @ConfField(mutable = true)
+    public static int delete_info_keep_max_second = 3 * 24 * 3600; // 3 days
 
     /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
@@ -622,6 +637,17 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String yarn_config_dir = PaloFe.DORIS_HOME_DIR + "/lib/yarn-config";
+
+    /**
+     * Maximal intervals between two syncJob's commits.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long sync_commit_interval_second = 10;
+
+    /**
+     * Sync checker's running interval.
+     */
+    @ConfField public static int sync_checker_interval_second = 5;
 
     /**
      * Default number of waiting jobs for routine load and version 2 of load
@@ -1239,6 +1265,12 @@ public class Config extends ConfigBase {
     public static boolean enable_materialized_view = true;
 
     /**
+     * enable create sync job
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_create_sync_job = false;
+
+    /**
      * it can't auto-resume routine load job as long as one of the backends is down
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1450,4 +1482,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
+    
+    @ConfField(masterOnly = true)
+    public static boolean enable_concurrent_update = false;
+
+    /**
+     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
+     * restart and upgrade after initialization is complete.
+     *
+     * 0: table names are stored as specified and comparisons are case sensitive.
+     * 1: table names are stored in lowercase and comparisons are not case sensitive.
+     * 2: table names are stored as given but compared in lowercase.
+     */
+    @ConfField(masterOnly = true)
+    public static int lower_case_table_names = 0;
 }

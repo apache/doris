@@ -51,6 +51,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -61,12 +62,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -97,6 +100,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class SchemaChangeHandler extends AlterHandler {
@@ -105,8 +109,20 @@ public class SchemaChangeHandler extends AlterHandler {
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PRFIX = "__doris_shadow_";
 
+    public static final int MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE = 10;
+
+    public static final int CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB = 20;
+
+    public final ThreadPoolExecutor schemaChangeThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE, "schema-change-pool", true);
+
+    public final Map<Long, AlterJobV2> activeSchemaChangeJobsV2 = Maps.newConcurrentMap();
+
+    public final Map<Long, AlterJobV2> runnableSchemaChangeJobV2 = Maps.newConcurrentMap();
+
+    public int cycle_count = 0;
+
     public SchemaChangeHandler() {
-        super("schema change");
+        super("schema change", FeConstants.default_schema_change_scheduler_interval_millisecond);
     }
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
@@ -1318,7 +1334,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId, newSchemaHash, medium);
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+                ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
+                Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = catalog.getNextId();
@@ -1351,7 +1368,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         healthyReplicaNum++;
                     }
 
-                    if (healthyReplicaNum < replicationNum / 2 + 1) {
+                    if (healthyReplicaNum < totalReplicaNum / 2 + 1) {
                         /*
                          * TODO(cmy): This is a bad design.
                          * Because in the schema change job, we will only send tasks to the shadow replicas that have been created,
@@ -1387,13 +1404,36 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     protected void runAfterCatalogReady() {
-        super.runAfterCatalogReady();
+        if (cycle_count >= CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB) {
+            clearFinishedOrCancelledSchemaChangeJobV2();
+            super.runAfterCatalogReady();
+            cycle_count = 0;
+        }
         runOldAlterJob();
         runAlterJobV2();
+        cycle_count++;
     }
 
     private void runAlterJobV2() {
-        alterJobsV2.values().forEach(AlterJobV2::run);
+        runnableSchemaChangeJobV2.values().forEach(
+                alterJobsV2 -> {
+                    if (!alterJobsV2.isDone() && !activeSchemaChangeJobsV2.containsKey(alterJobsV2.getJobId()) &&
+                            activeSchemaChangeJobsV2.size() < MAX_ACTIVE_SCHEMA_CHANGE_JOB_V2_SIZE) {
+                        if (FeConstants.runningUnitTest) {
+                            alterJobsV2.run();
+                        } else {
+                            schemaChangeThreadPool.submit(() -> {
+                                if (activeSchemaChangeJobsV2.putIfAbsent(alterJobsV2.getJobId(), alterJobsV2) == null) {
+                                    try {
+                                        alterJobsV2.run();
+                                    } finally {
+                                        activeSchemaChangeJobsV2.remove(alterJobsV2.getJobId());
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
     }
 
     @Deprecated
@@ -1482,13 +1522,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // handle cancelled schema change jobs
         for (AlterJob alterJob : cancelledJobs) {
-            Database db = Catalog.getCurrentCatalog().getDb(alterJob.getDbId());
+            Database db = Catalog.getCurrentCatalog().getDbNullable(alterJob.getDbId());
             if (db == null) {
                 cancelInternal(alterJob, null, null);
                 continue;
             }
 
-            OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
+            OlapTable olapTable = (OlapTable) db.getTableNullable(alterJob.getTableId());
             if (olapTable != null) {
                 olapTable.writeLock();
             }
@@ -1570,7 +1610,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         for (AlterJob selectedJob : selectedJobs) {
-            OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+            OlapTable olapTable = (OlapTable) db.getTableNullable(selectedJob.getTableId());
             if (olapTable == null) {
                 continue;
             }
@@ -1635,12 +1675,12 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                         Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-                        Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Preconditions.checkNotNull(properties.get("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+                        Catalog.getCurrentCatalog().modifyTableDefaultReplicaAllocation(db, olapTable, properties);
                         return;
-                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                        Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+                        Catalog.getCurrentCatalog().modifyTableReplicaAllocation(db, olapTable, properties);
                         return;
                     }
                 }
@@ -1750,7 +1790,7 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     public void updateTableInMemoryMeta(Database db, String tableName, Map<String, String> properties) throws UserException {
         List<Partition> partitions = Lists.newArrayList();
-        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         olapTable.readLock();
         try {
             partitions.addAll(olapTable.getPartitions());
@@ -1782,7 +1822,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                              String tableName,
                                              List<String> partitionNames,
                                              Map<String, String> properties) throws DdlException, MetaNotFoundException {
-        OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
         if (isInMemory == olapTable.isInMemory()) {
             return;
@@ -1809,7 +1849,7 @@ public class SchemaChangeHandler extends AlterHandler {
                                             boolean isInMemory) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
-        OlapTable olapTable = (OlapTable)db.getTableOrThrowException(tableName, Table.TableType.OLAP);
+        OlapTable olapTable = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         olapTable.readLock();
         try {
             Partition partition = olapTable.getPartition(partitionName);
@@ -1889,20 +1929,12 @@ public class SchemaChangeHandler extends AlterHandler {
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         AlterJob schemaChangeJob = null;
         AlterJobV2 schemaChangeJobV2 = null;
 
-        OlapTable olapTable = null;
-        try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableName, Table.TableType.OLAP);
-        } catch (MetaNotFoundException e) {
-            throw new DdlException(e.getMessage());
-        }
+        OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLock();
         try {
             if (olapTable.getState() != OlapTableState.SCHEMA_CHANGE &&
@@ -1998,5 +2030,38 @@ public class SchemaChangeHandler extends AlterHandler {
                 break;
             }
         }
+    }
+
+    @Override
+    protected void addAlterJobV2(AlterJobV2 alterJob) {
+        super.addAlterJobV2(alterJob);
+        runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
+    }
+
+
+    private void clearFinishedOrCancelledSchemaChangeJobV2() {
+        Iterator<Map.Entry<Long, AlterJobV2>> iterator = runnableSchemaChangeJobV2.entrySet().iterator();
+        while (iterator.hasNext()) {
+            AlterJobV2 alterJobV2 = iterator.next().getValue();
+            if (alterJobV2.isDone()) {
+                iterator.remove();
+            }
+        }
+    }
+
+    @Override
+    public void replayRemoveAlterJobV2(RemoveAlterJobV2OperationLog log) {
+        if (runnableSchemaChangeJobV2.containsKey(log.getJobId())) {
+            runnableSchemaChangeJobV2.remove(log.getJobId());
+        }
+        super.replayRemoveAlterJobV2(log);
+    }
+
+    @Override
+    public void replayAlterJobV2(AlterJobV2 alterJob) {
+        if (!alterJob.isDone() && !runnableSchemaChangeJobV2.containsKey(alterJob.getJobId())) {
+            runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
+        }
+        super.replayAlterJobV2(alterJob);
     }
 }

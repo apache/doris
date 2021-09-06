@@ -76,6 +76,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_STRING:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
@@ -210,14 +211,15 @@ public:
             switch (primitive_type) {
             case TYPE_VARCHAR:
             case TYPE_CHAR:
-            case TYPE_HLL: {
+            case TYPE_HLL:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(cell_ptr);
                 if (string_val->len == 0) {
                     // 0x01 is a magic num, not useful actually, just for present ""
                     //char* tmp_val = reinterpret_cast<char*>(0x01);
                     ARROW_RETURN_NOT_OK(builder.Append(""));
                 } else {
-                    ARROW_RETURN_NOT_OK(builder.Append(string_val->to_string()));
+                    ARROW_RETURN_NOT_OK(builder.Append(string_val->ptr, string_val->len));
                 }
                 break;
             }
@@ -225,17 +227,14 @@ public:
             case TYPE_DATETIME: {
                 char buf[64];
                 const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                char* pos = time_val->to_string(buf);
-                ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_LARGEINT: {
-                char buf[48];
-                int len = 48;
-                char* v = LargeIntValue::to_string(
-                        reinterpret_cast<const PackedInt128*>(cell_ptr)->value, buf, &len);
-                std::string temp(v, len);
-                ARROW_RETURN_NOT_OK(builder.Append(std::move(temp)));
+                auto string_temp = LargeIntValue::to_string(
+                        reinterpret_cast<const PackedInt128*>(cell_ptr)->value);
+                ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
             default: {

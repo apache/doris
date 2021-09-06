@@ -47,10 +47,18 @@ public class FeConstants {
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 
+    // default schema change scheduler interval is 500 millisecond
+    public static int default_schema_change_scheduler_interval_millisecond = 500;
+
     // general model
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
 
+    // Current meta format. Use this format to read and write image.
+    public static FeMetaFormat meta_format = FeMetaFormat.COR1;
+
     // use \N to indicate NULL
     public static String null_string = "\\N";
+
+    public static long tablet_checker_interval_ms = 20 * 1000L;
 }

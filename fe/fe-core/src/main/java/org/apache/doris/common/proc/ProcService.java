@@ -45,6 +45,7 @@ public final class ProcService {
         root.register("resources", Catalog.getCurrentCatalog().getResourceMgr().getProcNode());
         root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getCurrentCatalog()));
         root.register("transactions", new TransDbProcDir());
+        root.register("trash", new TrashProcDir());
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());

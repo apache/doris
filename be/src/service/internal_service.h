@@ -19,7 +19,6 @@
 
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/palo_internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
 #include "util/priority_thread_pool.hpp"
 
@@ -87,27 +86,24 @@ public:
                       const ::doris::PMergeFilterRequest* request,
                       ::doris::PMergeFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
-                      
+
     void apply_filter(::google::protobuf::RpcController* controller,
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+    void transmit_block(::google::protobuf::RpcController* controller,
+                        const ::doris::PTransmitDataParams* request,
+                        ::doris::PTransmitDataResult* response,
+                        ::google::protobuf::Closure* done) override;
 
-    void send_data(google::protobuf::RpcController* controller,
-                   const PSendDataRequest* request,
-                   PSendDataResult* response,
-                   google::protobuf::Closure* done);
-    void commit(google::protobuf::RpcController* controller,
-                const PCommitRequest* request,
-                PCommitResult* response,
-                google::protobuf::Closure* done);
-    void rollback(google::protobuf::RpcController* controller,
-                  const PRollbackRequest* request,
-                  PRollbackResult* response,
-                  google::protobuf::Closure* done);
+    void send_data(google::protobuf::RpcController* controller, const PSendDataRequest* request,
+                   PSendDataResult* response, google::protobuf::Closure* done);
+    void commit(google::protobuf::RpcController* controller, const PCommitRequest* request,
+                PCommitResult* response, google::protobuf::Closure* done);
+    void rollback(google::protobuf::RpcController* controller, const PRollbackRequest* request,
+                  PRollbackResult* response, google::protobuf::Closure* done);
     void fold_constant_expr(google::protobuf::RpcController* controller,
-                            const PConstantExprRequest* request,
-                            PConstantExprResult* response,
+                            const PConstantExprRequest* request, PConstantExprResult* response,
                             google::protobuf::Closure* done) override;
 
 private:

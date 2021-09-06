@@ -517,7 +517,7 @@ void Tablet::delete_expired_stale_rowset() {
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
-                LOG(INFO) << "delete stale rowset tablet=" << full_name() << " version["
+                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
                           << timestampedVersion->version().first << ","
                           << timestampedVersion->version().second
                           << "] move to unused_rowset success " << std::fixed
@@ -690,49 +690,31 @@ bool Tablet::version_for_load_deletion(const Version& version) {
     return rowset->delete_flag();
 }
 
-AlterTabletTaskSharedPtr Tablet::alter_task() {
-    return _tablet_meta->alter_task();
-}
-
-void Tablet::add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                            const std::vector<Version>& versions_to_alter,
-                            const AlterTabletType alter_type) {
-    AlterTabletTask alter_task;
-    alter_task.set_alter_state(ALTER_RUNNING);
-    alter_task.set_related_tablet_id(related_tablet_id);
-    alter_task.set_related_schema_hash(related_schema_hash);
-    alter_task.set_alter_type(alter_type);
-    _tablet_meta->add_alter_task(alter_task);
-    LOG(INFO) << "successfully add alter task for tablet_id:" << this->tablet_id()
-              << ", schema_hash:" << this->schema_hash() << ", related_tablet_id "
-              << related_tablet_id << ", related_schema_hash " << related_schema_hash
-              << ", alter_type " << alter_type;
-}
-
-void Tablet::delete_alter_task() {
-    LOG(INFO) << "delete alter task from table. tablet=" << full_name();
-    _tablet_meta->delete_alter_task();
-}
-
-OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
-    return _tablet_meta->set_alter_state(state);
-}
-
-bool Tablet::can_do_compaction() {
-    // 如果table正在做schema change，则通过选路判断数据是否转换完成
-    // 如果选路成功，则转换完成，可以进行compaction
-    // 如果选路失败，则转换未完成，不能进行compaction
-    ReadLock rdlock(&_meta_lock);
-    const RowsetSharedPtr lastest_delta = rowset_with_max_version();
-    if (lastest_delta == nullptr) {
+bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
+    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
+        // base compaction can only be done for tablet in TABLET_RUNNING state.
+        // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
     }
 
-    Version test_version = Version(0, lastest_delta->end_version());
-    if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
+    if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }
 
+    if (tablet_state() == TABLET_RUNNING) {
+        // if tablet state is running, we need to check if it has consistent versions.
+        // tablet in other state such as TABLET_NOTREADY may not have complete versions.
+        ReadLock rdlock(&_meta_lock);
+        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
+        if (lastest_delta == nullptr) {
+            return false;
+        }
+
+        Version test_version = Version(0, lastest_delta->end_version());
+        if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -758,7 +740,7 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
     }
 #endif
     uint32_t score = 0;
-    _cumulative_compaction_policy->calc_cumulative_compaction_score(
+    _cumulative_compaction_policy->calc_cumulative_compaction_score(tablet_state(),
             _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
     return score;
 }
@@ -867,7 +849,6 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
 
 void Tablet::calculate_cumulative_point() {
     WriteLock wrlock(&_meta_lock);
-
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(
             this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
@@ -1045,6 +1026,9 @@ TabletInfo Tablet::get_tablet_info() const {
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
         int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
+        return;
+    }
     ReadLock rdlock(&_meta_lock);
     _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
                                                           _cumulative_point, candidate_rowsets);
@@ -1092,7 +1076,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
     rapidjson::Value cumulative_policy_type;
-    std::string policy_type_str = _cumulative_compaction_policy->name();
+    std::string policy_type_str = "cumulative compaction policy not initializied";
+    if (_cumulative_compaction_policy.get() != nullptr) {
+        policy_type_str = _cumulative_compaction_policy->name();
+    }
     cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(),
                                      root.GetAllocator());
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());

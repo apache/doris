@@ -69,7 +69,7 @@ public class TempPartitionTest {
     @BeforeClass
     public static void setup() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 100;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
     }
 
@@ -221,8 +221,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db2 = Catalog.getCurrentCatalog().getDb("default_cluster:db2");
-        OlapTable tbl2 = (OlapTable) db2.getTable("tbl2");
+        Database db2 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db2");
+        OlapTable tbl2 = (OlapTable) db2.getTableOrAnalysisException("tbl2");
 
         testSerializeOlapTable(tbl2);
 
@@ -508,8 +508,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db3 = Catalog.getCurrentCatalog().getDb("default_cluster:db3");
-        OlapTable tbl3 = (OlapTable) db3.getTable("tbl3");
+        Database db3 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db3");
+        OlapTable tbl3 = (OlapTable) db3.getTableOrAnalysisException("tbl3");
 
         // base range is [min, 10), [10, 20), [20, 30)
 
@@ -584,8 +584,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db4 = Catalog.getCurrentCatalog().getDb("default_cluster:db4");
-        OlapTable tbl4 = (OlapTable) db4.getTable("tbl4");
+        Database db4 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db4");
+        OlapTable tbl4 = (OlapTable) db4.getTableOrAnalysisException("tbl4");
 
         testSerializeOlapTable(tbl4);
 
@@ -922,8 +922,8 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        Database db5 = Catalog.getCurrentCatalog().getDb("default_cluster:db5");
-        OlapTable tbl5 = (OlapTable) db5.getTable("tbl5");
+        Database db5 = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:db5");
+        OlapTable tbl5 = (OlapTable) db5.getTableOrAnalysisException("tbl5");
 
         testSerializeOlapTable(tbl5);
 

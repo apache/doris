@@ -244,6 +244,7 @@ ConvertTypeResolver::ConvertTypeResolver() {
     add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_FLOAT>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_DOUBLE>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_DATE>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_VARCHAR, OLAP_FIELD_TYPE_STRING>();
 
     // to varchar type
     add_convert_type_mapping<OLAP_FIELD_TYPE_TINYINT, OLAP_FIELD_TYPE_VARCHAR>();
@@ -255,6 +256,30 @@ ConvertTypeResolver::ConvertTypeResolver() {
     add_convert_type_mapping<OLAP_FIELD_TYPE_DOUBLE, OLAP_FIELD_TYPE_VARCHAR>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_DECIMAL, OLAP_FIELD_TYPE_VARCHAR>();
     add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_VARCHAR>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_VARCHAR>();
+
+    // from string
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_TINYINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_SMALLINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_INT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_BIGINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_LARGEINT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_FLOAT>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_DOUBLE>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_DATE>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_VARCHAR>();
+
+    // to string
+    add_convert_type_mapping<OLAP_FIELD_TYPE_TINYINT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_SMALLINT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_INT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_BIGINT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_LARGEINT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_FLOAT, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_DOUBLE, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_DECIMAL, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_CHAR, OLAP_FIELD_TYPE_STRING>();
+    add_convert_type_mapping<OLAP_FIELD_TYPE_STRING, OLAP_FIELD_TYPE_STRING>();
 
     add_convert_type_mapping<OLAP_FIELD_TYPE_DATE, OLAP_FIELD_TYPE_DATETIME>();
 
@@ -355,7 +380,8 @@ bool hll_hash(RowCursor* read_helper, RowCursor* write_helper, const TabletColum
             slice->size = p + 1;
         }
 
-        case OLAP_FIELD_TYPE_VARCHAR: {
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_STRING: {
             Slice slice = *reinterpret_cast<Slice*>(read_helper->cell_ptr(ref_field_idx));
             hash_value = HashUtil::murmur_hash64A(slice.data, slice.size, HashUtil::MURMUR_SEED);
             break;
@@ -1770,63 +1796,6 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
                                                            &span_versions));
     versions_to_be_changed->insert(versions_to_be_changed->end(), span_versions.begin(),
                                    span_versions.end());
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SchemaChangeHandler::_add_alter_task(
-        AlterTabletType alter_tablet_type, TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-        const std::vector<Version>& versions_to_be_changed) {
-    // check new tablet exists,
-    // prevent to set base's status after new's dropping (clear base's status)
-    if (StorageEngine::instance()->tablet_manager()->get_tablet(
-                new_tablet->tablet_id(), new_tablet->schema_hash()) == nullptr) {
-        LOG(WARNING) << "new_tablet does not exist. tablet=" << new_tablet->full_name();
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-
-    // 1. 在新表和旧表中添加schema change标志
-    base_tablet->delete_alter_task();
-    base_tablet->add_alter_task(new_tablet->tablet_id(), new_tablet->schema_hash(),
-                                versions_to_be_changed, alter_tablet_type);
-    base_tablet->save_meta();
-    new_tablet->add_alter_task(base_tablet->tablet_id(), base_tablet->schema_hash(),
-                               std::vector<Version>(), // empty versions
-                               alter_tablet_type);
-    new_tablet->save_meta();
-    LOG(INFO) << "successfully add alter task to both base and new";
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SchemaChangeHandler::_save_alter_state(AlterTabletState state,
-                                                  TabletSharedPtr base_tablet,
-                                                  TabletSharedPtr new_tablet) {
-    WriteLock base_wlock(base_tablet->get_header_lock_ptr());
-    WriteLock new_wlock(new_tablet->get_header_lock_ptr());
-    AlterTabletTaskSharedPtr base_alter_task = base_tablet->alter_task();
-    if (base_alter_task == nullptr) {
-        LOG(INFO) << "could not find alter task info from base tablet " << base_tablet->full_name();
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    }
-    OLAPStatus res = base_tablet->set_alter_state(state);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state
-                     << " tablet=" << base_tablet->full_name() << " res=" << res;
-        return res;
-    }
-    base_tablet->save_meta();
-    AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
-    if (new_alter_task == nullptr) {
-        LOG(INFO) << "could not find alter task info from new tablet " << new_tablet->full_name();
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    }
-    res = new_tablet->set_alter_state(state);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state << " tablet "
-                     << new_tablet->full_name() << " res" << res;
-        return res;
-    }
-    new_tablet->save_meta();
 
     return OLAP_SUCCESS;
 }

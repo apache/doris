@@ -126,7 +126,6 @@ public class IntLiteral extends LiteralExpr {
                 valid = false;
                 break;
         }
-
         if (!valid) {
             throw new AnalysisException("Number out of range[" + longValue + "]. type: " + type);
         }

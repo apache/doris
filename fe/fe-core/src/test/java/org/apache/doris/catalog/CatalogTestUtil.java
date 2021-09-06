@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -106,58 +107,59 @@ public class CatalogTestUtil {
     }
 
     public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
-        Database masterDb = masterCatalog.getDb(testDb1);
-        Database slaveDb = slaveCatalog.getDb(testDb1);
-        List<Table> tables = masterDb.getTables();
-        for (Table table : tables) {
-            Table slaveTable = slaveDb.getTable(table.getId());
-            if (slaveTable == null) {
-                return false;
-            }
-            Partition masterPartition = table.getPartition(testPartition1);
-            Partition slavePartition = slaveTable.getPartition(testPartition1);
-            if (masterPartition == null && slavePartition == null) {
-                return true;
-            }
-            if (masterPartition.getId() != slavePartition.getId()) {
-                return false;
-            }
-            if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
-                    || masterPartition.getVisibleVersionHash() != slavePartition.getVisibleVersionHash()
-                    || masterPartition.getNextVersion() != slavePartition.getNextVersion()
-                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
-                return false;
-            }
-            List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
-            for (MaterializedIndex masterIndex : allMaterializedIndices) {
-                MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
-                if (slaveIndex == null) {
+        try {
+            Database masterDb = masterCatalog.getDbOrMetaException(testDb1);
+            Database slaveDb = slaveCatalog.getDbOrMetaException(testDb1);
+            List<Table> tables = masterDb.getTables();
+            for (Table table : tables) {
+                Table slaveTable = slaveDb.getTableOrMetaException(table.getId());
+                Partition masterPartition = table.getPartition(testPartition1);
+                Partition slavePartition = slaveTable.getPartition(testPartition1);
+                if (masterPartition == null && slavePartition == null) {
+                    return true;
+                }
+                if (masterPartition.getId() != slavePartition.getId()) {
                     return false;
                 }
-                List<Tablet> allTablets = masterIndex.getTablets();
-                for (Tablet masterTablet : allTablets) {
-                    Tablet slaveTablet = slaveIndex.getTablet(masterTablet.getId());
-                    if (slaveTablet == null) {
+                if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
+                        || masterPartition.getVisibleVersionHash() != slavePartition.getVisibleVersionHash()
+                        || masterPartition.getNextVersion() != slavePartition.getNextVersion()
+                        || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
+                    return false;
+                }
+                List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
+                for (MaterializedIndex masterIndex : allMaterializedIndices) {
+                    MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
+                    if (slaveIndex == null) {
                         return false;
                     }
-                    List<Replica> allReplicas = masterTablet.getReplicas();
-                    for (Replica masterReplica : allReplicas) {
-                        Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
-                        if (slaveReplica.getBackendId() != masterReplica.getBackendId()
-                                || slaveReplica.getVersion() != masterReplica.getVersion()
-                                || slaveReplica.getVersionHash() != masterReplica.getVersionHash()
-                                || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                || slaveReplica.getLastFailedVersionHash() != masterReplica.getLastFailedVersionHash()
-                                || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()
-                                || slaveReplica.getLastSuccessVersionHash() != slaveReplica
-                                        .getLastSuccessVersionHash()) {
+                    List<Tablet> allTablets = masterIndex.getTablets();
+                    for (Tablet masterTablet : allTablets) {
+                        Tablet slaveTablet = slaveIndex.getTablet(masterTablet.getId());
+                        if (slaveTablet == null) {
                             return false;
+                        }
+                        List<Replica> allReplicas = masterTablet.getReplicas();
+                        for (Replica masterReplica : allReplicas) {
+                            Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
+                            if (slaveReplica.getBackendId() != masterReplica.getBackendId()
+                                    || slaveReplica.getVersion() != masterReplica.getVersion()
+                                    || slaveReplica.getVersionHash() != masterReplica.getVersionHash()
+                                    || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
+                                    || slaveReplica.getLastFailedVersionHash() != masterReplica.getLastFailedVersionHash()
+                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()
+                                    || slaveReplica.getLastSuccessVersionHash() != slaveReplica
+                                    .getLastSuccessVersionHash()) {
+                                return false;
+                            }
                         }
                     }
                 }
             }
+            return true;
+        } catch (MetaNotFoundException e) {
+            return false;
         }
-        return true;
     }
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
@@ -213,7 +215,7 @@ public class CatalogTestUtil {
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(partitionId, (short) 3);
+        partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);

@@ -170,6 +170,9 @@ set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(gtest STATIC IMPORTED)
 set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
 
+add_library(benchmark STATIC IMPORTED)
+set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
+
 add_library(gmock STATIC IMPORTED)
 set_target_properties(gmock PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgmock.a)
 
@@ -329,7 +332,7 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror=strict-aliasing")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-omit-frame-pointer")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer -Werror=return-type")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
@@ -459,11 +462,17 @@ set(DORIS_LINK_LIBS
     Util
     DorisGen
     Webserver
-    TestUtil
     Geo
     Plugin
     ${WL_END_GROUP}
 )
+if (${MAKE_TEST} STREQUAL "ON")
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        TestUtil
+    )
+endif()
+
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
 # When adding new dependencies, If you don’t know if it can run on all platforms,
@@ -494,6 +503,7 @@ set(COMMON_THIRDPARTY
     gflags
     brpc
     protobuf
+    benchmark
     openssl
     crypto
     leveldb
@@ -611,6 +621,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
+    add_subdirectory(${SRC_DIR}/testutil)
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
@@ -625,10 +636,12 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
-add_subdirectory(${SRC_DIR}/testutil)
-#add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
-add_subdirectory(${SRC_DIR}/tools)
+
+if (${MAKE_TEST} STREQUAL "OFF")
+    add_subdirectory(${SRC_DIR}/tools)
+endif()
+
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
 
@@ -677,6 +690,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
     add_subdirectory(${TEST_DIR}/geo)
+    add_subdirectory(${TEST_DIR}/gutil)
     add_subdirectory(${TEST_DIR}/http)
     add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/runtime)
@@ -684,6 +698,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/util)
     add_subdirectory(${TEST_DIR}/plugin)
     add_subdirectory(${TEST_DIR}/plugin/example)
+    add_subdirectory(${TEST_DIR}/tools)
 endif ()
 
 # Install be

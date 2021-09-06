@@ -50,7 +50,7 @@ BE 的配置项有两种方式进行配置：
 
 2. 动态配置
 
-	BE 启动后，可以通过一下命令动态设置配置项。
+	BE 启动后，可以通过以下命令动态设置配置项。
 
 	```
 	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
@@ -792,6 +792,12 @@ cumulative compaction策略：最大增量文件的数量
 
 txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
 
+### `max_send_batch_parallelism_per_job`
+
+* 类型：int
+* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
+* 默认值：1
+
 ### `max_tablet_num_per_shard`
 
 默认：1024
@@ -1059,6 +1065,18 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 
 此配置用于上下文gc线程调度周期 ， 注意：单位为分钟，默认为 5 分钟
 
+### `send_batch_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
+* 默认值：256
+
+### `send_batch_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `serialize_batch`
 
 默认值：false
@@ -1120,12 +1138,18 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 ### `storage_root_path`
 
 * 类型：string
-* 描述：BE数据存储的目录,多目录之间用;分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过,隔开。
-eg：storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
 
-	* 1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
-	* 2./home/disk2/doris.SSD，存储限制为1GB，SSD；
-	* 3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
+* 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+
+  **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+
+  示例如下：
+
+  `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+
+  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
 
 * 默认值：${DORIS_HOME}
 
@@ -1240,7 +1264,7 @@ tablet状态缓存的更新间隔，单位：秒
 * 描述：用来表示清理合并版本的过期时间，当当前时间 now() 减去一个合并的版本路径中rowset最近创建创建时间大于tablet_rowset_stale_sweep_time_sec时，对当前路径进行清理，删除这些合并过的rowset, 单位为s。
 * 默认值：1800
 
-当写入过于频繁，磁盘时间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
+当写入过于频繁，磁盘空间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
 
 ### `tablet_writer_open_rpc_timeout_sec`
 

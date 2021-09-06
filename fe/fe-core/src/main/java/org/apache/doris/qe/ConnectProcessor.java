@@ -51,10 +51,10 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
-
-import com.google.common.collect.Lists;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -147,7 +147,7 @@ public class ConnectProcessor {
         }
         
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-
+        
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
@@ -183,12 +183,22 @@ public class ConnectProcessor {
             ctx.getState().setError("Unsupported character set(UTF-8)");
             return;
         }
+        String sqlHash = DigestUtils.md5Hex(originStmt);
+        ctx.setSqlHash(sqlHash);
+        try {
+            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
+        } catch (AnalysisException e) {
+            LOG.warn(e.getMessage());
+            ctx.getState().setError(e.getMessage());
+            return;
+        }
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
             .setTimestamp(System.currentTimeMillis())
             .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
             .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase());
+            .setDb(ctx.getDatabase())
+            .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;
@@ -229,7 +239,7 @@ public class ConnectProcessor {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError("Unexpected exception: " + e.getMessage());
+            ctx.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -294,12 +304,12 @@ public class ConnectProcessor {
             ctx.getState().setError("Empty tableName");
             return;
         }
-        Database db = ctx.getCatalog().getDb(ctx.getDatabase());
+        Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
             ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
-        Table table = db.getTable(tableName);
+        Table table = db.getTableNullable(tableName);
         if (table == null) {
             ctx.getState().setError("Unknown table(" + tableName + ")");
             return;
@@ -486,6 +496,7 @@ public class ConnectProcessor {
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
+            ctx.setExecutor(executor);
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();

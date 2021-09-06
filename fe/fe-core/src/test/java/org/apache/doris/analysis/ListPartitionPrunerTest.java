@@ -46,7 +46,7 @@ public class ListPartitionPrunerTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         String createSinglePartColWithSinglePartKey = "create table test.t1\n"
                 + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"

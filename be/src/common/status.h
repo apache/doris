@@ -235,6 +235,8 @@ public:
     ///   trailing message.
     Status clone_and_append(const Slice& msg) const;
 
+    operator bool() { return this->ok(); }
+
 private:
     const char* copy_state(const char* state);
 
@@ -284,7 +286,7 @@ private:
         if (UNLIKELY(!_s.ok())) {                                       \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string(); \
         }                                                               \
-    } while (0);
+    } while (false);
 
 #define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)              \
     do {                                                                       \
@@ -293,7 +295,7 @@ private:
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return ret_code;                                                   \
         }                                                                      \
-    } while (0);
+    } while (false);
 
 #define RETURN_NOT_OK_STATUS_WITH_WARN(stmt, warning_prefix)                   \
     do {                                                                       \
@@ -302,7 +304,7 @@ private:
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
             return _s;                                                         \
         }                                                                      \
-    } while (0);
+    } while (false);
 } // namespace doris
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

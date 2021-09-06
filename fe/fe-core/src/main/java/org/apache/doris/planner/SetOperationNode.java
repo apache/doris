@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -71,7 +72,7 @@ public abstract class SetOperationNode extends PlanNode {
     protected List<List<Expr>> constExprLists_ = Lists.newArrayList();
 
     // Materialized result/const exprs corresponding to materialized slots.
-    // Set in init() and substituted against the corresponding child's output smap.
+    // Set in finalize() and substituted against the corresponding child's output smap.
     protected List<List<Expr>> materializedResultExprLists_ = Lists.newArrayList();
     protected List<List<Expr>> materializedConstExprLists_ = Lists.newArrayList();
 
@@ -123,6 +124,62 @@ public abstract class SetOperationNode extends PlanNode {
 
     public List<List<Expr>> getMaterializedConstExprLists_() {
         return materializedConstExprLists_;
+    }
+
+    @Override
+    public void finalize(Analyzer analyzer) throws UserException {
+        super.finalize(analyzer);
+        // In Doris-6380, moved computePassthrough() and the materialized position of resultExprs/constExprs from this.init()
+        // to this.finalize(), and will not call SetOperationNode::init() again at the end of createSetOperationNodeFragment().
+        //
+        // Reasons for move computePassthrough():
+        //      Because the byteSize of the tuple corresponding to OlapScanNode is updated after
+        //      singleNodePlanner.createSingleNodePlan() and before singleNodePlan.finalize(),
+        //      calling computePassthrough() in SetOperationNode::init() may not be able to accurately determine whether
+        //      the child is pass through. In the previous logic , Will call SetOperationNode::init() again
+        //      at the end of createSetOperationNodeFragment().
+        //
+        // Reasons for move materialized position of resultExprs/constExprs:
+        //      Because the output slot is materialized at various positions in the planner stage, this is to ensure that
+        //      eventually the resultExprs/constExprs and the corresponding output slot have the same materialized state.
+        //      And the order of materialized resultExprs must be the same as the order of child adjusted by
+        //      computePassthrough(), so resultExprs materialized must be placed after computePassthrough().
+
+        // except Node must not reorder the child
+        if (!(this instanceof ExceptNode)) {
+            computePassthrough(analyzer);
+        }
+        // drop resultExprs/constExprs that aren't getting materialized (= where the
+        // corresponding output slot isn't being materialized)
+        materializedResultExprLists_.clear();
+        Preconditions.checkState(resultExprLists_.size() == children.size());
+        List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId_).getSlots();
+        for (int i = 0; i < resultExprLists_.size(); ++i) {
+            List<Expr> exprList = resultExprLists_.get(i);
+            List<Expr> newExprList = Lists.newArrayList();
+            Preconditions.checkState(exprList.size() == slots.size());
+            for (int j = 0; j < exprList.size(); ++j) {
+                if (slots.get(j).isMaterialized()) {
+                    newExprList.add(exprList.get(j));
+                }
+            }
+            materializedResultExprLists_.add(
+                    Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
+        }
+        Preconditions.checkState(
+                materializedResultExprLists_.size() == getChildren().size());
+
+        materializedConstExprLists_.clear();
+        for (List<Expr> exprList : constExprLists_) {
+            Preconditions.checkState(exprList.size() == slots.size());
+            List<Expr> newExprList = Lists.newArrayList();
+            for (int i = 0; i < exprList.size(); ++i) {
+                if (slots.get(i).isMaterialized()) {
+                    newExprList.add(exprList.get(i));
+                }
+            }
+            materializedConstExprLists_.add(newExprList);
+        }
     }
 
     @Override
@@ -262,41 +319,6 @@ public abstract class SetOperationNode extends PlanNode {
         Preconditions.checkState(conjuncts.isEmpty());
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
-        // except Node must not reorder the child
-        if (!(this instanceof ExceptNode)) {
-            computePassthrough(analyzer);
-        }
-        // drop resultExprs/constExprs that aren't getting materialized (= where the
-        // corresponding output slot isn't being materialized)
-        materializedResultExprLists_.clear();
-        Preconditions.checkState(resultExprLists_.size() == children.size());
-        List<SlotDescriptor> slots = analyzer.getDescTbl().getTupleDesc(tupleId_).getSlots();
-        for (int i = 0; i < resultExprLists_.size(); ++i) {
-            List<Expr> exprList = resultExprLists_.get(i);
-            List<Expr> newExprList = Lists.newArrayList();
-            Preconditions.checkState(exprList.size() == slots.size());
-            for (int j = 0; j < exprList.size(); ++j) {
-                if (slots.get(j).isMaterialized()) {
-                    newExprList.add(exprList.get(j));
-                }
-            }
-            materializedResultExprLists_.add(
-                    Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
-        }
-        Preconditions.checkState(
-                materializedResultExprLists_.size() == getChildren().size());
-
-        materializedConstExprLists_.clear();
-        for (List<Expr> exprList : constExprLists_) {
-            Preconditions.checkState(exprList.size() == slots.size());
-            List<Expr> newExprList = Lists.newArrayList();
-            for (int i = 0; i < exprList.size(); ++i) {
-                if (slots.get(i).isMaterialized()) {
-                    newExprList.add(exprList.get(i));
-                }
-            }
-            materializedConstExprLists_.add(newExprList);
-        }
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {

@@ -159,7 +159,7 @@ public class RowBatchBuilder {
                 partitionRowList.add(row);
                 partRowMap.put(cacheKey.realValue(), partitionRowList);
             } else {
-                partRowMap.get(cacheKey).add(row);
+                partRowMap.get(cacheKey.realValue()).add(row);
             }
         }
 

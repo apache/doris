@@ -26,6 +26,7 @@
 #include <string_view>
 
 #include "anyval_util.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 
@@ -148,28 +149,39 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    struct CommaMoneypunct : std::moneypunct<char> {
-        pattern do_pos_format() const override { return {{none, sign, none, value}}; }
-        pattern do_neg_format() const override { return {{none, sign, none, value}}; }
-        int do_frac_digits() const override { return 2; }
-        char_type do_thousands_sep() const override { return ','; }
-        string_type do_grouping() const override { return "\003"; }
-        string_type do_negative_sign() const override { return "-"; }
+    template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
+            const int32_t frac_value = 0) {
+        char local[N];
+        char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+        int32_t string_val_len = local + sizeof(local) - p + 3;
+        StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+        memcpy(result.ptr, p, string_val_len - 3);
+        *(result.ptr + string_val_len - 3) = '.';
+        *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+        *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+        return result;
     };
 
-    static StringVal do_money_format(FunctionContext* context, const std::string& v) {
-        static std::locale comma_locale(std::locale(), new CommaMoneypunct());
-        static std::stringstream ss;
-        static bool ss_init = false;
-        if (UNLIKELY(!ss_init)) {
-            ss.imbue(comma_locale);
-            ss_init = true;
+    // Note string value must be valid decimal string which contains two digits after the decimal point
+    static StringVal do_money_format(FunctionContext* context, const string& value) {
+        bool is_positive = (value[0] != '-');
+        int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+        StringVal result = StringVal::create_temp_string_val(context, result_len);
+        if (!is_positive) {
+            *result.ptr = '-';
         }
-        static std::string empty_string;
-        ss.str(empty_string);
-
-        ss << std::put_money(v);
-        return AnyValUtil::from_string_temp(context, ss.str());
+        for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+            *(result.ptr + j) = *(value.data() + i);
+            if (i - 1 < 0) break;
+            *(result.ptr + j - 1) = *(value.data() + i - 1);
+            if (i - 2 < 0) break;
+            *(result.ptr + j - 2) = *(value.data() + i - 2);
+            if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+                *(result.ptr + j - 3) = ',';
+            }
+        }
+        memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+        return result;
     };
 
     static StringVal split_part(FunctionContext* context, const StringVal& content,

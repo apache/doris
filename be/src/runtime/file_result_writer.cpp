@@ -54,9 +54,7 @@ FileResultWriter::~FileResultWriter() {
 Status FileResultWriter::init(RuntimeState* state) {
     _state = state;
     _init_profile();
-
-    RETURN_IF_ERROR(_create_next_file_writer());
-    return Status::OK();
+    return _create_next_file_writer();
 }
 
 void FileResultWriter::_init_profile() {
@@ -73,8 +71,7 @@ Status FileResultWriter::_create_success_file() {
     std::string file_name;
     RETURN_IF_ERROR(_get_success_file_name(&file_name));
     RETURN_IF_ERROR(_create_file_writer(file_name));
-    RETURN_IF_ERROR(_close_file_writer(true, true));
-    return Status::OK();
+    return _close_file_writer(true, true);
 }
 
 Status FileResultWriter::_get_success_file_name(std::string* file_name) {
@@ -179,8 +176,7 @@ Status FileResultWriter::append_row_batch(const RowBatch* batch) {
 Status FileResultWriter::_write_parquet_file(const RowBatch& batch) {
     RETURN_IF_ERROR(_parquet_writer->write(batch));
     // split file if exceed limit
-    RETURN_IF_ERROR(_create_new_file_if_exceed_size());
-    return Status::OK();
+    return _create_new_file_if_exceed_size();
 }
 
 Status FileResultWriter::_write_csv_file(const RowBatch& batch) {
@@ -189,8 +185,7 @@ Status FileResultWriter::_write_csv_file(const RowBatch& batch) {
         TupleRow* row = batch.get_row(i);
         RETURN_IF_ERROR(_write_one_row_as_csv(row));
     }
-    _flush_plain_text_outstream(true);
-    return Status::OK();
+    return _flush_plain_text_outstream(true);
 }
 
 // actually, this logic is same as `ExportSink::gen_row_buffer`
@@ -259,7 +254,8 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 break;
             }
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
                 if (string_val->ptr == NULL) {
                     if (string_val->len != 0) {
@@ -275,11 +271,7 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                         reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-                if (output_scale > 0 && output_scale <= 30) {
-                    decimal_str = decimal_val.to_string(output_scale);
-                } else {
-                    decimal_str = decimal_val.to_string();
-                }
+                decimal_str = decimal_val.to_string(output_scale);
                 _plain_text_outstream << decimal_str;
                 break;
             }
@@ -318,9 +310,7 @@ Status FileResultWriter::_flush_plain_text_outstream(bool eos) {
     _plain_text_outstream.clear();
 
     // split file if exceed limit
-    RETURN_IF_ERROR(_create_new_file_if_exceed_size());
-
-    return Status::OK();
+    return _create_new_file_if_exceed_size();
 }
 
 Status FileResultWriter::_create_new_file_if_exceed_size() {
@@ -387,20 +377,11 @@ Status FileResultWriter::_send_result() {
     std::string localhost = BackendOptions::get_localhost();
     row_buffer.push_string(localhost.c_str(), localhost.length()); // url
 
-    TFetchDataResult* result = new (std::nothrow) TFetchDataResult();
+    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(1);
     result->result_batch.rows[0].assign(row_buffer.buf(), row_buffer.length());
-
-    Status st = _sinker->add_batch(result);
-    if (st.ok()) {
-        result = nullptr;
-    } else {
-        LOG(WARNING) << "failed to send outfile result: " << st.get_error_msg();
-    }
-
-    delete result;
-    result = nullptr;
-    return st;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "failed to send outfile result");
+    return Status::OK();
 }
 
 Status FileResultWriter::close() {
@@ -411,8 +392,7 @@ Status FileResultWriter::close() {
     // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
     SCOPED_TIMER(_writer_close_timer);
-    RETURN_IF_ERROR(_close_file_writer(true));
-    return Status::OK();
+    return _close_file_writer(true);
 }
 
 } // namespace doris

@@ -461,8 +461,6 @@ DataStreamRecvr::DataStreamRecvr(
 
     // Initialize the counters
     _bytes_received_counter = ADD_COUNTER(_profile, "BytesReceived", TUnit::BYTES);
-    // _bytes_received_time_series_counter =
-    //     ADD_TIME_SERIES_COUNTER(_profile, "BytesReceived", _bytes_received_counter);
     _deserialize_row_batch_timer = ADD_TIMER(_profile, "DeserializeRowBatchTimer");
     _data_arrival_timer = ADD_TIMER(_profile, "DataArrivalWaitTime");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");

@@ -1,0 +1,35 @@
+# Development environment configuration
+server:
+  # The HTTP port of the server, the default is 8080
+  port: 8080
+  servlet:
+    # Access path of the application
+    context-path: /
+  tomcat:
+    # URI encoding of tomcat
+    uri-encoding: UTF-8
+    #The maximum number of tomcat threads, the default is 200
+    max-threads: 800
+    # The number of threads that Tomcat starts to initialize, the default value is 25
+    min-spare-threads: 30
+
+# Log configuration
+logging:
+  level:
+    com.data: debug
+    org.springframework: warn
+
+# Spring configuration
+spring:
+  profiles:
+    active: druid
+  resources:
+    static-locations: classpath:/static
+# MyBatis configuration
+mybatis:
+    # Search for specified package alias
+    typeAliasesPackage: org.apache.doris.demo.spring.**.domain
+    # Configure mapper scanning and find all mapper.xml mapping files
+    mapperLocations: classpath*:mybatis/*Mapper.xml
+    # Load the global configuration file
+    configLocation: classpath:mybatis/mybatis-config.xml

@@ -108,8 +108,8 @@ BufferPool::BufferPool(int64_t min_buffer_len, int64_t buffer_bytes_limit,
         : allocator_(new BufferAllocator(this, min_buffer_len, buffer_bytes_limit,
                                          clean_page_bytes_limit)),
           min_buffer_len_(min_buffer_len) {
-    DCHECK_GT(min_buffer_len, 0);
-    DCHECK_EQ(min_buffer_len, BitUtil::RoundUpToPowerOfTwo(min_buffer_len));
+    CHECK_GT(min_buffer_len, 0);
+    CHECK_EQ(min_buffer_len, BitUtil::RoundUpToPowerOfTwo(min_buffer_len));
 }
 
 BufferPool::~BufferPool() {}

@@ -20,14 +20,12 @@
 #include <algorithm>
 #include <boost/variant.hpp>
 #include <iostream>
-#include <sstream>
 #include <string>
 #include <utility>
 
 #include "agent/cgroups_mgr.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/runtime_filter.h"
@@ -38,7 +36,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
@@ -68,7 +65,7 @@ OlapScanNode::~OlapScanNode() {}
 
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    _direct_conjunct_size = _conjunct_ctxs.size();
+    _direct_conjunct_size = state->enable_vectorized_exec() ? 1 : _conjunct_ctxs.size();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -157,6 +154,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _scanner_wait_batch_timer = ADD_TIMER(_runtime_profile, "ScannerBatchWaitTime");
     // time of scan thread to wait for worker thread of the thread pool
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
+
+    // time of node to wait for batch/block queue
+    _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -286,6 +286,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     RowBatch* materialized_batch = NULL;
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
+        SCOPED_TIMER(_olap_wait_batch_queue_timer);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
                 _transfer_done = true;
@@ -325,7 +326,8 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
 
             _row_batch_consumed_cv.notify_all();
             *eos = true;
-            LOG(INFO) << "OlapScanNode ReachedLimit.";
+            VLOG_QUERY << "OlapScanNode ReachedLimit. fragment id="
+                       << print_id(_runtime_state->fragment_instance_id());
         } else {
             *eos = false;
         }
@@ -454,6 +456,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
 
     VLOG_CRITICAL << "Filter idle conjuncts";
     // 4. Filter idle conjunct which already trans to olap filters`
+    // TODO: filter idle conjunct in vexpr_contexts
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "BuildScanKey";
@@ -515,6 +518,9 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
             iter->second->runtimefilter->set_push_down_profile();
         }
     }
+    // set vconjunct_ctx is empty, if all conjunct
+    if (_direct_conjunct_size == 0) {
+    }
 }
 
 void OlapScanNode::eval_const_conjuncts() {
@@ -572,7 +578,8 @@ Status OlapScanNode::normalize_conjuncts() {
 
         case TYPE_CHAR:
         case TYPE_VARCHAR:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
                                                 slots[slot_idx]->type().type);
             normalize_predicate(range, slots[slot_idx]);
@@ -654,11 +661,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                        bool is_begin_include, bool is_end_include,
-                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                        RuntimeProfile* profile) {
+Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_count,
+                               bool is_begin_include, bool is_end_include,
+                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                               RuntimeProfile* profile) {
     auto tablet_id = scan_range.tablet_id;
     int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), NULL, 10);
     std::string err;
@@ -946,7 +953,8 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_LARGEINT: {
+    case TYPE_LARGEINT:
+    case TYPE_STRING: {
         func(temp_range, reinterpret_cast<T*>(value));
         break;
     }
@@ -1244,7 +1252,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_INT:
                 case TYPE_BIGINT:
                 case TYPE_LARGEINT:
-                case TYPE_BOOLEAN: {
+                case TYPE_BOOLEAN:
+                case TYPE_STRING: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                      *reinterpret_cast<T*>(value));
                     break;
@@ -1329,6 +1338,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     }
 
+    ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
+
     /*********************************
      * 优先级调度基本策略:
      * 1. 通过查询拆分的Range个数来确定初始nice值
@@ -1339,7 +1350,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
      *    nice值越大的，越优先获得的查询资源
      * 4. 定期提高队列内残留任务的优先级，避免大查询完全饿死
      *********************************/
-    PriorityThreadPool* thread_pool = state->exec_env()->thread_pool();
+    PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     _total_assign_num = 0;
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
@@ -1404,17 +1415,30 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
 
         auto iter = olap_scanners.begin();
-        while (iter != olap_scanners.end()) {
-            PriorityThreadPool::Task task;
-            task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
-            task.priority = _nice;
-            (*iter)->start_wait_worker_timer();
-            if (thread_pool->offer(task)) {
-                olap_scanners.erase(iter++);
-            } else {
-                LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+        if (thread_token != nullptr) {
+            while (iter != olap_scanners.end()) {
+                auto s = thread_token->submit_func(std::bind(&OlapScanNode::scanner_thread, this, *iter));
+                if (s.ok()) {
+                    (*iter)->start_wait_worker_timer();
+                    olap_scanners.erase(iter++);
+                } else {
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+                }
+                ++_total_assign_num;
             }
-            ++_total_assign_num;
+        } else {
+            while (iter != olap_scanners.end()) {
+                PriorityThreadPool::Task task;
+                task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
+                task.priority = _nice;
+                (*iter)->start_wait_worker_timer();
+                if (thread_pool->offer(task)) {
+                    olap_scanners.erase(iter++);
+                } else {
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool!";
+                }
+                ++_total_assign_num;
+            }
         }
 
         RowBatchInterface* scan_batch = NULL;
@@ -1457,7 +1481,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         if (NULL != scan_batch) {
             add_one_batch(scan_batch);
         }
-    }
+    } // end of transfer while
 
     state->resource_pool()->release_thread_token(true);
     VLOG_CRITICAL << "TransferThread finish.";
@@ -1477,6 +1501,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
         _running_thread--;
+        // We need to make sure the scanner is closed because the query has been closed or cancelled.
+        scanner->close(scanner->runtime_state());
         _scan_batch_added_cv.notify_one();
         _scan_thread_exit_cv.notify_one();
         LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
@@ -1546,7 +1572,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
-            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            VLOG_QUERY << "Scan thread cancelled, cause query done, maybe reach limit."
+                       << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
         RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),

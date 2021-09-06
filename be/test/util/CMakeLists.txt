@@ -72,3 +72,7 @@ ADD_BE_TEST(s3_uri_test)
 ADD_BE_TEST(s3_storage_backend_test)
 ADD_BE_TEST(broker_storage_backend_test)
 ADD_BE_TEST(sort_heap_test)
+ADD_BE_TEST(counts_test)
+ADD_BE_TEST(date_func_test)
+
+target_link_libraries(Test_util Common Util Gutil ${Boost_LIBRARIES} glog gflags fmt protobuf)

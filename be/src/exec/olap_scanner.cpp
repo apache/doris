@@ -17,11 +17,12 @@
 
 #include "olap_scanner.h"
 
-#include <cstring>
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "olap/decimal12.h"
 #include "olap/field.h"
+#include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "runtime/descriptors.h"
@@ -181,6 +182,7 @@ Status OlapScanner::_init_params(
              _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
+
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
@@ -442,7 +444,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_OBJECT:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
@@ -451,9 +454,10 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_DECIMALV2: {
             DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
+            auto packed_decimal = *reinterpret_cast<const decimal12_t*>(ptr);
 
-            int64_t int_value = *(int64_t*)(ptr);
-            int32_t frac_value = *(int32_t*)(ptr + sizeof(int64_t));
+            int64_t int_value = packed_decimal.integer;
+            int32_t frac_value = packed_decimal.fraction;
             if (!slot->from_olap_decimal(int_value, frac_value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }
@@ -469,12 +473,10 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_DATE: {
             DateTimeValue* slot = tuple->get_datetime_slot(slot_desc->tuple_offset());
-            uint64_t value = 0;
-            value = *(unsigned char*)(ptr + 2);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr + 1);
-            value <<= 8;
-            value |= *(unsigned char*)(ptr);
+
+            uint24_t date = *reinterpret_cast<const uint24_t*>(ptr);
+            uint64_t value = uint32_t(date);
+
             if (!slot->from_olap_date(value)) {
                 tuple->set_null(slot_desc->null_indicator_offset());
             }

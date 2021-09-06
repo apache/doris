@@ -22,6 +22,7 @@
 #include "exprs/expr.h"
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/type_limit.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -168,6 +169,45 @@ public:
         return HashUtil::murmur_hash64A(&v.val, 8, seed);
     }
 
+    template <typename Val>
+    static Val min_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            return StringVal();
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::min().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::min().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::min());
+        }
+    }
+
+    template <typename Val>
+    static Val max_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            StringValue sv = type_limit<StringValue>::max();
+            StringVal max_val;
+            max_val.ptr = ctx->allocate(sv.len);
+            memcpy(max_val.ptr, sv.ptr, sv.len);
+
+            return max_val;
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::max().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::max().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::max());
+        }
+    }
+
     // Returns the byte size of *Val for type t.
     static int any_val_size(const TypeDescriptor& t) {
         switch (t.type) {
@@ -199,6 +239,7 @@ public:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
+        case TYPE_STRING:
             return sizeof(doris_udf::StringVal);
 
         case TYPE_DATE:
@@ -240,6 +281,7 @@ public:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
+        case TYPE_STRING:
             return alignof(StringVal);
         case TYPE_DATETIME:
         case TYPE_DATE:
@@ -336,6 +378,7 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
             return;

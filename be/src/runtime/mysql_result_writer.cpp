@@ -32,9 +32,9 @@
 namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(BufferControlBlock* sinker,
-                                     const std::vector<ExprContext*>& output_expr_ctxs,
-                                     RuntimeProfile* parent_profile)
-        : _sinker(sinker),
+                                     const std::vector<ExprContext*>& output_expr_ctxs, RuntimeProfile* parent_profile)
+        : ResultWriter(),
+          _sinker(sinker),
           _output_expr_ctxs(output_expr_ctxs),
           _row_buffer(NULL),
           _parent_profile(parent_profile) {}
@@ -49,8 +49,7 @@ Status MysqlResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
 
-    _row_buffer = new (std::nothrow) MysqlRowBuffer();
-
+    _row_buffer = new(std::nothrow) MysqlRowBuffer();
     if (NULL == _row_buffer) {
         return Status::InternalError("no memory to alloc.");
     }
@@ -90,11 +89,7 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_LARGEINT: {
-        char buf[48];
-        int len = 48;
-        char* v = LargeIntValue::to_string(reinterpret_cast<const PackedInt128*>(item)->value, buf,
-                                           &len);
-        buf_ret = _row_buffer->push_string(v, len);
+        buf_ret = _row_buffer->push_largeint(reinterpret_cast<const PackedInt128*>(item)->value);
         break;
     }
 
@@ -107,19 +102,13 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
         break;
 
     case TYPE_TIME: {
-        double time = *static_cast<double*>(item);
-        std::string time_str = time_str_from_double(time);
-        buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
+        buf_ret = _row_buffer->push_time(*static_cast<double*>(item));
         break;
     }
 
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        char buf[64];
-        const DateTimeValue* time_val = (const DateTimeValue*)(item);
-        // TODO(zhaochun), this function has core risk
-        char* pos = time_val->to_string(buf);
-        buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
+        buf_ret = _row_buffer->push_datetime(*static_cast<DateTimeValue*>(item));
         break;
     }
 
@@ -130,7 +119,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
     }
 
     case TYPE_VARCHAR:
-    case TYPE_CHAR: {
+    case TYPE_CHAR:
+    case TYPE_STRING: {
         const StringValue* string_val = (const StringValue*)(item);
 
         if (string_val->ptr == NULL) {
@@ -150,16 +140,8 @@ int MysqlResultWriter::_add_row_value(int index, const TypeDescriptor& type, voi
 
     case TYPE_DECIMALV2: {
         DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-        std::string decimal_str;
         int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-
-        if (output_scale > 0 && output_scale <= 30) {
-            decimal_str = decimal_val.to_string(output_scale);
-        } else {
-            decimal_str = decimal_val.to_string();
-        }
-
-        buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
+        buf_ret = _row_buffer->push_decimal(decimal_val, output_scale);
         break;
     }
 
@@ -236,7 +218,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
 
     Status status;
     // convert one batch
-    TFetchDataResult* result = new (std::nothrow) TFetchDataResult();
+    std::unique_ptr<TFetchDataResult> result = std::make_unique<TFetchDataResult>();
     int num_rows = batch->num_rows();
     result->result_batch.rows.resize(num_rows);
 
@@ -258,20 +240,10 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     if (status.ok()) {
         SCOPED_TIMER(_result_send_timer);
         // push this batch to back
-        status = _sinker->add_batch(result);
-
-        if (status.ok()) {
-            result = NULL;
-            _written_rows += num_rows;
-        } else {
-            LOG(WARNING) << "append result batch to sink failed.";
-        }
+        RETURN_NOT_OK_STATUS_WITH_WARN(_sinker->add_batch(result), "fappend result batch to sink failed.");
+        _written_rows += num_rows;
     }
-
-    delete result;
-    result = NULL;
-
-    return status;
+    return Status::OK();
 }
 
 Status MysqlResultWriter::close() {

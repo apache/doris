@@ -132,6 +132,12 @@ FE is the same.
 
 BROKER does not currently have, nor does it need, priority\ networks. Broker's services are bound to 0.0.0 by default. Simply execute the correct accessible BROKER IP when ADD BROKER is used.
 
+#### Table Name Case Sensitivity Setting
+
+By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
+
+See the section on `lower_case_table_names` variables in [Variables](../administrator-guide/variables.md) for details.
+
 ## Cluster deployment
 
 ### Manual deployment

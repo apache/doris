@@ -34,14 +34,14 @@ under the License.
 
 1. 下载 Docker 镜像
 
-    `$ docker pull apache/incubator-doris:build-env-1.3`
+    `$ docker pull apache/incubator-doris:build-env-1.3.1`
     
     检查镜像下载完成：
     
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.3           49f68cecbc1a        4 days ago          3.76GB
+    apache/incubator-doris   build-env-1.3.1           49f68cecbc1a        4 days ago          3.76GB
     ```
 
 注: 针对不同的 Doris 版本，需要下载对应的镜像版本
@@ -51,13 +51,13 @@ under the License.
 | apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.10.x, 0.11.x |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
-| apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 后续的发布版本 |
+| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 后续的发布版本 |
 
 **注意**：
 
-> 1. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3。
+> 1. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3.1。
 
-> 2. 在 build-env-1.3 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
+> 2. 在 build-env-1.3.1 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
 > 
 >   切换到 JDK 8：
 >   
@@ -77,14 +77,14 @@ under the License.
 
 2. 运行镜像
 
-    `$ docker run -it apache/incubator-doris:build-env-1.3`
+    `$ docker run -it apache/incubator-doris:build-env-1.3.1`
     
     建议以挂载本地 Doris 源码目录的方式运行镜像，这样编译的产出二进制文件会存储在宿主机中，不会因为镜像退出而消失。
 
     同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3.1
     ```
     
 3. 下载源码

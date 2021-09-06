@@ -18,9 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -31,6 +33,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 
 import org.apache.commons.codec.binary.Hex;
@@ -39,6 +42,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Map;
 
 // create a user define function
@@ -58,10 +62,13 @@ public class CreateFunctionStmt extends DdlStmt {
 
     private final FunctionName functionName;
     private final boolean isAggregate;
+    private final boolean isAlias;
     private final FunctionArgsDef argsDef;
     private final TypeDef returnType;
     private TypeDef intermediateType;
     private final Map<String, String> properties;
+    private final List<String> parameters;
+    private final Expr originFunction;
 
     // needed item set after analyzed
     private String objectFile;
@@ -83,10 +90,33 @@ public class CreateFunctionStmt extends DdlStmt {
         } else {
             this.properties = ImmutableSortedMap.copyOf(properties, String.CASE_INSENSITIVE_ORDER);
         }
+        this.isAlias = false;
+        this.parameters = ImmutableList.of();
+        this.originFunction = null;
+    }
+
+    public CreateFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef,
+                              List<String> parameters, Expr originFunction) {
+        this.functionName = functionName;
+        this.isAlias = true;
+        this.argsDef = argsDef;
+        if (parameters == null) {
+            this.parameters = ImmutableList.of();
+        } else {
+            this.parameters = ImmutableList.copyOf(parameters);
+        }
+        this.originFunction = originFunction;
+        this.isAggregate = false;
+        this.returnType = new TypeDef(Type.VARCHAR);
+        this.properties = ImmutableSortedMap.of();
     }
 
     public FunctionName getFunctionName() { return functionName; }
     public Function getFunction() { return function; }
+
+    public Expr getOriginFunction() {
+        return originFunction;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -96,6 +126,8 @@ public class CreateFunctionStmt extends DdlStmt {
         // check
         if (isAggregate) {
             analyzeUda();
+        } else if (isAlias) {
+            analyzeAliasFunction();
         } else {
             analyzeUdf();
         }
@@ -111,6 +143,11 @@ public class CreateFunctionStmt extends DdlStmt {
         }
         // check argument
         argsDef.analyze(analyzer);
+
+        // alias function does not need analyze following params
+        if (isAlias) {
+            return;
+        }
 
         returnType.analyze(analyzer);
         if (intermediateType != null) {
@@ -197,18 +234,34 @@ public class CreateFunctionStmt extends DdlStmt {
         function.setChecksum(checksum);
     }
 
+    private void analyzeAliasFunction() throws AnalysisException {
+        function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
+                Type.VARCHAR, argsDef.isVariadic(), parameters, originFunction);
+        ((AliasFunction) function).analyze();
+    }
+
     @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE ");
         if (isAggregate) {
             stringBuilder.append("AGGREGATE ");
+        } else if (isAlias) {
+            stringBuilder.append("ALIAS ");
         }
+
         stringBuilder.append("FUNCTION ");
         stringBuilder.append(functionName.toString());
         stringBuilder.append(argsDef.toSql());
-        stringBuilder.append(" RETURNS ");
-        stringBuilder.append(returnType.toString());
+        if (isAlias) {
+            stringBuilder.append(" WITH PARAMETER (")
+                    .append(parameters.toString())
+                    .append(") AS ")
+                    .append(originFunction.toSql());
+        } else {
+            stringBuilder.append(" RETURNS ");
+            stringBuilder.append(returnType.toString());
+        }
         if (properties.size() > 0) {
             stringBuilder.append(" PROPERTIES (");
             int i = 0;

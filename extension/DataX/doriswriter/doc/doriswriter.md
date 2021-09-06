@@ -160,9 +160,21 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **lineDelimiter**
 
-  - 描述：每批次数据包含多行，每行为 Json 格式，每行的的分隔符即为 lineDelimiter。
+  - 描述：每批次数据包含多行，每行为 Json 格式，每行的的分隔符即为 lineDelimiter。支持多个字节, 例如'\x02\x03'。
   - 必选：否
   - 默认值：`\n`
+  
+* **format**
+
+  - 描述：导入数据的格式, 可以使是json或者csv。
+  - 必选：否
+  - 默认值：`json`
+  
+* **columnSeparator**
+
+  - 描述：当导入的格式是csv时, 字段之间的分隔符。支持多个字节, 例如'\x01\x02'。
+  - 必选：否
+  - 默认值：`\t`
 
 * **loadProps**
 
@@ -170,3 +182,8 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
   - 必选：否
   - 默认值：无
 
+* **connectTimeout**
+
+  - 描述：StreamLoad单次请求的超时时间, 单位毫秒(ms)。
+  - 必选：否
+  - 默认值：-1

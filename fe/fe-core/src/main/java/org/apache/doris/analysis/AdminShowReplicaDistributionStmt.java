@@ -35,7 +35,10 @@ import com.google.common.collect.ImmutableList;
 // admin show replica distribution from tbl [partition(p1, p2, ...)]
 public class AdminShowReplicaDistributionStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("ReplicaNum").add("Graph").add("Percent").build();
+            .add("BackendId").add("ReplicaNum").add("ReplicaSize")
+            .add("NumGraph").add("NumPercent")
+            .add("SizeGraph").add("SizePercent")
+            .build();
 
     private TableRef tblRef;
 
@@ -88,10 +91,6 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
 
     @Override
     public RedirectStatus getRedirectStatus() {
-        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
-            return RedirectStatus.FORWARD_NO_SYNC;
-        } else {
-            return RedirectStatus.NO_FORWARD;
-        }
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

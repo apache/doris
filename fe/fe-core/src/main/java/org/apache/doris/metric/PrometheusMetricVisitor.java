@@ -28,8 +28,10 @@ import com.codahale.metrics.Histogram;
 import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /*
@@ -54,6 +56,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
 
     private int ordinal = 0;
     private int metricNumber = 0;
+    private Set<String> metricNames = new HashSet();
 
     public PrometheusMetricVisitor(String prefix) {
         super(prefix);
@@ -147,8 +150,11 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     public void visit(StringBuilder sb, @SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + "_" + metric.getName();
-        sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
+        if (!metricNames.contains(fullName)) {
+            sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
+            sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
+            metricNames.add(fullName);
+        }
         sb.append(fullName);
 
         // name

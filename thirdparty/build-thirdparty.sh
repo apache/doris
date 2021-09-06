@@ -736,6 +736,20 @@ build_parallel_hashmap() {
     cp -r parallel_hashmap $TP_INSTALL_DIR/include/
 }
 
+# pdqsort
+build_pdqsort() {
+    check_if_source_exist $PDQSORT_SOURCE
+    cd $TP_SOURCE_DIR/$PDQSORT_SOURCE
+    cp -r pdqsort.h $TP_INSTALL_DIR/include/
+}
+
+# libdivide
+build_libdivide() {
+    check_if_source_exist $LIBDIVIDE_SOURCE
+    cd $TP_SOURCE_DIR/$LIBDIVIDE_SOURCE
+    cp -r libdivide.h $TP_INSTALL_DIR/include/
+}
+
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
@@ -900,6 +914,21 @@ build_hdfs3() {
     make -j $PARALLEL && make install
 }
 
+# benchmark
+build_benchmark() {
+    check_if_source_exist $BENCHMARK_SOURCE
+
+    cd $TP_SOURCE_DIR/$BENCHMARK_SOURCE
+
+    cmake -E make_directory "build"
+    CXXFLAGS="-lresolv -pthread -lrt" cmake -E chdir "build" cmake -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DCMAKE_BUILD_TYPE=Release ../
+    cmake --build "build" --config Release
+
+    mkdir $TP_INCLUDE_DIR/benchmark
+    cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/include/benchmark/benchmark.h $TP_INCLUDE_DIR/benchmark/
+    cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -936,6 +965,8 @@ build_bitshuffle
 build_croaringbitmap
 build_fmt
 build_parallel_hashmap
+build_pdqsort
+build_libdivide
 build_orc
 build_cctz
 build_tsan_header
@@ -952,5 +983,6 @@ build_lzma
 build_xml2
 build_gsasl
 build_hdfs3
+build_benchmark
 
 echo "Finished to build all thirdparties"

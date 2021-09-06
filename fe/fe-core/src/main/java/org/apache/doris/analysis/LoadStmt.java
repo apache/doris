@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -81,6 +80,7 @@ public class LoadStmt extends DdlStmt {
     public static final String STRICT_MODE = "strict_mode";
     public static final String TIMEZONE = "timezone";
     public static final String LOAD_PARALLELISM = "load_parallelism";
+    public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -114,7 +114,6 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
-
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -157,6 +156,12 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(LOAD_PARALLELISM, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(SEND_BATCH_PARALLELISM, new Function<String, Integer>() {
                 @Override
                 public @Nullable Integer apply(@Nullable String s) {
                     return Integer.valueOf(s);
@@ -289,6 +294,19 @@ public class LoadStmt extends DdlStmt {
             properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
                     properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
         }
+
+        // send batch parallelism
+        final String sendBatchParallelism = properties.get(SEND_BATCH_PARALLELISM);
+        if (sendBatchParallelism != null) {
+            try {
+                final int sendBatchParallelismValue = Integer.valueOf(sendBatchParallelism);
+                if (sendBatchParallelismValue < 1) {
+                    throw new DdlException(SEND_BATCH_PARALLELISM + " must be greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(SEND_BATCH_PARALLELISM + " is not a number.");
+            }
+        }
     }
 
     @Override
@@ -311,17 +329,12 @@ public class LoadStmt extends DdlStmt {
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = Catalog.getCurrentCatalog().getDb(label.getDbName());
-            if (db == null) {
-                throw new AnalysisException("database: " + label.getDbName() + "not  found.");
-            }
-            Table table = db.getTable(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND &&
-                    (!(table instanceof OlapTable) || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(label.getDbName());
+            OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && table.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
-                    && !((table instanceof OlapTable) && ((OlapTable) table).hasDeleteSign()) ) {
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
                 throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
             }
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {

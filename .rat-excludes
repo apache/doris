@@ -34,3 +34,4 @@ murmur_hash3.*
 utf8_check.cpp
 .markdownlintignore
 tsan_suppressions
+sse2neon.h

@@ -100,6 +100,8 @@ public:
     // @brief 获取所有root_path信息
     OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
+    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
@@ -167,6 +169,10 @@ public:
 
     // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
+
+    // clear trash and snapshot file
+    // option: update disk usage after sweep
+    OLAPStatus start_trash_sweep(double* usage, bool ignore_guard = false);
 
     void stop();
 
@@ -236,8 +242,6 @@ private:
 
     void _start_clean_fd_cache();
 
-    // 清理trash和snapshot文件，返回清理后的磁盘使用量
-    OLAPStatus _start_trash_sweep(double* usage);
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
     // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
@@ -289,6 +293,7 @@ private:
 
     EngineOptions _options;
     std::mutex _store_lock;
+    std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
     uint32_t _available_storage_medium_type_count;
 

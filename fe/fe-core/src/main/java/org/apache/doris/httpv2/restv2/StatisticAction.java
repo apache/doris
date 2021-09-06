@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.system.Backend;
@@ -34,8 +33,10 @@ import com.google.common.collect.Maps;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/rest/v2")
@@ -45,6 +46,9 @@ public class StatisticAction extends RestBaseController {
 
     @RequestMapping(path = "/api/cluster_overview", method = RequestMethod.GET)
     public Object clusterOverview(HttpServletRequest request, HttpServletResponse response) {
+        if (!Catalog.getCurrentCatalog().isMaster()) {
+            return redirectToMaster(request, response);
+        }
         Map<String, Object> resultMap = Maps.newHashMap();
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -56,17 +60,12 @@ public class StatisticAction extends RestBaseController {
         resultMap.put("feCount", catalog.getFrontends(null).size());
         resultMap.put("remainDisk", getRemainDisk(infoService));
 
-        return  ResponseEntityBuilder.ok(resultMap);
+        return ResponseEntityBuilder.ok(resultMap);
     }
 
     private int getTblCount(Catalog catalog) {
-        int tblCount = 0;
-        List<Long> dbIds = catalog.getDbIds();
-        for (long dbId : dbIds) {
-            Database db = catalog.getDb(dbId);
-            tblCount += db.getTables().size();
-        }
-        return tblCount;
+        return catalog.getDbIds().stream().map(catalog::getDbNullable).filter(Objects::nonNull)
+                .map(db -> db.getTables().size()).reduce(Integer::sum).orElse(0);
     }
 
     private long getDiskOccupancy(SystemInfoService infoService) {

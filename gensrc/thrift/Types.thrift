@@ -77,7 +77,8 @@ enum TPrimitiveType {
   OBJECT,
   ARRAY,
   MAP,
-  STRUCT
+  STRUCT,
+  STRING
 }
 
 enum TTypeNodeType {
@@ -325,6 +326,7 @@ struct TFunction {
 
   11: optional i64 id
   12: optional string checksum
+  13: optional bool vectorized = false
 }
 
 enum TLoadJobState {

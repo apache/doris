@@ -64,6 +64,7 @@ public:
     IntCounter* report_all_tablets_requests_failed;
     IntCounter* report_tablet_requests_total;
     IntCounter* report_tablet_requests_failed;
+    IntCounter* report_all_tablets_requests_skip;
     IntCounter* report_disk_requests_total;
     IntCounter* report_disk_requests_failed;
     IntCounter* report_task_requests_total;
@@ -191,6 +192,9 @@ public:
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* etl_thread_pool_queue_size;
+    UIntGauge* add_batch_task_queue_size;
+    UIntGauge* send_batch_thread_pool_thread_num;
+    UIntGauge* send_batch_thread_pool_queue_size;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
