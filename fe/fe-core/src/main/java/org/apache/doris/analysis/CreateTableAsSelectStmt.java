@@ -21,6 +21,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -32,13 +33,13 @@ import java.util.List;
 public class CreateTableAsSelectStmt extends DdlStmt {
     private final CreateTableStmt createTableStmt;
     private final List<String> columnNames;
-    private SelectStmt selectStmt;
+    private QueryStmt queryStmt;
     
     public CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
-                                   List<String> columnNames, SelectStmt selectStmt) {
+                                   List<String> columnNames, QueryStmt queryStmt) {
         this.createTableStmt = createTableStmt;
         this.columnNames = columnNames;
-        this.selectStmt = selectStmt;
+        this.queryStmt = queryStmt;
         // Insert is not currently supported
     }
     
@@ -48,11 +49,12 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         // To avoid duplicate registrations of table/colRefs,
         // create a new root analyzer and clone the query statement for this initial pass.
         Analyzer dummyRootAnalyzer = new Analyzer(analyzer.getCatalog(), analyzer.getContext());
-        SelectStmt tmpStmt = selectStmt.clone();
+        QueryStmt tmpStmt = queryStmt.clone();
         tmpStmt.analyze(dummyRootAnalyzer);
-        this.selectStmt = tmpStmt;
+        this.queryStmt = tmpStmt;
+        ArrayList<Expr> resultExprs = getQueryStmt().getResultExprs();
         // TODO: support decimal
-        for (Expr expr : tmpStmt.getResultExprs()) {
+        for (Expr expr : resultExprs) {
             if (expr.getType().isDecimalV2()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNSUPPORTED_TYPE_IN_CTAS, expr.getType());
             }
@@ -67,7 +69,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         return columnNames;
     }
     
-    public SelectStmt getSelectStmt() {
-        return selectStmt;
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
     }
 }

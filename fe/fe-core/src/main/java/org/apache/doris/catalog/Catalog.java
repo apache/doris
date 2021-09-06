@@ -67,7 +67,6 @@ import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.InstallPluginStmt;
@@ -77,16 +76,16 @@ import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
-import org.apache.doris.analysis.SelectListItem;
-import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
@@ -123,6 +122,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.MetaNotFoundException;
@@ -259,7 +259,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -3100,12 +3099,12 @@ public class Catalog {
     
     public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
         try {
-            SelectStmt selectStmt = stmt.getSelectStmt();
             List<String> columnNames = stmt.getColumnNames();
             CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
-            List<SelectListItem> items = selectStmt.getSelectList().getItems();
-            ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
-            int size = items.size();
+            QueryStmt queryStmt = stmt.getQueryStmt();
+            ArrayList<Expr> resultExprs = queryStmt.getResultExprs();
+            ArrayList<String> colLabels = queryStmt.getColLabels();
+            int size = resultExprs.size();
             // Check columnNames
             if (columnNames != null && columnNames.size() != size) {
                 ErrorReport.report(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
@@ -3117,19 +3116,12 @@ public class Catalog {
                         // use custom column names
                         name = columnNames.get(i);
                     } else {
-                        SelectListItem selectListItem = items.get(i);
-                        Expr expr = selectListItem.getExpr();
-                        if (expr instanceof FunctionCallExpr) {
-                            // function use alias or generate name
-                            String alias = selectListItem.getAlias();
-                            if (StringUtils.isNotEmpty(alias)) {
-                                name = alias;
-                            } else {
-                                name = "_col" + (colNameIndex++);
-                            }
-                        } else {
-                            name = selectStmt.getColLabels().get(i);
-                        }
+                        name = colLabels.get(i);
+                    }
+                    try {
+                        FeNameFormat.checkColumnName(name);
+                    } catch (AnalysisException exception) {
+                        name = "_col" + (colNameIndex++);
                     }
                     TypeDef typeDef;
                     Expr resultExpr = resultExprs.get(i);

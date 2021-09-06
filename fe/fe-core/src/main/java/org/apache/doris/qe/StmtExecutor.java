@@ -511,7 +511,7 @@ public class StmtExecutor implements ProfileWriter {
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
                 CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
-                queryStmt = parsedStmt.getSelectStmt();
+                queryStmt = parsedStmt.getQueryStmt();
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
                 InsertStmt insertStmt = (InsertStmt) parsedStmt;
