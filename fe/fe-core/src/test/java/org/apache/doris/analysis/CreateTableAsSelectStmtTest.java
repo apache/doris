@@ -114,14 +114,21 @@ public class CreateTableAsSelectStmtTest {
     
     @Test
     public void testErrorType() throws Exception {
-        String selectFromDecimal = "create table `test`.`select_decimal_table` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`decimal_table`;\n";
+        String selectFromDecimal = "create table `test`.`select_decimal_table` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`decimal_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unsupported type",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromDecimal, connectContext));
     }
     
     @Test
+    public void testErrorColumn() throws Exception {
+        String selectFromColumn = "create table `test`.`select_column_table`(test_error) PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Number of columns don't equal number of SELECT statement's select list",
+                () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromColumn, connectContext));
+    }
+    
+    @Test
     public void testVarchar() throws Exception {
-        String selectFromDecimal = "create table `test`.`select_varchar` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`;\n";
+        String selectFromDecimal = "create table `test`.`select_varchar` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
         createTableAsSelect(selectFromDecimal);
         ShowResultSet showResultSet = showCreateTable("select_varchar");
         Assert.assertEquals("CREATE TABLE `select_varchar` (\n" +
@@ -140,7 +147,7 @@ public class CreateTableAsSelectStmtTest {
     
     @Test
     public void testFunction() throws Exception {
-        String selectFromFunction1 = "create table `test`.`select_function_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) from `test`.`varchar_table`;\n";
+        String selectFromFunction1 = "create table `test`.`select_function_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) from `test`.`varchar_table`";
         createTableAsSelect(selectFromFunction1);
         ShowResultSet showResultSet1 = showCreateTable("select_function_1");
         System.out.println(showResultSet1.getResultRows().get(0).get(1));
@@ -156,7 +163,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet1.getResultRows().get(0).get(1));
         
-        String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") as select sum(status), sum(status), sum(status), count(status), count(status) from `test`.`join_table`;\n";
+        String selectFromFunction2 = "create table `test`.`select_function_2` PROPERTIES(\"replication_num\" = \"1\") as select sum(status), sum(status), sum(status), count(status), count(status) from `test`.`join_table`";
         createTableAsSelect(selectFromFunction2);
         ShowResultSet showResultSet2 = showCreateTable("select_function_2");
         Assert.assertEquals("CREATE TABLE `select_function_2` (\n" +
@@ -192,7 +199,7 @@ public class CreateTableAsSelectStmtTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");", showResultSet1.getResultRows().get(0).get(1));
-        String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") as select userId as alias_name, username from `test`.`varchar_table`;\n";
+        String selectAlias2 = "create table `test`.`select_alias_2` PROPERTIES(\"replication_num\" = \"1\") as select userId as alias_name, username from `test`.`varchar_table`";
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
         Assert.assertEquals("CREATE TABLE `select_alias_2` (\n" +
@@ -212,7 +219,7 @@ public class CreateTableAsSelectStmtTest {
     @Test
     public void testJoin() throws Exception {
         String selectFromJoin = "create table `test`.`select_join` PROPERTIES(\"replication_num\" = \"1\") " +
-                "as select vt.userId, vt.username, jt.status from `test`.`varchar_table` vt join `test`.`join_table` jt on vt.userId=jt.userId;\n";
+                "as select vt.userId, vt.username, jt.status from `test`.`varchar_table` vt join `test`.`join_table` jt on vt.userId=jt.userId";
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTable("select_join");
         Assert.assertEquals("CREATE TABLE `select_join` (\n" +
@@ -233,7 +240,7 @@ public class CreateTableAsSelectStmtTest {
     @Test
     public void testName() throws Exception {
         String selectFromName = "create table `test`.`select_name`(user, testname, userstatus) PROPERTIES(\"replication_num\" = \"1\") " +
-                "as select vt.userId, vt.username, jt.status from `test`.`varchar_table` vt join `test`.`join_table` jt on vt.userId=jt.userId;\n";
+                "as select vt.userId, vt.username, jt.status from `test`.`varchar_table` vt join `test`.`join_table` jt on vt.userId=jt.userId";
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_name");
         Assert.assertEquals("CREATE TABLE `select_name` (\n" +
@@ -254,7 +261,7 @@ public class CreateTableAsSelectStmtTest {
     @Test
     public void testUnion() throws Exception {
         String selectFromName = "create table `test`.`select_union` PROPERTIES(\"replication_num\" = \"1\") " +
-                "as select userId  from `test`.`varchar_table` union select userId from `test`.`join_table`\n";
+                "as select userId  from `test`.`varchar_table` union select userId from `test`.`join_table`";
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_union");
         Assert.assertEquals("CREATE TABLE `select_union` (\n" +

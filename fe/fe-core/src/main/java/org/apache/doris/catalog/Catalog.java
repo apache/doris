@@ -3106,39 +3106,35 @@ public class Catalog {
             ArrayList<String> colLabels = queryStmt.getColLabels();
             int size = resultExprs.size();
             // Check columnNames
-            if (columnNames != null && columnNames.size() != size) {
-                ErrorReport.report(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
-            } else {
-                int colNameIndex = 0;
-                for (int i = 0; i < size; ++i) {
-                    String name;
-                    if (columnNames != null) {
-                        // use custom column names
-                        name = columnNames.get(i);
-                    } else {
-                        name = colLabels.get(i);
-                    }
-                    try {
-                        FeNameFormat.checkColumnName(name);
-                    } catch (AnalysisException exception) {
-                        name = "_col" + (colNameIndex++);
-                    }
-                    TypeDef typeDef;
-                    Expr resultExpr = resultExprs.get(i);
-                    // varchar/char transfer to string
-                    if (resultExpr.getType().isStringType()) {
-                        typeDef = new TypeDef(Type.STRING);
-                    } else {
-                        typeDef = new TypeDef(resultExpr.getType());
-                    }
-                    createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
-                            null, true,
-                            new DefaultValue(false, null),
-                            ""));
-                    // set first column as default distribution
-                    if (createTableStmt.getDistributionDesc() == null && i == 0) {
-                        createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
-                    }
+            int colNameIndex = 0;
+            for (int i = 0; i < size; ++i) {
+                String name;
+                if (columnNames != null) {
+                    // use custom column names
+                    name = columnNames.get(i);
+                } else {
+                    name = colLabels.get(i);
+                }
+                try {
+                    FeNameFormat.checkColumnName(name);
+                } catch (AnalysisException exception) {
+                    name = "_col" + (colNameIndex++);
+                }
+                TypeDef typeDef;
+                Expr resultExpr = resultExprs.get(i);
+                // varchar/char transfer to string
+                if (resultExpr.getType().isStringType()) {
+                    typeDef = new TypeDef(Type.STRING);
+                } else {
+                    typeDef = new TypeDef(resultExpr.getType());
+                }
+                createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
+                        null, true,
+                        new DefaultValue(false, null),
+                        ""));
+                // set first column as default distribution
+                if (createTableStmt.getDistributionDesc() == null && i == 0) {
+                    createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
                 }
             }
             Analyzer dummyRootAnalyzer = new Analyzer(this, ConnectContext.get());

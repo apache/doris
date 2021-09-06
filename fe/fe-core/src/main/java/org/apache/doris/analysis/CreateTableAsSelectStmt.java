@@ -59,6 +59,9 @@ public class CreateTableAsSelectStmt extends DdlStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNSUPPORTED_TYPE_IN_CTAS, expr.getType());
             }
         }
+        if (columnNames != null && columnNames.size() != resultExprs.size()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
+        }
     }
     
     public CreateTableStmt getCreateTableStmt() {
