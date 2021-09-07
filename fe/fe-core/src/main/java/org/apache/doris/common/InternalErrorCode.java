@@ -48,6 +48,7 @@ public enum InternalErrorCode {
     TIMEOUT_ERR(410),
     CANCELLED_ERR(411),
 
+    // Caused by system failure
     NO_READABLE_REPLICA_ERR(420)
     ;
 
