@@ -209,9 +209,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // And this task will then be aborted because of a timeout.
             // In this way, we can prevent the entire job from being paused due to submit errors,
             // and we can also relieve the pressure on BE by waiting for the timeout period.
-            LOG.warn("failed to submit routine load task {} to BE: {}",
+            LOG.warn("failed to submit routine load task {} to BE: {}, error: {}",
                     DebugUtil.printId(routineLoadTaskInfo.getId()),
-                    routineLoadTaskInfo.getBeId());
+                    routineLoadTaskInfo.getBeId(), e.getMessage());
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).setOtherMsg(e.getMessage());
             // fall through to set ExecuteStartTime
         }

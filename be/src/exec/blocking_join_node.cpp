@@ -82,10 +82,6 @@ Status BlockingJoinNode::close(RuntimeState* state) {
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
     status->set_value(construct_build_side(state));
-    // Release the thread token as soon as possible (before the main thread joins
-    // on it).  This way, if we had a chain of 10 joins using 1 additional thread,
-    // we'd keep the additional thread busy the whole time.
-    state->resource_pool()->release_thread_token(false);
 }
 
 Status BlockingJoinNode::open(RuntimeState* state) {
@@ -105,19 +101,8 @@ Status BlockingJoinNode::open(RuntimeState* state) {
     // main thread
     boost::promise<Status> build_side_status;
 
-    if (state->resource_pool()->try_acquire_thread_token()) {
-        add_runtime_exec_option("Join Build-Side Prepared Asynchronously");
-        // Thread build_thread(_node_name, "build thread",
-        //     bind(&BlockingJoinNode::BuildSideThread, this, state, &build_side_status));
-        // if (!state->cgroup().empty()) {
-        //   RETURN_IF_ERROR(
-        //       state->exec_env()->cgroups_mgr()->assign_thread_to_cgroup(
-        //           build_thread, state->cgroup()));
-        // }
-        boost::thread(bind(&BlockingJoinNode::build_side_thread, this, state, &build_side_status));
-    } else {
-        build_side_status.set_value(construct_build_side(state));
-    }
+    add_runtime_exec_option("Join Build-Side Prepared Asynchronously");
+    boost::thread(bind(&BlockingJoinNode::build_side_thread, this, state, &build_side_status));
 
     // Open the left child so that it may perform any initialisation in parallel.
     // Don't exit even if we see an error, we still need to wait for the build thread

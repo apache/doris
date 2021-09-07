@@ -83,8 +83,6 @@ public:
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
-    RuntimeFilterMergeController& runtimefilter_controller() { return _runtimefilter_controller; }
-
     Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
 
     Status merge_filter(const PMergeFilterRequest* request, const char* attach_data);
