@@ -3046,6 +3046,8 @@ public class Catalog {
                             }
                         }
                     }
+                } else if (!CollectionUtils.isEmpty(stmt.getRollupNames()) || stmt.isWithAllRollup()) {
+                    throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
                 Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false);
@@ -4059,39 +4061,26 @@ public class Catalog {
 
                 ArrayList<String> rollupNames = stmt.getRollupNames();
                 boolean withAllRollup = stmt.isWithAllRollup();
+                List<Long> addIndexIdList = Lists.newArrayList();
 
-                Map<Long,MaterializedIndexMeta> addMVs = Maps.newHashMap();
-                Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
-
-                boolean needAddRollup = false;
                 if (!CollectionUtils.isEmpty(rollupNames)) {
                     for (String rollupName : rollupNames) {
-                        addMVs.put(indexNameToId.get(rollupName),olapTable.getIndexMetaByIndexId(indexNameToId.get(rollupName)));
+                        addIndexIdList.add(olapTable.getIndexIdByName(rollupName));
                     }
-                    needAddRollup = true;
+                } else if (withAllRollup) {
+                    addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
                 }
 
-                if (withAllRollup && rollupNames == null) {
-                    for (Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
-                        if (entry.getKey() == olapTable.getBaseIndexId()) {
-                            continue;
-                        }
-                        addMVs.put(entry.getKey(), entry.getValue());
-                    }
-                    needAddRollup = true;
-                }
-
-                if (needAddRollup){
+                if (!addIndexIdList.isEmpty()){
                     sb.append("\n").append("rollup (");
                 }
 
-                int size = addMVs.size();
+                int size = addIndexIdList.size();
                 int index = 1;
-                for (Map.Entry<Long, MaterializedIndexMeta> entry : addMVs.entrySet()) {
-                    MaterializedIndexMeta materializedIndexMeta = entry.getValue();
-                    String indexName = olapTable.getIndexNameById(entry.getKey());
+                for (long indexId : addIndexIdList) {
+                    String indexName = olapTable.getIndexNameById(indexId);
                     sb.append("\n").append(indexName).append("(");
-                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    List<Column> indexSchema = olapTable.getSchemaByIndexId(indexId, false);
                     for (int i = 0; i < indexSchema.size(); i++) {
                         Column column = indexSchema.get(i);
                         sb.append(column.getName());
