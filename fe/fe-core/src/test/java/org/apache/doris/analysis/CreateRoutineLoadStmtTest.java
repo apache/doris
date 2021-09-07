@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -138,7 +139,8 @@ public class CreateRoutineLoadStmtTest {
     }
 
     @Test
-    public void testAnalyze(@Injectable Analyzer analyzer) throws UserException {
+    public void testAnalyze(@Injectable Analyzer analyzer,
+                            @Injectable SessionVariable sessionVariable) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -175,6 +177,15 @@ public class CreateRoutineLoadStmtTest {
             @Mock
             public void analyze(Analyzer analyzer1) {
                 return;
+            }
+        };
+
+        new Expectations(){
+            {
+                ctx.getSessionVariable();
+                result = sessionVariable;
+                sessionVariable.getSendBatchParallelism();
+                result = 1;
             }
         };
 

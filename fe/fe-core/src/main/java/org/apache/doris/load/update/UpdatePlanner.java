@@ -98,7 +98,7 @@ public class UpdatePlanner extends Planner {
                 DataPartition.RANDOM);
         planFragment.setSink(olapTableSink);
         planFragment.setOutputExprs(computeOutputExprs());
-        planFragment.finalize(analyzer, false);
+        planFragment.finalize(null);
         fragments.add(planFragment);
     }
 

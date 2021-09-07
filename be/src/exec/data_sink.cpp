@@ -33,6 +33,7 @@
 #include "runtime/mysql_table_sink.h"
 #include "runtime/odbc_table_sink.h"
 #include "runtime/result_sink.h"
+#include "runtime/result_file_sink.h"
 #include "runtime/runtime_state.h"
 #include "util/logging.h"
 
@@ -43,7 +44,8 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                                   const TPlanFragmentExecParams& params,
                                   const RowDescriptor& row_desc,
                                   bool is_vec,
-                                  boost::scoped_ptr<DataSink>* sink) {
+                                  boost::scoped_ptr<DataSink>* sink,
+                                  DescriptorTbl& desc_tbl) {
     DataSink* tmp_sink = NULL;
 
     switch (thrift_sink.type) {
@@ -66,7 +68,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         sink->reset(tmp_sink);
         break;
     }
-    case TDataSinkType::RESULT_SINK:
+    case TDataSinkType::RESULT_SINK: {
         if (!thrift_sink.__isset.result_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
@@ -78,7 +80,22 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         }
         sink->reset(tmp_sink);
         break;
-    case TDataSinkType::MEMORY_SCRATCH_SINK:
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        if (!thrift_sink.__isset.result_file_sink) {
+            return Status::InternalError("Missing result file sink.");
+        }
+        // Result file sink is not the top sink
+        if (params.__isset.destinations && params.destinations.size() > 0) {
+            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
+                                          params.destinations, pool, params.sender_id, desc_tbl);
+        } else {
+            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+        }
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
         if (!thrift_sink.__isset.memory_scratch_sink) {
             return Status::InternalError("Missing data buffer sink.");
         }
@@ -86,6 +103,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         tmp_sink = new MemoryScratchSink(row_desc, output_exprs, thrift_sink.memory_scratch_sink);
         sink->reset(tmp_sink);
         break;
+    }
     case TDataSinkType::MYSQL_TABLE_SINK: {
 #ifdef DORIS_WITH_MYSQL
         if (!thrift_sink.__isset.mysql_table_sink) {
@@ -138,7 +156,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         break;
     }
 
-    default:
+    default: {
         std::stringstream error_msg;
         std::map<int, const char*>::const_iterator i =
                 _TDataSinkType_VALUES_TO_NAMES.find(thrift_sink.type);
@@ -150,6 +168,7 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
         error_msg << str << " not implemented.";
         return Status::InternalError(error_msg.str());
+    }
     }
 
     if (sink->get() != NULL) {
