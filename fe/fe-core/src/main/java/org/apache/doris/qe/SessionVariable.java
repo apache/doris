@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,6 +36,8 @@ import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -156,6 +157,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
+    
+    public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -368,9 +371,10 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterType = 1;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 1024;
-
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
     public boolean enableVectorizedEngine = false;
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
+    public boolean enableParallelOutfile = false;
 
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
@@ -766,7 +770,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isDeleteWithoutPartition() {
         return deleteWithoutPartition;
     }
-    
+
     public boolean isExtractWideRangeExpr() {
         return extractWideRangeExpr;
     }
@@ -777,6 +781,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    public boolean isEnableParallelOutfile() {
+        return enableParallelOutfile;
     }
 
     // Serialize to thrift object

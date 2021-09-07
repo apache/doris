@@ -17,11 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
@@ -33,6 +35,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,6 +83,7 @@ public class OutFileClause {
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
+    private static final String S3_FILE_PREFIX = "S3://";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -147,12 +151,9 @@ public class OutFileClause {
         return schema;
     }
 
-    private void analyze(Analyzer analyzer) throws AnalysisException {
+    private void analyze(Analyzer analyzer) throws UserException {
         analyzeFilePath();
 
-        if (Strings.isNullOrEmpty(filePath)) {
-            throw new AnalysisException("Must specify file in OUTFILE clause");
-        }
         switch (this.format) {
             case "csv":
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -173,7 +174,7 @@ public class OutFileClause {
         }
     }
 
-    public void analyze(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
+    public void analyze(Analyzer analyzer, SelectStmt stmt) throws UserException {
         analyze(analyzer);
 
         if (isParquetFormat()) {
@@ -299,15 +300,19 @@ public class OutFileClause {
         } else {
             isLocalOutput = false;
         }
+
+        if (Strings.isNullOrEmpty(filePath)) {
+            throw new AnalysisException("Must specify file in OUTFILE clause");
+        }
     }
 
-    private void analyzeProperties() throws AnalysisException {
+    private void analyzeProperties() throws UserException {
         if (properties == null || properties.isEmpty()) {
             return;
         }
 
         Set<String> processedPropKeys = Sets.newHashSet();
-        getBrokerProperties(processedPropKeys);
+        analyzeBrokerDesc(processedPropKeys);
 
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
             if (!isCsvFormat()) {
@@ -350,12 +355,23 @@ public class OutFileClause {
         }
     }
 
-    private void getBrokerProperties(Set<String> processedPropKeys) {
-        if (!properties.containsKey(PROP_BROKER_NAME)) {
+    /**
+     * The following two situations will generate the corresponding @brokerDesc:
+     * 1. broker: with broker name
+     * 2. s3: with s3 pattern path, without broker name
+     */
+    private void analyzeBrokerDesc(Set<String> processedPropKeys) throws UserException {
+        String brokerName = properties.get(PROP_BROKER_NAME);
+        StorageBackend.StorageType storageType;
+        if (properties.containsKey(PROP_BROKER_NAME)) {
+            processedPropKeys.add(PROP_BROKER_NAME);
+            storageType = StorageBackend.StorageType.BROKER;
+        } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
+            brokerName = StorageBackend.StorageType.S3.name();
+            storageType = StorageBackend.StorageType.S3;
+        } else {
             return;
         }
-        String brokerName = properties.get(PROP_BROKER_NAME);
-        processedPropKeys.add(PROP_BROKER_NAME);
 
         Map<String, String> brokerProps = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
@@ -364,10 +380,16 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
+            } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
+                brokerProps.put(entry.getKey(), entry.getValue());
+                processedPropKeys.add(entry.getKey());
             }
         }
 
-        brokerDesc = new BrokerDesc(brokerName, brokerProps);
+        brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
+        if (storageType == StorageBackend.StorageType.S3) {
+            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
+        }
     }
 
     /**

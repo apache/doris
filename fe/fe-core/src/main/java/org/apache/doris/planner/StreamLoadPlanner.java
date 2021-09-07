@@ -159,7 +159,7 @@ public class StreamLoadPlanner {
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
         fragment.setSink(olapTableSink);
 
-        fragment.finalize(null, false);
+        fragment.finalize(null);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);

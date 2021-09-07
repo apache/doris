@@ -200,7 +200,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(),
+                                                   &_sink, *desc_tbl));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();

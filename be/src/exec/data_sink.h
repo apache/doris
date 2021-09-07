@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 
@@ -75,7 +76,8 @@ public:
                                    const TPlanFragmentExecParams& params,
                                    const RowDescriptor& row_desc,
                                    bool is_vec,
-                                   boost::scoped_ptr<DataSink>* sink);
+                                   boost::scoped_ptr<DataSink>* sink,
+                                   DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;
