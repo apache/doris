@@ -550,8 +550,9 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
+    // ATTN(cmy): no set it, or the lazy mode of regex won't work. See Doris #6587
     // Return the leftmost longest match (rather than the first match).
-    options.set_longest_match(true);
+    // options.set_longest_match(true);
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
