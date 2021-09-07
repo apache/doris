@@ -668,6 +668,11 @@ public class ExportJob implements Writable {
         return Status.OK;
     }
 
+    public boolean isExpired(long curTime) {
+        return (curTime - createTimeMs) / 1000 > Config.history_job_keep_max_second
+                && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
+    }
+
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
