@@ -25,7 +25,7 @@ body:
       value: |
         Thank you very much for submitting feedback to Doris to help Doris develop better.
 
-        If it is a problem with Doris, please go to the [Discussion](https://github.com/apache/incubator-doris/discussions)
+        If it is an idea or help wanted, please go to the [Discussion](https://github.com/apache/incubator-doris/discussions)
         or [Dev Mail List](mailto:dev@doris.apache.org)
 
   - type: checkboxes
