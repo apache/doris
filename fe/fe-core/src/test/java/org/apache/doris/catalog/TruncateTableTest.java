@@ -1,6 +1,11 @@
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.*;
+import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.ShowStmt;
+import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
@@ -22,7 +27,7 @@ public class TruncateTableTest {
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";

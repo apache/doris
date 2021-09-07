@@ -99,17 +99,17 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.TransactionNotFoundException;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -2574,7 +2574,7 @@ public class Load {
     }
 
     // Added by ljb. Remove old load jobs from idToLoadJob, dbToLoadJobs and dbLabelToLoadJobs
-    // This function is called periodically. every Configure.label_keep_max_second seconds
+    // This function is called periodically. every Configure.label_clean_interval_second seconds
     public void removeOldLoadJobs() {
         long currentTimeMs = System.currentTimeMillis();
 
@@ -2605,9 +2605,9 @@ public class Load {
                         loadJobs = mapLabelToJobs.get(label);
                         if (loadJobs != null) {
                             loadJobs.remove(job);
-                            if (loadJobs.size() == 0) {
+                            if (loadJobs.isEmpty()) {
                                 mapLabelToJobs.remove(label);
-                                if (mapLabelToJobs.size() == 0) {
+                                if (mapLabelToJobs.isEmpty()) {
                                     dbLabelToLoadJobs.remove(dbId);
                                 }
                             }
