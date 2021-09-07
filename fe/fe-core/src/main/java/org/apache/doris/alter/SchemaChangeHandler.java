@@ -122,7 +122,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public int cycle_count = 0;
 
     public SchemaChangeHandler() {
-        super("schema change", FeConstants.default_schema_change_scheduler_interval_millisecond);
+        super("schema change", Config.default_schema_change_scheduler_interval_millisecond);
     }
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
