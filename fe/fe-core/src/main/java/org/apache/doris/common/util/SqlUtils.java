@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.parquet.Strings;
+
 public class SqlUtils {
     public static String escapeUnquote(String ident) {
         return ident.replaceAll("``", "`");
@@ -34,5 +36,12 @@ public class SqlUtils {
         }
         sb.append('`');
         return sb.toString();
+    }
+
+    public static String escapeQuota(String str) {
+        if (Strings.isNullOrEmpty(str)) {
+            return str;
+        }
+        return str.replaceAll("\"", "\\\\\"");
     }
 }
