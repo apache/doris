@@ -255,6 +255,10 @@ public class LoadManager implements Writable{
 
     // add load job and also add to to callback factory
     private void createLoadJob(LoadJob loadJob) {
+        if (loadJob.isExpired(System.currentTimeMillis())) {
+            // This can happen in replay logic.
+            return;
+        }
         addLoadJob(loadJob);
         // add callback before txn created, because callback will be performed on replay without txn begin
         // register txn state listener
@@ -436,9 +440,17 @@ public class LoadManager implements Writable{
                 LoadJob job = iter.next().getValue();
                 if (job.isExpired(currentTimeMs)) {
                     iter.remove();
-                    dbIdToLabelToLoadJobs.get(job.getDbId()).get(job.getLabel()).remove(job);
+                    Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(job.getDbId());
+                    List<LoadJob> list = map.get(job.getLabel());
+                    list.remove(job);
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
+                    }
+                    if (list.isEmpty()) {
+                        map.remove(job.getLabel());
+                    }
+                    if (map.isEmpty()) {
+                        dbIdToLabelToLoadJobs.remove(job.getDbId());
                     }
                 }
             }
@@ -776,9 +788,13 @@ public class LoadManager implements Writable{
     }
 
     public void readFields(DataInput in) throws IOException {
+        long currentTimeMs = System.currentTimeMillis();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             LoadJob loadJob = LoadJob.read(in);
+            if (loadJob.isExpired(currentTimeMs)) {
+                continue;
+            }
             idToLoadJob.put(loadJob.getId(), loadJob);
             Map<String, List<LoadJob>> map = dbIdToLabelToLoadJobs.get(loadJob.getDbId());
             if (map == null) {

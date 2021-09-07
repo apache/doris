@@ -54,7 +54,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -90,12 +89,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.UUID;
-import java.util.Iterator;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -729,17 +728,20 @@ public class DeleteHandler implements Writable {
     // for delete handler, we only persist those delete already finished.
     @Override
     public void write(DataOutput out) throws IOException {
+        removeOldDeleteInfos();
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static DeleteHandler read(DataInput in) throws IOException {
         String json = Text.readString(in);
         DeleteHandler deleteHandler = GsonUtils.GSON.fromJson(json, DeleteHandler.class);
-        deleteHandler.removeOldDeleteInfos(new Timestamp());
+        deleteHandler.removeOldDeleteInfos();
         return deleteHandler;
     }
 
-    public void removeOldDeleteInfos(Timestamp currTime) {
+    public void removeOldDeleteInfos() {
+        long curTime = System.currentTimeMillis();
+        int counter = 0;
         Iterator<Entry<Long, List<DeleteInfo>>> iter1 = dbToDeleteInfos.entrySet().iterator();
         while (iter1.hasNext()) {
             List<DeleteInfo> deleteInfoList = iter1.next().getValue();
@@ -749,9 +751,10 @@ public class DeleteHandler implements Writable {
                 Iterator<DeleteInfo> iter2 = deleteInfoList.iterator();
                 while (iter2.hasNext()) {
                     DeleteInfo deleteInfo = iter2.next();
-                    if ((currTime.getTimestamp() - deleteInfo.getCreateTimeMs()) / 1000
-                            > Config.delete_info_keep_max_second) {
+                    if ((curTime - deleteInfo.getCreateTimeMs()) / 1000
+                            > Config.streaming_label_keep_max_second) {
                         iter2.remove();
+                        ++counter;
                     }
                 }
             } finally {
@@ -762,5 +765,6 @@ public class DeleteHandler implements Writable {
                 iter1.remove();
             }
         }
+        LOG.debug("remove expired delete job info num: {}", counter);
     }
 }
