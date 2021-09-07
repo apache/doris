@@ -470,6 +470,8 @@ TEST_F(StringFunctionsTest, lpad) {
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::lpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::lpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::lpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
@@ -498,6 +500,8 @@ TEST_F(StringFunctionsTest, rpad) {
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"),
               StringFunctions::rpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"),
+              StringFunctions::rpad(ctx, StringVal("你"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""),
               StringFunctions::rpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
     ASSERT_EQ(StringVal::null(),
