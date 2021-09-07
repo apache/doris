@@ -1327,7 +1327,6 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
-    state->resource_pool()->acquire_thread_token();
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1483,7 +1482,6 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     } // end of transfer while
 
-    state->resource_pool()->release_thread_token(true);
     VLOG_CRITICAL << "TransferThread finish.";
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
