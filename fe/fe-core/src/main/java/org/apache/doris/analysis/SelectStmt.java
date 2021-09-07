@@ -379,7 +379,7 @@ public class SelectStmt extends QueryStmt {
         this.tableAliasGenerator = tableAliasGenerator;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (isAnalyzed()) {
             return;
         }

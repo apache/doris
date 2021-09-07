@@ -40,7 +40,6 @@ S3Writer::S3Writer(const std::map<std::string, std::string>& properties, const s
         : _properties(properties),
           _path(path),
           _uri(path),
-          _sync_needed(false),
           _client(ClientFactory::instance().create(_properties)),
           _temp_file(std::make_shared<Aws::Utils::TempFile>(
                   std::ios_base::binary | std::ios_base::trunc | std::ios_base::in |
@@ -80,7 +79,6 @@ Status S3Writer::write(const uint8_t* buf, size_t buf_len, size_t* written_len) 
     if (!_temp_file) {
         return Status::BufferAllocFailed("The internal temporary file is not writable.");
     }
-    _sync_needed = true;
     _temp_file->write(reinterpret_cast<const char*>(buf), buf_len);
     if (!_temp_file->good()) {
         return Status::BufferAllocFailed("Could not append to the internal temporary file.");
@@ -100,9 +98,6 @@ Status S3Writer::close() {
 Status S3Writer::_sync() {
     if (!_temp_file) {
         return Status::BufferAllocFailed("The internal temporary file is not writable.");
-    }
-    if (!_sync_needed) {
-        return Status::OK();
     }
     CHECK_S3_CLIENT(_client);
     Aws::S3::Model::PutObjectRequest request;
