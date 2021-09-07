@@ -253,7 +253,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import javax.annotation.Nullable;
 import java.io.BufferedReader;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -278,6 +277,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+
+import javax.annotation.Nullable;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -1738,6 +1740,7 @@ public class Catalog {
     }
 
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
+        long curTime = System.currentTimeMillis();
         long newChecksum = checksum;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             int size = dis.readInt();
@@ -1747,7 +1750,9 @@ public class Catalog {
                 newChecksum ^= jobId;
                 ExportJob job = new ExportJob();
                 job.readFields(dis);
-                exportMgr.unprotectAddJob(job);
+                if (!job.isExpired(curTime)) {
+                    exportMgr.unprotectAddJob(job);
+                }
             }
         }
         LOG.info("finished replay exportJob from image");
@@ -2096,17 +2101,17 @@ public class Catalog {
     }
 
     public long saveExportJob(CountingDataOutputStream dos, long checksum) throws IOException {
-        Map<Long, ExportJob> idToJob = exportMgr.getIdToJob();
-        int size = idToJob.size();
+        long curTime = System.currentTimeMillis();
+        List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime)).collect(Collectors.toList());
+        int size = jobs.size();
         checksum ^= size;
         dos.writeInt(size);
-        for (ExportJob job : idToJob.values()) {
+        for (ExportJob job : jobs) {
             long jobId = job.getId();
             checksum ^= jobId;
             dos.writeLong(jobId);
             job.write(dos);
         }
-
         return checksum;
     }
 
@@ -2251,7 +2256,7 @@ public class Catalog {
                 load.removeOldLoadJobs();
                 loadManager.removeOldLoadJob();
                 exportMgr.removeOldExportJobs();
-                deleteHandler.removeOldDeleteInfos(new Timestamp());
+                deleteHandler.removeOldDeleteInfos();
             }
         };
     }

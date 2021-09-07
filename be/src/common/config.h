@@ -303,8 +303,8 @@ CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 CONF_mInt64(row_step_for_compaction_merge_log, "0");
 
 // Threshold to logging compaction trace, in seconds.
-CONF_mInt32(base_compaction_trace_threshold, "10");
-CONF_mInt32(cumulative_compaction_trace_threshold, "2");
+CONF_mInt32(base_compaction_trace_threshold, "60");
+CONF_mInt32(cumulative_compaction_trace_threshold, "10");
 
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");

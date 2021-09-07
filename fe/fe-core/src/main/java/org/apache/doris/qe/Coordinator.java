@@ -86,11 +86,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.commons.collections.map.HashedMap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
@@ -99,6 +94,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.map.HashedMap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -595,7 +595,7 @@ public class Coordinator {
                         cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
-                                throw new UserException("query timeout. backend id: " + pair.first.backend.getId());
+                                throw new UserException("send fragment timeout. backend id: " + pair.first.backend.getId());
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
