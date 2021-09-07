@@ -823,6 +823,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterDatabasePropertyStmt(dbName, map);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
@@ -1084,13 +1088,13 @@ opt_enable_feature_properties ::=
     ;
 
 alter_system_clause ::=
-    KW_ADD KW_BACKEND string_list:hostPorts
+    KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false);
+        RESULT = new AddBackendClause(hostPorts, false, properties);
     :}
     | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new AddBackendClause(hostPorts, true);
+        RESULT = new AddBackendClause(hostPorts, true, Maps.newHashMap());
     :}
     | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
     {:
@@ -1141,7 +1145,11 @@ alter_system_clause ::=
     | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
-    :} 
+    :}
+	| KW_MODIFY KW_BACKEND string_list:hostPorts KW_SET LPAREN key_value_map:properties RPAREN
+	{:
+		RESULT = new ModifyBackendClause(hostPorts, properties);
+	:}
     ;
 
 // Sync Stmt

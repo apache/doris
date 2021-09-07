@@ -39,7 +39,7 @@ public class GroupByClauseTest {
     private Analyzer analyzer;
 
     @Before
-    public void setUp() {
+    public void setUp() throws AnalysisException {
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
         analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
         try {
@@ -47,7 +47,7 @@ public class GroupByClauseTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTable(new TableName("testdb", "t")));
+            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
         } catch (NoSuchFieldException e) {

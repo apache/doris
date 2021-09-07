@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -71,15 +70,9 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setId(queryId);
         tRoutineLoadTask.setJobId(jobId);
         tRoutineLoadTask.setTxnId(txnId);
-        Database database = Catalog.getCurrentCatalog().getDb(routineLoadJob.getDbId());
-        if (database == null) {
-            throw new MetaNotFoundException("database " + routineLoadJob.getDbId() + " does not exist");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(routineLoadJob.getDbId());
+        Table tbl = database.getTableOrMetaException(routineLoadJob.getTableId());
         tRoutineLoadTask.setDb(database.getFullName());
-        Table tbl = database.getTable(routineLoadJob.getTableId());
-        if (tbl == null) {
-            throw new MetaNotFoundException("table " + routineLoadJob.getTableId() + " does not exist");
-        }
         tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
         String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);

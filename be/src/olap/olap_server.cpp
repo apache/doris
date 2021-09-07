@@ -333,6 +333,30 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
+            VLOG_CRITICAL << "compaction thread pool. num_threads: " << _compaction_thread_pool->num_threads()
+                      << ", num_threads_pending_start: " << _compaction_thread_pool->num_threads_pending_start()
+                      << ", num_active_threads: " << _compaction_thread_pool->num_active_threads()
+                      << ", max_threads: " << _compaction_thread_pool->max_threads()
+                      << ", min_threads: " << _compaction_thread_pool->min_threads()
+                      << ", num_total_queued_tasks: " << _compaction_thread_pool->get_queue_size();
+
+            if(_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
+                int old_max_threads = _compaction_thread_pool->max_threads();
+                Status status = _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool max_threads from "
+                              << old_max_threads << " to " << config::max_compaction_threads;
+                }
+            }
+            if(_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
+                int old_min_threads = _compaction_thread_pool->min_threads();
+                Status status = _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool min_threads from "
+                              << old_min_threads << " to " << config::max_compaction_threads;
+                }
+            }
+
             bool check_score = false;
             int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {

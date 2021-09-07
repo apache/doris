@@ -17,7 +17,9 @@
 
 package org.apache.doris.common.util;
 
-import mockit.MockUp;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -26,14 +28,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.persist.EditLog;
-
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class SmallFileMgrTest {
 
@@ -52,7 +49,7 @@ public class SmallFileMgrTest {
                 db.getId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = db;
                 stmt1.getDbName();

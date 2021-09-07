@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -54,9 +55,11 @@ public class StorageTypeCheckAction extends RestBaseController {
         }
 
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.badRequest("Database " + dbName + " does not exist");
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         Map<String, Map<String, String>> result = Maps.newHashMap();

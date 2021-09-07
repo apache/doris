@@ -78,6 +78,13 @@ public class ExchangeNode extends PlanNode {
         computeTupleIds();
     }
 
+    public boolean isMergingExchange() {
+        if (mergeInfo != null) {
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public final void computeTupleIds() {
         clearTupleIds();

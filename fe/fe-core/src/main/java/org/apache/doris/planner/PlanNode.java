@@ -275,6 +275,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return tupleIds;
     }
 
+    public void resetTupleIds(ArrayList<TupleId> tupleIds) {
+        this.tupleIds = tupleIds;
+    }
+
     public ArrayList<TupleId> getTupleIds() {
         Preconditions.checkState(tupleIds != null);
         return tupleIds;

@@ -195,14 +195,8 @@ public class InsertStmt extends DdlStmt {
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        Database db = analyzer.getCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTable(tblName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
+        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
@@ -299,7 +293,7 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getCatalog().getDb(tblName.getDb());
+        db = analyzer.getCatalog().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
@@ -323,17 +317,15 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
+            int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism);
         }
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            targetTable = analyzer.getTable(tblName);
-            if (targetTable == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName.getTbl());
-            }
+            targetTable = analyzer.getTableOrAnalysisException(tblName);
         }
 
         if (targetTable instanceof OlapTable) {

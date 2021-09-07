@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
@@ -591,7 +592,7 @@ public class DeployManager extends MasterDaemon {
                         default:
                             break;
                     }
-                } catch (DdlException e) {
+                } catch (UserException e) {
                     LOG.error("Failed to add {} node: {}:{}", nodeType, remoteIp, remotePort, e);
                     return true;
                 }

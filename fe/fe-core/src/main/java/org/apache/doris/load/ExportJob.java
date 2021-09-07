@@ -197,11 +197,7 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
 
@@ -216,7 +212,7 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        this.exportTable = db.getTable(stmt.getTblName().getTbl());
+        this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -225,9 +221,6 @@ public class ExportJob implements Writable {
         exportTable.readLock();
         try {
             this.dbId = db.getId();
-            if (exportTable == null) {
-                throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
-            }
             this.tableId = exportTable.getId();
             this.tableName = stmt.getTblName();
             genExecFragment();
@@ -414,9 +407,6 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
-                fragment = new PlanFragment(
-                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
-                break;
             case MYSQL:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
@@ -429,7 +419,7 @@ public class ExportJob implements Writable {
         scanNode.setFragmentId(fragment.getFragmentId());
         fragment.setSink(exportSink);
         try {
-            fragment.finalize(analyzer, false);
+            fragment.finalize(null);
         } catch (Exception e) {
             LOG.info("Fragment finalize failed. e= {}", e);
             throw new UserException("Fragment finalize failed");

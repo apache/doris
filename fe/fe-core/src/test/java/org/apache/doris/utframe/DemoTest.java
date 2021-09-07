@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.OlapScanNode;
@@ -65,7 +66,7 @@ public class DemoTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
     }
 
 
@@ -88,9 +89,8 @@ public class DemoTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
-        Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
+        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);
@@ -116,7 +116,7 @@ public class DemoTest {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
-        OlapTable tbl1 = (OlapTable) db.getTable("tbl1");
+        OlapTable tbl1 = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl1.readLock();
         try {
             Assert.assertEquals(2, tbl1.getBaseSchema().size());

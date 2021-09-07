@@ -63,7 +63,7 @@ public class DynamicPartitionTableTest {
         FeConstants.runningUnitTest = true;
         Config.disable_storage_medium_check = true;
 
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -116,9 +116,9 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable table = (OlapTable) db.getTable("dynamic_partition_normal");
-        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), DynamicPartitionProperty.NOT_SET_REPLICATION_NUM);
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("dynamic_partition_normal");
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().isNotSet());
     }
 
     @Test
@@ -456,9 +456,9 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.replication_num\" = \"2\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable table = (OlapTable) db.getTable(tableName);
-        Assert.assertEquals(table.getTableProperty().getDynamicPartitionProperty().getReplicationNum(), 2);
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException(tableName);
+        Assert.assertEquals(2, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 
     @Test
@@ -485,7 +485,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("empty_dynamic_partition");
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("empty_dynamic_partition");
         Assert.assertTrue(emptyDynamicTable.getAllPartitions().size() == 4);
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -539,7 +539,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("histo_dynamic_partition");
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("histo_dynamic_partition");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -676,8 +676,8 @@ public class DynamicPartitionTableTest {
                 ");";
         // start and history_partition_num are set, create ok
         ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt4));
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("dynamic_partition3");
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("dynamic_partition3");
         Assert.assertEquals(9, tbl.getPartitionNames().size());
 
         // alter dynamic partition property of table dynamic_partition3
@@ -720,7 +720,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("history_dynamic_partition_day");
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("history_dynamic_partition_day");
         Map<String, String> tableProperties = emptyDynamicTable.getTableProperty().getProperties();
         Assert.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
         // never delete the old partitions
@@ -747,7 +747,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("hour_dynamic_partition");
+        OlapTable emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("hour_dynamic_partition");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         Iterator<Partition> partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -774,7 +774,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("week_dynamic_partition");
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("week_dynamic_partition");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -801,7 +801,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("month_dynamic_partition");
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("month_dynamic_partition");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -828,7 +828,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_day");
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("int_dynamic_partition_day");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -855,7 +855,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_week");
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("int_dynamic_partition_week");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -882,7 +882,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("int_dynamic_partition_month");
+        emptyDynamicTable = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("int_dynamic_partition_month");
         Assert.assertEquals(7, emptyDynamicTable.getAllPartitions().size());
 
         partitionIterator = emptyDynamicTable.getAllPartitions().iterator();
@@ -916,7 +916,7 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testHotPartitionNum() throws Exception {
-        Database testDb = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Database testDb = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
         // 1. hour
         String createOlapTblStmt = "CREATE TABLE test.`hot_partition_hour_tbl1` (\n" +
                 "  `k1` datetime NULL COMMENT \"\",\n" +
@@ -937,7 +937,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl1");
+        OlapTable tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_hour_tbl1");
         RangePartitionInfo partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         Map<Long, DataProperty> idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(7, idToDataProperty.size());
@@ -970,7 +970,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"0\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl2");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_hour_tbl2");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(7, idToDataProperty.size());
@@ -997,7 +997,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"3\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_hour_tbl3");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_hour_tbl3");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(7, idToDataProperty.size());
@@ -1030,7 +1030,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"2\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_day_tbl1");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_day_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(4, idToDataProperty.size());
@@ -1057,7 +1057,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"2\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_day_tbl2");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_day_tbl2");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(8, idToDataProperty.size());
@@ -1090,7 +1090,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"1\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_week_tbl1");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_week_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(8, idToDataProperty.size());
@@ -1123,7 +1123,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.hot_partition_num\" = \"4\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        tbl = (OlapTable)testDb.getTable("hot_partition_month_tbl1");
+        tbl = (OlapTable)testDb.getTableOrAnalysisException("hot_partition_month_tbl1");
         partitionInfo = (RangePartitionInfo) tbl.getPartitionInfo();
         idToDataProperty = new TreeMap<>(partitionInfo.idToDataProperty);
         Assert.assertEquals(8, idToDataProperty.size());

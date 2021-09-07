@@ -58,7 +58,9 @@ StringVal TimeOperators::cast_to_string_val(FunctionContext* ctx, const DoubleVa
     if (val.is_null) {
         return StringVal::null();
     }
-    return AnyValUtil::from_string_temp(ctx, time_str_from_double(val.val));
+    char buffer[MAX_TIME_WIDTH];
+    int len = time_to_buffer_from_double(val.val, buffer);
+    return AnyValUtil::from_buffer_temp(ctx, buffer, len);
 }
 
 DateTimeVal TimeOperators::cast_to_datetime_val(FunctionContext* context, const DoubleVal& val) {

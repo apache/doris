@@ -45,7 +45,7 @@ public class CreateTableTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         Config.disable_storage_medium_check = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -198,18 +198,18 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
         Assert.assertTrue(tbl6.getColumn("k3").isKey());
 
-        OlapTable tbl7 = (OlapTable) db.getTable("tbl7");
+        OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
         Assert.assertTrue(tbl7.getColumn("k1").isKey());
         Assert.assertFalse(tbl7.getColumn("k2").isKey());
         Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
 
-        OlapTable tbl8 = (OlapTable) db.getTable("tbl8");
+        OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
@@ -241,7 +241,8 @@ public class CreateTableTest {
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host in all backends. need: 3",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium and " +
+                                "tag(NaN/{\"location\" : \"default\"}) in all backends. need: 3",
                         () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '3');"));
@@ -258,7 +259,8 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium is SSD in all backends. need: 1",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium and " +
+                                "tag(SSD/{\"location\" : \"default\"}) in all backends. need: 1",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 

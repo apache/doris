@@ -50,7 +50,7 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
         ImmutableSet.Builder builder = ImmutableSet.builder();
         List<Long> dbIdList = catalog.getDbIds();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

@@ -25,11 +25,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
 
 import java.io.File;
 import java.util.List;
@@ -42,7 +42,7 @@ public class DropDbTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -82,23 +82,23 @@ public class DropDbTest {
 
     @Test
     public void testNormalDropDb() throws Exception {
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test1");
-        OlapTable table = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test1");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropDbSql = "drop database test1";
         dropDb(dropDbSql);
-        db = Catalog.getCurrentCatalog().getDb("default_cluster:test1");
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
         List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertNull(db);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
-        db = Catalog.getCurrentCatalog().getDb("default_cluster:test1");
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
         Assert.assertNotNull(db);
         Assert.assertEquals("default_cluster:test1", db.getFullName());
-        table = (OlapTable) db.getTable("tbl1");
+        table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
     }
@@ -106,12 +106,12 @@ public class DropDbTest {
     @Test
     public void testForceDropDb() throws Exception {
         String dropDbSql = "drop database test2 force";
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test2");
-        OlapTable table = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test2");
+        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl1");
         Partition partition = table.getAllPartitions().iterator().next();
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         dropDb(dropDbSql);
-        db = Catalog.getCurrentCatalog().getDb("default_cluster:test2");
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test2");
         List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertNull(db);
         Assert.assertTrue(replicaList.isEmpty());

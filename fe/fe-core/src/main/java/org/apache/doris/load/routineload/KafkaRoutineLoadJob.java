@@ -22,11 +22,9 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
@@ -356,14 +354,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBName());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
-        }
-
-        checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-        Table table = db.getTable(stmt.getTableName());
-        long tableId = table.getId();
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDBName());
+        OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
+        checkMeta(olapTable, stmt.getRoutineLoadDesc());
+        long tableId = olapTable.getId();
 
         // init kafka routine load job
         long id = Catalog.getCurrentCatalog().getNextId();

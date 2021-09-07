@@ -217,7 +217,7 @@ StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -268,7 +268,7 @@ StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }

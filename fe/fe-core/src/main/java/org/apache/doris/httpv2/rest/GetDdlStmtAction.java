@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -63,19 +64,17 @@ public class GetDdlStmtAction extends RestBaseController {
         }
 
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database[" + dbName + "] does not exist");
+        Table table;
+        try {
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> createTableStmt = Lists.newArrayList();
         List<String> addPartitionStmt = Lists.newArrayList();
         List<String> createRollupStmt = Lists.newArrayList();
-
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
-        }
 
         table.readLock();
         try {

@@ -21,17 +21,18 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TTableDescriptor;
-
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -396,8 +397,15 @@ public class Table extends MetaObject implements Writable {
     }
 
     public String getComment() {
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
         if (!Strings.isNullOrEmpty(comment)) {
-            return comment;
+            if (!escapeQuota) {
+                return comment;
+            }
+            return SqlUtils.escapeQuota(comment);
         }
         return type.name();
     }

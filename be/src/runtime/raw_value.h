@@ -382,9 +382,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_DATETIME: {
         const DateTimeValue* date_val = (const DateTimeValue*)v;
         char buf[64];
-        char* end = date_val->to_string(buf);
-
-        return HashUtil::zlib_crc_hash(buf, end - buf - 1, seed);
+        int len = date_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
     }
 
     case TYPE_DECIMALV2: {

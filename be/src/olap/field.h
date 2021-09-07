@@ -85,6 +85,15 @@ public:
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
+        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr) {
+            auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
+            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+            if (dst_slice->size < src_slice->size) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
+                dst_slice->data = *_long_text_buf;
+                dst_slice->size = src_slice->size;
+            }
+        }
         _agg_info->update(dest, src, mem_pool);
     }
 
@@ -239,14 +248,6 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
-        if (type() == OLAP_FIELD_TYPE_STRING) {
-            auto dst_slice = reinterpret_cast<Slice*>(buf);
-            if (dst_slice->size < value_string.size()) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
-                dst_slice->data = *_long_text_buf;
-                dst_slice->size = value_string.size();
-            }
-        }
         return _type_info->from_string(buf, value_string);
     }
 

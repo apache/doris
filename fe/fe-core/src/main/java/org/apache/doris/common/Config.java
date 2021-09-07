@@ -154,6 +154,14 @@ public class Config extends ConfigBase {
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
 
     /**
+     * Delete all deleteInfo older than *delete_info_keep_max_second*
+     * Setting a shorter time will reduce FE memory usage and image file size
+     * (Because all deleteInfo is stored in memory and image files before being deleted)
+     */
+    @ConfField(mutable = true)
+    public static int delete_info_keep_max_second = 3 * 24 * 3600; // 3 days
+
+    /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
      */
@@ -1477,4 +1485,18 @@ public class Config extends ConfigBase {
     
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
+
+    /**
+     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
+     * restart and upgrade after initialization is complete.
+     *
+     * 0: table names are stored as specified and comparisons are case sensitive.
+     * 1: table names are stored in lowercase and comparisons are not case sensitive.
+     * 2: table names are stored as given but compared in lowercase.
+     */
+    @ConfField(masterOnly = true)
+    public static int lower_case_table_names = 0;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int table_name_length_limit = 64;
 }
