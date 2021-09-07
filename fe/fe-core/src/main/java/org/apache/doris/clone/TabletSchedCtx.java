@@ -612,12 +612,31 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (slot == null) {
             throw new SchedException(Status.SCHEDULE_FAILED, "backend of dest replica is missing");
         }
-        
+
         long destPathHash = slot.takeSlot(chosenReplica.getPathHash());
         if (destPathHash == -1) {
             throw new SchedException(Status.SCHEDULE_FAILED, "unable to take slot of dest path");
         }
-        
+
+        if (chosenReplica.getState() == ReplicaState.DECOMMISSION) {
+            // Since this replica is selected as the repair object of VERSION_INCOMPLETE,
+            // it means that this replica needs to be able to accept loading data.
+            // So if this replica was previously set to DECOMMISSION, this state needs to be reset to NORMAL.
+            // It may happen as follows:
+            // 1. A tablet of colocation table is in COLOCATION_REDUNDANT state
+            // 2. The tablet is being scheduled and set one of replica as DECOMMISSION in TabletScheduler.deleteReplicaInternal()
+            // 3. The tablet will then be scheduled again
+            // 4. But at that time, the BE node of the replica that was
+            //    set to the DECOMMISSION state in step 2 is returned to the colocation group.
+            //    So the tablet's health status becomes VERSION_INCOMPLETE.
+            //
+            // If we do not reset this replica state to NORMAL, the tablet's health status will be in VERSION_INCOMPLETE
+            // forever, because the replica in the DECOMMISSION state will not receive the load task.
+            chosenReplica.setWatermarkTxnId(-1);
+            chosenReplica.setState(ReplicaState.NORMAL);
+            LOG.info("choose replica {} on backend {} of tablet {} as dest replica for version incomplete," +
+                    " and change state from DECOMMISSION to NORMAL", chosenReplica.getId(), chosenReplica.getBackendId(), tabletId);
+        }
         setDest(chosenReplica.getBackendId(), chosenReplica.getPathHash());
     }
     
