@@ -1447,6 +1447,7 @@ public class StmtExecutor implements ProfileWriter {
             context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
             context.getState().setError(e.getMessage());
         } catch (Exception e) {
             // Maybe our bug
