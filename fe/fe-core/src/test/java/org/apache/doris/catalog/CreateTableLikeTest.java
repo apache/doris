@@ -113,10 +113,10 @@ public class CreateTableLikeTest {
                                                  String newTblName, String existedTblName, int rollupSize) throws Exception {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
-        OlapTable newTbl = (OlapTable) newDb.getTable(newTblName);
-        OlapTable existedTbl = (OlapTable) existedDb.getTable(existedTblName);
+        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, rollupSize);
     }
 
@@ -126,10 +126,10 @@ public class CreateTableLikeTest {
 
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
-        Database newDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + newDbName);
-        Database existedDb = Catalog.getCurrentCatalog().getDb("default_cluster:" + existedDbName);
-        MysqlTable newTbl = (MysqlTable) newDb.getTable(newTblName);
-        MysqlTable existedTbl = (MysqlTable) existedDb.getTable(existedTblName);
+        Database newDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+        Database existedDb = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:" + existedDbName);
+        MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
+        MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
     }
 

@@ -107,10 +107,10 @@ public class CreateTableLikeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
-        if (withAllRollup && rollupNames == null){
+        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)){
             sb.append(" WITH ROLLUP");
         }
-        if (!withAllRollup && rollupNames != null){
+        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)){
             sb.append(" WITH ROLLUP (").append(Joiner.on(",").join(rollupNames)).append(")");
         }
         return sb.toString();
