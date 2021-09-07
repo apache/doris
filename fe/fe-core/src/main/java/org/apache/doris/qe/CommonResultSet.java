@@ -17,38 +17,20 @@
 
 package org.apache.doris.qe;
 
-// Meta data to describe result set of show statement.
-// Because ResultSetMetaData is complicated, redefine it.
-
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 
 import java.util.List;
 
-public class ShowResultSetMetaData extends AbstractResultSetMetaData {
+public class CommonResultSet extends AbstractResultSet {
 
-    public ShowResultSetMetaData(List<Column> columns) {
-        super(columns);
+    public CommonResultSet(ResultSetMetaData metaData, List<List<String>> resultRows) {
+        super(metaData, resultRows);
     }
 
-    public static Builder builder() {
-        return new Builder();
-    }
-
-    public static class Builder {
-        private List<Column> columns;
-
-        public Builder() {
-            columns = Lists.newArrayList();
-        }
-
-        public ShowResultSetMetaData build() {
-            return new ShowResultSetMetaData(columns);
-        }
-
-        public Builder addColumn(Column col) {
-            columns.add(col);
-            return this;
+    public static class CommonResultSetMetaData extends AbstractResultSetMetaData {
+        public CommonResultSetMetaData(List<Column> columns) {
+            super(columns);
         }
     }
+
 }

@@ -17,38 +17,39 @@
 
 package org.apache.doris.qe;
 
-// Meta data to describe result set of show statement.
-// Because ResultSetMetaData is complicated, redefine it.
-
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 
 import java.util.List;
 
-public class ShowResultSetMetaData extends AbstractResultSetMetaData {
+/**
+ * A ResultSetMetaData object can be used to find out about the types and
+ * properties of the columns in a ResultSet
+ */
+public interface ResultSetMetaData {
 
-    public ShowResultSetMetaData(List<Column> columns) {
-        super(columns);
-    }
+    /**
+     * Whats the number of columns in the ResultSet?
+     * @return the number
+     */
+    int getColumnCount();
 
-    public static Builder builder() {
-        return new Builder();
-    }
+    /**
+     * Get all columns
+     * @return all the columns as list
+     */
+    List<Column> getColumns();
 
-    public static class Builder {
-        private List<Column> columns;
+    /**
+     * Get a column at some index
+     * @param idx the index of column
+     * @return column data
+     */
+    Column getColumn(int idx);
 
-        public Builder() {
-            columns = Lists.newArrayList();
-        }
-
-        public ShowResultSetMetaData build() {
-            return new ShowResultSetMetaData(columns);
-        }
-
-        public Builder addColumn(Column col) {
-            columns.add(col);
-            return this;
-        }
-    }
+    /**
+     * Remove a column at some index
+     * @param idx the index of column
+     * @return column data
+     */
+    void removeColumn(int idx);
 }
