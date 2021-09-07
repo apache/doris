@@ -1484,7 +1484,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.reserved_history_ends\" = \"2020-03-01,2021-09-01\"\n" +
                 ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "errCode = 2, detailMessage = Invalid properties: dynamic_partition.reserved_history_starts: \"2021-10-01\" is larger than dynamic_partition.reserved_history_ends: \"2021-09-01\"",
+                "errCode = 2, detailMessage = Invalid properties: dynamic_partition.reserved_history_starts: \"2021-10-01\" is equal to or larger than dynamic_partition.reserved_history_ends: \"2021-09-01\"",
                 () -> createTable(createOlapTblStmt3));
 
         String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition_reserved_history_starts_and_ends_length` (\n" +

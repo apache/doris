@@ -283,7 +283,7 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, starts.length, 0);
         }
         for (int i = 0; i < starts.length; i++) {
-            if (starts[i].compareTo(ends[i]) >= 0) {
+            if (!"9999-12-31".equals(starts[i]) && starts[i].compareTo(ends[i]) >= 0) {
                 throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + ": \"" + starts[i] +
                         "\" is equal to or larger than " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + ": \"" + ends[i] + "\"");
             }
