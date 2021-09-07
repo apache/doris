@@ -20,6 +20,7 @@
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "common/utils.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -293,6 +294,10 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             if (VLOG_ROW_IS_ON) {
                 VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
             }
+
+			if (_num_rows_read % RELEASE_CONTEXT_COUNTER == 0) {
+				ExprContext::free_local_allocations(_conjunct_ctxs);
+			}
 
             // 3.4 Set tuple to RowBatch(not committed)
             int row_idx = batch->add_row();
