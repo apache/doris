@@ -278,7 +278,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
 import javax.annotation.Nullable;
 
 public class Catalog {
@@ -5496,6 +5495,7 @@ public class Catalog {
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
             throws UserException {
+        convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -5515,6 +5515,14 @@ public class Catalog {
                 table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
+    }
+
+    private void convertDynamicPartitionReplicaNumToReplicaAllocation(Map<String, String> properties) {
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
+            Short repNum = Short.valueOf(properties.remove(DynamicPartitionProperty.REPLICATION_NUM));
+            ReplicaAllocation replicaAlloc = new ReplicaAllocation(repNum);
+            properties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        }
     }
 
     /**

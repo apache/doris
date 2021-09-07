@@ -1657,9 +1657,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
-                    /*
-                     * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
-                     */
+                        /*
+                         * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
+                         */
                         sendClearAlterTask(db, olapTable);
                         return;
                     } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
