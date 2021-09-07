@@ -1496,4 +1496,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static int lower_case_table_names = 0;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int table_name_length_limit = 64;
 }
