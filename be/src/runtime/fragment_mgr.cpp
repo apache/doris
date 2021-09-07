@@ -187,8 +187,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
-          _timeout_second(-1),
           _set_rsc_info(false),
+          _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
