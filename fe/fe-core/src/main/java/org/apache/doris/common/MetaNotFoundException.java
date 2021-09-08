@@ -35,7 +35,7 @@ public class MetaNotFoundException extends UserException {
     }
 
     public MetaNotFoundException(Throwable e) {
-        super(e);
+        super(InternalErrorCode.META_NOT_FOUND_ERR, "", e);
     }
 
     public MetaNotFoundException(String msg, Throwable e) {
