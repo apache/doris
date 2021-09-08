@@ -462,7 +462,10 @@ public class DynamicPartitionTableTest {
 
         String alter1 = "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '1')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter1));
+        Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
 
+        String alter2 = "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '0')";
+        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alter2));
         Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 
