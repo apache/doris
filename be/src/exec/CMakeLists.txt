@@ -105,6 +105,7 @@ set(EXEC_FILES
     assert_num_rows_node.cpp
     s3_reader.cpp
     s3_writer.cpp
+    hdfs_writer.cpp
 )
 
 if (ARCH_AMD64)
