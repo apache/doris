@@ -83,7 +83,9 @@ Status ExprContext::open(std::vector<ExprContext*> evals, RuntimeState* state) {
 }
 
 void ExprContext::close(RuntimeState* state) {
-    DCHECK(!_closed);
+    //DCHECK(!_closed);
+    if (_closed)
+        return;
     FunctionContext::FunctionStateScope scope =
             _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     _root->close(state, this, scope);
