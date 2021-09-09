@@ -37,6 +37,6 @@ You can download source code from following links, then compile and install Dori
 | 0.10.0 | 2019-07-02 | [Source](http://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz) ([Signature](http://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.asc) [SHA512](http://archive.apache.org/dist/incubator/doris/0.10.0-incubating/apache-doris-0.10.0-incubating-src.tar.gz.sha512)) |
 | 0.9.0 | 2019-02-18 | [Source](http://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz) ([Signature](http://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.asc) [SHA512](http://archive.apache.org/dist/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz.sha512)) |
  
-To verify the downloaded files, please read [Verify Apache Release](../community/verify-apache-release.html) and using these [KEYS](https://www.apache.org/dist/incubator/doris/KEYS).
+To verify the downloaded files, please read [Verify Apache Release](../community/verify-apache-release.md) and using these [KEYS](https://www.apache.org/dist/incubator/doris/KEYS).
 
-After verification, please read [Compilation](../installing/compilation.html) and [Installation and deployment](../installing/install-deploy.html) to compile and install Doris.
+After verification, please read [Compilation](../installing/compilation.md) and [Installation and deployment](../installing/install-deploy.md) to compile and install Doris.
