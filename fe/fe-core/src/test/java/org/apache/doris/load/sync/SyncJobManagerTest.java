@@ -24,6 +24,7 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
@@ -136,7 +137,7 @@ public class SyncJobManagerTest {
         try {
             manager.pauseSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
@@ -152,37 +153,49 @@ public class SyncJobManagerTest {
         try {
             manager.pauseSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to paused
-        canalSyncJob.updateState(JobState.PAUSED, false);
+        try {
+            canalSyncJob.updateState(JobState.PAUSED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.PAUSED, canalSyncJob.getJobState());
         try {
             manager.pauseSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to cancelled
-        canalSyncJob.updateState(JobState.CANCELLED, false);
+        try {
+            canalSyncJob.updateState(JobState.CANCELLED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
         try {
             manager.pauseSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to running
-        canalSyncJob.updateState(JobState.RUNNING, false);
+        try {
+            canalSyncJob.updateState(JobState.RUNNING, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.RUNNING, canalSyncJob.getJobState());
         try {
             manager.pauseSyncJob(stmt);
             Assert.assertEquals(JobState.PAUSED, canalSyncJob.getJobState());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             Assert.fail(e.getMessage());
         }
     }
@@ -206,7 +219,7 @@ public class SyncJobManagerTest {
         try {
             manager.resumeSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
@@ -222,37 +235,49 @@ public class SyncJobManagerTest {
         try {
             manager.resumeSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to running
-        canalSyncJob.updateState(JobState.RUNNING, false);
+        try {
+            canalSyncJob.updateState(JobState.RUNNING, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.RUNNING, canalSyncJob.getJobState());
         try {
             manager.resumeSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to cancelled
-        canalSyncJob.updateState(JobState.CANCELLED, false);
+        try {
+            canalSyncJob.updateState(JobState.CANCELLED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
         try {
             manager.resumeSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to paused
-        canalSyncJob.updateState(JobState.PAUSED, false);
+        try {
+            canalSyncJob.updateState(JobState.PAUSED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.PAUSED, canalSyncJob.getJobState());
         try {
             manager.resumeSyncJob(stmt);
-            Assert.assertEquals(JobState.RUNNING, canalSyncJob.getJobState());
-        } catch (DdlException e) {
+            Assert.assertEquals(JobState.PENDING, canalSyncJob.getJobState());
+        } catch (UserException e) {
             Assert.fail(e.getMessage());
         }
     }
@@ -276,7 +301,7 @@ public class SyncJobManagerTest {
         try {
             manager.stopSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
@@ -292,37 +317,49 @@ public class SyncJobManagerTest {
         try {
             manager.stopSyncJob(stmt);
             Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to paused
-        canalSyncJob.updateState(JobState.PAUSED, false);
+        try {
+            canalSyncJob.updateState(JobState.PAUSED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.PAUSED, canalSyncJob.getJobState());
         try {
             manager.stopSyncJob(stmt);
             Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
 
         // change sync job state to running
-        canalSyncJob.updateState(JobState.RUNNING, false);
+        try {
+            canalSyncJob.updateState(JobState.RUNNING, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.RUNNING, canalSyncJob.getJobState());
         try {
             manager.stopSyncJob(stmt);
             Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
-        } catch (DdlException e) {
+        } catch (UserException e) {
             Assert.fail(e.getMessage());
         }
 
         // change sync job state to cancelled
-        canalSyncJob.updateState(JobState.CANCELLED, false);
+        try {
+            canalSyncJob.updateState(JobState.CANCELLED, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());
         try {
             manager.stopSyncJob(stmt);
             Assert.fail();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             LOG.info(e.getMessage());
         }
     }
@@ -341,11 +378,16 @@ public class SyncJobManagerTest {
         Deencapsulation.setField(manager, "dbIdToJobNameToSyncJobs", dbIdToJobNameToSyncJobs);
         Assert.assertTrue(manager.isJobNameExist("testDb", "testJob"));
     }
+
     @Test
     public void testReplayUpdateSyncJobState() {
         CanalSyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
         // change sync job state to running
-        canalSyncJob.updateState(JobState.RUNNING, false);
+        try {
+            canalSyncJob.updateState(JobState.RUNNING, false);
+        } catch (UserException e) {
+            Assert.fail();
+        }
         Assert.assertEquals(JobState.RUNNING, canalSyncJob.getJobState());
 
         Deencapsulation.setField(canalSyncJob, "client", client);

@@ -25,7 +25,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.load.sync.SyncFailMsg;
@@ -79,17 +82,18 @@ public class CanalSyncJob extends SyncJob {
         this.dataSyncJobType = DataSyncJobType.CANAL;
     }
 
-    private void init() throws UserException {
+    private void init() throws MetaNotFoundException, DdlException {
         CanalConnector connector = CanalConnectors.newSingleConnector(
                 new InetSocketAddress(ip, port), destination, username, password);
-        client = new SyncCanalClient(this, destination, connector, batchSize, debug);
         // create channels
         initChannels();
+        // create client
+        client = new SyncCanalClient(this, destination, connector, batchSize, debug);
         // register channels into client
         client.registerChannels(channels);
     }
 
-    public void initChannels() throws DdlException {
+    public void initChannels() throws MetaNotFoundException, DdlException {
         if (channels == null) {
             channels = Lists.newArrayList();
         }
@@ -179,6 +183,10 @@ public class CanalSyncJob extends SyncJob {
         return client != null && channels != null;
     }
 
+    public boolean isNeedReschedule() {
+        return jobState == JobState.RUNNING && !isInit();
+    }
+
     @Override
     public void execute() throws UserException {
         LOG.info("try to start canal client. Remote ip: {}, remote port: {}, debug: {}", ip, port, debug);
@@ -192,42 +200,66 @@ public class CanalSyncJob extends SyncJob {
 
     @Override
     public void cancel(MsgType msgType, String errMsg) {
-        LOG.info("Cancel canal sync job {}. MsgType: {}, errMsg: {}", id, msgType.name(), errMsg);
-        failMsg = new SyncFailMsg(msgType, errMsg);
-        switch (msgType) {
-            case SUBMIT_FAIL:
-            case RUN_FAIL:
-                unprotectedStopClient(JobState.PAUSED);
-                break;
-            case UNKNOWN:
-            case USER_CANCEL:
-                unprotectedStopClient(JobState.CANCELLED);
-                break;
-            default:
-                Preconditions.checkState(false, "unknown msg type: " + msgType.name());
-                break;
+        try {
+            switch (msgType) {
+                case SUBMIT_FAIL:
+                case RUN_FAIL:
+                case UNKNOWN:
+                    unprotectedStopClient(JobState.PAUSED);
+                    break;
+                case SCHEDULE_FAIL:
+                case USER_CANCEL:
+                    unprotectedStopClient(JobState.CANCELLED);
+                    break;
+                default:
+                    Preconditions.checkState(false, "unknown msg type: " + msgType.name());
+                    break;
+            }
+            failMsg = new SyncFailMsg(msgType, errMsg);
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("MsgType", msgType.name())
+                    .add("msg", "Cancel canal sync job.")
+                    .add("errMsg", errMsg)
+                    .build());
+        } catch (UserException e) {
+            LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("msg", "Failed to cancel canal sync job.")
+                    .build(), e);
         }
     }
 
     @Override
-    public void pause() {
-        LOG.info("Pause canal sync job {}. Client remote ip: {}, remote port: {}, debug: {}", id, ip, port, debug);
+    public void pause() throws UserException {
         unprotectedStopClient(JobState.PAUSED);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                .add("remote ip", ip)
+                .add("remote port", port)
+                .add("msg", "Pause canal sync job.")
+                .add("debug", debug)
+                .build());
     }
 
     @Override
-    public void resume() {
-        LOG.info("Resume canal sync job {}. Client remote ip: {}, remote port: {}, debug: {}", id, ip, port, debug);
-        unprotectedStartClient();
+    public void resume() throws UserException {
+        updateState(JobState.PENDING, false);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                .add("remote ip", ip)
+                .add("remote port", port)
+                .add("msg", "Resume canal sync job.")
+                .add("debug", debug)
+                .build());
     }
 
-    public void unprotectedStartClient() {
+    public void unprotectedStartClient() throws UserException {
         client.startup();
         updateState(JobState.RUNNING, false);
-        LOG.info("client has been started. id: {}, jobName: {}", id, jobName);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                .add("name", jobName)
+                .add("msg", "Client has been started.")
+                .build());
     }
 
-    public void unprotectedStopClient(JobState jobState) {
+    public void unprotectedStopClient(JobState jobState) throws UserException {
         if (jobState != JobState.CANCELLED && jobState != JobState.PAUSED) {
             return;
         }
@@ -235,7 +267,10 @@ public class CanalSyncJob extends SyncJob {
             client.shutdown(true);
         }
         updateState(jobState, false);
-        LOG.info("client has been stopped. id: {}, jobName: {}" , id, jobName);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                .add("name", jobName)
+                .add("msg", "Client has been stopped.")
+                .build());
     }
 
     @Override
@@ -245,13 +280,13 @@ public class CanalSyncJob extends SyncJob {
         finishTimeMs = info.getFinishTimeMs();
         failMsg = info.getFailMsg();
         try {
-            if (!isInit()) {
-                init();
-            }
             JobState jobState = info.getJobState();
             switch (jobState) {
-                case RUNNING:
+                case PENDING:
                     updateState(JobState.PENDING, true);
+                    break;
+                case RUNNING:
+                    updateState(JobState.RUNNING, true);
                     break;
                 case PAUSED:
                     updateState(JobState.PAUSED, true);
@@ -261,11 +296,16 @@ public class CanalSyncJob extends SyncJob {
                     break;
             }
         } catch (UserException e) {
-            LOG.warn("encounter an error when replay update sync job state. id: {}, newState: {}, reason: {}",
-                    info.getId(), info.getJobState(), e.getMessage());
-            cancel(MsgType.UNKNOWN, e.getMessage());
+            LOG.error(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("desired_state", info.getJobState())
+                    .add("msg", "replay update state error.")
+                    .add("reason", e.getMessage())
+                    .build(), e);
         }
-        LOG.info("replay update sync job state: {}", info);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, info.getId())
+                .add("desired_state:", info.getJobState())
+                .add("msg", "replay update sync job state")
+                .build());
     }
 
     @Override
@@ -279,7 +319,7 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String getJobConfig() {
         StringBuilder sb = new StringBuilder();
-        sb.append("adress:").append(ip).append(":").append(port).append(",")
+        sb.append("address:").append(ip).append(":").append(port).append(",")
                 .append("destination:").append(destination).append(",")
                 .append("batchSize:").append(batchSize);
         return sb.toString();

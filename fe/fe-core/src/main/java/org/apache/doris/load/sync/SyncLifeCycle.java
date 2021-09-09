@@ -55,10 +55,6 @@ public abstract class SyncLifeCycle {
     }
 
     public void stop() {
-        if (!isStart()) {
-            throw new RuntimeException(this.getClass().getName() + " isn't start , please check");
-        }
-
         this.running = false;
 
         if (thread != null) {

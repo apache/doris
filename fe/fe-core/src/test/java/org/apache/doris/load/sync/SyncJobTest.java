@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.sync;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
@@ -49,9 +50,13 @@ public class SyncJobTest {
     @Test
     public void testUpdateStateToRunning() {
         SyncJob syncJob = new CanalSyncJob(jobId, jobName, dbId);
-        syncJob.updateState(JobState.RUNNING, true);
-        Assert.assertEquals(JobState.RUNNING, syncJob.getJobState());
-        Assert.assertNotEquals(-1L, (long) Deencapsulation.getField(syncJob, "lastStartTimeMs"));
+        try {
+            syncJob.updateState(JobState.RUNNING, false);
+            Assert.assertEquals(JobState.RUNNING, syncJob.getJobState());
+            Assert.assertNotEquals(-1L, (long) Deencapsulation.getField(syncJob, "lastStartTimeMs"));
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
+        }
     }
 
     @Test
