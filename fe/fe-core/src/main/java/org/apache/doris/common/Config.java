@@ -101,32 +101,31 @@ public class Config extends ConfigBase {
      *          60m     60 mins
      *          120s    120 seconds
      */
-    @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
-    @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
-    @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
-    @ConfField public static String audit_log_roll_interval = "DAY";
-    @ConfField public static String audit_log_delete_age = "30d";
+    @ConfField
+    public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
+    @ConfField
+    public static int audit_log_roll_num = 90;
+    @ConfField
+    public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
+    @ConfField(mutable = true)
+    public static long qe_slow_log_ms = 5000;
+    @ConfField
+    public static String audit_log_roll_interval = "DAY";
+    @ConfField
+    public static String audit_log_delete_age = "30d";
     @Deprecated
-    @ConfField public static String audit_log_roll_mode = "TIME-DAY";
+    @ConfField
+    public static String audit_log_roll_mode = "TIME-DAY";
 
     /**
      * plugin_dir:
      *      plugin install directory
      */
-    @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+    @ConfField
+    public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = true;
-
-    /**
-     * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
-     * The removed labels can be reused.
-     * Set a short time will lower the FE memory usage.
-     * (Because all load jobs' info is kept in memory before being removed)
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
     /**
      * The default parallelism of the load execution plan
@@ -135,30 +134,41 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int default_load_parallelism = 1;
 
+    /**
+     * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
+     * The removed labels can be reused.
+     * Set a short time will lower the FE memory usage.
+     * (Because all load jobs' info is kept in memory before being removed)
+     */
+    @ConfField(mutable = true)
+    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
+
     // For some high frequency load job such as
-    // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
+    // INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE
     // Remove the finished job or task if expired.
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_label_keep_max_second = 43200; // 12 hour
 
     /**
      * The max keep time of some kind of jobs.
-     * like schema change job and rollup job.
+     * like alter job or export job.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
     /**
-     * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
-     */
-    @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
-
-    /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
      */
-    @ConfField public static int transaction_clean_interval_second = 30;
+    @ConfField
+    public static int transaction_clean_interval_second = 30;
 
+    /**
+     * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
+     */
+    @ConfField
+    public static int label_clean_interval_second = 1 * 3600; // 1 hours
+    
     // Configurations for meta data durability
     /**
      * Doris meta data will be saved here.
@@ -166,7 +176,8 @@ public class Config extends ConfigBase {
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
+    @ConfField
+    public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
 
     /**
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
@@ -1477,4 +1488,18 @@ public class Config extends ConfigBase {
     
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
+
+    /**
+     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
+     * restart and upgrade after initialization is complete.
+     *
+     * 0: table names are stored as specified and comparisons are case sensitive.
+     * 1: table names are stored in lowercase and comparisons are not case sensitive.
+     * 2: table names are stored as given but compared in lowercase.
+     */
+    @ConfField(masterOnly = true)
+    public static int lower_case_table_names = 0;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int table_name_length_limit = 64;
 }

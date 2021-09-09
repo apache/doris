@@ -263,6 +263,8 @@ public:
     // TIME:  format 'hh:mm:ss.xxxxxx'
     // DATE:  format 'YYYY-MM-DD'
     // DATETIME:  format 'YYYY-MM-DD hh:mm:ss.xxxxxx'
+    int32_t to_buffer(char* buffer) const;
+
     char* to_string(char* to) const;
 
     // Convert this datetime value to string by the format string
@@ -600,11 +602,11 @@ private:
     int64_t standardize_timevalue(int64_t value);
 
     // Used to convert to a string.
-    char* append_date_string(char* to) const;
-    char* append_time_string(char* to) const;
-    char* to_datetime_string(char* to) const;
-    char* to_date_string(char* to) const;
-    char* to_time_string(char* to) const;
+    char* append_date_buffer(char* to) const;
+    char* append_time_buffer(char* to) const;
+    char* to_datetime_buffer(char* to) const;
+    char* to_date_buffer(char* to) const;
+    char* to_time_buffer(char* to) const;
 
     // Used to convert to uint64_t
     int64_t to_datetime_int64() const;

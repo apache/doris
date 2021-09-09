@@ -42,7 +42,7 @@ public class StmtRewriterTest {
     @BeforeClass
     public static void beforeClass() throws Exception{
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, " +

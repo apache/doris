@@ -265,15 +265,14 @@ public:
     }
 
     // get the compaction score of this rowset.
-    // if segments are overlapping, the score equals to the number of segments,
+    // if segments are overlapping or the number of segments is 0, the score equals to the number of segments,
     // otherwise, score is 1.
     uint32_t get_compaction_score() const {
         uint32_t score = 0;
-        if (!is_segments_overlapping()) {
+        if ((num_segments() > 0 && !is_segments_overlapping()) || has_delete_predicate()) {
             score = 1;
         } else {
             score = num_segments();
-            CHECK(score > 0);
         }
         return score;
     }

@@ -333,7 +333,8 @@ public:
         }
         case OLAP_FIELD_TYPE_VARCHAR:
         case OLAP_FIELD_TYPE_OBJECT:
-        case OLAP_FIELD_TYPE_HLL: {
+        case OLAP_FIELD_TYPE_HLL:
+        case OLAP_FIELD_TYPE_STRING: {
             _values = reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(Slice)));
             int32_t length = _default_value.length();
             char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(size * length));

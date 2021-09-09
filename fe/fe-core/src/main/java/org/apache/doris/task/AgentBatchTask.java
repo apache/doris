@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -157,7 +158,8 @@ public class AgentBatchTask implements Runnable {
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
+                address = new TNetworkAddress(host, backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {

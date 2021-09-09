@@ -10,7 +10,7 @@
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// "AS IS" BASIS, WITHOUT WARRANTIES ORF CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
@@ -823,6 +823,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_PROPERTIES LPAREN key_value_map:map RPAREN
+    {:
+        RESULT = new AlterDatabasePropertyStmt(dbName, map);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
@@ -1084,13 +1088,13 @@ opt_enable_feature_properties ::=
     ;
 
 alter_system_clause ::=
-    KW_ADD KW_BACKEND string_list:hostPorts
+    KW_ADD KW_BACKEND string_list:hostPorts opt_properties:properties
     {:
-        RESULT = new AddBackendClause(hostPorts, false);
+        RESULT = new AddBackendClause(hostPorts, false, properties);
     :}
     | KW_ADD KW_FREE KW_BACKEND string_list:hostPorts
     {:
-        RESULT = new AddBackendClause(hostPorts, true);
+        RESULT = new AddBackendClause(hostPorts, true, Maps.newHashMap());
     :}
     | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
     {:
@@ -1141,7 +1145,11 @@ alter_system_clause ::=
     | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
-    :} 
+    :}
+	| KW_MODIFY KW_BACKEND string_list:hostPorts KW_SET LPAREN key_value_map:properties RPAREN
+	{:
+		RESULT = new ModifyBackendClause(hostPorts, properties);
+	:}
     ;
 
 // Sync Stmt
@@ -1190,9 +1198,17 @@ create_stmt ::=
         RESULT = new CreateFunctionStmt(functionName, args, parameters, func);
     :}
     /* Table */
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP ident_list:rollupNames
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, rollupNames, false);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name KW_WITH KW_ROLLUP KW_ALL
+    {:
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, true);
+    :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_LIKE table_name:existed_name
     {:
-        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name);
+        RESULT = new CreateTableLikeStmt(ifNotExists, name, existed_name, null, false);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
@@ -4311,7 +4327,7 @@ type ::=
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_STRING
-  {: RESULT = ScalarType.createVarcharType(-1); :}
+  {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      type.setAssignedStrLenInColDefinition();

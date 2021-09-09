@@ -7,6 +7,7 @@ import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -31,7 +32,7 @@ public class ShowViewStmtTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String testTbl1 = "CREATE TABLE `test1` (\n" +
                 "  `a` int(11) NOT NULL COMMENT \"\",\n" +
                 "  `b` int(11) NOT NULL COMMENT \"\"\n" +

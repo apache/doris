@@ -61,17 +61,10 @@ public class StatisticsManager {
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
             throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         List<List<String>> result = Lists.newArrayList();
         if (tableName != null) {
-            Table table = db.getTable(tableName);
-            // check meta
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-            }
+            Table table = db.getTableOrAnalysisException(tableName);
             // check priv
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
                     PrivPredicate.SHOW)) {
@@ -139,14 +132,8 @@ public class StatisticsManager {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tableName);
         return table;
     }
 }

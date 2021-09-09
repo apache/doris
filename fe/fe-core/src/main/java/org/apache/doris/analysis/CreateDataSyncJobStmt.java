@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -98,22 +97,13 @@ public class CreateDataSyncJobStmt extends DdlStmt {
 
         for (ChannelDescription channelDescription : channelDescriptions) {
             channelDescription.analyze(dbName);
-            Database db = Catalog.getCurrentCatalog().getDb(dbName);
-            if (db == null) {
-                throw new AnalysisException("Database: " + dbName + " not found.");
-            }
             String tableName = channelDescription.getTargetTable();
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new AnalysisException("Table: " + tableName + " doesn't exist");
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+            OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
+            if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("Table: " + tableName + " is not a unique table, key type: " + olapTable.getKeysType());
             }
-            if (!(table instanceof OlapTable)) {
-                throw new AnalysisException("Table: " + tableName + " is not an olap table");
-            }
-            if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Table: " + tableName + " is not a unique table, key type: " + ((OlapTable) table).getKeysType());
-            }
-            if (!((OlapTable) table).hasDeleteSign()) {
+            if (!olapTable.hasDeleteSign()) {
                 throw new AnalysisException("Table: " + tableName + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
             }
         }

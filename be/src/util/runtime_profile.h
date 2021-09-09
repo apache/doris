@@ -414,12 +414,6 @@ public:
     // Same as 'add_sampling_counter' above except the samples are taken by calling fn.
     Counter* add_sampling_counter(const std::string& name, SampleFn fn);
 
-    // Add a bucket of counters to store the sampled value of src_counter.
-    // The src_counter is sampled periodically and the buckets are updated.
-    void add_bucketing_counters(const std::string& name, const std::string& parent_counter_name,
-                                Counter* src_counter, int max_buckets,
-                                std::vector<Counter*>* buckets);
-
     /// Adds a high water mark counter to the runtime profile. Otherwise, same behavior
     /// as AddCounter().
     HighWaterMarkCounter* AddHighWaterMarkCounter(const std::string& name, TUnit::type unit,
@@ -428,22 +422,6 @@ public:
     // Only for create MemTracker(using profile's counter to calc consumption)
     std::shared_ptr<HighWaterMarkCounter> AddSharedHighWaterMarkCounter(
             const std::string& name, TUnit::type unit, const std::string& parent_counter_name = "");
-
-    // stops updating the value of 'rate_counter'. Rate counters are updated
-    // periodically so should be removed as soon as the underlying counter is
-    // no longer going to change.
-    void stop_rate_counters_updates(Counter* rate_counter);
-
-    // stops updating the value of 'sampling_counter'. Sampling counters are updated
-    // periodically so should be removed as soon as the underlying counter is
-    // no longer going to change.
-    void stop_sampling_counters_updates(Counter* sampling_counter);
-
-    // stops updating the bucket counter.
-    // If convert is true, convert the buckets from count to percentage.
-    // Sampling counters are updated periodically so should be removed as soon as the
-    // underlying counter is no longer going to change.
-    void stop_bucketing_counters_updates(std::vector<Counter*>* buckets, bool convert);
 
     // Recursively compute the fraction of the 'total_time' spent in this profile and
     // its children.
@@ -516,10 +494,6 @@ private:
     // of the total time in the entire profile tree.
     double _local_time_percent;
 
-    std::vector<Counter*> _rate_counters;
-
-    std::vector<Counter*> _sampling_counters;
-
     enum PeriodicCounterType {
         RATE_COUNTER = 0,
         SAMPLING_COUNTER,
@@ -544,41 +518,6 @@ private:
         // TODO: customize bucketing
     };
 
-    // This is a static singleton object that is used to update all rate counters and
-    // sampling counters.
-    struct PeriodicCounterUpdateState {
-        PeriodicCounterUpdateState();
-
-        // Tears down the update thread.
-        ~PeriodicCounterUpdateState();
-
-        // Lock protecting state below
-        std::mutex lock;
-
-        // If true, tear down the update thread.
-        volatile bool _done;
-
-        // Thread performing asynchronous updates.
-        boost::scoped_ptr<boost::thread> update_thread;
-
-        // A map of the dst (rate) counter to the src counter and elapsed time.
-        typedef std::map<Counter*, RateCounterInfo> RateCounterMap;
-        RateCounterMap rate_counters;
-
-        // A map of the dst (averages over samples) counter to the src counter (to be sampled)
-        // and number of samples taken.
-        typedef std::map<Counter*, SamplingCounterInfo> SamplingCounterMap;
-        SamplingCounterMap sampling_counters;
-
-        // Map from a bucket of counters to the src counter
-        typedef std::map<std::vector<Counter*>*, BucketCountersInfo> BucketCountersMap;
-        BucketCountersMap bucketing_counters;
-    };
-
-    // Singleton object that keeps track of all rate counters and the thread
-    // for updating them.
-    static PeriodicCounterUpdateState _s_periodic_counter_update_state;
-
     // update a subtree of profiles from nodes, rooted at *idx.
     // On return, *idx points to the node immediately following this subtree.
     void update(const std::vector<TRuntimeProfileNode>& nodes, int* idx);
@@ -587,18 +526,6 @@ private:
     // this profile and its children.
     // Called recusively.
     void compute_time_in_profile(int64_t total_time);
-
-    // Registers a periodic counter to be updated by the update thread.
-    // Either sample_fn or dst_counter must be non-NULL.  When the periodic counter
-    // is updated, it either gets the value from the dst_counter or calls the sample
-    // function to get the value.
-    // dst_counter/sample fn is assumed to be compatible types with src_counter.
-    static void register_periodic_counter(Counter* src_counter, SampleFn sample_fn,
-                                          Counter* dst_counter, PeriodicCounterType type);
-
-    // Loop for periodic counter update thread.  This thread wakes up once in a while
-    // and updates all the added rate counters and sampling counters.
-    static void periodic_counter_update_loop();
 
     // Print the child counters of the given counter name
     static void print_child_counters(const std::string& prefix, const std::string& counter_name,

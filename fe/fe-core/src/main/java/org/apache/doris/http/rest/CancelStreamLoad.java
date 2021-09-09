@@ -70,10 +70,7 @@ public class CancelStreamLoad extends RestBaseAction {
         // FIXME(cmy)
         // checkWritePriv(authInfo.fullUserName, fullDbName);
 
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("unknown database, database=" + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(db.getId(), label, "user cancel");

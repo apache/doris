@@ -53,7 +53,7 @@ public class ShowDataStmtTest {
     private Database db;
 
     @Before
-    public void setUp() throws AnalysisException {
+    public void setUp() throws UserException {
         auth = new PaloAuth();
 
         
@@ -94,7 +94,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = auth;
 
-                catalog.getDb(anyString);
+                catalog.getDbOrAnalysisException(anyString);
                 minTimes = 0;
                 result = db;
 

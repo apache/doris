@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 
@@ -51,6 +52,12 @@ import java.math.BigInteger;
  */
 public class FEFunctions {
     private static final Logger LOG = LogManager.getLogger(FEFunctions.class);
+
+    @FEFunction(name = "version", argTypes = {}, returnType = "VARCHAR")
+    public static StringLiteral version() throws AnalysisException {
+        return new StringLiteral(GlobalVariable.version);
+    }
+
     /**
      * date and time function
      */

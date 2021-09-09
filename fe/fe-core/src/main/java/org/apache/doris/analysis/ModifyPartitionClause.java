@@ -20,9 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -93,7 +93,7 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     // Check the following properties' legality before modifying partition.
-    // 1. replication_num
+    // 1. replication_num or replica_allocation
     // 2. storage_medium && storage_cooldown_time
     // 3. in_memory
     // 4. tablet type
@@ -103,10 +103,8 @@ public class ModifyPartitionClause extends AlterTableClause {
         newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_DATA_PROPERTY);
         Preconditions.checkNotNull(newDataProperty);
 
-        // 2. replication num
-        short newReplicationNum = (short) -1;
-        newReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-        Preconditions.checkState(newReplicationNum != (short) -1);
+        // 2. replica allocation
+        PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 
         // 3. in memory
         PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);

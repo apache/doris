@@ -47,7 +47,7 @@ public class CatalogOperationTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -110,13 +110,13 @@ public class CatalogOperationTest {
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
         AlterTableStmt alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
-        Assert.assertNotNull(db.getTable("renameTest"));
+        Assert.assertNotNull(db.getTableNullable("renameTest"));
 
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("renameTest"));
-        Assert.assertNotNull(db.getTable("newNewTest"));
+        Assert.assertNull(db.getTableNullable("renameTest"));
+        Assert.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
         String alterStmtStr = "alter table test.newNewTest add rollup r1(k1)";
@@ -145,16 +145,16 @@ public class CatalogOperationTest {
         renameTblStmt = "alter table test.newNewTest rename goodName";
         alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("newNewTest"));
-        Assert.assertNotNull(db.getTable("goodName"));
+        Assert.assertNull(db.getTableNullable("newNewTest"));
+        Assert.assertNotNull(db.getTableNullable("goodName"));
 
         // rename external table
         renameTblStmt = "alter table test.mysqlRenameTest rename newMysqlRenameTest";
         alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-        Assert.assertNotNull(db.getTable("mysqlRenameTest"));
+        Assert.assertNotNull(db.getTableNullable("mysqlRenameTest"));
 
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("mysqlRenameTest"));
-        Assert.assertNotNull(db.getTable("newMysqlRenameTest"));
+        Assert.assertNull(db.getTableNullable("mysqlRenameTest"));
+        Assert.assertNotNull(db.getTableNullable("newMysqlRenameTest"));
     }
 }

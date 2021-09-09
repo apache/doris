@@ -209,6 +209,36 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
                 bool is_null = *reinterpret_cast<bool*>(mem_ptr);
                 if (!is_null) {
                     size_t storage_field_bytes =
+                            *reinterpret_cast<VarcharLengthType*>(storage_ptr + null_byte);
+                    Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
+                    char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                    memory_copy(data, storage_ptr + sizeof(VarcharLengthType) + null_byte,
+                                storage_field_bytes);
+                    slice->data = data;
+                    slice->size = storage_field_bytes;
+                }
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            mem_field_offset += sizeof(Slice) + 1;
+            for (size_t j = 0; j < num_entries; ++j) {
+                /*
+                 * string is null_byte|length|content in OlapIndex storage
+                 * string is in nullbyte|length|ptr in memory
+                 * We need copy three part: nullbyte|length|content
+                 * 1. copy null byte
+                 * 2. copy length and content into addrs pointed by ptr
+                 */
+
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy length and content
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    size_t storage_field_bytes =
                             *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
                     Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
                     char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
@@ -359,7 +389,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
 
         offset.offset = *it;
         VLOG_NOTICE << "show real offset iterator value. off=" << *it;
-        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
+        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment
+                    << ", off=" << offset.offset;
     } catch (...) {
         OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
                          k.to_string().c_str(), find_last);

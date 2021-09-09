@@ -185,7 +185,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        Database db = Catalog.getCurrentCatalog().getDb(transactionState.getDbId());
+                        Database db = Catalog.getCurrentCatalog().getDbNullable(transactionState.getDbId());
                         if (db == null) {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
@@ -194,7 +194,7 @@ public class PublishVersionDaemon extends MasterDaemon {
 
                         for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
                             long tableId = transactionState.getTableIdList().get(i);
-                            Table table = db.getTable(tableId);
+                            Table table = db.getTableNullable(tableId);
                             if (table == null || table.getType() != Table.TableType.OLAP) {
                                 LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
                                 continue;

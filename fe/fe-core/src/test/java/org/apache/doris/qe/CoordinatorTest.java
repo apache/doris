@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Mocked;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
@@ -39,7 +37,6 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
-
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -49,12 +46,13 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.commons.collections.map.HashedMap;
+import org.junit.Assert;
+import org.junit.Test;
+
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,14 +60,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import com.google.common.collect.Maps;
-import org.apache.commons.collections.map.HashedMap;
+
+import mockit.Mocked;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
     static ConnectContext context = new ConnectContext(null);
     static {
         context.setQueryId(new TUniqueId(1, 2));
+        context.setQualifiedUser("root");
     }
     @Mocked
     static Catalog catalog;
@@ -77,9 +76,8 @@ public class CoordinatorTest extends Coordinator {
     static EditLog editLog;
     @Mocked
     static FrontendOptions frontendOptions;
-    static Analyzer analyzer = new Analyzer(catalog, null);
-
-
+    static Analyzer analyzer = new Analyzer(catalog, context);
+    
     public CoordinatorTest() {
         super(context, analyzer, planner);
     }
@@ -838,4 +836,5 @@ public class CoordinatorTest extends Coordinator {
         }
     }
 }
+
 

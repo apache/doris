@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -86,11 +85,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
      */
     public void checkAndUpdateQuorum() throws MetaNotFoundException {
         long dbId = deleteInfo.getDbId();
-        long tableId = deleteInfo.getTableId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("can not find database "+ dbId +" when commit delete");
-        }
+        Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
 
         for (TabletDeleteInfo tDeleteInfo : getTabletDeleteInfo()) {
             Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());

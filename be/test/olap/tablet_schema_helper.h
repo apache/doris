@@ -80,7 +80,19 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
     column._type = OLAP_FIELD_TYPE_VARCHAR;
     column._is_key = true;
     column._is_nullable = is_nullable;
-    column._length = 8;
+    column._length = 65533;
+    column._index_length = 4;
+    return column;
+}
+
+TabletColumn create_string_key(int32_t id, bool is_nullable = true) {
+    TabletColumn column;
+    column._unique_id = id;
+    column._col_name = std::to_string(id);
+    column._type = OLAP_FIELD_TYPE_STRING;
+    column._is_key = true;
+    column._is_nullable = is_nullable;
+    column._length = 2147483643;
     column._index_length = 4;
     return column;
 }
@@ -98,10 +110,10 @@ TabletColumn create_with_default_value(std::string default_value) {
 }
 
 void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool,
-                              size_t _length = 0) {
+                              size_t _length = 8) {
     if (fieldType == OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
-        char* src_value = &s[0];
+        const char* src_value = s.c_str();
         int src_len = s.size();
 
         auto* dest_slice = (Slice*)target;
@@ -111,7 +123,16 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPoo
         memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
     } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
         std::string s = std::to_string(src);
-        char* src_value = &s[0];
+        const char* src_value = s.c_str();
+        int src_len = s.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = (char*)pool->allocate(src_len);
+        memcpy(dest_slice->data, src_value, src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+        std::string s = std::to_string(src);
+        const char* src_value = s.c_str();
         int src_len = s.size();
 
         auto* dest_slice = (Slice*)target;
@@ -120,6 +141,38 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPoo
         memcpy(dest_slice->data, src_value, src_len);
     } else {
         *(int*)target = src;
+    }
+}
+
+void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
+                              MemPool* pool, size_t _length = 8) {
+    if (fieldType == OLAP_FIELD_TYPE_CHAR) {
+        const char* src_value = src.c_str();
+        int src_len = src.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = _length;
+        dest_slice->data = (char*)pool->allocate(dest_slice->size);
+        memcpy(dest_slice->data, src_value, src_len);
+        memset(dest_slice->data + src_len, 0, dest_slice->size - src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_VARCHAR) {
+        const char* src_value = src.c_str();
+        int src_len = src.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = (char*)pool->allocate(src_len);
+        memcpy(dest_slice->data, src_value, src_len);
+    } else if (fieldType == OLAP_FIELD_TYPE_STRING) {
+        const char* src_value = src.c_str();
+        int src_len = src.size();
+
+        auto* dest_slice = (Slice*)target;
+        dest_slice->size = src_len;
+        dest_slice->data = (char*)pool->allocate(src_len);
+        memcpy(dest_slice->data, src_value, src_len);
+    } else {
+        *(int*)target = std::stoi(src);
     }
 }
 

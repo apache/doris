@@ -150,7 +150,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
-                     << ", table=" << tablet->full_name()
+                     << ", tablet=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
         for (TabletVars& tablet_var : *tablet_vars) {
             if (tablet_var.tablet == nullptr) {
@@ -217,7 +217,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
 
         // 1. init RowsetBuilder of cur_tablet for current push
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
-                << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
+                    << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
         RowsetWriterContext context;
         context.rowset_id = StorageEngine::instance()->next_rowset_id();
         context.tablet_uid = cur_tablet->tablet_uid();
@@ -327,7 +327,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         if (new_tablet != nullptr) {
             auto schema_change_handler = SchemaChangeHandler::instance();
             res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                       new_rowset);
+                                                                new_rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
@@ -337,7 +337,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
     } while (0);
 
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
-             << ", processed_rows" << num_rows;
+               << ", processed_rows" << num_rows;
     return res;
 }
 
@@ -430,7 +430,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
         // 3. New RowsetBuilder to write data into rowset
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
-                << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
+                    << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
         if (OLAP_SUCCESS != (res = row.init(cur_tablet->tablet_schema()))) {
@@ -488,7 +488,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         if (new_tablet != nullptr) {
             auto schema_change_handler = SchemaChangeHandler::instance();
             res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                       new_rowset);
+                                                                new_rowset);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
@@ -499,7 +499,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
     SAFE_DELETE(reader);
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
-             << ", processed_rows" << num_rows;
+               << ", processed_rows" << num_rows;
     return res;
 }
 
@@ -610,16 +610,32 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
         }
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Read varchar length buffer first
-            if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, sizeof(StringLengthType)))) {
+            if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, sizeof(VarcharLengthType)))) {
                 LOG(WARNING) << "read file for one row fail. res=" << res;
                 return res;
             }
 
             // Get varchar field size
+            field_size = *reinterpret_cast<VarcharLengthType*>(_row_buf + offset);
+            offset += sizeof(VarcharLengthType);
+            if (field_size > column.length() - sizeof(VarcharLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(VarcharLengthType)
+                             << ", real_len=" << field_size;
+                return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            // Read string length buffer first
+            if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, sizeof(StringLengthType)))) {
+                LOG(WARNING) << "read file for one row fail. res=" << res;
+                return res;
+            }
+
+            // Get string field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + offset);
             offset += sizeof(StringLengthType);
             if (field_size > column.length() - sizeof(StringLengthType)) {
-                LOG(WARNING) << "invalid data length for VARCHAR! "
+                LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
@@ -635,7 +651,7 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
         }
 
         if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-            column.type() == OLAP_FIELD_TYPE_HLL) {
+            column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_STRING) {
             Slice slice(_row_buf + offset, field_size);
             row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
         } else {
@@ -742,11 +758,22 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
         const TabletColumn& column = schema.column(i);
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Get varchar field size
+            field_size = *reinterpret_cast<VarcharLengthType*>(_row_buf + _next_row_start + offset);
+            offset += sizeof(VarcharLengthType);
+
+            if (field_size > column.length() - sizeof(VarcharLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(VarcharLengthType)
+                             << ", real_len=" << field_size;
+                return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            // Get string field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + _next_row_start + offset);
             offset += sizeof(StringLengthType);
 
             if (field_size > column.length() - sizeof(StringLengthType)) {
-                LOG(WARNING) << "invalid data length for VARCHAR! "
+                LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
@@ -756,7 +783,7 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
         }
 
         if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-            column.type() == OLAP_FIELD_TYPE_HLL) {
+            column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_STRING) {
             Slice slice(_row_buf + _next_row_start + offset, field_size);
             row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
         } else {
@@ -917,6 +944,70 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     return OLAP_SUCCESS;
 }
 
+OLAPStatus PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, FieldType type){
+    switch (type) {
+        case OLAP_FIELD_TYPE_DECIMAL: {
+            dst->set_is_null(src_null);
+            if (src_null) {
+                break;
+            }
+            auto *decimal_value = reinterpret_cast<const DecimalV2Value *>(src);
+            auto *storage_decimal_value = reinterpret_cast<decimal12_t *>(dst->mutable_cell_ptr());
+            storage_decimal_value->integer = decimal_value->int_value();
+            storage_decimal_value->fraction = decimal_value->frac_value();
+            break;
+        }
+        case OLAP_FIELD_TYPE_DATETIME: {
+            dst->set_is_null(src_null);
+            if (src_null) {
+                break;
+            }
+
+            auto* datetime_value = reinterpret_cast<const DateTimeValue*>(src);
+            auto* storage_datetime_value = reinterpret_cast<uint64_t*>(dst->mutable_cell_ptr());
+            *storage_datetime_value = datetime_value->to_olap_datetime();
+            break;
+        }
+
+        case OLAP_FIELD_TYPE_DATE: {
+            dst->set_is_null(src_null);
+            if (src_null) {
+                break;
+            }
+
+            auto* date_value = reinterpret_cast<const DateTimeValue*>(src);
+            auto* storage_date_value = reinterpret_cast<uint24_t*>(dst->mutable_cell_ptr());
+            *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
+            break;
+        }
+        case OLAP_FIELD_TYPE_BOOL:
+        case OLAP_FIELD_TYPE_TINYINT:
+        case OLAP_FIELD_TYPE_SMALLINT:
+        case OLAP_FIELD_TYPE_INT:
+        case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        case OLAP_FIELD_TYPE_BIGINT:
+        case OLAP_FIELD_TYPE_LARGEINT:
+        case OLAP_FIELD_TYPE_FLOAT:
+        case OLAP_FIELD_TYPE_DOUBLE:
+        case OLAP_FIELD_TYPE_CHAR:
+        case OLAP_FIELD_TYPE_VARCHAR:
+        case OLAP_FIELD_TYPE_HLL:
+        case OLAP_FIELD_TYPE_OBJECT:{
+            dst->set_is_null(src_null);
+            if (src_null) {
+                break;
+            }
+            const TypeInfo* type_info = get_type_info(type);
+            type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+            break;
+        }
+        default:
+            return OLAP_ERR_INVALID_SCHEMA;
+    }
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
     if (!_ready || row == nullptr) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -934,22 +1025,18 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
     }
 
     auto slot_descs = _tuple_desc->slots();
-    size_t num_key_columns = _schema->num_key_columns();
-
     // finalize row
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         auto cell = row->cell(i);
         const SlotDescriptor* slot = slot_descs[i];
         bool is_null = _tuple->is_null(slot->null_indicator_offset());
         const void* value = _tuple->get_slot(slot->tuple_offset());
-        // try execute init method defined in aggregateInfo
-        // by default it only copies data into cell
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, _mem_pool.get(),
-                                    _runtime_state->obj_pool());
-        // if column(i) is a value column, try execute finalize method defined in aggregateInfo
-        // to convert data into final format
-        if (i >= num_key_columns) {
-            _schema->column(i)->agg_finalize(&cell, _mem_pool.get());
+
+        FieldType type = _schema->column(i)->type();
+        OLAPStatus field_status = fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
+        if (field_status!= OLAP_SUCCESS) {
+            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i << ", type: " << type;
+            return OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID;
         }
     }
 

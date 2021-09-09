@@ -105,12 +105,8 @@ public class SparkLoadPendingTaskTest {
 
         new Expectations() {
             {
-                catalog.getDb(dbId);
-                result = database;
                 sparkLoadJob.getHandle();
                 result = handle;
-                database.getTable(tableId);
-                result = table;
                 table.getPartitions();
                 result = partitions;
                 table.getIndexIdToSchema();
@@ -146,55 +142,6 @@ public class SparkLoadPendingTaskTest {
         Assert.assertEquals(null, attachment.getAppId());
         task.executeTask();
         Assert.assertEquals(appId, attachment.getAppId());
-    }
-
-    @Test(expected = LoadException.class)
-    public void testNoDb(@Injectable SparkLoadJob sparkLoadJob,
-                         @Injectable SparkResource resource,
-                         @Injectable BrokerDesc brokerDesc,
-                         @Mocked Catalog catalog) throws LoadException {
-        long dbId = 0L;
-
-        new Expectations() {
-            {
-                catalog.getDb(dbId);
-                result = null;
-            }
-        };
-
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, null, resource, brokerDesc);
-        task.init();
-    }
-
-    @Test(expected = LoadException.class)
-    public void testNoTable(@Injectable SparkLoadJob sparkLoadJob,
-                            @Injectable SparkResource resource,
-                            @Injectable BrokerDesc brokerDesc,
-                            @Mocked Catalog catalog,
-                            @Injectable Database database) throws LoadException {
-        long dbId = 0L;
-        long tableId = 1L;
-
-        Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
-        List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
-        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
-        BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
-        brokerFileGroups.add(brokerFileGroup);
-        BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
-        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
-
-        new Expectations() {
-            {
-                catalog.getDb(dbId);
-                result = database;
-                database.getTable(tableId);
-                result = null;
-            }
-        };
-
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc);
-        task.init();
     }
 
     @Test
@@ -253,10 +200,6 @@ public class SparkLoadPendingTaskTest {
 
         new Expectations() {
             {
-                catalog.getDb(dbId);
-                result = database;
-                database.getTable(tableId);
-                result = table;
                 table.getPartitions();
                 result = partitions;
                 table.getIndexIdToSchema();

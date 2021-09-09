@@ -18,10 +18,19 @@ under the License.
 -->
 
 # Apache Doris (incubating)
+[![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![Total Lines](https://tokei.rs/b1/github/apache/incubator-doris?category=lines)](https://github.com/apache/incubator-doris)
+[![GitHub release](https://img.shields.io/github/release/apache/incubator-doris.svg)](https://github.com/apache/incubator-doris/releases)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
 Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
+
+**Official website: https://doris.apache.org/**
+
+[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/incubator-doris)
+
+[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/incubator-doris)
 
 ## 1. License
 

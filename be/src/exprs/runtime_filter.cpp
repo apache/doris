@@ -169,6 +169,7 @@ MinMaxFuncBase* MinMaxFuncBase::create_minmax_filter(PrimitiveType type) {
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return new (std::nothrow) MinMaxNumFunc<StringValue>();
     default:
         DCHECK(false) << "Invalid type.";
@@ -212,6 +213,7 @@ TExprNodeType::type get_expr_node_type(PrimitiveType type) {
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         return TExprNodeType::STRING_LITERAL;
 
     default:
@@ -250,6 +252,8 @@ PColumnType to_proto(PrimitiveType type) {
         return PColumnType::COLUMN_TYPE_CHAR;
     case TYPE_VARCHAR:
         return PColumnType::COLUMN_TYPE_VARCHAR;
+    case TYPE_STRING:
+        return PColumnType::COLUMN_TYPE_STRING;
     default:
         DCHECK(false) << "Invalid type.";
     }
@@ -400,7 +404,8 @@ Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data) {
         break;
     }
     case TYPE_CHAR:
-    case TYPE_VARCHAR: {
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(data);
         TStringLiteral tstringLiteral;
         tstringLiteral.__set_value(std::string(string_value->ptr, string_value->len));
@@ -673,7 +678,8 @@ public:
             return _minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_VARCHAR:
-        case TYPE_CHAR: {
+        case TYPE_CHAR:
+        case TYPE_STRING: {
             auto& min_val_ref = minmax_filter->min_val().stringval();
             auto& max_val_ref = minmax_filter->max_val().stringval();
             auto min_val_ptr = _pool->add(new std::string(min_val_ref));
@@ -705,7 +711,8 @@ public:
         if (_filter_type == RuntimeFilterType::MINMAX_FILTER) {
             switch (_column_return_type) {
             case TYPE_VARCHAR:
-            case TYPE_CHAR: {
+            case TYPE_CHAR:
+            case TYPE_STRING: {
                 StringValue* min_value = static_cast<StringValue*>(_minmax_func->get_min());
                 StringValue* max_value = static_cast<StringValue*>(_minmax_func->get_max());
                 auto min_val_ptr = _pool->add(new std::string(min_value->ptr));
@@ -1011,7 +1018,8 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
         return;
     }
     case TYPE_CHAR:
-    case TYPE_VARCHAR: {
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
         const StringValue* min_string_value = reinterpret_cast<const StringValue*>(min_data);
         filter->mutable_min_val()->set_stringval(
                 std::string(min_string_value->ptr, min_string_value->len));

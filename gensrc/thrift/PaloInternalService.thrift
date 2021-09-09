@@ -77,6 +77,10 @@ struct TLoadErrorHubInfo {
     3: optional TBrokerErrorHubInfo broker_info;
 }
 
+struct TResourceLimit {
+    1: optional i32 cpu_limit
+}
+
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
@@ -149,6 +153,9 @@ struct TQueryOptions {
 
   // whether enable vectorized engine 
   41: optional bool enable_vectorized_engine = false
+
+  // the resource limitation of this query
+  42: optional TResourceLimit resource_limit
 }
     
 

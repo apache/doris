@@ -388,6 +388,7 @@ module.exports = [
               "hll_union_agg",
               "max",
               "min",
+              "percentile",
               "percentile_approx",
               "stddev",
               "stddev_samp",
@@ -585,6 +586,7 @@ module.exports = [
               "INT",
               "LARGEINT",
               "SMALLINT",
+              "STRING",
               "TINYINT",
               "VARCHAR",
             ],
@@ -603,6 +605,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+        "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",

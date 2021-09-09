@@ -305,7 +305,7 @@ After the entire branch is stable, the release can be prepared.
 1. Download the compiled image
 
          ```
-         docker pull apache/incubator-doris:build-env-1.2
+         docker pull apache/incubator-doris:build-env-1.3.1
          ```
 
 2. Use official documents to compile the new branch, see [Docker Development Mirror Compilation](http://doris.apache.org/master/zh-CN/installing/compilation.html)
@@ -513,12 +513,12 @@ To verify and build, you can refer to following instruction:
 Firstly, you must be install and start docker service, and then you could build Doris as following steps:
 
 Step1: Pull the docker image with Doris building environment
-$ docker pull apache/incubator-doris:build-env-1.3
+$ docker pull apache/incubator-doris:build-env-1.3.1
 You can check it by listing images, its size is about 3.28GB.
 
 Step2: Run the Docker image
 You can run image directly:
-$ docker run -it apache/incubator-doris:build-env-1.3
+$ docker run -it apache/incubator-doris:build-env-1.3.1
 
 Step3: Download Doris source
 Now you should in docker environment, and you can download Doris source package.

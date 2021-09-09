@@ -40,6 +40,7 @@ import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -194,11 +195,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = catalog.getDb(info.getDbId());
-                    if (db == null) {
-                        LOG.warn("failed to get db[{}]", info.getDbId());
-                        break;
-                    }
+                    Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
                             + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
@@ -427,6 +424,11 @@ public class EditLog {
                 case OperationType.OP_DROP_BACKEND: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().replayDropBackend(be);
+                    break;
+                }
+                case OperationType.OP_MODIFY_BACKEND: {
+                    Backend be = (Backend) journal.getData();
+                    Catalog.getCurrentSystemInfo().replayModifyBackend(be);
                     break;
                 }
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
@@ -865,6 +867,20 @@ public class EditLog {
                     throw e;
                 }
             }
+        } catch (MetaNotFoundException e) {
+            /**
+             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * 1. Thread 1: get TableA object
+             * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * **The modified edit log is after the dropped edit log**
+             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta like DB.
+             */
+            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
             LOG.error("Operation Type {}", opCode, e);
             System.exit(-1);
@@ -1099,6 +1115,10 @@ public class EditLog {
 
     public void logDropBackend(Backend be) {
         logEdit(OperationType.OP_DROP_BACKEND, be);
+    }
+
+    public void logModifyBackend(Backend be) {
+        logEdit(OperationType.OP_MODIFY_BACKEND, be);
     }
 
     public void logAddFrontend(Frontend fe) {
