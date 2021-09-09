@@ -236,8 +236,7 @@ public class DynamicPartitionUtil {
     private static void checkReservedHistoryStarts(String reservedHistoryStarts) throws DdlException{
         String[] starts = reservedHistoryStarts.split(",");
         if (starts.length == 0) {
-            //ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_EMPTY);
-            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_EMPTY);
         }
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         Date date = null;
@@ -283,9 +282,9 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, starts.length, 0);
         }
         for (int i = 0; i < starts.length; i++) {
-            if (!"9999-12-31".equals(starts[i]) && starts[i].compareTo(ends[i]) >= 0) {
+            if (!"9999-12-31".equals(starts[i]) && starts[i].compareTo(ends[i]) > 0) {
                 throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + ": \"" + starts[i] +
-                        "\" is equal to or larger than " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + ": \"" + ends[i] + "\"");
+                        "\" is larger than " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + ": \"" + ends[i] + "\"");
             }
         }
     }

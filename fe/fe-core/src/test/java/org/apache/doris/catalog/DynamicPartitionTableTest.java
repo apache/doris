@@ -1261,7 +1261,7 @@ public class DynamicPartitionTableTest {
         OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("dynamic_partition_normal_reserved_history_starts_and_ends");
         Assert.assertEquals("2020-06-01,2020-10-25,2021-06-01", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryStarts());
         Assert.assertEquals("2020-06-20,2020-11-15,2021-06-20", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryEnds());
-        Assert.assertEquals(table.getAllPartitions().size(), 8);
+        Assert.assertEquals(table.getAllPartitions().size(), 9);
     }
 
     @Test
@@ -1484,7 +1484,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.reserved_history_ends\" = \"2020-03-01,2021-09-01\"\n" +
                 ");";
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "errCode = 2, detailMessage = Invalid properties: dynamic_partition.reserved_history_starts: \"2021-10-01\" is equal to or larger than dynamic_partition.reserved_history_ends: \"2021-09-01\"",
+                "errCode = 2, detailMessage = Invalid properties: dynamic_partition.reserved_history_starts: \"2021-10-01\" is larger than dynamic_partition.reserved_history_ends: \"2021-09-01\"",
                 () -> createTable(createOlapTblStmt3));
 
         String createOlapTblStmt4 = "CREATE TABLE test.`dynamic_partition_reserved_history_starts_and_ends_length` (\n" +

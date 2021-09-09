@@ -164,8 +164,8 @@ under the License.
     则系统会自动保留：
 
     ```
-    ["2020-06-01","2020-06-20"),
-    ["2020-10-31","2020-11-15")
+    ["2020-06-01","2020-06-20"],
+    ["2020-10-31","2020-11-15"]
     ```
 
     这两个时间段的分区。其中，`reserved_history_starts` 和 `reserved_history_ends` 是一对设置项，两者需要同时被设置，且两者的长度需要一致。另外，对应位置的 `reserved_history_starts` 不能大于 `reserved_history_ends`。

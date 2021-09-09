@@ -166,8 +166,8 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     The the system will automatically reserve following partitions in following period :
 
     ```
-    ["2020-06-01","2020-06-20"),
-    ["2020-10-31","2020-11-15")
+    ["2020-06-01","2020-06-20"],
+    ["2020-10-31","2020-11-15"]
     ```
 
     Otherwise, `reserved_history_starts` and `reserved_history_ends` are a couple of properties. They shoule be set at the same time, and the length should also be the same. And `reserved_history_starts` can't larger than `reserved_history_ends` in the corresponding position.
