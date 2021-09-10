@@ -203,6 +203,10 @@ public class CreateTableStmt extends DdlStmt {
         return this.distributionDesc;
     }
 
+    public void setDistributionDesc(DistributionDesc desc) {
+        this.distributionDesc = desc;
+    }
+
     public Map<String, String> getProperties() {
         return this.properties;
     }
