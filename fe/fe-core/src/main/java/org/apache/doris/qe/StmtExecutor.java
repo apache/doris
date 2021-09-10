@@ -367,8 +367,6 @@ public class StmtExecutor implements ProfileWriter {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
-            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
-                handleInsertStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -511,13 +509,12 @@ public class StmtExecutor implements ProfileWriter {
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
+                CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
+                queryStmt = parsedStmt.getQueryStmt();
+                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
-                InsertStmt insertStmt;
-                if (parsedStmt instanceof InsertStmt) {
-                    insertStmt = (InsertStmt) parsedStmt;
-                } else {
-                    insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
-                }
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
             // table id in tableList is in ascending order because that table map is a sorted map
@@ -641,9 +638,6 @@ public class StmtExecutor implements ProfileWriter {
         planner = new Planner();
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, analyzer, tQueryOptions);
-        } else {
-            planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
-                    analyzer, new TQueryOptions());
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
@@ -1155,14 +1149,7 @@ public class StmtExecutor implements ProfileWriter {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         // create plan
-        InsertStmt insertStmt = null;
-        if (parsedStmt instanceof CreateTableAsSelectStmt) {
-            // Create table here
-            ((CreateTableAsSelectStmt) parsedStmt).createTable(analyzer);
-            insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
-        } else {
-            insertStmt = (InsertStmt) parsedStmt;
-        }
+        InsertStmt insertStmt = (InsertStmt) parsedStmt;
 
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
