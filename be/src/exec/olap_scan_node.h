@@ -19,8 +19,6 @@
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
 #include <atomic>
-#include <boost/thread.hpp>
-#include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
 #include <queue>
 
@@ -66,45 +64,6 @@ protected:
         Tuple* tuple;
         int id;
     } HeapType;
-    class IsFixedValueRangeVisitor : public boost::static_visitor<bool> {
-    public:
-        template <class T>
-        bool operator()(T& v) const {
-            return v.is_fixed_value_range();
-        }
-    };
-
-    class GetFixedValueSizeVisitor : public boost::static_visitor<size_t> {
-    public:
-        template <class T>
-        size_t operator()(T& v) const {
-            return v.get_fixed_value_size();
-        }
-    };
-
-    class ExtendScanKeyVisitor : public boost::static_visitor<Status> {
-    public:
-        ExtendScanKeyVisitor(OlapScanKeys& scan_keys, int32_t max_scan_key_num)
-                : _scan_keys(scan_keys), _max_scan_key_num(max_scan_key_num) {}
-        template <class T>
-        Status operator()(T& v) {
-            return _scan_keys.extend_scan_key(v, _max_scan_key_num);
-        }
-
-    private:
-        OlapScanKeys& _scan_keys;
-        int32_t _max_scan_key_num;
-    };
-
-    typedef boost::variant<std::list<std::string>> string_list;
-
-    class ToOlapFilterVisitor : public boost::static_visitor<void> {
-    public:
-        template <class T, class P>
-        void operator()(T& v, P& v2) const {
-            v.to_olap_filter(v2);
-        }
-    };
 
     class MergeComparison {
     public:
@@ -172,7 +131,7 @@ protected:
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
 
-    Status add_one_batch(RowBatchInterface* row_batch);
+    Status add_one_batch(RowBatch* row_batch);
 
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
@@ -236,9 +195,9 @@ protected:
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
-    std::unique_ptr<ObjectPool> _scanner_pool;
+    ObjectPool _scanner_pool;
 
-    boost::thread_group _transfer_thread;
+    std::shared_ptr<std::thread> _transfer_thread;
 
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
@@ -253,14 +212,14 @@ protected:
     std::condition_variable _row_batch_added_cv;
     std::condition_variable _row_batch_consumed_cv;
 
-    std::list<RowBatchInterface*> _materialized_row_batches;
+    std::list<RowBatch*> _materialized_row_batches;
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
     int64_t _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
-    std::list<RowBatchInterface*> _scan_row_batches;
+    std::list<RowBatch*> _scan_row_batches;
 
     std::list<OlapScanner*> _olap_scanners;
 
