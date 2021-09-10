@@ -44,7 +44,6 @@ class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
 
-
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
 // can add rows up to that capacity.
@@ -171,7 +170,7 @@ public:
 
     // The total size of all data represented in this row batch (tuples and referenced
     // string data).
-    int total_byte_size();
+    size_t total_byte_size();
 
     TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != NULL);

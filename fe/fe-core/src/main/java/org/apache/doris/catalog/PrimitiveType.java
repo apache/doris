@@ -746,6 +746,8 @@ public enum PrimitiveType {
             }
             case DECIMALV2:
                 return MysqlColType.MYSQL_TYPE_NEWDECIMAL;
+            case STRING:
+                return MysqlColType.MYSQL_TYPE_BLOB;
             default:
                 return MysqlColType.MYSQL_TYPE_STRING;
         }

@@ -291,6 +291,8 @@ PrimitiveType to_primitive_type(PColumnType type) {
         return TYPE_VARCHAR;
     case PColumnType::COLUMN_TYPE_CHAR:
         return TYPE_CHAR;
+    case PColumnType::COLUMN_TYPE_STRING:
+        return TYPE_STRING;
     default:
         DCHECK(false);
     }

@@ -484,23 +484,6 @@ public class Config extends ConfigBase {
     public static int load_straggler_wait_second = 300;
 
     /**
-     * Maximal memory layout length of a row. default is 100 KB.
-     * In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf).
-     * And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
-     *
-     * eg.
-     *      schema: k1(int), v1(decimal), v2(varchar(2000))
-     *      then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
-     *
-     * See memory layout length of all types, run 'help create table' in mysql-client.
-     *
-     * If you want to increase this number to support more columns in a row, you also need to increase the
-     * max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_layout_length_per_row = 100000; // 100k
-
-    /**
      * The load scheduler running interval.
      * A load job will transfer its state from PENDING to LOADING to FINISHED.
      * The load scheduler will transfer load job from PENDING to LOADING
