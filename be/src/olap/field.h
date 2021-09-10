@@ -180,6 +180,11 @@ public:
     // memory allocation.
     template <typename DstCellType, typename SrcCellType>
     void direct_copy(DstCellType* dst, const SrcCellType& src) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
         if (type() == OLAP_FIELD_TYPE_STRING) {
             auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
@@ -188,11 +193,6 @@ public:
                 dst_slice->data = *_long_text_buf;
                 dst_slice->size = src_slice->size;
             }
-        }
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
     }

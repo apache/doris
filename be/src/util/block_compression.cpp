@@ -23,10 +23,10 @@
 #include <snappy/snappy.h>
 #include <zlib.h>
 
+#include <limits>
+
 #include "gutil/strings/substitute.h"
 #include "util/faststring.h"
-
-#include <limits>
 
 namespace doris {
 
@@ -52,6 +52,10 @@ public:
     ~Lz4BlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
+        if (input.size > std::numeric_limits<int32_t>::max() ||
+            output->size > std::numeric_limits<int32_t>::max()) {
+            return Status::InvalidArgument("LZ4 cannot handle data large than 2G");
+        }
         auto compressed_len =
                 LZ4_compress_default(input.data, output->data, input.size, output->size);
         if (compressed_len == 0) {
@@ -73,11 +77,11 @@ public:
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) const override { 
+    size_t max_compressed_len(size_t len) const override {
         if (len > std::numeric_limits<int32_t>::max()) {
             return 0;
         }
-        return LZ4_compressBound(len); 
+        return LZ4_compressBound(len);
     }
 };
 
