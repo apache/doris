@@ -169,18 +169,29 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 * 修改所有 BE 的配置
 
     修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
-
+    
+    示例1如下：
+    
     **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
-
-    示例如下：
 
     `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
-    示例说明
+    **说明**
 
     - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
     - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
     - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+    
+    示例2如下：
+    
+    **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+    
+    `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+    
+    **说明**
+    
+    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+    - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
 
 * BE webserver_port端口配置
 
