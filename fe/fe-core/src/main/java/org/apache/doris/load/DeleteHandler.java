@@ -211,6 +211,12 @@ public class DeleteHandler implements Writable {
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
                 Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId);
+                // must call this to make sure we only handle the tablet in the mIndex we saw here.
+                // table may be under schema changge or rollup, and the newly created tablets will not be checked later,
+                // to make sure that the delete transaction can be done successfully.
+                txnState.addTableIndexes(olapTable);
+
                 // task sent to be
                 AgentBatchTask batchTask = new AgentBatchTask();
                 // count total replica num

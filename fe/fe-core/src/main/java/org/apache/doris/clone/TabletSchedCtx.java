@@ -47,12 +47,12 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -441,7 +441,13 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * database lock should be held.
      */
     public boolean containsBE(long beId) {
-        String host = infoService.getBackend(beId).getHost();
+        Backend backend = infoService.getBackend(beId);
+        if (backend == null) {
+            // containsBE() is currently only used for choosing dest backend to do clone task.
+            // return true so that it won't choose this backend.
+            return true;
+        }
+        String host = backend.getHost();
         for (Replica replica : tablet.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {

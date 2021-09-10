@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/utils.h"
 #include "exec/hash_join_node.h"
 #include "exec/hash_table.hpp"
 #include "exprs/expr_context.h"

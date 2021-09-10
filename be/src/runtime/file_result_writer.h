@@ -165,8 +165,9 @@ private:
     // bytes of written data
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
-    BufferControlBlock* _sinker;
-    RowBatch* _output_batch;
+    // _sinker and _output_batch are not owned by FileResultWriter
+    BufferControlBlock* _sinker = nullptr;
+    RowBatch* _output_batch = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;
 };

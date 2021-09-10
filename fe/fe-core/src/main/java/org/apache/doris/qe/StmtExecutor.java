@@ -544,7 +544,7 @@ public class StmtExecutor implements ProfileWriter {
         } else {
             try {
                 parsedStmt.analyze(analyzer);
-            } catch (AnalysisException e) {
+            } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
                 LOG.warn("Analyze failed because ", e);
