@@ -110,7 +110,7 @@ public class CanalSyncJob extends SyncJob {
                     }
                 }
                 CanalSyncChannel syncChannel = new CanalSyncChannel(channelDescription.getChannelId(), this, db,
-                        (OlapTable) table, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
+                        olapTable, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
                 if (channelDescription.getPartitionNames() != null) {
                     syncChannel.setPartitions(channelDescription.getPartitionNames());
                 }
