@@ -175,13 +175,6 @@ private:
     std::string get_probe_row_output_string(TupleRow* probe_row);
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    // RELEASE_CONTEXT_COUNTER should be power of 2
-    // GCC will optimize the modulo operation to &(release_context_counter - 1)
-    // build_expr_context and probe_expr_context will free local alloc after this probe calculations
-    static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 5;
-    static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
-                  "should be power of 2");
 };
 
 } // namespace doris

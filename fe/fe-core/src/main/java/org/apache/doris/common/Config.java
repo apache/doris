@@ -1485,4 +1485,14 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
+
+    /*
+     * The job scheduling interval of the schema change handler.
+     * The user should not set this parameter.
+     * This parameter is currently only used in the regression test environment to appropriately
+     * reduce the running speed of the schema change job to test the correctness of the system
+     * in the case of multiple tasks in parallel.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_schema_change_scheduler_interval_millisecond = 500;
 }

@@ -122,7 +122,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public int cycle_count = 0;
 
     public SchemaChangeHandler() {
-        super("schema change", FeConstants.default_schema_change_scheduler_interval_millisecond);
+        super("schema change", Config.default_schema_change_scheduler_interval_millisecond);
     }
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
@@ -1640,9 +1640,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
-                    /*
-                     * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
-                     */
+                        /*
+                         * This is only for fixing bug when upgrading Doris from 0.9.x to 0.10.x.
+                         */
                         sendClearAlterTask(db, olapTable);
                         return;
                     } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
