@@ -668,7 +668,8 @@ struct TBackendResourceProfile {
 
 // The buffer size in bytes that is large enough to fit the largest row to be processed.
 // Set if the node allocates buffers for rows from the buffer pool.
-4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+// Deprecated after support string type
+4: optional i64 max_row_buffer_size = 4294967296  // 4G
 }
 
 enum TAssertion {

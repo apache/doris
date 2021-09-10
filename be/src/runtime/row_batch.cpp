@@ -380,7 +380,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     _row_desc.to_thrift(&output_batch->row_tuples);
     output_batch->tuple_offsets.reserve(_num_rows * _num_tuples_per_row);
 
-    int size = total_byte_size();
+    size_t size = total_byte_size();
     output_batch->tuple_data.resize(size);
 
     // Copy tuple data, including strings, into output_batch (converting string
@@ -412,7 +412,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
         // smaller
-        int max_compressed_size = snappy::MaxCompressedLength(size);
+        size_t max_compressed_size = snappy::MaxCompressedLength(size);
 
         if (_compression_scratch.size() < max_compressed_size) {
             _compression_scratch.resize(max_compressed_size);
@@ -448,7 +448,7 @@ int RowBatch::serialize(PRowBatch* output_batch) {
     // is_compressed
     output_batch->set_is_compressed(false);
     // tuple data
-    int size = total_byte_size();
+    size_t size = total_byte_size();
     auto mutable_tuple_data = output_batch->mutable_tuple_data();
     mutable_tuple_data->resize(size);
 
@@ -690,8 +690,8 @@ void RowBatch::deep_copy_to(RowBatch* dst) {
     dst->commit_rows(_num_rows);
 }
 // TODO: consider computing size of batches as they are built up
-int RowBatch::total_byte_size() {
-    int result = 0;
+size_t RowBatch::total_byte_size() {
+    size_t result = 0;
 
     // Sum total variable length byte sizes.
     for (int i = 0; i < _num_rows; ++i) {
