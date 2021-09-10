@@ -48,7 +48,7 @@ class MemTracker;
 namespace vectorized {
 class Block;
 class VExpr;
-}
+} // namespace vectorized
 
 using std::string;
 using std::stringstream;

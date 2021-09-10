@@ -344,7 +344,6 @@ public class CreateTableStmt extends DdlStmt {
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
-        int rowLengthBytes = 0;
         boolean hasHll = false;
         boolean hasBitmap = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
@@ -377,13 +376,6 @@ public class CreateTableStmt extends DdlStmt {
             if (!columnSet.add(columnDef.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
-
-            rowLengthBytes += columnDef.getType().getStorageLayoutBytes();
-        }
-
-        if (rowLengthBytes > Config.max_layout_length_per_row && engineName.equals("olap")) {
-            throw new AnalysisException("The size of a row (" + rowLengthBytes + ") exceed the maximal row size: "
-                    + Config.max_layout_length_per_row);
         }
 
         if (hasHll && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
