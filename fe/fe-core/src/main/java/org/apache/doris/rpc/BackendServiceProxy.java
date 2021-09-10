@@ -24,22 +24,24 @@ import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Maps;
+import com.google.protobuf.ByteString;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
-import com.google.common.collect.Maps;
-import com.google.protobuf.ByteString;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
     private static volatile BackendServiceProxy INSTANCE;
     private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public BackendServiceProxy() {
         serviceMap = Maps.newHashMap();
@@ -56,14 +58,40 @@ public class BackendServiceProxy {
         return INSTANCE;
     }
 
-    private synchronized BackendServiceClient getProxy(TNetworkAddress address) {
-        BackendServiceClient service = serviceMap.get(address);
+    public void removeProxy(TNetworkAddress address) {
+        lock.writeLock().lock();
+        try {
+            serviceMap.remove(address);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private BackendServiceClient getProxy(TNetworkAddress address) {
+        BackendServiceClient service;
+        lock.readLock().lock();
+        try {
+            service = serviceMap.get(address);
+        } finally {
+            lock.readLock().unlock();
+        }
+
         if (service != null) {
             return service;
         }
-        service = new BackendServiceClient(address);
-        serviceMap.put(address, service);
-        return service;
+
+        // not exist, create one and return.
+        lock.writeLock().lock();
+        try {
+            service = serviceMap.get(address);
+            if (service == null) {
+                service = new BackendServiceClient(address);
+                serviceMap.put(address, service);
+            }
+            return service;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(

@@ -53,9 +53,6 @@ import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
 import com.google.common.collect.HashBasedTable;
@@ -64,6 +61,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
@@ -413,9 +413,10 @@ public class TabletScheduler extends MasterDaemon {
                         tabletCtx.getTabletId(), e);
                 stat.counterTabletScheduledFailed.incrementAndGet();
                 finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.UNEXPECTED, e.getMessage());
+                continue;
             }
 
-            Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING);
+            Preconditions.checkState(tabletCtx.getState() == TabletSchedCtx.State.RUNNING, tabletCtx.getState());
             stat.counterTabletScheduledSucceeded.incrementAndGet();
             addToRunningTablets(tabletCtx);
         }
@@ -1158,7 +1159,6 @@ public class TabletScheduler extends MasterDaemon {
             } else if (!bes.getTag().equals(tag)) {
                 continue;
             }
-
 
             List<RootPathLoadStatistic> resultPaths = Lists.newArrayList();
             BalanceStatus st = bes.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(),

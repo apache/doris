@@ -74,7 +74,7 @@ private:
 
     boost::shared_ptr<BufferControlBlock> _sender;
     boost::shared_ptr<ResultWriter> _writer;
-    RowBatch* _output_batch;
+    RowBatch* _output_batch = nullptr;
     int _buf_size = 1024;            // Allocated from _pool
     bool _is_top_sink = true;
 
