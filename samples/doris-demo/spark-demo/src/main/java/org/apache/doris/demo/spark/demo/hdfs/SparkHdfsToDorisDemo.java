@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.demo.hdfs;
+package org.apache.doris.demo.spark.demo.hdfs;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.doris.spark.constant.SparkToDorisConstants;
+import org.apache.doris.demo.spark.constant.SparkToDorisConstants;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
 import org.apache.spark.rdd.RDD;

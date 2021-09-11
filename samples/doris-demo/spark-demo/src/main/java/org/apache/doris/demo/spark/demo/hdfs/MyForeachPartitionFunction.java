@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.demo.hdfs;
+package org.apache.doris.demo.spark.demo.hdfs;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.doris.spark.util.DorisStreamLoad;
-import org.apache.doris.spark.vo.TestVo;
+import org.apache.doris.demo.spark.util.DorisStreamLoad;
+import org.apache.doris.demo.spark.vo.TestVo;
 import scala.Function1;
 import scala.collection.AbstractIterator;
 

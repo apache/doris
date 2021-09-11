@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.util;
+package org.apache.doris.demo.spark.util;
 
 import lombok.extern.slf4j.Slf4j;
 

@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.demo.connector;
+package org.apache.doris.demo.spark.demo.connector;
 
-import org.apache.doris.spark.constant.SparkToDorisConstants;
+
+import org.apache.doris.demo.spark.constant.SparkToDorisConstants;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;

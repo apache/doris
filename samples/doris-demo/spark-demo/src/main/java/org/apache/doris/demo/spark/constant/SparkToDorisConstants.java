@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.constant;
+package org.apache.doris.demo.spark.constant;
 
 public class SparkToDorisConstants {
 

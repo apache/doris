@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.vo;
+package org.apache.doris.demo.spark.vo;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

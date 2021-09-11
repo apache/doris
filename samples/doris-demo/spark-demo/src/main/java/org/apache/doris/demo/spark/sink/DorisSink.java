@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.sink;
+package org.apache.doris.demo.spark.sink;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.doris.spark.util.DorisStreamLoad;
+import org.apache.doris.demo.spark.util.DorisStreamLoad;
 import org.apache.spark.sql.ForeachWriter;
 import org.apache.spark.sql.Row;
 

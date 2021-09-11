@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package java.org.apache.doris.demo.spark.demo.kafka;
+package org.apache.doris.demo.spark.demo.kafka;
 
 
 import java.util.HashMap;
@@ -23,8 +23,8 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 
 
-import org.apache.doris.spark.constant.SparkToDorisConstants;
-import org.apache.doris.spark.sink.DorisSink;
+import org.apache.doris.demo.spark.constant.SparkToDorisConstants;
+import org.apache.doris.demo.spark.sink.DorisSink;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
