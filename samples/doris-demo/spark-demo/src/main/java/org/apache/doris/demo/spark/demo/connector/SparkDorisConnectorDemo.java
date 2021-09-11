@@ -24,6 +24,12 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 
+/**
+ * This class is a java demo for doris spark connector,
+ * and provides way to read doris tables build DF using spark doris connector .
+ * before you run this class, you need to build doris-spark,
+ * and put the doris-spark jar file in your maven repository
+ */
 
 public class SparkDorisConnectorDemo {
 
