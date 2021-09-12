@@ -490,6 +490,7 @@ public class Database extends MetaObject implements Writable {
     public Table getTableOrMetaException(long tableId) throws MetaNotFoundException {
         return getTableOrException(tableId, t -> new MetaNotFoundException("unknown table, tableId=" + t));
     }
+
     @SuppressWarnings("unchecked")
     public <T extends Table> T getTableOrMetaException(String tableName, TableType tableType) throws MetaNotFoundException {
         Table table = getTableOrMetaException(tableName);
