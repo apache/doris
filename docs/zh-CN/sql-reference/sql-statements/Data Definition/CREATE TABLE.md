@@ -334,8 +334,7 @@ under the License.
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
     dynamic_partition.create_history_partition: 用于创建历史分区功能是否开启。默认为 false。
     dynamic_partition.history_partition_num: 当开启创建历史分区功能时，用于指定创建历史分区数量。
-    dynamic_partition.reserved_history_starts: 用于指定保留的历史分区的起始时间。
-    dynamic_partition.reserved_history_ends: 用于指定保留的历史分区的结束时间。
+    dynamic_partition.reserved_history_periods: 用于指定保留的历史分区的时间段。
     
     5) 建表时可以批量创建多个 Rollup
     语法：

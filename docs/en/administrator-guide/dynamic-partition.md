@@ -151,17 +151,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     p20210523: ["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
     ```
 
-* `dynamic_partition.reserved_history_starts`
+* `dynamic_partition.reserved_history_periods`
 
-    Start times of reserved history period. It should be in the form of `yyyy-MM-dd,yyyy-MM-dd,...`. The default value is `"9999-12-31"`, which means it is not set.
-
-* `dynamic_partition.reserved_history_ends`
-
-    End times of reserved history period. It should be in the form of `yyyy-MM-dd,yyyy-MM-dd,...`. The default value is `"9999-12-31"`, which means it is not set.
+    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]`. The default value is `"[9999-12-31,9999-12-31]"`, which means it is not set.
 
     Let us give an example. Suppose today is 2021-09-06，partitioned by day, and the properties of dynamic partition are set to: 
 
-    ```end=3, start=-3, reserved_history_starts="2020-06-01,2020-10-31", reserved_history_ends="2020-06-20,2020-11-15"```。
+    ```end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```。
 
     The the system will automatically reserve following partitions in following period :
 
@@ -170,7 +166,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     ["2020-10-31","2020-11-15"]
     ```
 
-    Otherwise, `reserved_history_starts` and `reserved_history_ends` are a couple of properties. They shoule be set at the same time, and the length should also be the same. And `reserved_history_starts` can't larger than `reserved_history_ends` in the corresponding position.
+    Otherwise, every `[...,...]` in `reserved_history_periods` is a couple of properties, and they should be set at the same time. And the first date can't be larger than the second one.
 
 #### Create History Partition Rules
 
@@ -378,16 +374,16 @@ You can further view the scheduling of dynamic partitioned tables by using the f
 
 ```    
 mysql> SHOW DYNAMIC PARTITION TABLES;
-+-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
-| TableName | Enable | TimeUnit | Start       | End  | Prefix | Buckets | StartOf   | LastUpdateTime | LastSchedulerTime   | State  | LastCreatePartitionMsg | LastDropPartitionMsg |
-+-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
-| d3        | true   | WEEK     | -3          | 3    | p      | 1       | MONDAY    | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-| d5        | true   | DAY      | -7          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-| d4        | true   | WEEK     | -3          | 3    | p      | 1       | WEDNESDAY | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-| d6        | true   | MONTH    | -2147483648 | 2    | p      | 8       | 3rd       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-| d2        | true   | DAY      | -3          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-| d7        | true   | MONTH    | -2147483648 | 5    | p      | 8       | 24th      | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
-+-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+-------------------------+
+| TableName | Enable | TimeUnit | Start       | End  | Prefix | Buckets | StartOf   | LastUpdateTime | LastSchedulerTime   | State  | LastCreatePartitionMsg | LastDropPartitionMsg | ReservedHistoryPeriods  |
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+-------------------------+
+| d3        | true   | WEEK     | -3          | 3    | p      | 1       | MONDAY    | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [2021-12-01,2021-12-31] |
+| d5        | true   | DAY      | -7          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [9999-12-31,9999-12-31] |
+| d4        | true   | WEEK     | -3          | 3    | p      | 1       | WEDNESDAY | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [9999-12-31,9999-12-31] |
+| d6        | true   | MONTH    | -2147483648 | 2    | p      | 8       | 3rd       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [9999-12-31,9999-12-31] |
+| d2        | true   | DAY      | -3          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [9999-12-31,9999-12-31] |
+| d7        | true   | MONTH    | -2147483648 | 5    | p      | 8       | 24th      | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  | [9999-12-31,9999-12-31] |
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+-------------------------+
 7 rows in set (0.02 sec)
 ```
     

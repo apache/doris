@@ -287,8 +287,7 @@ distribution_info
         * `dynamic_partition.buckets`: Used to specify the number of partition buckets that are automatically created.
         * `dynamic_partition.create_history_partition`: Whether to create a history partition.
         * `dynamic_partition.history_partition_num`: Specify the number of historical partitions to be created.
-        * `dynamic_partition.reserved_history_starts`: Used to specify the starting dates of reserved history periods.
-        * `dynamic_partition.reserved_history_ends`: Used to specify the ending dates of reserved history periods.
+        * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
 
 ### Example
 

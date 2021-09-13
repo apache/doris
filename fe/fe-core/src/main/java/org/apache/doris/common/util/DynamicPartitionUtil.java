@@ -58,6 +58,8 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.Date;
 import java.util.Calendar;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DynamicPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
@@ -233,58 +235,52 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkReservedHistoryStarts(String reservedHistoryStarts) throws DdlException{
-        String[] starts = reservedHistoryStarts.split(",");
-        if (starts.length == 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_EMPTY);
+    private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods) throws DdlException {
+        if (Strings.isNullOrEmpty(reservedHistoryPeriods) ) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
         }
+        // it has 5 kinds of situation
+        // 1. "dynamic_partition.reserved_history_periods" = "[2021-07-01,]," invalid one
+        // 2. "dynamic_partition.reserved_history_periods" = "2021-07-01", invalid. It must be surrounded by []
+        // 1. "dynamic_partition.reserved_history_periods" = "[2021-07-01,]" invalid one, needs pairs of values
+        // 2. "dynamic_partition.reserved_history_periods" = "[,2021-08-01]" invalid one, needs pairs of values
+        // 3. "dynamic_partition.reserved_history_periods" = "[2021-07-01,2020-08-01,]" invalid format
+        String reservedHistoryPeriodsWithoutSpace = reservedHistoryPeriods.replace(" ", "");
+        if (!reservedHistoryPeriodsWithoutSpace.startsWith("[") || !reservedHistoryPeriodsWithoutSpace.endsWith("]")) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriodsWithoutSpace);
+        }
+
+        String[] ranges = reservedHistoryPeriodsWithoutSpace.replaceFirst("\\[","").substring(0, reservedHistoryPeriodsWithoutSpace.length() - 2).split("],\\[");
+        Pattern pattern = Pattern.compile("[0-9-]{10}[,]{1}[0-9-]{10}");
+        for (String reservedHistoryPeriod : ranges) {
+            LOG.info("whz_test_999 reservedHistoryPeriod: {}", reservedHistoryPeriod);
+            Matcher matcher = pattern.matcher(reservedHistoryPeriod);
+            if (!matcher.matches()) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriodsWithoutSpace);
+            }
+        }
+
+        String[] periods = reservedHistoryPeriods.replace(" ", "").replace("[", "").replace("]", "").split(",");
+        if (periods.length % 2 == 1) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_ENDS_LENGTH_NOT_EQUAL, reservedHistoryPeriodsWithoutSpace);
+        }
+
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         Date date = null;
         try {
-            for (int i = 0; i < starts.length; i++) {
-                date = sdf.parse(starts[i]);
-                if (!starts[i].equals(sdf.format(date))) {
-                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " value. It must be correct DATE value (yyyy-MM-dd)");
+            for (int i = 0; i < periods.length; i++) {
+                date = sdf.parse(periods[i]);
+                if (!periods[i].equals(sdf.format(date))) {
+                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
                 }
             }
         } catch (ParseException e) {
-            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + " value. It must be like \"yyyy-MM-dd\"");
+            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
         }
-    }
 
-    private static void checkReservedHistoryEnds(String reservedHistoryEnds) throws DdlException{
-        String[] ends = reservedHistoryEnds.split(",");
-        if (ends.length == 0) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_ENDS_EMPTY);
-        }
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        Date date = null;
-        try {
-            for (int i = 0; i < ends.length; i++) {
-                date = sdf.parse(ends[i]);
-                if (!ends[i].equals(sdf.format(date))) {
-                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + " value. It must be correct DATE value (yyyy-MM-dd)");
-                }
-            }
-        }  catch (ParseException e) {
-            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + " value. It must be like \"yyyy-MM-dd\"");
-        }
-    }
-
-    private static void checkReservedHistoryPeriodValidate(String reservedHistoryStarts, String reservedHistoryEnds) throws DdlException {
-        String[] starts = reservedHistoryStarts.split(",");
-        String[] ends = reservedHistoryEnds.split(",");
-        if (starts.length != ends.length) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, starts.length, ends.length);
-        } else if (("9999-12-31".equals(starts[0]) && !"9999-12-31".equals(ends[0]))) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, 0, ends.length);
-        } else if (("9999-12-31".equals(ends[0]) && !"9999-12-31".equals(starts[0]))) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_STARTS_ENDS_LENGTH_NOT_EQUAL, starts.length, 0);
-        }
-        for (int i = 0; i < starts.length; i++) {
-            if (!"9999-12-31".equals(starts[i]) && starts[i].compareTo(ends[i]) > 0) {
-                throw new DdlException("Invalid properties: " + DynamicPartitionProperty.RESERVED_HISTORY_STARTS + ": \"" + starts[i] +
-                        "\" is larger than " + DynamicPartitionProperty.RESERVED_HISTORY_ENDS + ": \"" + ends[i] + "\"");
+        for (int i = 0; i < periods.length; i+=2) {
+            if (periods[i].compareTo(periods[i+1]) > 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_LARGER_THAN_ENDS, periods[i], periods[i+1]);
             }
         }
     }
@@ -320,8 +316,7 @@ public class DynamicPartitionUtil {
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         String createHistoryPartition = properties.get(DynamicPartitionProperty.CREATE_HISTORY_PARTITION);
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
-        String reservedHistoryStarts = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
-        String reservedHistoryEnds = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
+        String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
 
         if (!(Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
@@ -332,8 +327,7 @@ public class DynamicPartitionUtil {
                 Strings.isNullOrEmpty(buckets) &&
                 Strings.isNullOrEmpty(createHistoryPartition) &&
                 Strings.isNullOrEmpty(historyPartitionNum) &&
-                Strings.isNullOrEmpty(reservedHistoryStarts) &&
-                Strings.isNullOrEmpty(reservedHistoryEnds))) {
+                Strings.isNullOrEmpty(reservedHistoryPeriods))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -362,13 +356,9 @@ public class DynamicPartitionUtil {
                 properties.put(DynamicPartitionProperty.HISTORY_PARTITION_NUM,
                         String.valueOf(DynamicPartitionProperty.NOT_SET_HISTORY_PARTITION_NUM));
             }
-            if (Strings.isNullOrEmpty(reservedHistoryStarts)) {
-                properties.put(DynamicPartitionProperty.RESERVED_HISTORY_STARTS,
-                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_STARTS));
-            }
-            if (Strings.isNullOrEmpty(reservedHistoryEnds)) {
-                properties.put(DynamicPartitionProperty.RESERVED_HISTORY_ENDS,
-                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_ENDS));
+            if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
+                properties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS,
+                        String.valueOf(DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS));
             }
         }
         return true;
@@ -522,17 +512,11 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
             analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
         }
-        if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_STARTS) && properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_ENDS)) {
-            String starts = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_STARTS).replace(" ", "");
-            String ends = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_ENDS).replace(" ", "");
-
-            checkReservedHistoryStarts(starts);
-            checkReservedHistoryEnds(ends);
-            checkReservedHistoryPeriodValidate(starts, ends);
-            properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_STARTS);
-            properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_ENDS);
-            analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_STARTS, starts);
-            analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_ENDS, ends);
+        if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
+            String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS).replace(" ","");
+            checkReservedHistoryPeriodValidate(reservedHistoryPeriods);
+            properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+            analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
         }
         return analyzedProperties;
     }

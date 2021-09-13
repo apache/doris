@@ -277,8 +277,15 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     db.getFullName(), olapTable.getName());
             return dropPartitionClauses;
         }
-        String[] reservedHistoryStarts = dynamicPartitionProperty.getReservedHistoryStarts().split(",");
-        String[] reservedHistoryEnds = dynamicPartitionProperty.getReservedHistoryEnds().split(",");
+        StringBuilder reservedHistoryStartsBuilder = new StringBuilder();
+        StringBuilder reservedHistoryEndsBuilder = new StringBuilder();
+        String[] reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods().replace(" ", "").replace("[", "").replace("]", "").split(",");
+        for (int i = 0; i < reservedHistoryPeriods.length; i+=2) {
+            reservedHistoryStartsBuilder.append(reservedHistoryPeriods[i] + ",");
+            reservedHistoryEndsBuilder.append(reservedHistoryPeriods[i+1] + ",");
+        }
+        String[] reservedHistoryStarts = reservedHistoryStartsBuilder.deleteCharAt(reservedHistoryStartsBuilder.length() - 1).toString().split(",");
+        String[] reservedHistoryEnds = reservedHistoryEndsBuilder.deleteCharAt(reservedHistoryEndsBuilder.length() - 1).toString().split(",");
 
         Range<PartitionKey> reservedHistoryPartitionKeyRange;
         for (int i = 0; i < reservedHistoryStarts.length; i++) {
