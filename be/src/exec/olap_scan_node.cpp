@@ -620,7 +620,7 @@ Status OlapScanNode::build_olap_filters() {
         std::visit([&](auto &&range) { range.to_olap_filter(filters); }, iter.second);
 
         for (const auto& filter : filters) {
-            _olap_filter.push_back(filter);
+            _olap_filter.push_back(std::move(filter));
         }
     }
 
