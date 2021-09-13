@@ -76,7 +76,8 @@ public class HiveMetaStoreClientHelper {
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
-        PARQUET(1, "parquet");
+        PARQUET(1, "parquet"),
+        ORC(2, "orc");
 
         private int index;
         private String desc;

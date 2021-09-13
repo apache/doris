@@ -486,6 +486,7 @@ public class BrokerScanNode extends LoadScanNode {
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
                     if (this instanceof HiveScanNode) {
                         rangeDesc.setHdfsParams(tHdfsParams);
+                        rangeDesc.setReadByColumnDef(true);
                     }
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
@@ -510,6 +511,7 @@ public class BrokerScanNode extends LoadScanNode {
                 }
                 if (this instanceof HiveScanNode) {
                     rangeDesc.setHdfsParams(tHdfsParams);
+                    rangeDesc.setReadByColumnDef(true);
                 }
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
