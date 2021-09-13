@@ -472,7 +472,7 @@ CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 CONF_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-CONF_mInt32(thrift_rpc_timeout_ms, "5000");
+CONF_mInt32(thrift_rpc_timeout_ms, "10000");
 
 // txn commit rpc timeout
 CONF_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -625,7 +625,8 @@ CONF_mBool(runtime_filter_use_async_rpc, "true");
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
 CONF_mInt32(max_send_batch_parallelism_per_job, "5");
-CONF_Validator(max_send_batch_parallelism_per_job, [](const int config) -> bool { return config >= 1; });
+CONF_Validator(max_send_batch_parallelism_per_job,
+               [](const int config) -> bool { return config >= 1; });
 
 // number of send batch thread pool size
 CONF_Int32(send_batch_thread_pool_thread_num, "64");
