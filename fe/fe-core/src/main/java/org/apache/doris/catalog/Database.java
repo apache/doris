@@ -180,7 +180,7 @@ public class Database extends MetaObject implements Writable {
     public void writeLockOrDdlException() throws DdlException {
         writeLockOrException(new DdlException("unknown db, dbName=" + fullQualifiedName));
     }
-    
+
     public long getId() {
         return id;
     }
