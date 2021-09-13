@@ -112,7 +112,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
 					_explicit_data_num = 0;
 
 					// merge _explicit_data and other's _explicit_data to _explicit_data
-					register uint32_t i = 0, j = 0, k = 0;
+					uint32_t i = 0, j = 0, k = 0;
 					while (i < explicit_data_num || j < other._explicit_data_num) {
 						if (i == explicit_data_num) {
 							uint32_t n = other._explicit_data_num - j;
@@ -223,7 +223,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
     }
     case HLL_DATA_SPARSE:
     case HLL_DATA_FULL: {
-        register uint32_t num_non_zero_registers = 0;
+        uint32_t num_non_zero_registers = 0;
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
 			num_non_zero_registers += (_registers[i] != 0);
         }
