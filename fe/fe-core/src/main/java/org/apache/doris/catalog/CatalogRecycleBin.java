@@ -376,6 +376,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), -1L);
             Catalog.getCurrentCatalog().getEditLog().logRecoverTable(recoverInfo);
             LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            table.unmarkDropped();
             return true;
         }
 

@@ -158,7 +158,7 @@ public class Alter {
         } else if (currentAlterOps.hasPartitionOp()) {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
-            olapTable.writeLock();
+            olapTable.writeLockOrDdlException();
             try {
                 if (alterClause instanceof DropPartitionClause) {
                     if (!((DropPartitionClause) alterClause).isTempPartition()) {
@@ -217,7 +217,7 @@ public class Alter {
 
     private void processModifyTableComment(Database db, OlapTable tbl, AlterClause alterClause)
             throws DdlException {
-        tbl.writeLock();
+        tbl.writeLockOrDdlException();
         try {
             ModifyTableCommentClause clause = (ModifyTableCommentClause) alterClause;
             tbl.setComment(clause.getComment());
@@ -231,7 +231,7 @@ public class Alter {
 
     private void processModifyColumnComment(Database db, OlapTable tbl, List<AlterClause> alterClauses)
             throws DdlException {
-        tbl.writeLock();
+        tbl.writeLockOrDdlException();
         try {
             // check first
             Map<String, String> colToComment = Maps.newHashMap();
@@ -393,7 +393,7 @@ public class Alter {
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
                         db, tableName, partitionNames, properties);
                 OlapTable olapTable = (OlapTable) table;
-                olapTable.writeLock();
+                olapTable.writeLockOrDdlException();
                 try {
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties);
                 } finally {
@@ -415,27 +415,29 @@ public class Alter {
         ReplaceTableClause clause = (ReplaceTableClause) alterClauses.get(0);
         String newTblName = clause.getTblName();
         boolean swapTable = clause.isSwapTable();
-        Table newTbl = db.getTableOrMetaException(newTblName, TableType.OLAP);
-        OlapTable olapNewTbl = (OlapTable) newTbl;
-        db.writeLock();
-        origTable.writeLock();
+        db.writeLockOrDdlException();
         try {
-            String oldTblName = origTable.getName();
-            // First, we need to check whether the table to be operated on can be renamed
-            olapNewTbl.checkAndSetName(oldTblName, true);
-            if (swapTable) {
-                origTable.checkAndSetName(newTblName, true);
+            Table newTbl = db.getTableOrMetaException(newTblName, TableType.OLAP);
+            OlapTable olapNewTbl = (OlapTable) newTbl;
+            origTable.writeLock();
+            try {
+                String oldTblName = origTable.getName();
+                // First, we need to check whether the table to be operated on can be renamed
+                olapNewTbl.checkAndSetName(oldTblName, true);
+                if (swapTable) {
+                    origTable.checkAndSetName(newTblName, true);
+                }
+                replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
+                // write edit log
+                ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
+                Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
+                LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
+            } finally {
+                origTable.writeUnlock();
             }
-            replaceTableInternal(db, origTable, olapNewTbl, swapTable, false);
-            // write edit log
-            ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(), origTable.getId(), olapNewTbl.getId(), swapTable);
-            Catalog.getCurrentCatalog().getEditLog().logReplaceTable(log);
-            LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
         } finally {
-            origTable.writeUnlock();
             db.writeUnlock();
         }
-
     }
 
     public void replayReplaceTable(ReplaceTableOperationLog log) throws MetaNotFoundException {
@@ -505,25 +507,28 @@ public class Alter {
     }
 
     private void modifyViewDef(Database db, View view, String inlineViewDef, long sqlMode, List<Column> newFullSchema) throws DdlException {
-        db.writeLock();
-        view.writeLock();
+        db.writeLockOrDdlException();
         try {
-            view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
+            view.writeLockOrDdlException();
             try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt", e);
-            }
-            view.setNewFullSchema(newFullSchema);
-            String viewName = view.getName();
-            db.dropTable(viewName);
-            db.createTable(view);
+                view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
+                try {
+                    view.init();
+                } catch (UserException e) {
+                    throw new DdlException("failed to init view stmt", e);
+                }
+                view.setNewFullSchema(newFullSchema);
+                String viewName = view.getName();
+                db.dropTable(viewName);
+                db.createTable(view);
 
-            AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
-            Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
-            LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
+                AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
+                Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
+                LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
+            } finally {
+                view.writeUnlock();
+            }
         } finally {
-            view.writeUnlock();
             db.writeUnlock();
         }
     }

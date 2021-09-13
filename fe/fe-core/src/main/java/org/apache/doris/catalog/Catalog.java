@@ -2760,7 +2760,26 @@ public class Catalog {
 
                 // save table names for recycling
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, stmt.isForceDrop(), false);
+                List<Table> tableList = db.getTables();
+                MetaLockUtils.writeLockTables(tableList);
+                try {
+                    if (!stmt.isForceDrop()) {
+                        for (Table table : tableList) {
+                            if (table.getType() == TableType.OLAP) {
+                                OlapTable olapTable = (OlapTable) table;
+                                if (olapTable.getState() != OlapTableState.NORMAL) {
+                                    throw new DdlException("The table [" + olapTable.getState() + "]'s state is " + olapTable.getState() + ", cannot be dropped." +
+                                            " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
+                                            " please use \"DROP table FORCE\".");
+                                }
+                            }
+                        }
+                    }
+                    unprotectDropDb(db, stmt.isForceDrop(), false);
+                } finally {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
+
                 if (!stmt.isForceDrop()) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
                 } else {
@@ -2790,13 +2809,9 @@ public class Catalog {
             icebergTableCreationRecordMgr.deregisterDb(db);
         }
         for (Table table : db.getTables()) {
-            table.writeLock();
-            try {
-                unprotectDropTable(db, table, isForeDrop, isReplay);
-            } finally {
-                table.writeUnlock();
-            }
+            unprotectDropTable(db, table, isForeDrop, isReplay);
         }
+        db.markDropped();
     }
 
     public void replayDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
@@ -2822,7 +2837,13 @@ public class Catalog {
             db.writeLock();
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
-                unprotectDropDb(db, isForceDrop, true);
+                List<Table> tableList = db.getTables();
+                MetaLockUtils.writeLockTables(tableList);
+                try {
+                    unprotectDropDb(db, isForceDrop, true);
+                } finally {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
                 if (!isForceDrop) {
                     Catalog.getCurrentRecycleBin().recycleDatabase(db, tableNames);
                 } else {
@@ -2868,6 +2889,10 @@ public class Catalog {
             // log
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
             editLog.logRecoverDb(recoverInfo);
+            for (Table table : db.getTables()) {
+                table.unmarkDropped();
+            }
+            db.unmarkDropped();
         } finally {
             unlock();
         }
@@ -2880,7 +2905,7 @@ public class Catalog {
         String tableName = recoverStmt.getTableName();
 
         Database db = this.getDbOrDdlException(dbName);
-        db.writeLock();
+        db.writeLockOrDdlException();
         try {
             if (db.getTable(tableName).isPresent()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
@@ -2899,7 +2924,7 @@ public class Catalog {
 
         Database db = this.getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             String partitionName = recoverStmt.getPartitionName();
             if (olapTable.getPartition(partitionName) != null) {
@@ -2929,24 +2954,33 @@ public class Catalog {
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         Database db = this.getDbOrDdlException(dbName);
-
         QuotaType quotaType = stmt.getQuotaType();
-        if (quotaType == QuotaType.DATA) {
-            db.setDataQuotaWithLock(stmt.getQuota());
-        } else if (quotaType == QuotaType.REPLICA) {
-            db.setReplicaQuotaWithLock(stmt.getQuota());
+        db.writeLockOrDdlException();
+        try {
+            if (quotaType == QuotaType.DATA) {
+                db.setDataQuota(stmt.getQuota());
+            } else if (quotaType == QuotaType.REPLICA) {
+                db.setReplicaQuota(stmt.getQuota());
+            }
+            long quota = stmt.getQuota();
+            DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
+            editLog.logAlterDb(dbInfo);
+        } finally {
+            db.writeUnlock();
         }
-        long quota = stmt.getQuota();
-        DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
-        editLog.logAlterDb(dbInfo);
     }
 
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
         Database db = this.getDbOrMetaException(dbName);
-        if (quotaType == QuotaType.DATA) {
-            db.setDataQuotaWithLock(quota);
-        } else if (quotaType == QuotaType.REPLICA) {
-            db.setReplicaQuotaWithLock(quota);
+        db.writeLock();
+        try {
+            if (quotaType == QuotaType.DATA) {
+                db.setDataQuota(quota);
+            } else if (quotaType == QuotaType.REPLICA) {
+                db.setReplicaQuota(quota);
+            }
+        } finally {
+            db.writeUnlock();
         }
     }
 
@@ -3314,8 +3348,7 @@ public class Catalog {
 
             // check again
             table = db.getOlapTableOrDdlException(tableName);
-
-            table.writeLock();
+            table.writeLockOrDdlException();
             try {
                 olapTable = (OlapTable) table;
                 if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -4467,10 +4500,13 @@ public class Catalog {
         }
     }
 
-    public void replayCreateTable(String dbName, Table table) {
+    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
         Database db = this.fullNameToDb.get(dbName);
-        db.createTableWithLock(table, true, false);
-
+        try {
+            db.createTableWithLock(table, true, false);
+        } catch (DdlException e) {
+            throw new MetaNotFoundException(e.getMessage());
+        }
         if (!isCheckpointThread()) {
             // add to inverted index
             if (table.getType() == TableType.OLAP) {
@@ -4597,7 +4633,7 @@ public class Catalog {
 
         // check database
         Database db = this.getDbOrDdlException(dbName);
-        db.writeLock();
+        db.writeLockOrDdlException();
         try {
             Table table = db.getTableNullable(tableName);
             if (table == null) {
@@ -4661,6 +4697,7 @@ public class Catalog {
         }
 
         db.dropTable(table.getName());
+        table.markDropped();
         if (!isForceDrop) {
             Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
         } else {
@@ -5004,7 +5041,7 @@ public class Catalog {
                 OlapTable olapTable = (OlapTable) table;
                 // use try lock to avoid blocking a long time.
                 // if block too long, backend report rpc will timeout.
-                if (!olapTable.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                if (!olapTable.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                     LOG.warn("try get table {} writelock but failed when checking backend storage medium", table.getName());
                     continue;
                 }
@@ -5356,42 +5393,45 @@ public class Catalog {
 
     // entry of rename table operation
     public void renameTable(Database db, Table table, TableRenameClause tableRenameClause) throws DdlException {
-        db.writeLock();
-        table.writeLock();
+        db.writeLockOrDdlException();
         try {
-            if (table instanceof OlapTable) {
-                OlapTable olapTable = (OlapTable) table;
-                if (olapTable.getState() != OlapTableState.NORMAL) {
-                    throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+            table.writeLockOrDdlException();
+            try {
+                if (table instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) table;
+                    if (olapTable.getState() != OlapTableState.NORMAL) {
+                        throw new DdlException("Table[" + olapTable.getName() + "] is under " + olapTable.getState());
+                    }
                 }
+
+                String oldTableName = table.getName();
+                String newTableName = tableRenameClause.getNewTableName();
+                if (oldTableName.equals(newTableName)) {
+                    throw new DdlException("Same table name");
+                }
+
+                // check if name is already used
+                if (db.getTable(newTableName).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used");
+                }
+
+                if (table.getType() == TableType.OLAP) {
+                    // olap table should also check if any rollup has same name as "newTableName"
+                    ((OlapTable) table).checkAndSetName(newTableName, false);
+                } else {
+                    table.setName(newTableName);
+                }
+
+                db.dropTable(oldTableName);
+                db.createTable(table);
+
+                TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
+                editLog.logTableRename(tableInfo);
+                LOG.info("rename table[{}] to {}", oldTableName, newTableName);
+            } finally {
+                table.writeUnlock();
             }
-
-            String oldTableName = table.getName();
-            String newTableName = tableRenameClause.getNewTableName();
-            if (oldTableName.equals(newTableName)) {
-                throw new DdlException("Same table name");
-            }
-
-            // check if name is already used
-            if (db.getTable(newTableName).isPresent()) {
-                throw new DdlException("Table name[" + newTableName + "] is already used");
-            }
-
-            if (table.getType() == TableType.OLAP) {
-                // olap table should also check if any rollup has same name as "newTableName"
-                ((OlapTable) table).checkAndSetName(newTableName, false);
-            } else {
-                table.setName(newTableName);
-            }
-
-            db.dropTable(oldTableName);
-            db.createTable(table);
-
-            TableInfo tableInfo = TableInfo.createForTableRename(db.getId(), table.getId(), newTableName);
-            editLog.logTableRename(tableInfo);
-            LOG.info("rename table[{}] to {}", oldTableName, newTableName);
         } finally {
-            table.writeUnlock();
             db.writeUnlock();
         }
     }
@@ -5534,7 +5574,7 @@ public class Catalog {
     }
 
     public void renameRollup(Database db, OlapTable table, RollupRenameClause renameClause) throws DdlException {
-        table.writeLock();
+        table.writeLockOrDdlException();
         try {
             if (table.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
@@ -5595,7 +5635,7 @@ public class Catalog {
     }
 
     public void renamePartition(Database db, OlapTable table, PartitionRenameClause renameClause) throws DdlException {
-        table.writeLock();
+        table.writeLockOrDdlException();
         try {
             if (table.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "] is under " + table.getState());
@@ -5806,8 +5846,7 @@ public class Catalog {
     }
 
     public void modifyDefaultDistributionBucketNum(Database db, OlapTable olapTable, ModifyDistributionClause modifyDistributionClause) throws DdlException {
-        olapTable.writeLock();
-
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.isColocateTable()) {
                 throw new DdlException("Cannot change default bucket number of colocate table.");
@@ -6838,7 +6877,7 @@ public class Catalog {
         // before replacing, we need to check again.
         // Things may be changed outside the table lock.
         olapTable = (OlapTable) db.getTableOrDdlException(copiedTbl.getId());
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
@@ -7040,7 +7079,7 @@ public class Catalog {
     // Convert table's distribution type from random to hash.
     // random distribution is no longer supported.
     public void convertDistributionType(Database db, OlapTable tbl) throws DdlException {
-        tbl.writeLock();
+        tbl.writeLockOrDdlException();
         try {
             if (!tbl.convertRandomDistributionToHashDistribution()) {
                 throw new DdlException("Table " + tbl.getName() + " is not random distributed");
@@ -7190,7 +7229,7 @@ public class Catalog {
             }
             Database db = this.getDbOrMetaException(meta.getDbId());
             Table table = db.getTableOrMetaException(meta.getTableId());
-            table.writeLock();
+            table.writeLockOrMetaException();
             try {
                 Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
                 if (replica == null) {

@@ -74,7 +74,7 @@ public class RowCountAction extends RestBaseAction {
         Catalog catalog = Catalog.getCurrentCatalog();
         Database db = catalog.getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
-        olapTable.writeLock();
+        olapTable.writeLockOrDdlException();
         try {
             for (Partition partition : olapTable.getAllPartitions()) {
                 long version = partition.getVisibleVersion();

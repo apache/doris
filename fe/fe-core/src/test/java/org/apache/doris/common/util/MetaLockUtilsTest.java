@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -55,7 +56,7 @@ public class MetaLockUtilsTest {
     }
 
     @Test
-    public void testWriteLockTables() {
+    public void testWriteLockTables() throws MetaNotFoundException {
         List<Table> tableList = Lists.newArrayList(new Table(Table.TableType.OLAP), new Table(Table.TableType.OLAP));
         MetaLockUtils.writeLockTables(tableList);
         Assert.assertTrue(tableList.get(0).isWriteLockHeldByCurrentThread());

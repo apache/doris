@@ -445,7 +445,9 @@ public class RestoreJob extends AbstractJob {
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
-            olapTbl.writeLock();
+            if (!olapTbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 if (olapTbl.getState() != OlapTableState.NORMAL) {
                     status = new Status(ErrCode.COMMON_ERROR,
@@ -783,7 +785,11 @@ public class RestoreJob extends AbstractJob {
 
             // add restored tables
             for (Table tbl : restoredTbls) {
-                db.writeLock();
+                if (!db.writeLockIfExist()) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Database " + db.getFullName()
+                            + " has been dropped");
+                    return;
+                }
                 try {
                     if (!db.createTable(tbl)) {
                         status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
@@ -1387,7 +1393,9 @@ public class RestoreJob extends AbstractJob {
                 continue;
             }
             OlapTable olapTbl = (OlapTable) tbl;
-            tbl.writeLock();
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 Map<Long, Pair<Long, Long>> map = restoredVersionInfo.rowMap().get(tblId);
                 for (Map.Entry<Long, Pair<Long, Long>> entry : map.entrySet()) {
@@ -1576,7 +1584,9 @@ public class RestoreJob extends AbstractJob {
                 }
                 LOG.info("remove restored partition in table {} when cancelled: {}",
                         restoreTbl.getName(), entry.second.getName());
-                restoreTbl.writeLock();
+                if (!restoreTbl.writeLockIfExist()) {
+                    continue;
+                }
                 try {
                     restoreTbl.dropPartition(dbId, entry.second.getName(), true /* force drop */);
                 } finally {
@@ -1625,7 +1635,9 @@ public class RestoreJob extends AbstractJob {
             }
 
             OlapTable olapTbl = (OlapTable) tbl;
-            tbl.writeLock();
+            if (!tbl.writeLockIfExist()) {
+                continue;
+            }
             try {
                 if (olapTbl.getState() == OlapTableState.RESTORE
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {

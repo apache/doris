@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -140,6 +140,14 @@ public class Table extends MetaObject implements Writable {
         this.createTime = Instant.now().getEpochSecond();
     }
 
+    public void markDropped() {
+        isDropped = true;
+    }
+
+    public void unmarkDropped() {
+        isDropped = false;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }
@@ -202,20 +210,12 @@ public class Table extends MetaObject implements Writable {
         writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
     }
 
-    public void writeLockOrAnalysisException() throws AnalysisException {
-        writeLockOrException(new AnalysisException("unknown table, tableName=" + name));
-    }
-
-    public boolean tryWriteLockOrDdlException(long timeout, TimeUnit unit) throws DdlException {
-        return tryWriteLockOrException(timeout, unit, new DdlException("unknown table, tableName=" + name));
+    public void writeLockOrAlterCancelException() throws AlterCancelException {
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
     }
 
     public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
         return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
-    }
-
-    public boolean tryWriteLockOrAnalysisException(long timeout, TimeUnit unit) throws AnalysisException {
-        return tryWriteLockOrException(timeout, unit, new AnalysisException("unknown table, tableName=" + name));
     }
 
     public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
@@ -223,6 +223,17 @@ public class Table extends MetaObject implements Writable {
             if (isDropped) {
                 writeUnlock();
                 throw e;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        if (tryWriteLock(timeout, unit)) {
+            if (isDropped) {
+                writeUnlock();
+                return false;
             }
             return true;
         }
