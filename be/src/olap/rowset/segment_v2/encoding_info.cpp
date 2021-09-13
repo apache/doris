@@ -255,7 +255,6 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
-    _add_map<OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
