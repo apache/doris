@@ -27,37 +27,37 @@ inline void encode_fixed8(uint8_t* buf, uint8_t val) {
 
 inline void encode_fixed16_le(uint8_t* buf, uint16_t val) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    memcpy(buf, &val, sizeof(val));
+    *(uint16_t*)buf = val;
 #else
     uint16_t res = bswap_16(val);
-    memcpy(buf, &res, sizeof(res));
+    *(uint16_t*)buf = res;
 #endif
 }
 
 inline void encode_fixed32_le(uint8_t* buf, uint32_t val) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    memcpy(buf, &val, sizeof(val));
+    *(uint32_t*)buf = val;
 #else
     uint32_t res = bswap_32(val);
-    memcpy(buf, &res, sizeof(res));
+    *(uint32_t*)buf = res;
 #endif
 }
 
 inline void encode_fixed64_le(uint8_t* buf, uint64_t val) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    memcpy(buf, &val, sizeof(val));
+    *(uint64_t*)buf = val;
 #else
     uint64_t res = gbswap_64(val);
-    memcpy(buf, &res, sizeof(res));
+    *(uint64_t*)buf = res;
 #endif
 }
 
 inline void encode_fixed128_le(uint8_t* buf, uint128_t val) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    memcpy(buf, &val, sizeof(val));
+    *(uint128_t*)buf = val;
 #else
     uint128_t res = gbswap_128(val);
-    memcpy(buf, &res, sizeof(res));
+    *(uint128_t*)buf = res;
 #endif
 }
 
@@ -66,8 +66,7 @@ inline uint8_t decode_fixed8(const uint8_t* buf) {
 }
 
 inline uint16_t decode_fixed16_le(const uint8_t* buf) {
-    uint16_t res;
-    memcpy(&res, buf, sizeof(res));
+    uint16_t res = *(uint16_t*)buf;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     return res;
 #else
@@ -76,8 +75,7 @@ inline uint16_t decode_fixed16_le(const uint8_t* buf) {
 }
 
 inline uint32_t decode_fixed32_le(const uint8_t* buf) {
-    uint32_t res;
-    memcpy(&res, buf, sizeof(res));
+    uint32_t res = *(uint32_t*)buf;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     return res;
 #else
@@ -86,8 +84,7 @@ inline uint32_t decode_fixed32_le(const uint8_t* buf) {
 }
 
 inline uint64_t decode_fixed64_le(const uint8_t* buf) {
-    uint64_t res;
-    memcpy(&res, buf, sizeof(res));
+    uint64_t res = *(uint64_t*)buf;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     return res;
 #else
@@ -96,8 +93,7 @@ inline uint64_t decode_fixed64_le(const uint8_t* buf) {
 }
 
 inline uint128_t decode_fixed128_le(const uint8_t* buf) {
-    uint128_t res;
-    memcpy(&res, buf, sizeof(res));
+    uint128_t res = *(uint128_t*)buf;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     return res;
 #else
