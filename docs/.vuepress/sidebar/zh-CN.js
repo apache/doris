@@ -350,6 +350,7 @@ module.exports = [
               "money_format",
               "null_or_empty",
               "repeat",
+              "replace",
               "reverse",
               "right",
               "rpad",
