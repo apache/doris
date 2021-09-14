@@ -23,7 +23,6 @@ import mockit.MockUp;
 import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -63,15 +62,11 @@ public class BackupTest {
         stmt = new BackupStmt(new LabelName(testDB, "label1"), "repo",
                 tableRefClause, null);
         return stmt;
-
     }
 
     @Test
-    public void caseTest() throws Exception {
+    public void caseSensitiveTest() throws Exception {
         BackupStmt stmt = createStmt(true);
-        stmt.analyze(analyzer);
-        GlobalVariable.lowerCaseTableNames = 1;
-        stmt = createStmt(false);
         stmt.analyze(analyzer);
     }
 }
