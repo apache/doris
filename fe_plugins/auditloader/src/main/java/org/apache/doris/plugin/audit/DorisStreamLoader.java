@@ -125,13 +125,6 @@ public class DorisStreamLoader {
             int status = feConn.getResponseCode();
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
-                BufferedReader br = null;
-                if (100 <= feConn.getResponseCode() && feConn.getResponseCode() <= 399) {
-                    br = new BufferedReader(new InputStreamReader(feConn.getInputStream()));
-                } else {
-                    br = new BufferedReader(new InputStreamReader(feConn.getErrorStream()));
-                }
-
                 throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status
                         + ", response: " + getContent(feConn) + ", request is: " + toCurl(feConn));
             }
