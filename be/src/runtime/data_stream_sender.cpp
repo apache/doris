@@ -52,35 +52,35 @@
 namespace doris {
 
 DataStreamSender::Channel::Channel(DataStreamSender* parent, const RowDescriptor& row_desc,
-                               const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
-                               PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
-                               bool send_query_statistics_with_every_batch)
-       : _parent(parent),
-         _buffer_size(buffer_size),
-         _row_desc(row_desc),
-         _fragment_instance_id(fragment_instance_id),
-         _dest_node_id(dest_node_id),
-         _num_data_bytes_sent(0),
-         _packet_seq(0),
-         _need_close(false),
-         _be_number(0),
-         _brpc_dest_addr(brpc_dest),
-         _is_transfer_chain(is_transfer_chain),
-         _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+                                   const TNetworkAddress& brpc_dest,
+                                   const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+                                   int buffer_size, bool is_transfer_chain,
+                                   bool send_query_statistics_with_every_batch)
+        : _parent(parent),
+          _buffer_size(buffer_size),
+          _row_desc(row_desc),
+          _fragment_instance_id(fragment_instance_id),
+          _dest_node_id(dest_node_id),
+          _num_data_bytes_sent(0),
+          _packet_seq(0),
+          _need_close(false),
+          _be_number(0),
+          _brpc_dest_addr(brpc_dest),
+          _is_transfer_chain(is_transfer_chain),
+          _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
     std::string localhost = BackendOptions::get_localhost();
-    _is_local =
-           _brpc_dest_addr.hostname == localhost && _brpc_dest_addr.port == config::brpc_port;
+    _is_local = _brpc_dest_addr.hostname == localhost && _brpc_dest_addr.port == config::brpc_port;
     if (_is_local) {
-       LOG(INFO) << "will use local exechange, dest_node_id:" << _dest_node_id;
+        LOG(INFO) << "will use local exechange, dest_node_id:" << _dest_node_id;
     }
 }
 
 DataStreamSender::Channel::~Channel() {
-   if (_closure != nullptr && _closure->unref()) {
-       delete _closure;
-   }
-   // release this before request desctruct
-   _brpc_request.release_finst_id();
+    if (_closure != nullptr && _closure->unref()) {
+        delete _closure;
+    }
+    // release this before request desctruct
+    _brpc_request.release_finst_id();
 }
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
@@ -185,7 +185,7 @@ Status DataStreamSender::Channel::send_current_batch(bool eos) {
     }
     {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
-        int uncompressed_bytes = _batch->serialize(&_pb_batch);
+        size_t uncompressed_bytes = _batch->serialize(&_pb_batch);
         COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_pb_batch));
         COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
     }
@@ -259,13 +259,12 @@ Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc)
         : _pool(pool),
-         _sender_id(sender_id),
-         _row_desc(row_desc),
-         _serialize_batch_timer(NULL),
-         _bytes_sent_counter(NULL),
-         _local_bytes_send_counter(NULL),
-         _current_pb_batch(&_pb_batch1) {
-}
+          _sender_id(sender_id),
+          _row_desc(row_desc),
+          _serialize_batch_timer(NULL),
+          _bytes_sent_counter(NULL),
+          _local_bytes_send_counter(NULL),
+          _current_pb_batch(&_pb_batch1) {}
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                    const TDataStreamSink& sink,
@@ -648,8 +647,8 @@ Status DataStreamSender::serialize_batch(RowBatch* src, T* dest, int num_receive
         SCOPED_TIMER(_serialize_batch_timer);
         // TODO(zc)
         // RETURN_IF_ERROR(src->serialize(dest));
-        int uncompressed_bytes = src->serialize(dest);
-        int bytes = RowBatch::get_batch_size(*dest);
+        size_t uncompressed_bytes = src->serialize(dest);
+        size_t bytes = RowBatch::get_batch_size(*dest);
         // TODO(zc)
         // int uncompressed_bytes = bytes - dest->tuple_data.size() + dest->uncompressed_size;
         // The size output_batch would be if we didn't compress tuple_data (will be equal to
