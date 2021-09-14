@@ -350,12 +350,12 @@ public:
     // This function does not reset().
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
-    int serialize(TRowBatch* output_batch);
-    int serialize(PRowBatch* output_batch);
+    size_t serialize(TRowBatch* output_batch);
+    size_t serialize(PRowBatch* output_batch);
 
     // Utility function: returns total size of batch.
-    static int get_batch_size(const TRowBatch& batch);
-    static int get_batch_size(const PRowBatch& batch);
+    static size_t get_batch_size(const TRowBatch& batch);
+    static size_t get_batch_size(const PRowBatch& batch);
 
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }

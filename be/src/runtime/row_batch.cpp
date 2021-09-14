@@ -370,7 +370,7 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-int RowBatch::serialize(TRowBatch* output_batch) {
+size_t RowBatch::serialize(TRowBatch* output_batch) {
     // why does Thrift not generate a Clear() function?
     output_batch->row_tuples.clear();
     output_batch->tuple_offsets.clear();
@@ -437,7 +437,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     return get_batch_size(*output_batch) - output_batch->tuple_data.size() + size;
 }
 
-int RowBatch::serialize(PRowBatch* output_batch) {
+size_t RowBatch::serialize(PRowBatch* output_batch) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -625,15 +625,15 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     reset();
 }
 
-int RowBatch::get_batch_size(const TRowBatch& batch) {
-    int result = batch.tuple_data.size();
+size_t RowBatch::get_batch_size(const TRowBatch& batch) {
+    size_t result = batch.tuple_data.size();
     result += batch.row_tuples.size() * sizeof(TTupleId);
     result += batch.tuple_offsets.size() * sizeof(int32_t);
     return result;
 }
 
-int RowBatch::get_batch_size(const PRowBatch& batch) {
-    int result = batch.tuple_data().size();
+size_t RowBatch::get_batch_size(const PRowBatch& batch) {
+    size_t result = batch.tuple_data().size();
     result += batch.row_tuples().size() * sizeof(int32_t);
     result += batch.tuple_offsets().size() * sizeof(int32_t);
     return result;
