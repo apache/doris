@@ -28,7 +28,8 @@
     M(TYPE_CHAR)              \
     M(TYPE_DATE)              \
     M(TYPE_DATETIME)          \
-    M(TYPE_VARCHAR)
+    M(TYPE_VARCHAR)           \
+    M(TYPE_STRING)
 
 namespace doris {
 ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(

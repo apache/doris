@@ -82,6 +82,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
         break;
+    case TYPE_BOOLEAN:
+        *result = arrow::boolean();
+        break;
     default:
         return Status::InvalidArgument(
                 strings::Substitute("Unknown primitive type($0)", type.type));
@@ -129,6 +132,9 @@ Status convert_to_doris_type(const arrow::DataType& type, TSlotDescriptorBuilder
         break;
     case arrow::Type::DOUBLE:
         builder->type(TYPE_DOUBLE);
+        break;
+    case arrow::Type::BOOL:
+        builder->type(TYPE_BOOLEAN);
         break;
     default:
         return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
@@ -265,6 +271,22 @@ public:
             uint64 low = p_value->value;
             arrow::Decimal128 value(high, low);
             ARROW_RETURN_NOT_OK(builder.Append(value));
+        }
+        return builder.Finish(&_arrays[_cur_field_idx]);
+    }
+    // process boolean 
+    arrow::Status Visit(const arrow::BooleanType& type) {
+        arrow::BooleanBuilder builder(_pool);
+        size_t num_rows = _batch.num_rows();
+        builder.Reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+                continue;
+            }
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            ARROW_RETURN_NOT_OK(builder.Append(*(bool*)cell_ptr));
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }

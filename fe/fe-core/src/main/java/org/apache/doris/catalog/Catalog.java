@@ -40,15 +40,19 @@ import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
+import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
@@ -62,7 +66,9 @@ import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -70,6 +76,7 @@ import org.apache.doris.analysis.MigrateDbStmt;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
@@ -82,6 +89,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
@@ -113,6 +121,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.MetaNotFoundException;
@@ -278,7 +287,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
 import javax.annotation.Nullable;
 
 public class Catalog {
@@ -3088,6 +3096,54 @@ public class Catalog {
             throw new DdlException("Failed to execute CREATE TABLE LIKE " + stmt.getExistedTableName() + ". Reason: " + e.getMessage());
         }
     }
+    
+    public void createTableAsSelect(CreateTableAsSelectStmt stmt) throws DdlException {
+        try {
+            List<String> columnNames = stmt.getColumnNames();
+            CreateTableStmt createTableStmt = stmt.getCreateTableStmt();
+            QueryStmt queryStmt = stmt.getQueryStmt();
+            ArrayList<Expr> resultExprs = queryStmt.getResultExprs();
+            ArrayList<String> colLabels = queryStmt.getColLabels();
+            int size = resultExprs.size();
+            // Check columnNames
+            int colNameIndex = 0;
+            for (int i = 0; i < size; ++i) {
+                String name;
+                if (columnNames != null) {
+                    // use custom column names
+                    name = columnNames.get(i);
+                } else {
+                    name = colLabels.get(i);
+                }
+                try {
+                    FeNameFormat.checkColumnName(name);
+                } catch (AnalysisException exception) {
+                    name = "_col" + (colNameIndex++);
+                }
+                TypeDef typeDef;
+                Expr resultExpr = resultExprs.get(i);
+                // varchar/char transfer to string
+                if (resultExpr.getType().isStringType()) {
+                    typeDef = new TypeDef(Type.STRING);
+                } else {
+                    typeDef = new TypeDef(resultExpr.getType());
+                }
+                createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
+                        null, true,
+                        new DefaultValue(false, null),
+                        ""));
+                // set first column as default distribution
+                if (createTableStmt.getDistributionDesc() == null && i == 0) {
+                    createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
+                }
+            }
+            Analyzer dummyRootAnalyzer = new Analyzer(this, ConnectContext.get());
+            createTableStmt.analyze(dummyRootAnalyzer);
+            createTable(createTableStmt);
+        } catch (UserException e) {
+            throw new DdlException("Failed to execute CREATE TABLE AS SELECT Reason: " + e.getMessage());
+        }
+    }
 
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
         SinglePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
@@ -5485,6 +5541,7 @@ public class Catalog {
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties)
             throws UserException {
+        convertDynamicPartitionReplicaNumToReplicaAllocation(properties);
         Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -5504,6 +5561,14 @@ public class Catalog {
                 table.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
+    }
+
+    private void convertDynamicPartitionReplicaNumToReplicaAllocation(Map<String, String> properties) {
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
+            Short repNum = Short.valueOf(properties.remove(DynamicPartitionProperty.REPLICATION_NUM));
+            ReplicaAllocation replicaAlloc = new ReplicaAllocation(repNum);
+            properties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        }
     }
 
     /**

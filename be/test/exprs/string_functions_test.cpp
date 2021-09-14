@@ -559,6 +559,11 @@ TEST_F(StringFunctionsTest, replace) {
     ASSERT_EQ(StringVal("http://华夏zhongguo:9090"),
               StringFunctions::replace(ctx, StringVal("http://中国hello:9090"),
                                        StringVal("中国hello"), StringVal("华夏zhongguo")));
+
+    //old substring is at the beginning of string
+    ASSERT_EQ(StringVal("ftp://www.baidu.com:9090"),
+              StringFunctions::replace(ctx, StringVal("http://www.baidu.com:9090"),
+                                       StringVal("http"), StringVal("ftp")));
 }
 
 TEST_F(StringFunctionsTest, parse_url) {

@@ -76,6 +76,28 @@ TEST_F(EncryptionFunctionsTest, to_base64) {
     }
 }
 
+TEST_F(EncryptionFunctionsTest, aes_decrypt) {
+    std::unique_ptr<doris_udf::FunctionContext> context(new doris_udf::FunctionContext());
+    {
+        StringVal encryptWord = EncryptionFunctions::aes_encrypt(context.get(), doris_udf::StringVal("hello"),
+                doris_udf::StringVal("key"));
+        StringVal result = EncryptionFunctions::aes_decrypt(context.get(), encryptWord,
+                doris_udf::StringVal("key"));
+        StringVal expected = doris_udf::StringVal("hello");
+        ASSERT_EQ(expected, result);
+    }
+    {
+        StringVal encryptWord = EncryptionFunctions::aes_encrypt(context.get(), doris_udf::StringVal("hello"),
+                doris_udf::StringVal("key"));
+        encryptWord.is_null = true;
+        StringVal result = EncryptionFunctions::aes_decrypt(context.get(), encryptWord,
+                doris_udf::StringVal("key"));
+        StringVal expected = doris_udf::StringVal::null();
+        ASSERT_EQ(expected, result);
+    }
+
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {

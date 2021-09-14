@@ -409,7 +409,8 @@ public class Column implements Writable {
         }
 
         // now we support convert decimal to varchar type
-        if (getDataType() == PrimitiveType.DECIMALV2 && other.getDataType() == PrimitiveType.VARCHAR) {
+        if (getDataType() == PrimitiveType.DECIMALV2 && (other.getDataType() == PrimitiveType.VARCHAR
+                || other.getDataType() == PrimitiveType.STRING)) {
             return;
         }
 

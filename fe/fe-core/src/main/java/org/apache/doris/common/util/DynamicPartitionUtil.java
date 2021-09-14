@@ -211,6 +211,12 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
+        if (replicaAlloc.getTotalReplicaNum() <= 0) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
+        }
+    }
+
     private static void checkHotPartitionNum(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HOT_PARTITION_NUM);
@@ -433,6 +439,7 @@ public class DynamicPartitionUtil {
 
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
+            checkReplicaAllocation(replicaAlloc);
             properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
             analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         }
