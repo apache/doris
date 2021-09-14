@@ -81,9 +81,8 @@ public class MetaWriter {
 
     public void setDelegate(CountingDataOutputStream dos, List<MetaIndex> indices) {
         this.delegate = (name, method) -> {
-            long checksum = method.write();
             indices.add(new MetaIndex(name, dos.getCount()));
-            return checksum;
+            return method.write();
         };
     }
 
@@ -98,7 +97,6 @@ public class MetaWriter {
         // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
 
-        // long checksum = 0;
         final AtomicReference<Long> checksum = new AtomicReference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         long startPosition = MetaHeader.write(imageFile);
