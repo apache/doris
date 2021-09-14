@@ -17,7 +17,11 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterCancelException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
@@ -51,6 +55,7 @@ public class TableTest {
         fakeCatalog = new FakeCatalog();
         catalog = Deencapsulation.newInstance(Catalog.class);
         table = new Table(Table.TableType.OLAP);
+        table.setName("test");
         FakeCatalog.setCatalog(catalog);
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
@@ -64,14 +69,41 @@ public class TableTest {
             table.readUnlock();
         }
 
+        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
         table.writeLock();
         try {
-            Assert.assertTrue(table.tryWriteLock(0, TimeUnit.SECONDS));
+            Assert.assertTrue(table.tryWriteLock(1000, TimeUnit.SECONDS));
+            Assert.assertTrue(table.isWriteLockHeldByCurrentThread());
+            table.writeUnlock();
         } finally {
             table.writeUnlock();
+            Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
         }
+
+        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+        table.markDropped();
+        Assert.assertFalse(table.writeLockIfExist());
+        Assert.assertFalse(table.isWriteLockHeldByCurrentThread());
+        table.unmarkDropped();
+        Assert.assertTrue(table.writeLockIfExist());
+        Assert.assertTrue(table.writeLockIfExist());
+        Assert.assertTrue(table.isWriteLockHeldByCurrentThread());
+        table.writeUnlock();
     }
 
+    @Test
+    public void lockTestWithException() {
+        table.markDropped();
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrDdlException());
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
+                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.writeLockOrMetaException());
+        ExceptionChecker.expectThrowsWithMsg(AlterCancelException.class,
+                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrAlterCancelException());
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
+                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.tryWriteLockOrMetaException(1000, TimeUnit.MILLISECONDS));
+        table.unmarkDropped();
+    }
 
     @Test
     public void testSerialization() throws Exception {

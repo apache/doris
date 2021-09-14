@@ -161,6 +161,10 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public boolean isWriteLockHeldByCurrentThread() {
+        return this.rwLock.writeLock().isHeldByCurrentThread();
+    }
+
     public boolean writeLockIfExist() {
         if (!isDropped) {
             this.rwLock.writeLock().lock();

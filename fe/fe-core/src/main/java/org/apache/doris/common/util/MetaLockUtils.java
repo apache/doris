@@ -74,13 +74,20 @@ public class MetaLockUtils {
         }
     }
 
-    public static boolean tryWriteLockTables(List<Table> tableList, long timeout, TimeUnit unit) throws MetaNotFoundException {
+    public static boolean tryWriteLockTablesOrMetaException(List<Table> tableList, long timeout, TimeUnit unit) throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
-            if (!tableList.get(i).tryWriteLockOrMetaException(timeout, unit)) {
+            try {
+                if (!tableList.get(i).tryWriteLockOrMetaException(timeout, unit)) {
+                    for (int j = i - 1; j >= 0; j--) {
+                        tableList.get(j).writeUnlock();
+                    }
+                    return false;
+                }
+            } catch (MetaNotFoundException e) {
                 for (int j = i - 1; j >= 0; j--) {
                     tableList.get(j).writeUnlock();
                 }
-                return false;
+                throw e;
             }
         }
         return true;
