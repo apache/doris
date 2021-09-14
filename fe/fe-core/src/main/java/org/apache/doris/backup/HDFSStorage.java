@@ -19,7 +19,10 @@ package org.apache.doris.backup;
 
 import org.apache.doris.common.UserException;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 // TODO: extend BlobStorage
 public class HDFSStorage {
@@ -29,16 +32,21 @@ public class HDFSStorage {
     public static final String NAME_NODES = "dfs.ha.namenodes";
     public static final String RPC_ADDRESS = "dfs.namenode.rpc-address";
     public static final String FAILOVER_PROXY = "dfs.client.failover.proxy.provider";
+    public static final String AUTHENTICATION = "hadoop.security.authentication";
+    public static final String KERBEROS_PRINCIPAL = "kerberos_principal";
+    public static final String KERBEROS_KEYTAB = "kerberos_keytab";
+
+    public static Set<String> keySets = new HashSet<>(Arrays.asList(HDFS_DEFAULT_FS, USER,
+            NAME_SERVICES, NAME_NODES, RPC_ADDRESS, FAILOVER_PROXY,
+            AUTHENTICATION, KERBEROS_PRINCIPAL, KERBEROS_KEYTAB));
 
 
     public static void checkHDFS(Map<String, String> properties) throws UserException {
         if (!properties.containsKey(HDFS_DEFAULT_FS)) {
-            throw new UserException(HDFS_DEFAULT_FS + " not found.");
+            throw new UserException(HDFS_DEFAULT_FS + " not found. This is required field");
         }
         for (String key : properties.keySet()) {
-            if (!(key.startsWith(NAME_SERVICES) || key.startsWith(NAME_NODES)
-                    || key.startsWith(RPC_ADDRESS) || key.startsWith(FAILOVER_PROXY)
-                    || key.equals(USER) || key.equals(HDFS_DEFAULT_FS))) {
+            if (!keySets.contains(key)) {
                 throw new UserException("Unknown properties " + key);
             }
         }
