@@ -17,13 +17,18 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 
+import com.clearspring.analytics.util.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.PriorityQueue;
 
 public class TabletSchedCtxTest {
@@ -73,6 +78,38 @@ public class TabletSchedCtxTest {
         expectedCtx = pendingTablets.poll();
         Assert.assertNotNull(expectedCtx);
         Assert.assertEquals(ctx2.getTabletId(), expectedCtx.getTabletId());
+    }
+
+    @Test
+    public void testVersionCountComparator() {
+        TabletSchedCtx.VersionCountComparator countComparator = new TabletSchedCtx.VersionCountComparator();
+        List<Replica> replicaList = Lists.newArrayList();
+        Replica replica1 = new Replica();
+        replica1.setVersionCount(100);
+        replica1.setState(Replica.ReplicaState.NORMAL);
+
+        Replica replica2 = new Replica();
+        replica2.setVersionCount(50);
+        replica2.setState(Replica.ReplicaState.NORMAL);
+
+        Replica replica3 = new Replica();
+        replica3.setVersionCount(-1);
+        replica3.setState(Replica.ReplicaState.NORMAL);
+
+        Replica replica4 = new Replica();
+        replica4.setVersionCount(200);
+        replica4.setState(Replica.ReplicaState.NORMAL);
+
+        replicaList.add(replica1);
+        replicaList.add(replica2);
+        replicaList.add(replica3);
+        replicaList.add(replica4);
+
+        Collections.sort(replicaList, countComparator);
+        Assert.assertEquals(50, replicaList.get(0).getVersionCount());
+        Assert.assertEquals(100, replicaList.get(1).getVersionCount());
+        Assert.assertEquals(200, replicaList.get(2).getVersionCount());
+        Assert.assertEquals(-1, replicaList.get(3).getVersionCount());
     }
 
 }
