@@ -2252,7 +2252,7 @@ public class Catalog {
         return checksum;
     }
 
-    public long saveSqlBlockRule(DataOutputStream out, long checksum) throws IOException {
+    public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
         return checksum;
     }
