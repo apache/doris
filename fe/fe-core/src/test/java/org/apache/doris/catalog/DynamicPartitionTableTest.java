@@ -1215,7 +1215,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.prefix\" = \"p\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("dynamic_partition_miss_reserved_history_periods");
+        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("dynamic_partition_miss_reserved_history_periods");
         Assert.assertEquals("[9999-12-31,9999-12-31]", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
     }
 
@@ -1256,7 +1256,7 @@ public class DynamicPartitionTableTest {
                 "\"dynamic_partition.reserved_history_periods\" = \"[2020-06-01,2020-06-20],[2020-10-25,2020-11-15],[2021-06-01,2021-06-20]\"\n" +
                 ");";
         createTable(createOlapTblStmt);
-        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDb("default_cluster:test").getTable("dynamic_partition_normal_reserved_history_periods");
+        OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods");
         Assert.assertEquals("[2020-06-01,2020-06-20],[2020-10-25,2020-11-15],[2021-06-01,2021-06-20]", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
         Assert.assertEquals(table.getAllPartitions().size(), 9);
     }
@@ -1386,7 +1386,7 @@ public class DynamicPartitionTableTest {
                 "errCode = 2, detailMessage = Invalid \" dynamic_partition.reserved_history_periods \" value [,2021-01-01]. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"",
                 () -> createTable(createOlapTblStmt2));
 
-    String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_reserved_history_period_starttime_is_larger_than_endtime` (\n" +
+    String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_reserved_history_periods_validate3` (\n" +
                 "  `k1` date NULL COMMENT \"\",\n" +
                 "  `k2` int NULL COMMENT \"\",\n" +
                 "  `k3` smallint NULL COMMENT \"\",\n" +
