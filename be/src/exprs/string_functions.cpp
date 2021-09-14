@@ -972,14 +972,19 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
+    // Empty string is a substring of all strings. 
+    // If old str is an empty string, the std::string.find(oldStr) is always return 0.
+    // With an empty old str, there is no need to do replace. 
+    if (oldStr.len == 0) {
+        return origStr;
+    }
     std::string orig_str = std::string(reinterpret_cast<const char*>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char*>(oldStr.ptr), oldStr.len);
     std::string new_str = std::string(reinterpret_cast<const char*>(newStr.ptr), newStr.len);
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while ((pos = orig_str.find(old_str, pos))) {
-        if (pos == std::string::npos) break;
+    while ((pos = orig_str.find(old_str, pos)) != std::string::npos) {
         orig_str.replace(pos, oldLen, new_str);
         pos += newLen;
     }
