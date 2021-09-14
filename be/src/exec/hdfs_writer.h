@@ -46,6 +46,9 @@ private:
     std::string _user = "";
     std::string _namenode = "";
     std::string _path = "";
+    std::string _kerb_principal = "";
+    std::string _kerb_ticket_cache_path = "";
+    std::string _token = "";
     hdfsFS _hdfs_fs = nullptr;
     hdfsFile _hdfs_file = nullptr;
     bool _closed = false;

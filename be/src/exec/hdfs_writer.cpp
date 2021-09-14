@@ -22,6 +22,9 @@
 namespace doris {
 const static std::string FS_KEY = "fs.defaultFS";
 const static std::string USER = "hdfs_user";
+const static std::string KERBEROS_PRINCIPAL = "kerberos_principal";
+const static std::string KERB_TICKET_CACHE_PATH = "kerb_ticket_cache_path";
+const static std::string TOKEN = "token";
 
 HDFSWriter::HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path)
         : _properties(properties),
@@ -107,6 +110,17 @@ Status HDFSWriter::_connect() {
     if (!_user.empty()) {
         hdfsBuilderSetUserName(hdfs_builder, _user.c_str());
     }
+    // set kerberos conf
+    if (!_kerb_principal.empty()) {
+        hdfsBuilderSetPrincipal(hdfs_builder, _kerb_principal.c_str());
+    }
+    if (!_kerb_ticket_cache_path.empty()) {
+        hdfsBuilderSetKerbTicketCachePath(hdfs_builder, _kerb_ticket_cache_path.c_str());
+    }
+    // set token
+    if (!_token.empty()) {
+        hdfsBuilderSetToken(hdfs_builder, _token.c_str());
+    }
     // set other conf
     if (!_properties.empty()) {
         std::map<std::string, std::string>::iterator iter;
@@ -132,6 +146,18 @@ Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
         }
         if (iter->first.compare(USER) == 0) {
             _user = iter->second;
+            prop.erase(iter);
+        }
+        if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
+            _kerb_principal = iter->second;
+            prop.erase(iter);
+        }
+        if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
+            _kerb_ticket_cache_path = iter->second;
+            prop.erase(iter);
+        }
+        if (iter->first.compare(TOKEN) == 0) {
+            _token = iter->second;
             prop.erase(iter);
         }
     }
