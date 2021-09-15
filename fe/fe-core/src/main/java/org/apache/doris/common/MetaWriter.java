@@ -30,7 +30,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Image Format:
@@ -97,7 +96,7 @@ public class MetaWriter {
         // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
 
-        final AtomicReference<Long> checksum = new AtomicReference<>(0L);
+        final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
@@ -105,32 +104,32 @@ public class MetaWriter {
                 new FileOutputStream(imageFile, true)), startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = catalog.getReplayedJournalId();
-            checksum.set(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.get())));
-            checksum.set(writer.doWork("masterInfo", () -> catalog.saveMasterInfo(dos, checksum.get())));
-            checksum.set(writer.doWork("frontends", () -> catalog.saveFrontends(dos, checksum.get())));
-            checksum.set(writer.doWork("backends", () -> Catalog.getCurrentSystemInfo().saveBackends(dos, checksum.get())));
-            checksum.set(writer.doWork("db", () -> catalog.saveDb(dos, checksum.get())));
-            checksum.set(writer.doWork("loadJob", () -> catalog.saveLoadJob(dos, checksum.get())));
-            checksum.set(writer.doWork("alterJob", () -> catalog.saveAlterJob(dos, checksum.get())));
-            checksum.set(writer.doWork("recycleBin", () -> catalog.saveRecycleBin(dos, checksum.get())));
-            checksum.set(writer.doWork("globalVariable", () -> catalog.saveGlobalVariable(dos, checksum.get())));
-            checksum.set(writer.doWork("cluster", () -> catalog.saveCluster(dos, checksum.get())));
-            checksum.set(writer.doWork("broker", () -> catalog.saveBrokers(dos, checksum.get())));
-            checksum.set(writer.doWork("resources", () -> catalog.saveResources(dos, checksum.get())));
-            checksum.set(writer.doWork("exportJob", () -> catalog.saveExportJob(dos, checksum.get())));
-            checksum.set(writer.doWork("syncJob", () -> catalog.saveSyncJobs(dos, checksum.get())));
-            checksum.set(writer.doWork("backupHandler", () -> catalog.saveBackupHandler(dos, checksum.get())));
-            checksum.set(writer.doWork("paloAuth", () -> catalog.savePaloAuth(dos, checksum.get())));
-            checksum.set(writer.doWork("transactionState", () -> catalog.saveTransactionState(dos, checksum.get())));
-            checksum.set(writer.doWork("colocateTableIndex", () -> catalog.saveColocateTableIndex(dos, checksum.get())));
-            checksum.set(writer.doWork("routineLoadJobs", () -> catalog.saveRoutineLoadJobs(dos, checksum.get())));
-            checksum.set(writer.doWork("loadJobV2", () -> catalog.saveLoadJobsV2(dos, checksum.get())));
-            checksum.set(writer.doWork("smallFiles", () -> catalog.saveSmallFiles(dos, checksum.get())));
-            checksum.set(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.get())));
-            checksum.set(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.get())));
-            checksum.set(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.get())));
+            checksum.setRef(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
+            checksum.setRef(writer.doWork("masterInfo", () -> catalog.saveMasterInfo(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("frontends", () -> catalog.saveFrontends(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("backends", () -> Catalog.getCurrentSystemInfo().saveBackends(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("db", () -> catalog.saveDb(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("loadJob", () -> catalog.saveLoadJob(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("alterJob", () -> catalog.saveAlterJob(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("recycleBin", () -> catalog.saveRecycleBin(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("globalVariable", () -> catalog.saveGlobalVariable(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("cluster", () -> catalog.saveCluster(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("broker", () -> catalog.saveBrokers(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("resources", () -> catalog.saveResources(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("exportJob", () -> catalog.saveExportJob(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("syncJob", () -> catalog.saveSyncJobs(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("backupHandler", () -> catalog.saveBackupHandler(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("paloAuth", () -> catalog.savePaloAuth(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("transactionState", () -> catalog.saveTransactionState(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("colocateTableIndex", () -> catalog.saveColocateTableIndex(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("routineLoadJobs", () -> catalog.saveRoutineLoadJobs(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("loadJobV2", () -> catalog.saveLoadJobsV2(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("smallFiles", () -> catalog.saveSmallFiles(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
         }
-        MetaFooter.write(imageFile, metaIndices, checksum.get());
+        MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
         LOG.info("finished save image {} in {} ms. checksum is {}",
