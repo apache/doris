@@ -253,7 +253,6 @@ public class DynamicPartitionUtil {
         String[] ranges = reservedHistoryPeriodsWithoutSpace.replaceFirst("\\[","").substring(0, reservedHistoryPeriodsWithoutSpace.length() - 2).split("],\\[");
         Pattern pattern = Pattern.compile("[0-9-]{10}[,]{1}[0-9-]{10}");
         for (String reservedHistoryPeriod : ranges) {
-            LOG.info("whz_test_999 reservedHistoryPeriod: {}", reservedHistoryPeriod);
             Matcher matcher = pattern.matcher(reservedHistoryPeriod);
             if (!matcher.matches()) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriodsWithoutSpace);
