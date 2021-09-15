@@ -153,9 +153,8 @@ public:
 private:
     HllDataType _type = HLL_DATA_EMPTY;
 
-	//TODO: 二叉堆的实现是更优解
-	uint32_t _explicit_data_num = 0;
-	uint64_t _explicit_data[HLL_EXPLICIT_INT64_NUM * 2];
+    uint32_t _explicit_data_num = 0;
+    uint64_t _explicit_data[HLL_EXPLICIT_INT64_NUM * 2];
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
