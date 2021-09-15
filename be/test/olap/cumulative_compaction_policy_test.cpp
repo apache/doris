@@ -120,6 +120,11 @@ public:
         pb1->set_creation_time(10000);
     }
 
+    void init_empty_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+        init_rs_meta(pb1, start, end);
+        pb1->set_num_segments(0);
+    }
+
     void init_all_rs_meta(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 0);
@@ -140,6 +145,34 @@ public:
         RowsetMetaSharedPtr ptr5(new RowsetMeta());
         init_rs_meta(ptr5, 4, 4);
         rs_metas->push_back(ptr5);
+    }
+
+    void init_all_rs_meta_with_empty_rowset(std::vector<RowsetMetaSharedPtr>* rs_metas) {
+        init_all_rs_meta(rs_metas);
+
+        RowsetMetaSharedPtr ptr6(new RowsetMeta());
+        init_empty_rs_meta(ptr6, 5, 5);
+        rs_metas->push_back(ptr6);
+
+        RowsetMetaSharedPtr ptr7(new RowsetMeta());
+        init_empty_rs_meta(ptr7, 6, 6);
+        rs_metas->push_back(ptr7);
+
+        RowsetMetaSharedPtr ptr8(new RowsetMeta());
+        init_empty_rs_meta(ptr8, 7, 7);
+        rs_metas->push_back(ptr8);
+
+        RowsetMetaSharedPtr ptr9(new RowsetMeta());
+        init_empty_rs_meta(ptr9, 8, 8);
+        rs_metas->push_back(ptr9);
+
+        RowsetMetaSharedPtr ptr10(new RowsetMeta());
+        init_empty_rs_meta(ptr10, 9, 9);
+        rs_metas->push_back(ptr10);
+
+        RowsetMetaSharedPtr ptr11(new RowsetMeta());
+        init_empty_rs_meta(ptr11, 10, 10);
+        rs_metas->push_back(ptr11);
     }
 
     void init_all_rs_meta_cal_point(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -218,6 +251,26 @@ TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score)
                                                           cumulative_compaction_policy);
 
     ASSERT_EQ(15, score);
+}
+
+TEST_F(TestNumBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score_with_empty_rowset) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_all_rs_meta_with_empty_rowset(&rs_metas);
+
+    for (auto& rowset : rs_metas) {
+    _tablet_meta->add_rs_meta(rowset);
+    }
+
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_NUM_BASED_POLICY));
+    _tablet->init();
+    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_NUM_BASED_POLICY);
+
+    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
+                                                          cumulative_compaction_policy);
+
+    ASSERT_EQ(19, score);
 }
 
 TEST_F(TestNumBasedCumulativeCompactionPolicy, calculate_cumulative_point) {
@@ -411,6 +464,11 @@ public:
         pb1->set_creation_time(10000);
     }
 
+    void init_empty_rs_meta(RowsetMetaSharedPtr& pb1, int64_t start, int64_t end) {
+        init_rs_meta(pb1, start, end);
+        pb1->set_num_segments(0);
+    }
+
     void init_rs_meta_small_base(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 0);
@@ -431,6 +489,34 @@ public:
         RowsetMetaSharedPtr ptr5(new RowsetMeta());
         init_rs_meta(ptr5, 4, 4);
         rs_metas->push_back(ptr5);
+    }
+
+    void init_rs_meta_small_base_with_empy_rowset(std::vector<RowsetMetaSharedPtr>* rs_metas) {
+        init_rs_meta_small_base(rs_metas);
+
+        RowsetMetaSharedPtr ptr6(new RowsetMeta());
+        init_empty_rs_meta(ptr6, 5, 5);
+        rs_metas->push_back(ptr6);
+
+        RowsetMetaSharedPtr ptr7(new RowsetMeta());
+        init_empty_rs_meta(ptr7, 6, 6);
+        rs_metas->push_back(ptr7);
+
+        RowsetMetaSharedPtr ptr8(new RowsetMeta());
+        init_empty_rs_meta(ptr8, 7, 7);
+        rs_metas->push_back(ptr8);
+
+        RowsetMetaSharedPtr ptr9(new RowsetMeta());
+        init_empty_rs_meta(ptr9, 8, 8);
+        rs_metas->push_back(ptr9);
+
+        RowsetMetaSharedPtr ptr10(new RowsetMeta());
+        init_empty_rs_meta(ptr10, 9, 9);
+        rs_metas->push_back(ptr10);
+
+        RowsetMetaSharedPtr ptr11(new RowsetMeta());
+        init_empty_rs_meta(ptr11, 10, 10);
+        rs_metas->push_back(ptr11);
     }
 
     void init_rs_meta_big_base(std::vector<RowsetMetaSharedPtr>* rs_metas) {
@@ -676,6 +762,27 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score
                                                           cumulative_compaction_policy);
 
     ASSERT_EQ(15, score);
+}
+
+TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score_with_empty_rowset) {
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+    init_rs_meta_small_base_with_empy_rowset(&rs_metas);
+
+    for (auto& rowset : rs_metas) {
+    _tablet_meta->add_rs_meta(rowset);
+    }
+
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
+    _tablet->init();
+    _tablet->calculate_cumulative_point();
+
+    std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
+            CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                    CUMULATIVE_SIZE_BASED_POLICY);
+    const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
+                                                          cumulative_compaction_policy);
+
+    ASSERT_EQ(19, score);
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, calc_cumulative_compaction_score_big_base) {

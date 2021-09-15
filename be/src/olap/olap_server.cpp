@@ -394,7 +394,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 int64_t permits =
                         tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
-                if (permits > 0 && _permit_limiter.request(permits)) {
+                if (permits >= 0 && _permit_limiter.request(permits)) {
                     // Push to _tablet_submitted_compaction before submitting task
                     _push_tablet_into_submitted_compaction(tablet, compaction_type);
                     auto st = _compaction_thread_pool->submit_func([=]() {

@@ -250,6 +250,10 @@ public:
     void set_clone_occurred(bool clone_occurred) { _is_clone_occurred = clone_occurred; }
     bool get_clone_occurred() { return _is_clone_occurred; }
 
+    static uint32_t compute_empty_rowsets_score(const uint32_t empty_rowset_num) {
+        return (uint32_t)(empty_rowset_num * 0.8);
+    }
+
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;

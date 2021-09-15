@@ -167,6 +167,7 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
     int64_t total_size = 0;
 
     // check the base rowset and collect the rowsets of cumulative part
+    uint32_t empty_rowset_num = 0;
     auto rs_meta_iter = all_metas.begin();
     RowsetMetaSharedPtr first_meta;
     int64_t first_version = INT64_MAX;
@@ -187,7 +188,9 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
         } else {
             // collect the rowsets of cumulative part
             total_size += rs_meta->total_disk_size();
-            *score += rs_meta->get_compaction_score();
+            uint32_t rowset_score = rs_meta->get_compaction_score();
+            *score += rowset_score;
+            empty_rowset_num += (rowset_score == 0) ? 1 : 0;
             rowset_to_compact.push_back(rs_meta);
         }
     }
@@ -211,6 +214,7 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
 
     // if total_size is greater than promotion_size, return total score
     if (total_size >= promotion_size) {
+        *score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
         return;
     }
 
@@ -227,11 +231,15 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Table
         // if current level less then remain level, score contains current rowset
         // and process return; otherwise, score does not contains current rowset.
         if (current_level <= remain_level) {
+            *score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
             return;
         }
         total_size -= rs_meta->total_disk_size();
-        *score -= rs_meta->get_compaction_score();
+        uint32_t rowset_score = rs_meta->get_compaction_score();
+        *score -= rowset_score;
+        empty_rowset_num -= (rowset_score == 0) ? 1 : 0;
     }
+    *score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
 }
 
 int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
@@ -242,6 +250,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     size_t promotion_size = _tablet_size_based_promotion_size;
     int transient_size = 0;
     *compaction_score = 0;
+    uint32_t empty_rowset_num = 0;
     int64_t total_size = 0;
     for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
         RowsetSharedPtr rowset = candidate_rowsets[i];
@@ -256,15 +265,19 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 // we meet a delete version, and no other versions before, skip it and continue
                 input_rowsets->clear();
                 *compaction_score = 0;
+                empty_rowset_num = 0;
                 transient_size = 0;
                 continue;
             }
         }
-        if (*compaction_score >= max_compaction_score) {
+        if ((*compaction_score + Tablet::compute_empty_rowsets_score(empty_rowset_num)) >=
+                                                                            max_compaction_score) {
             // got enough segments
             break;
         }
-        *compaction_score += rowset->rowset_meta()->get_compaction_score();
+        uint32_t rowset_score = rowset->rowset_meta()->get_compaction_score();
+        *compaction_score += rowset_score;
+        empty_rowset_num += (rowset_score == 0) ? 1 : 0;
         total_size += rowset->rowset_meta()->total_disk_size();
 
         transient_size += 1;
@@ -272,6 +285,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     }
 
     if (total_size >= promotion_size) {
+        *compaction_score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
         return transient_size;
     }
 
@@ -284,8 +298,11 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             if (!rs_meta->is_segments_overlapping()) {
                 input_rowsets->clear();
                 *compaction_score = 0;
+                empty_rowset_num = 0;
             }
         }
+        *compaction_score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
+
         return transient_size;
     }
 
@@ -300,7 +317,9 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
             break;
         }
         total_size -= rs_meta->total_disk_size();
-        *compaction_score -= rs_meta->get_compaction_score();
+        uint32_t rowset_score = rs_meta->get_compaction_score();
+        *compaction_score -= rowset_score;
+        empty_rowset_num -= (rowset_score == 0) ? 1 : 0;
 
         rs_iter = input_rowsets->erase(rs_iter);
     }
@@ -317,10 +336,11 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     // if we have a sufficient number of segments, we should process the compaction.
     // otherwise, we check number of segments and total_size whether can do compaction.
-    if (total_size < _size_based_compaction_lower_bound_size &&
-        *compaction_score < min_compaction_score) {
+    if (total_size < _size_based_compaction_lower_bound_size && (*compaction_score +
+                Tablet::compute_empty_rowsets_score(empty_rowset_num)) < min_compaction_score) {
         input_rowsets->clear();
         *compaction_score = 0;
+        empty_rowset_num = 0;
     } else if (total_size >= _size_based_compaction_lower_bound_size &&
                input_rowsets->size() == 1) {
         auto rs_meta = input_rowsets->front()->rowset_meta();
@@ -329,8 +349,11 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (!rs_meta->is_segments_overlapping()) {
             input_rowsets->clear();
             *compaction_score = 0;
+            empty_rowset_num = 0;
         }
     }
+    *compaction_score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
+
     return transient_size;
 }
 
@@ -356,6 +379,7 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
         const int64_t max_compaction_score, const int64_t min_compaction_score,
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score) {
+    uint32_t empty_rowset_num = 0;
     *compaction_score = 0;
     int transient_size = 0;
     for (size_t i = 0; i < candidate_rowsets.size(); ++i) {
@@ -372,14 +396,18 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 input_rowsets->clear();
                 transient_size = 0;
                 *compaction_score = 0;
+                empty_rowset_num = 0;
                 continue;
             }
         }
-        if (*compaction_score >= max_compaction_score) {
+        if ((*compaction_score + Tablet::compute_empty_rowsets_score(empty_rowset_num)) >=
+                                                                            max_compaction_score) {
             // got enough segments
             break;
         }
-        *compaction_score += rowset->rowset_meta()->get_compaction_score();
+        uint32_t rowset_score = rowset->rowset_meta()->get_compaction_score();
+        *compaction_score += rowset_score;
+        empty_rowset_num += (rowset_score == 0) ? 1 : 0;
         input_rowsets->push_back(rowset);
         transient_size += 1;
     }
@@ -390,9 +418,15 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     // if we have a sufficient number of segments,
     // or have other versions before encountering the delete version, we should process the compaction.
-    if (last_delete_version->first == -1 && *compaction_score < min_compaction_score) {
+    if (last_delete_version->first == -1 && (*compaction_score +
+              Tablet::compute_empty_rowsets_score(empty_rowset_num)) < min_compaction_score) {
         input_rowsets->clear();
+        *compaction_score = 0;
+        empty_rowset_num = 0;
     }
+
+    *compaction_score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
+
     return transient_size;
 }
 
@@ -400,13 +434,18 @@ void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet
         const std::vector<RowsetMetaSharedPtr>& all_rowsets, const int64_t current_cumulative_point,
         uint32_t* score) {
     const int64_t point = current_cumulative_point;
+    uint32_t empty_rowset_num = 0;
     for (auto& rs_meta : all_rowsets) {
         if (rs_meta->start_version() < point) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         }
-        *score += rs_meta->get_compaction_score();
+        uint32_t rowset_score = rs_meta->get_compaction_score();
+        *score += rowset_score;
+        empty_rowset_num += (rowset_score == 0) ? 1 : 0;
     }
+
+    *score += Tablet::compute_empty_rowsets_score(empty_rowset_num);
 }
 
 void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(

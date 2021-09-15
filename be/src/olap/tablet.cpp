@@ -746,6 +746,7 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
 }
 
 const uint32_t Tablet::_calc_base_compaction_score() const {
+    uint32_t empty_rowset_num = 0;
     uint32_t score = 0;
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;
@@ -758,8 +759,11 @@ const uint32_t Tablet::_calc_base_compaction_score() const {
             continue;
         }
 
-        score += rs_meta->get_compaction_score();
+        uint32_t rowset_score = rs_meta->get_compaction_score();
+        score += rowset_score;
+        empty_rowset_num += (rowset_score == 0) ? 1 : 0;
     }
+    score += compute_empty_rowsets_score(empty_rowset_num);
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
     return base_rowset_exist ? score : 0;
@@ -1324,7 +1328,7 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         OLAPStatus res = _cumulative_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
-            return 0;
+            return -1;
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
@@ -1350,7 +1354,7 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
                 LOG(WARNING) << "failed to pick rowsets for base compaction. res=" << res
                              << ", tablet=" << full_name();
             }
-            return 0;
+            return -1;
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
     }
@@ -1358,7 +1362,7 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
     for (auto rowset : compaction_rowsets) {
         permits += rowset->rowset_meta()->get_compaction_score();
     }
-    return permits;
+    return compaction_rowsets.empty() ? -1 : permits;
 }
 
 void Tablet::execute_compaction(CompactionType compaction_type) {
