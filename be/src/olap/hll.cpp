@@ -145,7 +145,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
                 _convert_explicit_to_register(); 
                 _type = HLL_DATA_FULL; 
             }
-			}
+            }
             break;
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL: 
@@ -243,7 +243,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
 
             for (uint32_t i = 0; i < HLL_REGISTERS_COUNT;) {
                 if (*(uint32_t*)(&_registers[i]) == 0) {
-					i += 4;
+                    i += 4;
                     continue;
                 } 
 				
@@ -345,16 +345,16 @@ bool HyperLogLog::deserialize(const Slice& slice) {
             uint8_t num_explicits = *ptr++;
             // 3+: 8 bytes hash value
             for (int i = 0; i < num_explicits; ++i) {
-				_explicit_data_insert(decode_fixed64_le(ptr));
+                _explicit_data_insert(decode_fixed64_le(ptr));
                 ptr += 8;
             }
             break;
         }
         case HLL_DATA_SPARSE: {
-			_registers = new uint8_t[HLL_REGISTERS_COUNT]();
+            _registers = new uint8_t[HLL_REGISTERS_COUNT]();
             // 2-5(4 byte): number of registers
-            uint32_t num_registers = decode_fixed32_le(ptr);
-			uint16_t register_idx = 0;
+            uint32_t num_registers = decode_fixed32_le(ptr); 
+            uint16_t register_idx = 0;
             ptr += 4;
             for (uint32_t i = 0; i < num_registers; ++i) {
                 // 2 bytes: register index 
@@ -365,8 +365,8 @@ bool HyperLogLog::deserialize(const Slice& slice) {
             }
             break;
         }
-        case HLL_DATA_FULL: {
-			_registers = new uint8_t[HLL_REGISTERS_COUNT];
+        case HLL_DATA_FULL: { 
+            _registers = new uint8_t[HLL_REGISTERS_COUNT];
             // 2+ : hll register value
             memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
             break;

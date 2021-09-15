@@ -183,10 +183,9 @@ private:
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
              _registers[i] = (_registers[i] < other[i] ? other[i] : _registers[i]);
         }
-	}
+    }
 
-	bool _explicit_data_insert(uint64_t data)
-	{
+    bool _explicit_data_insert(uint64_t data) {
         //find insert pos
         int32_t i = (int32_t)_explicit_data_num - 1;
         while (i >= 0) {
@@ -210,7 +209,7 @@ private:
         _explicit_data[i] = data;
         _explicit_data_num++;
         return true;
-	}
+    }
 };
 
 // todo(kks): remove this when dpp_sink class was removed
