@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/hll.h"
-
 #include <algorithm>
 #include <map>
 
 #include "common/logging.h"
+#include "olap/hll.h"
 #include "runtime/string_value.h"
 #include "util/coding.h"
 
@@ -41,8 +40,8 @@ HyperLogLog::HyperLogLog(const Slice& src) {
 // Convert explicit values to register format, and clear explicit values.
 // NOTE: this function won't modify _type.
 void HyperLogLog::_convert_explicit_to_register() {
-    DCHECK(_type == HLL_DATA_EXPLICIT) << "_type(" << _type << ") should be explicit("
-        << HLL_DATA_EXPLICIT << ")";
+    DCHECK(_type == HLL_DATA_EXPLICIT)
+            << "_type(" << _type << ") should be explicit(" << HLL_DATA_EXPLICIT << ")";
     _registers = new uint8_t[HLL_REGISTERS_COUNT]();
 
     for (uint32_t i = 0; i < _explicit_data_num; ++i) {
@@ -65,7 +64,7 @@ void HyperLogLog::update(uint64_t hash_value) {
         if (_explicit_data_num < HLL_EXPLICIT_INT64_NUM) {
             _explicit_data_insert(hash_value);
             break;
-        }   
+        }
         _convert_explicit_to_register();
         _type = HLL_DATA_FULL;
         // fall through
@@ -88,7 +87,8 @@ void HyperLogLog::merge(const HyperLogLog& other) {
         switch (other._type) {
         case HLL_DATA_EXPLICIT:
             _explicit_data_num = other._explicit_data_num;
-            memcpy(_explicit_data, other._explicit_data, sizeof(*_explicit_data) * _explicit_data_num);
+            memcpy(_explicit_data, other._explicit_data,
+                   sizeof(*_explicit_data) * _explicit_data_num);
             break;
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL:
@@ -116,44 +116,47 @@ void HyperLogLog::merge(const HyperLogLog& other) {
                 while (i < explicit_data_num || j < other._explicit_data_num) {
                     if (i == explicit_data_num) {
                         uint32_t n = other._explicit_data_num - j;
-                        memcpy(_explicit_data + k, other._explicit_data + j, n * sizeof(*_explicit_data));
-                        k += n; break;
+                        memcpy(_explicit_data + k, other._explicit_data + j,
+                               n * sizeof(*_explicit_data));
+                        k += n;
+                        break;
                     } else if (j == other._explicit_data_num) {
                         uint32_t n = explicit_data_num - i;
                         memcpy(_explicit_data + k, explicit_data + i, n * sizeof(*_explicit_data));
-                        k += n; break;
+                        k += n;
+                        break;
                     } else {
-                        if (explicit_data[i] < other._explicit_data[j]) { 
+                        if (explicit_data[i] < other._explicit_data[j]) {
                             _explicit_data[k++] = explicit_data[i++];
                         } else if (explicit_data[i] > other._explicit_data[j]) {
                             _explicit_data[k++] = other._explicit_data[j++];
                         } else {
-                            _explicit_data[k++] = explicit_data[i++]; j++;
+                            _explicit_data[k++] = explicit_data[i++];
+                            j++;
                         }
                     }
                 }
                 _explicit_data_num = k;
-            } else { //依次插入 
-                int32_t n = other._explicit_data_num; 
-                const uint64_t *data = other._explicit_data; 
-                for (int32_t i = 0; i < n; ++i) { 
-                    _explicit_data_insert(data[i]); 
+            } else { //insert one by one
+                int32_t n = other._explicit_data_num;
+                const uint64_t* data = other._explicit_data;
+                for (int32_t i = 0; i < n; ++i) {
+                    _explicit_data_insert(data[i]);
                 }
             }
 
-            if (_explicit_data_num > HLL_EXPLICIT_INT64_NUM) { 
-                _convert_explicit_to_register(); 
-                _type = HLL_DATA_FULL; 
+            if (_explicit_data_num > HLL_EXPLICIT_INT64_NUM) {
+                _convert_explicit_to_register();
+                _type = HLL_DATA_FULL;
             }
-            }
-            break;
+        } break;
         case HLL_DATA_SPARSE:
-        case HLL_DATA_FULL: 
-            _convert_explicit_to_register(); 
-            _merge_registers(other._registers); 
-            _type = HLL_DATA_FULL; 
+        case HLL_DATA_FULL:
+            _convert_explicit_to_register();
+            _merge_registers(other._registers);
+            _type = HLL_DATA_FULL;
             break;
-        default: 
+        default:
             break;
         }
         break;
@@ -161,13 +164,13 @@ void HyperLogLog::merge(const HyperLogLog& other) {
     case HLL_DATA_SPARSE:
     case HLL_DATA_FULL: {
         switch (other._type) {
-        case HLL_DATA_EXPLICIT: 
-            for (int32_t i = 0; i < other._explicit_data_num; ++i) { 
-                _update_registers(other._explicit_data[i]); 
+        case HLL_DATA_EXPLICIT:
+            for (int32_t i = 0; i < other._explicit_data_num; ++i) {
+                _update_registers(other._explicit_data[i]);
             }
             break;
         case HLL_DATA_SPARSE:
-        case HLL_DATA_FULL: 
+        case HLL_DATA_FULL:
             _merge_registers(other._registers);
             break;
         default:
@@ -200,13 +203,13 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
         // When the _type is unknown, which may not happen, we encode it as
         // Empty HyperLogLog object.
         *ptr++ = HLL_DATA_EMPTY;
-        
+
         break;
     }
     case HLL_DATA_EXPLICIT: {
         DCHECK(_explicit_data_num < HLL_EXPLICIT_INT64_NUM)
-            << "Number of explicit elements(" << _explicit_data_num
-            << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
+                << "Number of explicit elements(" << _explicit_data_num
+                << ") should be less or equal than " << HLL_EXPLICIT_INT64_NUM;
         *ptr++ = _type;
         *ptr++ = (uint8_t)_explicit_data_num;
 
@@ -217,7 +220,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
         for (int32_t i = 0; i < _explicit_data_num; ++i) {
             *(uint64_t*)ptr = (uint64_t)gbswap_64(_explicit_data[i]);
             ptr += 8;
-        }    
+        }
 #endif
         break;
     }
@@ -245,28 +248,32 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
                 if (*(uint32_t*)(&_registers[i]) == 0) {
                     i += 4;
                     continue;
-                } 
-				
+                }
+
                 if (UNLIKELY(_registers[i])) {
-                    encode_fixed16_le(ptr, i); ptr += 2; // 2 bytes: register index 
+                    encode_fixed16_le(ptr, i);
+                    ptr += 2;               // 2 bytes: register index
                     *ptr++ = _registers[i]; // 1 byte: register value
                 }
                 ++i;
 
                 if (UNLIKELY(_registers[i])) {
-                    encode_fixed16_le(ptr, i); ptr += 2; // 2 bytes: register index 
+                    encode_fixed16_le(ptr, i);
+                    ptr += 2;               // 2 bytes: register index
                     *ptr++ = _registers[i]; // 1 byte: register value
                 }
                 ++i;
 
                 if (UNLIKELY(_registers[i])) {
-                    encode_fixed16_le(ptr, i); ptr += 2; // 2 bytes: register index 
+                    encode_fixed16_le(ptr, i);
+                    ptr += 2;               // 2 bytes: register index
                     *ptr++ = _registers[i]; // 1 byte: register value
                 }
                 ++i;
 
                 if (UNLIKELY(_registers[i])) {
-                    encode_fixed16_le(ptr, i); ptr += 2; // 2 bytes: register index 
+                    encode_fixed16_le(ptr, i);
+                    ptr += 2;               // 2 bytes: register index
                     *ptr++ = _registers[i]; // 1 byte: register value
                 }
                 ++i;
@@ -337,44 +344,44 @@ bool HyperLogLog::deserialize(const Slice& slice) {
     // first byte : type
     _type = (HllDataType)*ptr++;
     switch (_type) {
-        case HLL_DATA_EMPTY:
-            break;
-        case HLL_DATA_EXPLICIT: {
-            // 2: number of explicit values
-            // make sure that num_explicit is positive
-            uint8_t num_explicits = *ptr++;
-            // 3+: 8 bytes hash value
-            for (int i = 0; i < num_explicits; ++i) {
-                _explicit_data_insert(decode_fixed64_le(ptr));
-                ptr += 8;
-            }
-            break;
+    case HLL_DATA_EMPTY:
+        break;
+    case HLL_DATA_EXPLICIT: {
+        // 2: number of explicit values
+        // make sure that num_explicit is positive
+        uint8_t num_explicits = *ptr++;
+        // 3+: 8 bytes hash value
+        for (int i = 0; i < num_explicits; ++i) {
+            _explicit_data_insert(decode_fixed64_le(ptr));
+            ptr += 8;
         }
-        case HLL_DATA_SPARSE: {
-            _registers = new uint8_t[HLL_REGISTERS_COUNT]();
-            // 2-5(4 byte): number of registers
-            uint32_t num_registers = decode_fixed32_le(ptr); 
-            uint16_t register_idx = 0;
-            ptr += 4;
-            for (uint32_t i = 0; i < num_registers; ++i) {
-                // 2 bytes: register index 
-                // 1 byte: register value
-                register_idx = decode_fixed16_le(ptr);
-                ptr += 2;
-                _registers[register_idx] = *ptr++;
-            }
-            break;
+        break;
+    }
+    case HLL_DATA_SPARSE: {
+        _registers = new uint8_t[HLL_REGISTERS_COUNT]();
+        // 2-5(4 byte): number of registers
+        uint32_t num_registers = decode_fixed32_le(ptr);
+        uint16_t register_idx = 0;
+        ptr += 4;
+        for (uint32_t i = 0; i < num_registers; ++i) {
+            // 2 bytes: register index
+            // 1 byte: register value
+            register_idx = decode_fixed16_le(ptr);
+            ptr += 2;
+            _registers[register_idx] = *ptr++;
         }
-        case HLL_DATA_FULL: { 
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            // 2+ : hll register value
-            memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
-            break;
-        }
-        default:
-            // revert type to EMPTY
-            _type = HLL_DATA_EMPTY;
-            return false;
+        break;
+    }
+    case HLL_DATA_FULL: {
+        _registers = new uint8_t[HLL_REGISTERS_COUNT];
+        // 2+ : hll register value
+        memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
+        break;
+    }
+    default:
+        // revert type to EMPTY
+        _type = HLL_DATA_EMPTY;
+        return false;
     }
     return true;
 }
@@ -427,8 +434,8 @@ int64_t HyperLogLog::estimate_cardinality() const {
         // there are relatively large fluctuations, we fixed the problem refer to redis.
         double bias = 5.9119 * 1.0e-18 * (estimate * estimate * estimate * estimate) -
                       1.4253 * 1.0e-12 * (estimate * estimate * estimate) +
-                      1.2940 * 1.0e-7 * (estimate * estimate) -
-                      5.2921 * 1.0e-3 * estimate + 83.3216;
+                      1.2940 * 1.0e-7 * (estimate * estimate) - 5.2921 * 1.0e-3 * estimate +
+                      83.3216;
         estimate -= estimate * (bias / 100);
     }
     return (int64_t)(estimate + 0.5);
@@ -436,44 +443,44 @@ int64_t HyperLogLog::estimate_cardinality() const {
 
 void HllSetResolver::parse() {
     // skip LengthValueType
-    char*  pdata = _buf_ref;
+    char* pdata = _buf_ref;
     _set_type = (HllDataType)pdata[0];
     char* sparse_data = NULL;
     switch (_set_type) {
-        case HLL_DATA_EXPLICIT:
-            // first byte : type
-            // second～five byte : hash values's number
-            // five byte later : hash value
-            _explicit_num = (ExplicitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
-            _explicit_value = (uint64_t*)(pdata + sizeof(SetTypeValueType)
-                    + sizeof(ExplicitLengthValueType));
-            break;
-        case HLL_DATA_SPARSE:
-            // first byte : type
-            // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-            // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-            _sparse_count = (SparseLengthValueType*)(pdata + sizeof (SetTypeValueType));
-            sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-            for (int i = 0; i < *_sparse_count; i++) {
-                SparseIndexType* index = (SparseIndexType*)sparse_data;
-                sparse_data += sizeof(SparseIndexType);
-                SparseValueType* value = (SparseValueType*)sparse_data;
-                _sparse_map[*index] = *value;
-                sparse_data += sizeof(SetTypeValueType);
-            }
-            break;
-        case HLL_DATA_FULL:
-            // first byte : type
-            // second byte later : hll register value
-            _full_value_position = pdata + sizeof (SetTypeValueType);
-            break;
-        default:
-            // HLL_DATA_EMPTY
-            break;
+    case HLL_DATA_EXPLICIT:
+        // first byte : type
+        // second～five byte : hash values's number
+        // five byte later : hash value
+        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
+        _explicit_value =
+                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
+        break;
+    case HLL_DATA_SPARSE:
+        // first byte : type
+        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
+        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
+        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
+        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
+        for (int i = 0; i < *_sparse_count; i++) {
+            SparseIndexType* index = (SparseIndexType*)sparse_data;
+            sparse_data += sizeof(SparseIndexType);
+            SparseValueType* value = (SparseValueType*)sparse_data;
+            _sparse_map[*index] = *value;
+            sparse_data += sizeof(SetTypeValueType);
+        }
+        break;
+    case HLL_DATA_FULL:
+        // first byte : type
+        // second byte later : hll register value
+        _full_value_position = pdata + sizeof(SetTypeValueType);
+        break;
+    default:
+        // HLL_DATA_EMPTY
+        break;
     }
 }
 
-void HllSetHelper::set_sparse(char *result, const std::map<int, uint8_t>& index_to_value, 
+void HllSetHelper::set_sparse(char* result, const std::map<int, uint8_t>& index_to_value,
                               int& len) {
     result[0] = HLL_DATA_SPARSE;
     len = sizeof(HllSetResolver::SetTypeValueType) + sizeof(HllSetResolver::SparseLengthValueType);

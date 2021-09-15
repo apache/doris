@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_HLL_H
 #define DORIS_BE_SRC_OLAP_HLL_H
 
+#include <map>
 #include <math.h>
 #include <stdio.h>
 #include <set>
-#include <map>
 #include <string>
 
 #include "gutil/macros.h"
@@ -131,22 +131,22 @@ public:
     // only for debug
     std::string to_string() {
         switch (_type) {
-            case HLL_DATA_EMPTY:
-                return {};
-            case HLL_DATA_EXPLICIT:
-            case HLL_DATA_SPARSE:
-            case HLL_DATA_FULL:
-                {
-                    std::string str {"hash set size: "};
-                    str.append(std::to_string((size_t)_explicit_data_num));
-                    str.append("\ncardinality:\t");
-                    str.append(std::to_string(estimate_cardinality()));
-                    str.append("\ntype:\t");
-                    str.append(std::to_string(_type));
-                    return str;
-                }
-            default:
-                return {};
+        case HLL_DATA_EMPTY:
+            return {};
+        case HLL_DATA_EXPLICIT:
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL:
+            {
+                std::string str {"hash set size: "};
+                str.append(std::to_string((size_t)_explicit_data_num));
+                str.append("\ncardinality:\t");
+                str.append(std::to_string(estimate_cardinality()));
+                str.append("\ntype:\t");
+                str.append(std::to_string(_type));
+                return str;
+            }
+        default:
+            return {};
         }
     }
 
@@ -174,13 +174,13 @@ private:
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
         uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
-        _registers[idx] = (_registers[idx] > first_one_bit ? _registers[idx] : first_one_bit);
+        _registers[idx] = _registers[idx] > first_one_bit ? _registers[idx] : first_one_bit;
     }
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other) {
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-             _registers[i] = (_registers[i] < other[i] ? other[i] : _registers[i]);
+            _registers[i] = _registers[i] < other[i] ? other[i] : _registers[i];
         }
     }
 
