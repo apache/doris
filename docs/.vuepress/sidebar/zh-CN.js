@@ -153,6 +153,7 @@ module.exports = [
         directoryPath: "operation/",
         children: [
           "doris-error-code",
+          "be-olap-error-code",
           "disk-capacity",
           "metadata-operation",
           "monitor-alert",
