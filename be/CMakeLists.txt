@@ -506,7 +506,6 @@ set(COMMON_THIRDPARTY
     gflags
     brpc
     protobuf
-    benchmark
     openssl
     crypto
     leveldb
@@ -528,6 +527,13 @@ set(COMMON_THIRDPARTY
     lua
     ${AWS_LIBS}
 )
+
+if (${MAKE_TEST} STREQUAL "ON")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        benchmark       
+    )
+endif()
 
 # thirdparties dependescies that can only run on X86 platform
 set(X86_DEPENDENCIES

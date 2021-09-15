@@ -44,7 +44,6 @@ class TupleRow;
 class TupleDescriptor;
 class PRowBatch;
 
-
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
 // can add rows up to that capacity.
@@ -171,7 +170,7 @@ public:
 
     // The total size of all data represented in this row batch (tuples and referenced
     // string data).
-    int total_byte_size();
+    size_t total_byte_size();
 
     TupleRow* get_row(int row_idx) const {
         DCHECK(_tuple_ptrs != NULL);
@@ -351,12 +350,12 @@ public:
     // This function does not reset().
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
-    int serialize(TRowBatch* output_batch);
-    int serialize(PRowBatch* output_batch);
+    size_t serialize(TRowBatch* output_batch);
+    size_t serialize(PRowBatch* output_batch);
 
     // Utility function: returns total size of batch.
-    static int get_batch_size(const TRowBatch& batch);
-    static int get_batch_size(const PRowBatch& batch);
+    static size_t get_batch_size(const TRowBatch& batch);
+    static size_t get_batch_size(const PRowBatch& batch);
 
     int num_rows() const { return _num_rows; }
     int capacity() const { return _capacity; }

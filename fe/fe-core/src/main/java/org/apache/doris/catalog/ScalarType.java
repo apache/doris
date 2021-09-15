@@ -176,6 +176,8 @@ public class ScalarType extends Type {
             case "VARCHAR":
                 return createVarcharType();
             case "STRING":
+            case "TEXT":
+            case "BLOB":
                 return createStringType();
             case "HLL":
                 return createHllType();
@@ -284,7 +286,7 @@ public class ScalarType extends Type {
             }
             return "VARCHAR(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
-            return "STRING";
+            return "TEXT";
         }
         return type.toString();
     }
@@ -319,9 +321,11 @@ public class ScalarType extends Type {
             case DATE:
             case DATETIME:
             case HLL:
-            case STRING:
             case BITMAP:
                 stringBuilder.append(type.toString().toLowerCase());
+                break;
+            case STRING:
+                stringBuilder.append("text");
                 break;
             case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());

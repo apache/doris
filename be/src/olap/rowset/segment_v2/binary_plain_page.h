@@ -215,7 +215,7 @@ public:
         char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
         if (destination == nullptr) {
             return Status::MemoryAllocFailed(
-                strings::Substitute("memory allocate failed, size:$0", mem_size));
+                    strings::Substitute("memory allocate failed, size:$0", mem_size));
         }
         for (int i = 0; i < max_fetch; ++i) {
             out->relocate(destination);
@@ -245,7 +245,7 @@ public:
 
 private:
     // Return the offset within '_data' where the string value with index 'idx' can be found.
-    uint32_t offset(int idx) const {
+    uint32_t offset(size_t idx) const {
         if (idx >= _num_elems) {
             return _offsets_pos;
         }

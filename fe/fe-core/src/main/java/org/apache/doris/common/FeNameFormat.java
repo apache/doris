@@ -49,7 +49,7 @@ public class FeNameFormat {
     public static void checkTableName(String tableName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)
                 || !tableName.matches(COMMON_TABLE_NAME_REGEX)
-                || tableName.length() >= Config.table_name_length_limit) {
+                || tableName.length() > Config.table_name_length_limit) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName);
         }
     }

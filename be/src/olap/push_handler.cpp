@@ -944,65 +944,66 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, FieldType type){
+OLAPStatus PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, bool src_null,
+                                            MemPool* mem_pool, FieldType type) {
     switch (type) {
-        case OLAP_FIELD_TYPE_DECIMAL: {
-            dst->set_is_null(src_null);
-            if (src_null) {
-                break;
-            }
-            auto *decimal_value = reinterpret_cast<const DecimalV2Value *>(src);
-            auto *storage_decimal_value = reinterpret_cast<decimal12_t *>(dst->mutable_cell_ptr());
-            storage_decimal_value->integer = decimal_value->int_value();
-            storage_decimal_value->fraction = decimal_value->frac_value();
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        dst->set_is_null(src_null);
+        if (src_null) {
             break;
         }
-        case OLAP_FIELD_TYPE_DATETIME: {
-            dst->set_is_null(src_null);
-            if (src_null) {
-                break;
-            }
-
-            auto* datetime_value = reinterpret_cast<const DateTimeValue*>(src);
-            auto* storage_datetime_value = reinterpret_cast<uint64_t*>(dst->mutable_cell_ptr());
-            *storage_datetime_value = datetime_value->to_olap_datetime();
+        auto* decimal_value = reinterpret_cast<const DecimalV2Value*>(src);
+        auto* storage_decimal_value = reinterpret_cast<decimal12_t*>(dst->mutable_cell_ptr());
+        storage_decimal_value->integer = decimal_value->int_value();
+        storage_decimal_value->fraction = decimal_value->frac_value();
+        break;
+    }
+    case OLAP_FIELD_TYPE_DATETIME: {
+        dst->set_is_null(src_null);
+        if (src_null) {
             break;
         }
 
-        case OLAP_FIELD_TYPE_DATE: {
-            dst->set_is_null(src_null);
-            if (src_null) {
-                break;
-            }
+        auto* datetime_value = reinterpret_cast<const DateTimeValue*>(src);
+        auto* storage_datetime_value = reinterpret_cast<uint64_t*>(dst->mutable_cell_ptr());
+        *storage_datetime_value = datetime_value->to_olap_datetime();
+        break;
+    }
 
-            auto* date_value = reinterpret_cast<const DateTimeValue*>(src);
-            auto* storage_date_value = reinterpret_cast<uint24_t*>(dst->mutable_cell_ptr());
-            *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
+    case OLAP_FIELD_TYPE_DATE: {
+        dst->set_is_null(src_null);
+        if (src_null) {
             break;
         }
-        case OLAP_FIELD_TYPE_BOOL:
-        case OLAP_FIELD_TYPE_TINYINT:
-        case OLAP_FIELD_TYPE_SMALLINT:
-        case OLAP_FIELD_TYPE_INT:
-        case OLAP_FIELD_TYPE_UNSIGNED_INT:
-        case OLAP_FIELD_TYPE_BIGINT:
-        case OLAP_FIELD_TYPE_LARGEINT:
-        case OLAP_FIELD_TYPE_FLOAT:
-        case OLAP_FIELD_TYPE_DOUBLE:
-        case OLAP_FIELD_TYPE_CHAR:
-        case OLAP_FIELD_TYPE_VARCHAR:
-        case OLAP_FIELD_TYPE_HLL:
-        case OLAP_FIELD_TYPE_OBJECT:{
-            dst->set_is_null(src_null);
-            if (src_null) {
-                break;
-            }
-            const TypeInfo* type_info = get_type_info(type);
-            type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+
+        auto* date_value = reinterpret_cast<const DateTimeValue*>(src);
+        auto* storage_date_value = reinterpret_cast<uint24_t*>(dst->mutable_cell_ptr());
+        *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
+        break;
+    }
+    case OLAP_FIELD_TYPE_BOOL:
+    case OLAP_FIELD_TYPE_TINYINT:
+    case OLAP_FIELD_TYPE_SMALLINT:
+    case OLAP_FIELD_TYPE_INT:
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case OLAP_FIELD_TYPE_BIGINT:
+    case OLAP_FIELD_TYPE_LARGEINT:
+    case OLAP_FIELD_TYPE_FLOAT:
+    case OLAP_FIELD_TYPE_DOUBLE:
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_OBJECT: {
+        dst->set_is_null(src_null);
+        if (src_null) {
             break;
         }
-        default:
-            return OLAP_ERR_INVALID_SCHEMA;
+        const TypeInfo* type_info = get_type_info(type);
+        type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        break;
+    }
+    default:
+        return OLAP_ERR_INVALID_SCHEMA;
     }
 
     return OLAP_SUCCESS;
@@ -1033,9 +1034,11 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
         const void* value = _tuple->get_slot(slot->tuple_offset());
 
         FieldType type = _schema->column(i)->type();
-        OLAPStatus field_status = fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
-        if (field_status!= OLAP_SUCCESS) {
-            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i << ", type: " << type;
+        OLAPStatus field_status =
+                fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
+        if (field_status != OLAP_SUCCESS) {
+            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i
+                         << ", type: " << type;
             return OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID;
         }
     }
