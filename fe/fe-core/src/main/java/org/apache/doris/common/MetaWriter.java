@@ -133,7 +133,7 @@ public class MetaWriter {
 
         long saveImageEndTime = System.currentTimeMillis();
         LOG.info("finished save image {} in {} ms. checksum is {}",
-                imageFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum);
+                imageFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum.getRef());
     }
 
 }
