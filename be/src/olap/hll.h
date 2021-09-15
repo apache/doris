@@ -82,8 +82,8 @@ public:
 
     HyperLogLog() = default;
     explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
-		_explicit_data[0] = hash_value;
-		_explicit_data_num = 1;
+        _explicit_data[0] = hash_value;
+        _explicit_data_num = 1;
     }
 
     explicit HyperLogLog(const Slice& src);
@@ -180,16 +180,16 @@ private:
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other) {
-		for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] = (_registers[i] < other[i] ? other[i] : _registers[i]);
-		}
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+             _registers[i] = (_registers[i] < other[i] ? other[i] : _registers[i]);
+        }
 	}
 
 	bool _explicit_data_insert(uint64_t data)
 	{
         //find insert pos
-		int32_t i = (int32_t)_explicit_data_num - 1;
-		while (i >= 0) {
+        int32_t i = (int32_t)_explicit_data_num - 1;
+        while (i >= 0) {
             if (_explicit_data[i] == data) {
                 return false;
             } else if (_explicit_data[i] < data) {
@@ -209,7 +209,7 @@ private:
         //insert data
         _explicit_data[i] = data;
         _explicit_data_num++;
-		return true;
+        return true;
 	}
 };
 
