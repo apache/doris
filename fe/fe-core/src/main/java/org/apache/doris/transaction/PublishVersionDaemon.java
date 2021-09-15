@@ -232,7 +232,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                     }
                     shouldFinishTxn = true;
                 }
-                // transaction's publish is not timeout, waiting next round.
             } else {
                 // all publish tasks are finished, try to finish this txn.
                 shouldFinishTxn = true;
