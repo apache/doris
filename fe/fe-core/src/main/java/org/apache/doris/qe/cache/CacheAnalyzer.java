@@ -208,6 +208,7 @@ public class CacheAnalyzer {
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
         latestTable.Debug();
+        long latestViewUpdateTime = getLatestViewUpdateTime(selectStmt.getTableRefs());
 
         if (now == 0) {
             now = nowtime();
@@ -216,7 +217,7 @@ public class CacheAnalyzer {
                 (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000) {
             LOG.debug("TIME:{},{},{}", now, latestTable.latestTime, Config.cache_last_version_interval_second*1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
-            ((SqlCache) cache).setCacheInfo(this.latestTable);
+            ((SqlCache) cache).setCacheInfo(this.latestTable, latestViewUpdateTime);
             MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
             return CacheMode.Sql;
         }
@@ -263,7 +264,7 @@ public class CacheAnalyzer {
         partitionPredicate = compoundPredicates.get(0);
         cache = new PartitionCache(this.queryId, this.selectStmt);
         ((PartitionCache) cache).setCacheInfo(this.latestTable, this.partitionInfo, this.partColumn,
-                this.partitionPredicate);
+                this.partitionPredicate, latestViewUpdateTime);
         MetricRepo.COUNTER_CACHE_MODE_PARTITION.increase(1L);
         return CacheMode.Partition;
     }
@@ -428,6 +429,19 @@ public class CacheAnalyzer {
             }
         }
         return table;
+    }
+
+    private long getLatestViewUpdateTime(List<TableRef> tableRefs) {
+        long lastViewUpdateTime = 0;
+        for (TableRef tblRef: tableRefs) {
+            if (tblRef instanceof InlineViewRef) {
+                long createTime = ((InlineViewRef) tblRef).getCreateTime();
+                if (createTime > lastViewUpdateTime) {
+                    lastViewUpdateTime = createTime;
+                }
+            }
+        }
+        return lastViewUpdateTime;
     }
 
     public Cache.HitRange getHitRange() {

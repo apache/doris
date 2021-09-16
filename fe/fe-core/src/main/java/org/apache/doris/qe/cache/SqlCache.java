@@ -35,13 +35,15 @@ public class SqlCache extends Cache {
         super(queryId, selectStmt);
     }
 
-    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable) {
+    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, long latestViewUpdateTime) {
         this.latestTable = latestTable;
+        this.latestViewUpdateTime = latestViewUpdateTime;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
+        String sqlWithViewTime = selectStmt.getOrigStmt().originStmt + this.latestViewUpdateTime;
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(selectStmt.getOrigStmt().originStmt))
+                .setSqlKey(CacheProxy.getMd5(sqlWithViewTime))
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
