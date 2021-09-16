@@ -283,7 +283,7 @@ Dictionary compression column size, less than this value using dictionary compre
 Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
 Tablet score can be calculated like this:
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 

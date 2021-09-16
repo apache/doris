@@ -280,7 +280,7 @@ Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以
 选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
 tablet score可以通过以下公式计算：
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 
