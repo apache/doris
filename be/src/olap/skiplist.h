@@ -264,9 +264,9 @@ inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
 template <typename Key, class Comparator>
 int SkipList<Key, Comparator>::RandomHeight() {
     // Increase height with probability 1 in kBranching
-    static const unsigned int kBranching = 4;
     int height = 1;
-    while (height < kMaxHeight && ((rnd_.Next() % kBranching) == 0)) {
+    // "& 3" equals to "% 4", and more faster. 4 is kBranching
+    while (height < kMaxHeight && ((rnd_.Next() & 3) == 0)) {
         height++;
     }
     DCHECK(height > 0);
