@@ -18,6 +18,7 @@
 
 package org.apache.doris.common.util;
 
+import com.google.common.collect.Range;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -53,7 +54,11 @@ import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.Date;
@@ -235,6 +240,36 @@ public class DynamicPartitionUtil {
         }
     }
 
+    public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods) throws DdlException {
+        List<Range> reservedHistoryPeriodsToRangeList = new ArrayList<Range>();
+        Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
+        Pattern pattern = Pattern.compile("\\[([0-9]{4}-[0-9]{2}-[0-9]{2}),([0-9]{4}-[0-9]{2}-[0-9]{2})\\]");
+        Matcher matcher = pattern.matcher(reservedHistoryPeriods);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        while (matcher.find()) {
+            String lowerBorderOfReservedHistory = matcher.group(1);
+            String upperBorderOfReservedHistory = matcher.group(2);
+            if (lowerBorderOfReservedHistory.compareTo(upperBorderOfReservedHistory) > 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_LARGER_THAN_ENDS, lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
+            } else {
+                reservedHistoryPeriodsToRangeList.add(Range.closed(lowerBorderOfReservedHistory, upperBorderOfReservedHistory));
+            }
+        }
+        return reservedHistoryPeriodsToRangeList;
+    }
+
+    public static String sortedListedToString(String reservedHistoryPeriods) throws DdlException {
+        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
+        reservedHistoryPeriodsToRangeList.sort(new Comparator<Range>() {
+            @Override
+            public int compare(Range o1, Range o2) {
+                return o1.lowerEndpoint().compareTo(o2.lowerEndpoint());
+            }
+        });
+        String sortedReservedHistoryPeriods = reservedHistoryPeriodsToRangeList.toString().replace("..",",");
+        return sortedReservedHistoryPeriods;
+    }
+
     private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods) throws DdlException {
         if (Strings.isNullOrEmpty(reservedHistoryPeriods) ) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
@@ -245,41 +280,27 @@ public class DynamicPartitionUtil {
         // 1. "dynamic_partition.reserved_history_periods" = "[2021-07-01,]" invalid one, needs pairs of values
         // 2. "dynamic_partition.reserved_history_periods" = "[,2021-08-01]" invalid one, needs pairs of values
         // 3. "dynamic_partition.reserved_history_periods" = "[2021-07-01,2020-08-01,]" invalid format
-        String reservedHistoryPeriodsWithoutSpace = reservedHistoryPeriods.replace(" ", "");
-        if (!reservedHistoryPeriodsWithoutSpace.startsWith("[") || !reservedHistoryPeriodsWithoutSpace.endsWith("]")) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriodsWithoutSpace);
+        if (!reservedHistoryPeriods.startsWith("[") || !reservedHistoryPeriods.endsWith("]")) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
         }
 
-        String[] ranges = reservedHistoryPeriodsWithoutSpace.replaceFirst("\\[","").substring(0, reservedHistoryPeriodsWithoutSpace.length() - 2).split("],\\[");
-        Pattern pattern = Pattern.compile("[0-9-]{10}[,]{1}[0-9-]{10}");
-        for (String reservedHistoryPeriod : ranges) {
-            Matcher matcher = pattern.matcher(reservedHistoryPeriod);
-            if (!matcher.matches()) {
-                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriodsWithoutSpace);
-            }
-        }
-
-        String[] periods = reservedHistoryPeriods.replace(" ", "").replace("[", "").replace("]", "").split(",");
-        if (periods.length % 2 == 1) {
-            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_ENDS_LENGTH_NOT_EQUAL, reservedHistoryPeriodsWithoutSpace);
-        }
-
+        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
+        Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-        Date date = null;
-        try {
-            for (int i = 0; i < periods.length; i++) {
-                date = sdf.parse(periods[i]);
-                if (!periods[i].equals(sdf.format(date))) {
-                    throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
-                }
-            }
-        } catch (ParseException e) {
-            throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
-        }
 
-        for (int i = 0; i < periods.length; i+=2) {
-            if (periods[i].compareTo(periods[i+1]) > 0) {
-                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_LARGER_THAN_ENDS, periods[i], periods[i+1]);
+        if (reservedHistoryPeriodsToRangeList.size() != sizeOfPeriods) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
+        } else {
+            try {
+                for (Range range : reservedHistoryPeriodsToRangeList) {
+                    String formattedLowerBound = sdf.format(sdf.parse(range.lowerEndpoint().toString()));
+                    String formattedUpperBound = sdf.format(sdf.parse(range.upperEndpoint().toString()));
+                    if (!range.lowerEndpoint().toString().equals(formattedLowerBound) || !range.upperEndpoint().toString().equals(formattedUpperBound)) {
+                        throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
+                    }
+                }
+            } catch (ParseException e) {
+                throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
             }
         }
     }

@@ -19,12 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 
-import java.util.Arrays;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -189,14 +190,8 @@ public class DynamicPartitionProperty {
         return reservedHistoryPeriods;
     }
 
-    public String getSortedReservedHistoryPeriods(String reservedHistoryPeriods) {
-        String[] periods = reservedHistoryPeriods.replace(" ", "").replaceFirst("\\[","").substring(0, reservedHistoryPeriods.length() - 2).split("],\\[");
-        Arrays.sort(periods);
-        StringBuilder stringBuilder = new StringBuilder("[");
-        for (int i = 0; i < periods.length; i++) {
-            stringBuilder.append(periods[i]).append("],[");
-        }
-        return stringBuilder.delete(stringBuilder.length()-2,stringBuilder.length()).toString();
+    public String getSortedReservedHistoryPeriods(String reservedHistoryPeriods) throws DdlException {
+        return DynamicPartitionUtil.sortedListedToString(reservedHistoryPeriods);
     }
 
     /**

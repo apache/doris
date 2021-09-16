@@ -1835,6 +1835,8 @@ public class ShowExecutor {
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG),
                             dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods)));
+                } catch (DdlException e) {
+                    e.printStackTrace();
                 } finally {
                     olapTable.readUnlock();
                 }

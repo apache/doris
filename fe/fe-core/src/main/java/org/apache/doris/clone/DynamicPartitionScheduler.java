@@ -277,6 +277,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     db.getFullName(), olapTable.getName());
             return dropPartitionClauses;
         }
+
         StringBuilder reservedHistoryStartsBuilder = new StringBuilder();
         StringBuilder reservedHistoryEndsBuilder = new StringBuilder();
         String[] reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods().replace(" ", "").replace("[", "").replace("]", "").split(",");
