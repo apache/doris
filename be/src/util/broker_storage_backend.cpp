@@ -145,7 +145,8 @@ Status BrokerStorageBackend::upload(const std::string& local, const std::string&
 
 Status BrokerStorageBackend::rename(const std::string& orig_name, const std::string& new_name) {
     Status status = Status::OK();
-    BrokerServiceConnection client(client_cache(_env), _broker_addr, 10000, &status);
+    BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
+                                   &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
@@ -190,7 +191,8 @@ Status BrokerStorageBackend::rename(const std::string& orig_name, const std::str
 Status BrokerStorageBackend::list(const std::string& remote_path,
                                   std::map<std::string, FileStat>* files) {
     Status status = Status::OK();
-    BrokerServiceConnection client(client_cache(_env), _broker_addr, 10000, &status);
+    BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
+                                   &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
@@ -275,7 +277,8 @@ Status BrokerStorageBackend::direct_upload(const std::string& remote, const std:
 
 Status BrokerStorageBackend::rm(const std::string& remote) {
     Status status = Status::OK();
-    BrokerServiceConnection client(client_cache(_env), _broker_addr, 10000, &status);
+    BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
+                                   &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
@@ -324,7 +327,8 @@ Status BrokerStorageBackend::mkdir(const std::string& path) {
 
 Status BrokerStorageBackend::exist(const std::string& path) {
     Status status = Status::OK();
-    BrokerServiceConnection client(client_cache(_env), _broker_addr, 10000, &status);
+    BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
+                                   &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "failed to get broker client. "
