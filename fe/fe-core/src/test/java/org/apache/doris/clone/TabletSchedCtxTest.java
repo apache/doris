@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Test;

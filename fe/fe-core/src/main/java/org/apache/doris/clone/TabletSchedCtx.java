@@ -1093,9 +1093,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public static class VersionCountComparator implements Comparator<Replica> {
         @Override
         public int compare(Replica r1, Replica r2) {
-            long verCount1 = r1.getVersionCount() == -1 ? Integer.MAX_VALUE : r1.getVersionCount();
-            long verCount2 = r2.getVersionCount() == -1 ? Integer.MAX_VALUE : r2.getVersionCount();
-            return (int) (verCount1 - verCount2);
+            long verCount1 = r1.getVersionCount() == -1 ? Long.MAX_VALUE : r1.getVersionCount();
+            long verCount2 = r2.getVersionCount() == -1 ? Long.MAX_VALUE : r2.getVersionCount();
+            if (verCount1 < verCount2) {
+                return -1;
+            } else if (verCount1 > verCount2) {
+                return 1;
+            } else {
+                return 0;
+            }
         }
     }
 }
