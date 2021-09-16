@@ -37,6 +37,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -244,11 +245,29 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, cooldownTime);
     }
 
+    private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat,
+                                               String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
+        Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
+        PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
+        PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
+        try {
+            PartitionKey lowerBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerBorderPartitionValue), Collections.singletonList(partitionColumn));
+            PartitionKey upperBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(upperBorderPartitionValue), Collections.singletonList(partitionColumn));
+            reservedHistoryPartitionKeyRange = Range.closed(lowerBorderBound, upperBorderBound);
+        } catch (AnalysisException e) {
+            // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
+            // IllegalArgumentException: lb is greater than ub
+            LOG.warn("Error in gen reservePartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
+                    db.getFullName(), olapTable.getName());
+        }
+        return reservedHistoryPartitionKeyRange;
+    }
+
     /**
      * 1. get the range of [start, 0) as a reserved range.
      * 2. get DropPartitionClause of partitions which range are before this reserved range.
      */
-    private ArrayList<DropPartitionClause> getDropPartitionClause(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat) {
+    private ArrayList<DropPartitionClause> getDropPartitionClause(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat) throws DdlException {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         if (dynamicPartitionProperty.getStart() == DynamicPartitionProperty.MIN_START_OFFSET) {
@@ -278,34 +297,21 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return dropPartitionClauses;
         }
 
-        StringBuilder reservedHistoryStartsBuilder = new StringBuilder();
-        StringBuilder reservedHistoryEndsBuilder = new StringBuilder();
-        String[] reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods().replace(" ", "").replace("[", "").replace("]", "").split(",");
-        for (int i = 0; i < reservedHistoryPeriods.length; i+=2) {
-            reservedHistoryStartsBuilder.append(reservedHistoryPeriods[i] + ",");
-            reservedHistoryEndsBuilder.append(reservedHistoryPeriods[i+1] + ",");
-        }
-        String[] reservedHistoryStarts = reservedHistoryStartsBuilder.deleteCharAt(reservedHistoryStartsBuilder.length() - 1).toString().split(",");
-        String[] reservedHistoryEnds = reservedHistoryEndsBuilder.deleteCharAt(reservedHistoryEndsBuilder.length() - 1).toString().split(",");
+        String reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
+        List<Range> ranges = DynamicPartitionUtil.convertStringToPeriodsList(reservedHistoryPeriods);
 
-        Range<PartitionKey> reservedHistoryPartitionKeyRange;
-        for (int i = 0; i < reservedHistoryStarts.length; i++) {
-            String lowBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, reservedHistoryStarts[i], partitionFormat);
-            String upBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, reservedHistoryEnds[i], partitionFormat);
-            PartitionValue lowBorderPartitionValue = new PartitionValue(lowBorderOfReservedHistory);
-            PartitionValue upBorderPartitionValue = new PartitionValue(upBorderOfReservedHistory);
+        for (Range range : ranges) {
             try {
-                PartitionKey lowerBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(lowBorderPartitionValue), Collections.singletonList(partitionColumn));
-                PartitionKey upperBorderBound = PartitionKey.createPartitionKey(Collections.singletonList(upBorderPartitionValue), Collections.singletonList(partitionColumn));
-                reservedHistoryPartitionKeyRange = Range.closed(lowerBorderBound, upperBorderBound);
+                String lowerBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat);
+                String upperBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
+                Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable, partitionColumn, partitionFormat, lowerBorderOfReservedHistory,upperBorderOfReservedHistory);
                 reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
-
-            } catch (AnalysisException | IllegalArgumentException e) {
-                LOG.warn("Error in gen reserveHistoryPartitionKeyRange. Error={}, db: {}, table: {}", e.getMessage(),
-                        db.getFullName(), olapTable.getName());
+            }
+            catch (IllegalArgumentException e) {
                 return dropPartitionClauses;
             }
         }
+
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
@@ -346,8 +352,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
-            ArrayList<DropPartitionClause> dropPartitionClauses;
-            String tableName;
+            ArrayList<DropPartitionClause> dropPartitionClauses = null;
+            String tableName = null;
             boolean skipAddPartition = false;
             OlapTable olapTable;
             olapTable = (OlapTable) db.getTableNullable(tableId);
@@ -393,6 +399,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 }
                 dropPartitionClauses = getDropPartitionClause(db, olapTable, partitionColumn, partitionFormat);
                 tableName = olapTable.getName();
+            } catch (DdlException e) {
+                e.printStackTrace();
             } finally {
                 olapTable.readUnlock();
             }
