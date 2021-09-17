@@ -70,6 +70,7 @@ public class Table extends MetaObject implements Writable {
     protected volatile String name;
     protected TableType type;
     protected long createTime;
+    protected long updateTime;
     protected ReentrantReadWriteLock rwLock;
 
     /*
@@ -132,6 +133,7 @@ public class Table extends MetaObject implements Writable {
         }
         this.rwLock = new ReentrantReadWriteLock();
         this.createTime = Instant.now().getEpochSecond();
+        this.updateTime = createTime;
     }
 
     public void readLock() {
@@ -234,7 +236,11 @@ public class Table extends MetaObject implements Writable {
     }
 
     public long getUpdateTime() {
-        return -1L;
+        return updateTime;
+    }
+
+    public void setUpdateTime(long updateTime) {
+        this.updateTime = updateTime;
     }
 
     public long getRowCount() {
@@ -302,6 +308,7 @@ public class Table extends MetaObject implements Writable {
 
         // write create time
         out.writeLong(createTime);
+        out.writeLong(updateTime);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -334,6 +341,12 @@ public class Table extends MetaObject implements Writable {
             this.createTime = in.readLong();
         } else {
             this.createTime = -1L;
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_106) {
+            this.updateTime = in.readLong();
+        } else {
+            this.updateTime = -1L;
         }
     }
 

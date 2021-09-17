@@ -66,13 +66,14 @@ public class PartitionCache extends Cache {
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
-                             CompoundPredicate partitionPredicate) {
+                             CompoundPredicate partitionPredicate, long latestViewUpdateTime) {
         this.latestTable = latestTable;
         this.olapTable = latestTable.olapTable;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;
         this.newRangeList = Lists.newArrayList();
+        this.latestViewUpdateTime = latestViewUpdateTime;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -84,8 +85,10 @@ public class PartitionCache extends Cache {
             status.setStatus("analytics range error");
             return null;
         }
+        String nokeySqlWithViewTime = nokeyStmt.toSql() + this.latestViewUpdateTime;
+
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(nokeyStmt.toSql()))
+                .setSqlKey(CacheProxy.getMd5(nokeySqlWithViewTime))
                 .addAllParams(range.getPartitionSingleList().stream().map(
                         p -> InternalService.PCacheParam.newBuilder()
                                 .setPartitionKey(p.getCacheKey().realValue())
@@ -127,7 +130,9 @@ public class PartitionCache extends Cache {
             return;
         }
 
-        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
+        String nokeySqlWithViewTime = nokeyStmt.toSql() + this.latestViewUpdateTime;
+        InternalService.PUpdateCacheRequest updateRequest
+                = rowBatchBuilder.buildPartitionUpdateRequest(nokeySqlWithViewTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

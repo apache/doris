@@ -455,12 +455,15 @@ public class Alter {
             } catch (UserException e) {
                 throw new DdlException("failed to init view stmt", e);
             }
+            long updateTime = System.currentTimeMillis() / 1000;
+            view.setUpdateTime(updateTime);
             view.setNewFullSchema(newFullSchema);
             String viewName = view.getName();
             db.dropTable(viewName);
             db.createTable(view);
 
-            AlterViewInfo alterViewInfo = new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode);
+            AlterViewInfo alterViewInfo =
+                    new AlterViewInfo(db.getId(), view.getId(), inlineViewDef, newFullSchema, sqlMode, updateTime);
             Catalog.getCurrentCatalog().getEditLog().logModifyViewDef(alterViewInfo);
             LOG.info("modify view[{}] definition to {}", viewName, inlineViewDef);
         } finally {
@@ -474,6 +477,7 @@ public class Alter {
         long tableId = alterViewInfo.getTableId();
         String inlineViewDef = alterViewInfo.getInlineViewDef();
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
+        long updateTime = alterViewInfo.getUpdateTime();
 
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         View view = db.getTableOrMetaException(tableId, TableType.VIEW);
@@ -488,6 +492,7 @@ public class Alter {
             } catch (UserException e) {
                 throw new DdlException("failed to init view stmt", e);
             }
+            view.setUpdateTime(updateTime);
             view.setNewFullSchema(newFullSchema);
 
             db.dropTable(viewName);

@@ -41,18 +41,22 @@ public class AlterViewInfo implements Writable {
     private long sqlMode;
     @SerializedName(value = "newFullSchema")
     private List<Column> newFullSchema;
+    @SerializedName(value = "updateTime")
+    private long updateTime;
 
     public AlterViewInfo() {
         // for persist
         newFullSchema = Lists.newArrayList();
     }
 
-    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode) {
+    public AlterViewInfo(long dbId, long tableId, String inlineViewDef,
+                         List<Column> newFullSchema, long sqlMode, long updateTime) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
         this.newFullSchema = newFullSchema;
         this.sqlMode = sqlMode;
+        this.updateTime = updateTime;
     }
 
     public long getDbId() {
@@ -75,9 +79,13 @@ public class AlterViewInfo implements Writable {
         return sqlMode;
     }
 
+    public long getUpdateTime() {
+        return updateTime;
+    }
+
     @Override
     public int hashCode() {
-        return Objects.hash(dbId, tableId, inlineViewDef, sqlMode, newFullSchema);
+        return Objects.hash(dbId, tableId, inlineViewDef, sqlMode, newFullSchema, updateTime);
     }
 
     @Override
@@ -89,7 +97,7 @@ public class AlterViewInfo implements Writable {
         AlterViewInfo otherInfo = (AlterViewInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
                 inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode() &&
-                newFullSchema.equals(otherInfo.getNewFullSchema());
+                newFullSchema.equals(otherInfo.getNewFullSchema()) && updateTime == otherInfo.updateTime;
     }
 
     @Override
