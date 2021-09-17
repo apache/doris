@@ -18,7 +18,6 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Range;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -42,6 +41,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,6 +64,7 @@ import java.util.Date;
 import java.util.Calendar;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class DynamicPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
@@ -265,8 +266,10 @@ public class DynamicPartitionUtil {
                 return o1.lowerEndpoint().compareTo(o2.lowerEndpoint());
             }
         });
-        String sortedReservedHistoryPeriods = reservedHistoryPeriodsToRangeList.toString().replace("..",",");
-        return sortedReservedHistoryPeriods;
+        List<String> sortedReservedHistoryPeriods = reservedHistoryPeriodsToRangeList.stream().
+                map(e -> "[" + e.lowerEndpoint() + "," + e.upperEndpoint() + "]").collect(Collectors.toList());
+
+        return String.join(",", sortedReservedHistoryPeriods);
     }
 
     private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods) throws DdlException {
