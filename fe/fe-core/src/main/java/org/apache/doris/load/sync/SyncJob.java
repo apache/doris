@@ -307,6 +307,10 @@ public abstract class SyncJob implements Writable {
 
     public void setChannelDescriptions(List<ChannelDescription> channelDescriptions) {
         this.channelDescriptions = channelDescriptions;
+        // set channel id
+        for (ChannelDescription channelDescription : channelDescriptions) {
+            channelDescription.setChannelId(Catalog.getCurrentCatalog().getNextId());
+        }
     }
 
     public long getId() {

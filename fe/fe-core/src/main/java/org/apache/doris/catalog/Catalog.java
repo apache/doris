@@ -1318,7 +1318,7 @@ public class Catalog {
         ExportChecker.init(Config.export_checker_interval_second * 1000L);
         ExportChecker.startAll();
         // Sync checker
-        SyncChecker.init(Config.sync_checker_interval_second);
+        SyncChecker.init(Config.sync_checker_interval_second * 1000L);
         SyncChecker.startAll();
         // Tablet checker and scheduler
         tabletChecker.start();
