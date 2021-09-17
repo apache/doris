@@ -170,7 +170,8 @@ public class LoadChecker extends MasterDaemon {
                         task = new HadoopLoadPendingTask(job);
                         break;
                     default:
-                        LOG.warn("unknown etl job type. type: {}", etlJobType.name());
+                        LOG.warn("unknown etl job type. type: {}, job id: {}, label: {}, db: {}",
+                                etlJobType.name(), job.getId(), job.getLabel(), job.getDbId());
                         break;
                 }
                 if (task != null) {

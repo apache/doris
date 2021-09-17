@@ -155,15 +155,15 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import org.apache.commons.lang3.tuple.Triple;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang3.tuple.Triple;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -1387,6 +1387,7 @@ public class ShowExecutor {
             String indexName = FeConstants.null_string;
             Boolean isSync = true;
 
+            int tabletIdx = -1;
             // check real meta
             do {
                 Database db = catalog.getDbNullable(dbId);
@@ -1425,6 +1426,8 @@ public class ShowExecutor {
                         break;
                     }
 
+                    tabletIdx = index.getTabletOrderIdx(tablet.getId());
+
                     List<Replica> replicas = tablet.getReplicas();
                     for (Replica replica : replicas) {
                         Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
@@ -1447,9 +1450,9 @@ public class ShowExecutor {
             String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
                                              dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
-                                        dbId.toString(), tableId.toString(),
-                                        partitionId.toString(), indexId.toString(),
-                                        isSync.toString(), detailCmd));
+                    dbId.toString(), tableId.toString(),
+                    partitionId.toString(), indexId.toString(),
+                    isSync.toString(), String.valueOf(tabletIdx), detailCmd));
         } else {
             Database db = catalog.getDbOrAnalysisException(showStmt.getDbName());
             OlapTable olapTable = db.getOlapTableOrAnalysisException(showStmt.getTableName());

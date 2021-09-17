@@ -596,7 +596,7 @@ public class Coordinator {
                         cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
-                                throw new UserException("send fragment timeout. backend id: " + pair.first.backend.getId());
+                                throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: " + pair.first.backend.getId());
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");

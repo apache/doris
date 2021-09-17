@@ -1573,7 +1573,11 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         }
 
         for (auto& rs_reader : rs_readers) {
-            rs_reader->init(&reader_context);
+            res = rs_reader->init(&reader_context);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
+                break;
+            }
         }
 
     } while (0);
@@ -1717,7 +1721,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
 
     RowsetReaderSharedPtr rowset_reader;
     RETURN_NOT_OK((*base_rowset)->create_reader(_mem_tracker, &rowset_reader));
-    rowset_reader->init(&reader_context);
+    RETURN_NOT_OK(rowset_reader->init(&reader_context));
 
     RowsetWriterContext writer_context;
     writer_context.rowset_id = StorageEngine::instance()->next_rowset_id();
