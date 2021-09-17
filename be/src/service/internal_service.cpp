@@ -353,7 +353,7 @@ void PInternalServiceImpl<T>::rollback(google::protobuf::RpcController* controll
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");
     } else {
-        pipe->cancel();
+        pipe->cancel("rollback");
         response->mutable_status()->set_status_code(0);
     }
 }
