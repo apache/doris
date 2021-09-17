@@ -1375,6 +1375,7 @@ public class StmtExecutor implements ProfileWriter {
         eofPacket.writeTo(serializer);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
+
     public void sendResult(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
