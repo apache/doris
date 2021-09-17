@@ -845,6 +845,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _stop_background_threads_latch.count_down();
     if (_sender_thread) {
         _sender_thread->join();
+        _send_batch_thread_pool_token->shutdown();
     }
 
     Expr::close(_output_expr_ctxs, state);

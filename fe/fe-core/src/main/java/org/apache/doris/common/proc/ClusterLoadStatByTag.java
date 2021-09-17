@@ -34,25 +34,15 @@ import java.util.Set;
 // SHOW PROC "/cluster_balance/cluster_load_stat"
 public class ClusterLoadStatByTag implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
-            "StorageMedium").build();
-
-    private Map<String, Tag> tagMap = Maps.newHashMap();
+            "Tag").build();
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
-        Set<Tag> tags = Sets.newHashSet();
-        for (long beId : beIds) {
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-            if (be != null) {
-                tags.add(be.getTag());
-            }
-        }
+        Set<Tag> tags = genTagMap();
         for (Tag tag : tags) {
             result.addRow(Lists.newArrayList(tag.toKey()));
-            tagMap.put(tag.toKey(), tag);
         }
         return result;
     }
@@ -64,6 +54,11 @@ public class ClusterLoadStatByTag implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
+        Set<Tag> tags = genTagMap();
+        Map<String, Tag> tagMap = Maps.newHashMap();
+        for (Tag tag : tags) {
+            tagMap.put(tag.toKey(), tag);
+        }
         Tag tag = tagMap.get(name);
         if (tag == null) {
             throw new AnalysisException("No such tag: " + name);
@@ -71,4 +66,15 @@ public class ClusterLoadStatByTag implements ProcDirInterface {
         return new ClusterLoadStatByTagAndMedium(tag);
     }
 
+    private Set<Tag> genTagMap() {
+        Set<Tag> tags = Sets.newHashSet();
+        List<Long> beIds = Catalog.getCurrentSystemInfo().getBackendIds(false);
+        for (long beId : beIds) {
+            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+            if (be != null) {
+                tags.add(be.getTag());
+            }
+        }
+        return tags;
+    }
 }

@@ -54,6 +54,8 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -97,7 +99,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      * from the tablet scheduler.
      */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
-    
+
+    private static VersionCountComparator VERSION_COUNTER_COMPARATOR = new VersionCountComparator();
+
     public enum Type {
         BALANCE, REPAIR
     }
@@ -504,50 +508,33 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             if (replica.getLastFailedVersion() > 0) {
                 continue;
             }
-            
+
             if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)) {
                 continue;
             }
-            
+
             candidates.add(replica);
         }
-        
+
         if (candidates.isEmpty()) {
             throw new SchedException(Status.UNRECOVERABLE, "unable to find source replica");
         }
 
         // choose a replica which slot is available from candidates.
-        long minVersionCount = Long.MAX_VALUE;
-        boolean findSrcReplica = false;
+        // sort replica by version count asc, so that we prefer to choose replicas with fewer versions
+        Collections.sort(candidates, VERSION_COUNTER_COMPARATOR);
         for (Replica srcReplica : candidates) {
             PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendId());
             if (slot == null) {
                 continue;
             }
-            
+
             long srcPathHash = slot.takeSlot(srcReplica.getPathHash());
             if (srcPathHash != -1) {
-                if (!findSrcReplica) {
-                    // version count is set by report process, so it may not be set yet and default value is -1.
-                    // so we need to check it.
-                    minVersionCount = srcReplica.getVersionCount() == -1 ? Long.MAX_VALUE : srcReplica.getVersionCount();
-                    setSrc(srcReplica);
-                    findSrcReplica = true;
-                } else {
-                    long curVerCount = srcReplica.getVersionCount() == -1 ? Long.MAX_VALUE : srcReplica.getVersionCount();
-                    if (curVerCount < minVersionCount) {
-                        minVersionCount = curVerCount;
-                        setSrc(srcReplica);
-                        findSrcReplica = true;
-                    }
-                }
+                setSrc(srcReplica);
+                return;
             }
         }
-
-        if (findSrcReplica) {
-            return;
-        }
-        
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to find source slot");
     }
     
@@ -623,7 +610,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         if (destPathHash == -1) {
             throw new SchedException(Status.SCHEDULE_FAILED, "unable to take slot of dest path");
         }
-
         if (chosenReplica.getState() == ReplicaState.DECOMMISSION) {
             // Since this replica is selected as the repair object of VERSION_INCOMPLETE,
             // it means that this replica needs to be able to accept loading data.
@@ -666,7 +652,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 }
             }
         }
-        
+
         if (destPathHash != -1) {
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
             if (slot != null) {
@@ -1101,5 +1087,21 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             sb.append(". err: ").append(errMsg);
         }
         return sb.toString();
+    }
+
+    // Comparator to sort the replica with version count, asc
+    public static class VersionCountComparator implements Comparator<Replica> {
+        @Override
+        public int compare(Replica r1, Replica r2) {
+            long verCount1 = r1.getVersionCount() == -1 ? Long.MAX_VALUE : r1.getVersionCount();
+            long verCount2 = r2.getVersionCount() == -1 ? Long.MAX_VALUE : r2.getVersionCount();
+            if (verCount1 < verCount2) {
+                return -1;
+            } else if (verCount1 > verCount2) {
+                return 1;
+            } else {
+                return 0;
+            }
+        }
     }
 }
