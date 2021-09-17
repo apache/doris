@@ -5278,6 +5278,14 @@ public class Catalog {
         GroupId groupId = null;
         if (!Strings.isNullOrEmpty(colocateGroup)) {
             String fullGroupName = db.getId() + "_" + colocateGroup;
+            //When the new name is the same as the old name, we return it to prevent npe
+            if (!Strings.isNullOrEmpty(oldGroup)) {
+                String oldFullGroupName = db.getId() + "_" + oldGroup;
+                if (oldFullGroupName.equals(fullGroupName)) {
+                    LOG.warn("modify table[{}] group name same as old group name,skip.", table.getName());
+                    return;
+                }
+            }
             ColocateGroupSchema groupSchema = colocateTableIndex.getGroupSchema(fullGroupName);
             if (groupSchema == null) {
                 // user set a new colocate group,
