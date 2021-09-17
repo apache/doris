@@ -18,7 +18,6 @@
 package org.apache.doris.load.sync;
 
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
@@ -32,7 +31,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
-public class SyncChannel extends SyncLifeCycle {
+public class SyncChannel {
     private static final Logger LOG = LogManager.getLogger(SyncChannel.class);
 
     protected long id;
@@ -46,8 +45,8 @@ public class SyncChannel extends SyncLifeCycle {
     protected String srcTable;
     protected SyncChannelCallback callback;
 
-    public SyncChannel(SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
-        this.id = Catalog.getCurrentCatalog().getNextId();
+    public SyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+        this.id = id;
         this.jobId = syncJob.getId();
         this.db = db;
         this.tbl = table;
@@ -55,22 +54,6 @@ public class SyncChannel extends SyncLifeCycle {
         this.targetTable = table.getName().toLowerCase();
         this.srcDataBase = srcDataBase.toLowerCase();
         this.srcTable = srcTable.toLowerCase();
-    }
-
-    @Override
-    public void start() {
-        super.start();
-        LOG.info("channel {} has been started. dest table: {}, mysql src table: {}.{}", id, targetTable, srcDataBase, srcTable);
-    }
-
-    @Override
-    public void stop() {
-        super.stop();
-        LOG.info("channel {} has been stopped. dest table: {}, mysql src table: {}.{}", id, targetTable, srcDataBase, srcTable);
-    }
-
-    @Override
-    public void process() {
     }
 
     public void beginTxn(long batchId) throws UserException, TException, TimeoutException,

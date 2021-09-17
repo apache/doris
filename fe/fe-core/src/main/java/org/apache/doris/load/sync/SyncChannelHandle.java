@@ -24,14 +24,11 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public class SyncChannelHandle implements SyncChannelCallback {
     private Logger LOG = LogManager.getLogger(SyncChannelHandle.class);
 
     // channel id -> dummy value(-1)
     private MarkedCountDownLatch<Long, Long> latch;
-    private Sync sync = new Sync();
 
     public void reset(int size) {
         this.latch = new MarkedCountDownLatch<>(size);
@@ -39,19 +36,6 @@ public class SyncChannelHandle implements SyncChannelCallback {
 
     public void mark(SyncChannel channel) {
         latch.addMark(channel.getId(), -1L);
-    }
-
-    public void set(Boolean mutex) {
-        if (mutex) {
-            this.sync.innerSetTrue();
-        } else {
-            this.sync.innerSetFalse();
-        }
-    }
-
-    @Override
-    public boolean state() {
-        return this.sync.innerState();
     }
 
     @Override
@@ -70,42 +54,5 @@ public class SyncChannelHandle implements SyncChannelCallback {
 
     public Status getStatus() {
         return latch.getStatus();
-    }
-
-    // This class describes the inner state.
-    private final class Sync {
-        private AtomicBoolean state;
-
-        boolean innerState() {
-            return this.state.get();
-        }
-
-        public boolean getState() {
-            return state.get();
-        }
-
-        void innerSetTrue() {
-            boolean s;
-            do {
-                s = getState();
-                if (s) {
-                    return;
-                }
-            } while(!state.compareAndSet(s, true));
-        }
-
-        void innerSetFalse() {
-            boolean s;
-            do {
-                s = getState();
-                if (!s) {
-                    return;
-                }
-            } while(!state.compareAndSet(s, false));
-        }
-
-        private Sync() {
-            state = new AtomicBoolean(false);
-        }
     }
 }

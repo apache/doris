@@ -73,6 +73,7 @@ public class CanalSyncDataTest {
     private long offset = 0;
     private long nextId = 1000L;
     private int batchSize = 8192;
+    private long channelId = 100001L;
 
     ReentrantLock getLock;
 
@@ -220,13 +221,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -235,7 +235,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -295,13 +294,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -310,7 +308,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         LOG.info(consumer.getPositionInfo());
@@ -360,13 +357,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -375,7 +371,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
@@ -444,13 +439,12 @@ public class CanalSyncDataTest {
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
                 syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
         consumer.setChannels(idToChannels);
 
-        channel.start();
         consumer.start();
         receiver.start();
 
@@ -459,7 +453,6 @@ public class CanalSyncDataTest {
         } finally {
             receiver.stop();
             consumer.stop();
-            channel.stop();
         }
 
         Assert.assertEquals("position:N/A", consumer.getPositionInfo());
