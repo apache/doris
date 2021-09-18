@@ -646,14 +646,15 @@ public class DynamicPartitionUtil {
         ZoneId zoneId = dynamicPartitionProperty.getTimeZone().toZoneId();
         SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
         Date date = null;
+        Timestamp timestamp = null;
+        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
         try {
             date = simpleDateFormat.parse(time);
         } catch (ParseException e) {
-            e.printStackTrace();
+            LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
+            return getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
         }
-        Timestamp timestamp = new Timestamp(date.getTime());
-        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
-
+        timestamp = new Timestamp(date.getTime());
         return getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
     }
 
