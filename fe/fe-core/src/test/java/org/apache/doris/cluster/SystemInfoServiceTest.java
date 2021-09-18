@@ -27,11 +27,13 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+
 import com.google.common.collect.Lists;
 
 import org.junit.Assert;
@@ -44,6 +46,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+
 import mockit.Expectations;
 import mockit.Mocked;
 
@@ -93,11 +96,11 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = editLog;
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
 
-                db.getTable(anyLong);
+                db.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
 
@@ -205,7 +208,7 @@ public class SystemInfoServiceTest {
     }
 
     @Test
-    public void addBackendTest() throws AnalysisException {
+    public void addBackendTest() throws UserException {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
@@ -234,7 +237,7 @@ public class SystemInfoServiceTest {
     }
 
     @Test
-    public void removeBackendTest() throws AnalysisException {
+    public void removeBackendTest() throws UserException {
         clearAllBackend();
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);

@@ -133,7 +133,6 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         JSONObject jsonObject = new JSONObject(respStr);
         Assert.assertEquals(403, jsonObject.getInt("status"));
         String exception = jsonObject.getString("exception");
-        Assert.assertNotNull(exception);
-        Assert.assertTrue(exception.startsWith("only support OlapTable currently"));
+        Assert.assertTrue(exception.contains("table type is not OLAP"));
     }
 }

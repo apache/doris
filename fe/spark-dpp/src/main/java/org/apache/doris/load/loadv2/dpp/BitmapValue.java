@@ -214,7 +214,8 @@ public class BitmapValue {
                         this.bitmapType = BITMAP_VALUE;
                         break;
                     case SINGLE_VALUE:
-                        this.bitmap = other.bitmap;
+                        this.bitmap = new Roaring64Map();
+                        this.bitmap.or(other.bitmap);
                         this.bitmap.add(this.singleValue);
                         this.bitmapType = BITMAP_VALUE;
                         break;

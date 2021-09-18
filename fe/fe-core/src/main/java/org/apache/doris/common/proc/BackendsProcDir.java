@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.gson.Gson;
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.Cluster;
@@ -35,6 +34,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -164,6 +164,8 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
+            // tag
+            backendInfo.add(backend.getTag().toString());
 
             backendInfo.add(backend.getHeartbeatErrMsg());
             backendInfo.add(backend.getVersion());

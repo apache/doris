@@ -1010,8 +1010,13 @@ public abstract class Type {
         }
 
         // Following logical is compatible with MySQL.
-        if ((t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR)) {
+        if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
             return Type.VARCHAR; 
+        }
+        if ((t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING)
+                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR)
+                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING)) {
+            return Type.STRING;
         }
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
             return getAssignmentCompatibleType(t1, t2, false);

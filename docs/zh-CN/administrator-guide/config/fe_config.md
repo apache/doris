@@ -2024,6 +2024,18 @@ HOUR: log前缀是：yyyyMMddHH
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
+### delete_info_keep_max_second
+
+默认值：3 * 24 * 3600  (3天)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+删除元数据中创建时间大于`delete_info_keep_max_second`的delete信息。
+
+设置较短的时间将减少 FE 内存使用量和镜像文件大小。（因为所有的deleteInfo在被删除之前都存储在内存和镜像文件中）
+
 ### transaction_clean_interval_second
 
 默认值：30
@@ -2031,7 +2043,7 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
 
 
-### `default_max_query_instances`
+### default_max_query_instances
 
 默认值：-1
 

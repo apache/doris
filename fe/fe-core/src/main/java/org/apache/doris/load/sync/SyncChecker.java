@@ -25,6 +25,7 @@ import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.task.SyncPendingTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +44,7 @@ public class SyncChecker extends MasterDaemon {
     private static Map<JobState, MasterTaskExecutor> executors = Maps.newHashMap();
 
     private SyncChecker(JobState jobState, long intervalMs) {
-        super("sync checker " + jobState.name().toLowerCase(), intervalMs);
+        super("sync checker " + jobState.name().toLowerCase(), intervalMs * 1000);
         this.jobState = jobState;
     }
 
@@ -67,7 +68,7 @@ public class SyncChecker extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        LOG.debug("start check export jobs. job state: {}", jobState.name());
+        LOG.debug("start check sync jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:
                 runPendingJobs();

@@ -44,6 +44,7 @@ import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
@@ -212,17 +213,31 @@ public class HeartbeatMgr extends MasterDaemon {
         public HeartbeatResponse call() {
             long backendId = backend.getId();
             HeartbeatService.Client client = null;
+
             TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
             boolean ok = false;
             try {
-                client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
-
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackendIp(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
-                THeartbeatResult result = client.heartbeat(copiedMasterInfo);
+                THeartbeatResult result;
+                if (!FeConstants.runningUnitTest) {
+                    client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
+                    result = client.heartbeat(copiedMasterInfo);
+                } else {
+                    // Mocked result
+                    TBackendInfo backendInfo = new TBackendInfo();
+                    backendInfo.setBePort(1);
+                    backendInfo.setHttpPort(2);
+                    backendInfo.setBeRpcPort(3);
+                    backendInfo.setBrpcPort(4);
+                    backendInfo.setVersion("test-1234");
+                    result = new THeartbeatResult();
+                    result.setStatus(new TStatus(TStatusCode.OK));
+                    result.setBackendInfo(backendInfo);
+                }
 
                 ok = true;
                 if (result.getStatus().getStatusCode() == TStatusCode.OK) {
@@ -249,10 +264,12 @@ public class HeartbeatMgr extends MasterDaemon {
                 return new BackendHbResponse(backendId,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
-                if (ok) {
-                    ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
-                } else {
-                    ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                if (client != null) {
+                    if (ok) {
+                        ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
+                    } else {
+                        ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                    }
                 }
             }
         }

@@ -346,6 +346,7 @@ module.exports = [
               "money_format",
               "null_or_empty",
               "repeat",
+              "replace",
               "reverse",
               "right",
               "rpad",
@@ -601,6 +602,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+        "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",		

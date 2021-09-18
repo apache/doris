@@ -28,23 +28,39 @@ under the License.
 ## description
 ### syntax
 
-'BOOLEAN not like(VARCHAR str, VARCHAR pattern)'
+`BOOLEAN not like(VARCHAR str, VARCHAR pattern)`
 
 对字符串 str 进行模糊匹配，匹配上的则返回 false，没匹配上则返回 true。
 
 like 匹配/模糊匹配，会与 % 和 _ 结合使用。
 
-'a'      // 精准匹配，和 `=` 效果一致。
+百分号 '%' 代表零个、一个或多个字符。
+
+下划线 '_' 代表单个字符。
+
+```
+'a'      // 精准匹配，和 `=` 效果一致
 '%a'     // 以a结尾的数据
 'a%'     // 以a开头的数据
 '%a%'    // 含有a的数据
-'_a_'    // 三位且中间字母是 a 的
-'_a'     // 两位且结尾字母是 a 的
-'a_'     // 两位且开头字母是 a 的
-
+'_a_'    // 三位且中间字母是 a 的数据
+'_a'     // 两位且结尾字母是 a 的数据
+'a_'     // 两位且开头字母是 a 的数据
+'a__b'  // 四位且以字符a开头、b结尾的数据
+```
 ## example
 
 ```
+// table test
++-------+
+| k1    |
++-------+
+| b     |
+| bb    |
+| bab   |
+| a     |
++-------+
+
 // 返回 k1 字符串中不包含 a 的数据
 mysql > select k1 from test where k1 not like '%a%';
 +-------+
@@ -59,8 +75,9 @@ mysql > select k1 from test where k1 not like 'a';
 +-------+
 | k1    |
 +-------+
-| bab   |
 | b     |
+| bb    |
+| bab   |
 +-------+
 ```
 

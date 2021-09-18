@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
@@ -36,6 +37,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -209,6 +211,12 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
+        if (replicaAlloc.getTotalReplicaNum() <= 0) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
+        }
+    }
+
     private static void checkHotPartitionNum(String val) throws DdlException {
         if (Strings.isNullOrEmpty(val)) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.HOT_PARTITION_NUM);
@@ -311,7 +319,8 @@ public class DynamicPartitionUtil {
     }
 
     // Analyze all properties to check their validation
-    public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
+    public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties, PartitionInfo partitionInfo)
+            throws UserException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
@@ -419,11 +428,20 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.TIME_ZONE);
             analyzedProperties.put(DynamicPartitionProperty.TIME_ZONE, val);
         }
+
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)) {
             String val = properties.get(DynamicPartitionProperty.REPLICATION_NUM);
             checkReplicationNum(val);
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
-            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_NUM, val);
+            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
+                    new ReplicaAllocation(Short.valueOf(val)).toCreateStmt());
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
+            checkReplicaAllocation(replicaAlloc);
+            properties.remove(DynamicPartitionProperty.REPLICATION_ALLOCATION);
+            analyzedProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         }
 
         if (properties.containsKey(DynamicPartitionProperty.HOT_PARTITION_NUM)) {
@@ -464,7 +482,7 @@ public class DynamicPartitionUtil {
      * properties should be checked before call this method
      */
     public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties)
-            throws DdlException {
+            throws UserException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
             Map<String, String> dynamicPartitionProperties =
                     DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable.getPartitionInfo());

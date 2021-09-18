@@ -110,7 +110,9 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
     // add batch maybe cost a lot of time, and this callback thread will be held.
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
-    _tablet_worker_pool.offer([request, response, done, this]() {
+    int64_t submit_task_time_ns = MonotonicNanos();
+    _tablet_worker_pool.offer([request, response, done, submit_task_time_ns, this]() {
+        int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
         {
@@ -124,7 +126,8 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
             }
             st.to_protobuf(response->mutable_status());
         }
-        response->set_execution_time_us(execution_time_ns / 1000);
+        response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
+        response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
     });
 }
 

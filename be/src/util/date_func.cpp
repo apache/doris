@@ -53,13 +53,35 @@ uint24_t timestamp_from_date(const std::string& date_str) {
 
     return uint24_t(value);
 }
-
-std::string time_str_from_double(double time) {
+// refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
+// the time value between '-838:59:59' and '838:59:59'
+int32_t time_to_buffer_from_double(double time, char* buffer) {
+    char *begin = buffer;
     if (time < 0) {
         time = -time;
-        return fmt::format("-{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
+        *buffer++ = '-';
     }
-    return fmt::format("{:02d}:{:02d}:{:02d}", (int64_t)(time / 60 / 60), ((int64_t)(time / 60)) % 60, ((int64_t)time) % 60);
+    if (time > 3020399) {
+        time = 3020399;
+    }
+    int64_t hour = (int64_t)(time / 3600);
+    if (hour >= 100) {
+        auto f = fmt::format_int(hour);
+        memcpy(buffer, f.data(), f.size());
+        buffer = buffer + f.size();
+    } else {
+        *buffer++ = (char)('0' + (hour / 10));
+        *buffer++ = (char)('0' + (hour % 10));
+    }
+    *buffer++ = ':';
+    int32_t minute = ((int32_t)(time / 60)) % 60;
+    *buffer++ = (char)('0' + (minute / 10));
+    *buffer++ = (char)('0' + (minute % 10));
+    *buffer++ = ':';
+    int32_t second = ((int32_t)time) % 60;
+    *buffer++ = (char)('0' + (second / 10));
+    *buffer++ = (char)('0' + (second % 10));
+    return buffer - begin;
 }
 
 } // namespace doris

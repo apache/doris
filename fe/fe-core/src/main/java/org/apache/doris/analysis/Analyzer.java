@@ -36,14 +36,16 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
+import org.apache.doris.rewrite.CompoundPredicateWriteRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
+import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
-import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
+import org.apache.doris.rewrite.RewriteLikePredicateRule;
 import org.apache.doris.rewrite.SimplifyInvalidDateBinaryPredicatesDateRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
@@ -268,9 +270,11 @@ public class Analyzer {
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
             rules.add(RewriteFromUnixTimeRule.INSTANCE);
+            rules.add(CompoundPredicateWriteRule.INSTANCE);
             rules.add(SimplifyInvalidDateBinaryPredicatesDateRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
+            rules.add(RewriteLikePredicateRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
@@ -463,6 +467,7 @@ public class Analyzer {
             // aliasMap_.put(alias, result);
             tupleByAlias.put(alias, result);
         }
+
         tableRefMap_.put(result.getId(), ref);
 
         return result;
@@ -539,15 +544,8 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
 
-        Database database = globalState.catalog.getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        Table table = database.getTable(tableName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
-        }
+        Database database = globalState.catalog.getDbOrAnalysisException(dbName);
+        Table table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
@@ -569,12 +567,9 @@ public class Analyzer {
         }
     }
 
-    public Table getTable(TableName tblName) {
-        Database db = globalState.catalog.getDb(tblName.getDb());
-        if (db == null) {
-            return null;
-        }
-        return db.getTable(tblName.getTbl());
+    public Table getTableOrAnalysisException(TableName tblName) throws AnalysisException {
+        Database db = globalState.catalog.getDbOrAnalysisException(tblName.getDb());
+        return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
     public ExprRewriter getExprRewriter() { return globalState.exprRewriter_; }

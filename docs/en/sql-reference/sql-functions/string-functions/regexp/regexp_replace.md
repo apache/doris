@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`VARCHAR regexp_replace(VARCHAR str, VARCHAR pattern, VARCHAR repl)
+`VARCHAR regexp_replace(VARCHAR str, VARCHAR pattern, VARCHAR repl)`
 
 
 Regular matching of STR strings, replacing the part hitting pattern with repl

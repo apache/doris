@@ -77,26 +77,14 @@ public class MigrationAction extends RestBaseAction {
             throw new DdlException("Missing params. Need database name");
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         List<List<Comparable>> rows = Lists.newArrayList();
 
 
 
         if (!Strings.isNullOrEmpty(tableName)) {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table[" + tableName + "] does not exist");
-            }
-
-            if (table.getType() != TableType.OLAP) {
-                throw new DdlException("Table[" + tableName + "] is not OlapTable");
-            }
-
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
             olapTable.readLock();
             try {
                 for (Partition partition : olapTable.getPartitions()) {

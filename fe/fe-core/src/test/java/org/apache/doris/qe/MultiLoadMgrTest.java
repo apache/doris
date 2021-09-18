@@ -20,7 +20,9 @@ package org.apache.doris.qe;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 
@@ -32,8 +34,6 @@ import java.util.List;
 
 import mockit.Delegate;
 import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 
 
@@ -62,11 +62,13 @@ public class MultiLoadMgrTest {
         };
         new Expectations() {
             {
-                systemInfoService.seqChooseBackendIds(anyInt, anyBoolean, anyBoolean, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, anyBoolean, anyBoolean, anyString,
+                        (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive,
-                                                                       boolean isCreate, String clusterName) {
+                    public synchronized List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, boolean needAlive,
+                                                                                            boolean isCreate, String clusterName, TStorageMedium medium,
+                                                                                            Tag tag) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
                         beIds.add(CatalogMocker.BACKEND2_ID);
@@ -77,6 +79,7 @@ public class MultiLoadMgrTest {
             }
         };
     }
+
     @Test
     public void testStartNormal() throws DdlException {
         MultiLoadMgr mgr = new MultiLoadMgr();

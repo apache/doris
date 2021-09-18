@@ -21,11 +21,13 @@
 
 #include "olap/memtable.h"
 #include "util/scoped_cleanup.h"
+#include "util/time.h"
 
 namespace doris {
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
-    os << "(flush time(ms)=" << stat.flush_time_ns / 1000 / 1000
+    os << "(flush time(ms)=" << stat.flush_time_ns / NANOS_PER_MILLIS
+       << ", flush wait time(ms)=" << stat.flush_wait_time_ns / NANOS_PER_MILLIS
        << ", flush count=" << stat.flush_count
        << ", flush bytes: " << stat.flush_size_bytes
        << ", flush disk bytes: " << stat.flush_disk_size_bytes << ")";
@@ -39,7 +41,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 // its reference count is not 0.
 OLAPStatus FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
     RETURN_NOT_OK(_flush_status.load());
-    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable));
+    int64_t submit_task_time = MonotonicNanos();
+    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
     return OLAP_SUCCESS;
 }
 
@@ -52,9 +55,9 @@ OLAPStatus FlushToken::wait() {
     return _flush_status.load();
 }
 
-void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
+void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t submit_task_time) {
+    _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     SCOPED_CLEANUP({ memtable.reset(); });
-
     // If previous flush has failed, return directly
     if (_flush_status.load() != OLAP_SUCCESS) {
         return;

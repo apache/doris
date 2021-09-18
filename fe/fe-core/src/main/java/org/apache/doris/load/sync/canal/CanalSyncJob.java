@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -94,30 +93,24 @@ public class CanalSyncJob extends SyncJob {
         if (channels == null) {
             channels = Lists.newArrayList();
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new DdlException("Database[" + dbId + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
         db.writeLock();
         try {
             for (ChannelDescription channelDescription : channelDescriptions) {
                 String tableName = channelDescription.getTargetTable();
-                Table table = db.getTable(tableName);
-                if (!(table instanceof OlapTable)) {
-                    throw new DdlException("Table[" + tableName + "] is invalid.");
-                }
-                if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS || !((OlapTable) table).hasDeleteSign()) {
+                OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+                if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || !olapTable.hasDeleteSign()) {
                     throw new DdlException("Table[" + tableName + "] don't support batch delete.");
                 }
                 List<String> colNames = channelDescription.getColNames();
                 if (colNames == null) {
                     colNames = Lists.newArrayList();
-                    for (Column column : table.getBaseSchema(false)) {
+                    for (Column column : olapTable.getBaseSchema(false)) {
                         colNames.add(column.getName());
                     }
                 }
-                CanalSyncChannel syncChannel = new CanalSyncChannel(this, db, (OlapTable) table, colNames,
-                        channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
+                CanalSyncChannel syncChannel = new CanalSyncChannel(channelDescription.getChannelId(), this, db,
+                        olapTable, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
                 if (channelDescription.getPartitionNames() != null) {
                     syncChannel.setPartitions(channelDescription.getPartitionNames());
                 }
@@ -190,7 +183,9 @@ public class CanalSyncJob extends SyncJob {
     public void execute() throws UserException {
         LOG.info("try to start canal client. Remote ip: {}, remote port: {}, debug: {}", ip, port, debug);
         // init
-        init();
+        if (!isInit()) {
+            init();
+        }
         // start client
         unprotectedStartClient();
     }
@@ -200,10 +195,12 @@ public class CanalSyncJob extends SyncJob {
         LOG.info("Cancel canal sync job {}. MsgType: {}, errMsg: {}", id, msgType.name(), errMsg);
         failMsg = new SyncFailMsg(msgType, errMsg);
         switch (msgType) {
-            case USER_CANCEL:
             case SUBMIT_FAIL:
             case RUN_FAIL:
+                unprotectedStopClient(JobState.PAUSED);
+                break;
             case UNKNOWN:
+            case USER_CANCEL:
                 unprotectedStopClient(JobState.CANCELLED);
                 break;
             default:
@@ -235,11 +232,7 @@ public class CanalSyncJob extends SyncJob {
             return;
         }
         if (client != null) {
-            if (jobState == JobState.CANCELLED) {
-                client.shutdown(true);
-            } else {
-                client.shutdown(false);
-            }
+            client.shutdown(true);
         }
         updateState(jobState, false);
         LOG.info("client has been stopped. id: {}, jobName: {}" , id, jobName);
@@ -258,15 +251,12 @@ public class CanalSyncJob extends SyncJob {
             JobState jobState = info.getJobState();
             switch (jobState) {
                 case RUNNING:
-                    client.startup();
-                    updateState(JobState.RUNNING, true);
+                    updateState(JobState.PENDING, true);
                     break;
                 case PAUSED:
-                    client.shutdown(false);
                     updateState(JobState.PAUSED, true);
                     break;
                 case CANCELLED:
-                    client.shutdown(true);
                     updateState(JobState.CANCELLED, true);
                     break;
             }

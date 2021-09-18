@@ -132,6 +132,12 @@ FE is the same.
 
 BROKER does not currently have, nor does it need, priority\ networks. Broker's services are bound to 0.0.0 by default. Simply execute the correct accessible BROKER IP when ADD BROKER is used.
 
+#### Table Name Case Sensitivity Setting
+
+By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
+
+See the section on `lower_case_table_names` variables in [Variables](../administrator-guide/variables.md) for details.
+
 ## Cluster deployment
 
 ### Manual deployment
@@ -163,8 +169,35 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Modify all BE configurations
 
-	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).
+	
+    eg.1: 
+    
+    Note: For SSD disks, '.SSD 'is followed by the directory, and for HDD disks,'.HDD 'is followed by the directory
+    
+    `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
+    **instructions**
+    
+    * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    
+    eg.2: 
+    
+    Note: you do not need to add the suffix to either HHD or SSD disk directories. You only need to set the medium parameter
+    
+    `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+      
+    **instructions**
+      
+    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
+    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
+
+* BE webserver_port configuration
+
+	If the Be componet is installed in hadoop cluster , need to change configuration `webserver_port=8040`  to avoid port used.
+	
 * Add all BE nodes to FE
 
 	BE nodes need to be added in FE before they can join the cluster. You can use mysql-client([Download MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) to connect to FE:

@@ -33,7 +33,7 @@ void EncryptionFunctions::init() {}
 
 StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key) {
-    if (src.len == 0) {
+    if (src.len == 0 || src.is_null) {
         return StringVal::null();
     }
 
@@ -53,7 +53,7 @@ StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal
 
 StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx, const StringVal& src,
                                            const StringVal& key) {
-    if (src.len == 0) {
+    if (src.len == 0 || src.is_null) {
         return StringVal::null();
     }
 

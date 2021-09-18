@@ -101,32 +101,31 @@ public class Config extends ConfigBase {
      *          60m     60 mins
      *          120s    120 seconds
      */
-    @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
-    @ConfField public static int audit_log_roll_num = 90;
-    @ConfField public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
-    @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
-    @ConfField public static String audit_log_roll_interval = "DAY";
-    @ConfField public static String audit_log_delete_age = "30d";
+    @ConfField
+    public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
+    @ConfField
+    public static int audit_log_roll_num = 90;
+    @ConfField
+    public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
+    @ConfField(mutable = true)
+    public static long qe_slow_log_ms = 5000;
+    @ConfField
+    public static String audit_log_roll_interval = "DAY";
+    @ConfField
+    public static String audit_log_delete_age = "30d";
     @Deprecated
-    @ConfField public static String audit_log_roll_mode = "TIME-DAY";
+    @ConfField
+    public static String audit_log_roll_mode = "TIME-DAY";
 
     /**
      * plugin_dir:
      *      plugin install directory
      */
-    @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+    @ConfField
+    public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = true;
-
-    /**
-     * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
-     * The removed labels can be reused.
-     * Set a short time will lower the FE memory usage.
-     * (Because all load jobs' info is kept in memory before being removed)
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
 
     /**
      * The default parallelism of the load execution plan
@@ -135,30 +134,41 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int default_load_parallelism = 1;
 
+    /**
+     * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
+     * The removed labels can be reused.
+     * Set a short time will lower the FE memory usage.
+     * (Because all load jobs' info is kept in memory before being removed)
+     */
+    @ConfField(mutable = true)
+    public static int label_keep_max_second = 3 * 24 * 3600; // 3 days
+
     // For some high frequency load job such as
-    // INSERT、STREAMING LOAD、ROUTINE_LOAD_TASK
+    // INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK, DELETE
     // Remove the finished job or task if expired.
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_label_keep_max_second = 43200; // 12 hour
 
     /**
      * The max keep time of some kind of jobs.
-     * like schema change job and rollup job.
+     * like alter job or export job.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int history_job_keep_max_second = 7 * 24 * 3600; // 7 days
 
     /**
-     * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
-     */
-    @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
-
-    /**
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
      * we should make this interval as short as possible and each clean cycle as soon as possible
      */
-    @ConfField public static int transaction_clean_interval_second = 30;
+    @ConfField
+    public static int transaction_clean_interval_second = 30;
 
+    /**
+     * Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
+     */
+    @ConfField
+    public static int label_clean_interval_second = 1 * 3600; // 1 hours
+    
     // Configurations for meta data durability
     /**
      * Doris meta data will be saved here.
@@ -166,7 +176,8 @@ public class Config extends ConfigBase {
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
+    @ConfField
+    public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
 
     /**
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
@@ -473,23 +484,6 @@ public class Config extends ConfigBase {
     public static int load_straggler_wait_second = 300;
 
     /**
-     * Maximal memory layout length of a row. default is 100 KB.
-     * In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf).
-     * And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
-     *
-     * eg.
-     *      schema: k1(int), v1(decimal), v2(varchar(2000))
-     *      then the memory layout length of a row is: 8(int) + 40(decimal) + 2000(varchar) = 2048 (Bytes)
-     *
-     * See memory layout length of all types, run 'help create table' in mysql-client.
-     *
-     * If you want to increase this number to support more columns in a row, you also need to increase the
-     * max_unpacked_row_block_size in be.conf. But the performance impact is unknown.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int max_layout_length_per_row = 100000; // 100k
-
-    /**
      * The load scheduler running interval.
      * A load job will transfer its state from PENDING to LOADING to FINISHED.
      * The load scheduler will transfer load job from PENDING to LOADING
@@ -640,6 +634,11 @@ public class Config extends ConfigBase {
      * Sync checker's running interval.
      */
     @ConfField public static int sync_checker_interval_second = 5;
+
+    /**
+     * max num of thread to handle sync task in sync task thread-pool.
+     */
+    @ConfField public static int max_sync_task_threads_num = 10;
 
     /**
      * Default number of waiting jobs for routine load and version 2 of load
@@ -1477,4 +1476,28 @@ public class Config extends ConfigBase {
     
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
+
+    /**
+     * This configuration can only be configured during cluster initialization and cannot be modified during cluster
+     * restart and upgrade after initialization is complete.
+     *
+     * 0: table names are stored as specified and comparisons are case sensitive.
+     * 1: table names are stored in lowercase and comparisons are not case sensitive.
+     * 2: table names are stored as given but compared in lowercase.
+     */
+    @ConfField(masterOnly = true)
+    public static int lower_case_table_names = 0;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int table_name_length_limit = 64;
+
+    /*
+     * The job scheduling interval of the schema change handler.
+     * The user should not set this parameter.
+     * This parameter is currently only used in the regression test environment to appropriately
+     * reduce the running speed of the schema change job to test the correctness of the system
+     * in the case of multiple tasks in parallel.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_schema_change_scheduler_interval_millisecond = 500;
 }

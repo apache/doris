@@ -95,10 +95,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             throw new LoadException("txn does not exist: " + job.getTransactionId());
         }
         for (long tableId : job.getIdToTableLoadInfo().keySet()) {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 txnState.addTableIndexes(table);
@@ -132,10 +129,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             long tableId = tableEntry.getKey();
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
 
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 // columns

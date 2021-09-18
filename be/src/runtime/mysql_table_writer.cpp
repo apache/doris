@@ -141,12 +141,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
             const DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
             std::string decimal_str;
             int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val.to_string(output_scale);
-            } else {
-                decimal_str = decimal_val.to_string();
-            }
+            decimal_str = decimal_val.to_string(output_scale);
             ss << decimal_str;
             break;
         }

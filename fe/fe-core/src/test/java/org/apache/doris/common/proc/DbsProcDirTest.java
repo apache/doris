@@ -68,27 +68,27 @@ public class DbsProcDirTest {
     public void testLookupNormal() throws AnalysisException {
         new Expectations(catalog) {
             {
-                catalog.getDb("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDb("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDb("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                catalog.getDb(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDb(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -150,27 +150,27 @@ public class DbsProcDirTest {
                 minTimes = 0;
                 result = Lists.newArrayList("db1", "db2");
 
-                catalog.getDb("db1");
+                catalog.getDbNullable("db1");
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDb("db2");
+                catalog.getDbNullable("db2");
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDb("db3");
+                catalog.getDbNullable("db3");
                 minTimes = 0;
                 result = null;
 
-                catalog.getDb(db1.getId());
+                catalog.getDbNullable(db1.getId());
                 minTimes = 0;
                 result = db1;
 
-                catalog.getDb(db2.getId());
+                catalog.getDbNullable(db2.getId());
                 minTimes = 0;
                 result = db2;
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }

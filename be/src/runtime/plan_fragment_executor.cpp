@@ -53,7 +53,6 @@ PlanFragmentExecutor::PlanFragmentExecutor(ExecEnv* exec_env,
           _done(false),
           _prepared(false),
           _closed(false),
-          _has_thread_token(false),
           _is_report_success(true),
           _is_report_on_cancel(true),
           _collect_query_statistics_with_every_batch(false) {}
@@ -67,7 +66,7 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
-                                     const QueryFragmentsCtx* fragments_ctx) {
+                                     QueryFragmentsCtx* fragments_ctx) {
     const TPlanFragmentExecParams& params = request.params;
     _query_id = params.query_id;
 
@@ -79,6 +78,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     const TQueryGlobals& query_globals =
             fragments_ctx == nullptr ? request.query_globals : fragments_ctx->query_globals;
     _runtime_state.reset(new RuntimeState(params, request.query_options, query_globals, _exec_env));
+    _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
@@ -98,20 +98,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.query_options.__isset.is_report_success) {
         _is_report_success = request.query_options.is_report_success;
     }
-
-    // Reserve one main thread from the pool
-    _runtime_state->resource_pool()->acquire_thread_token();
-    _has_thread_token = true;
-
-    _average_thread_tokens = profile()->add_sampling_counter(
-            "AverageThreadTokens",
-            std::bind<int64_t>(std::mem_fn(&ThreadResourceMgr::ResourcePool::num_threads),
-                               _runtime_state->resource_pool()));
-
-    // if (_exec_env->process_mem_tracker() != NULL) {
-    //     // we have a global limit
-    //     _runtime_state->mem_trackers()->push_back(_exec_env->process_mem_tracker());
-    // }
 
     int64_t bytes_limit = request.query_options.mem_limit;
     if (bytes_limit <= 0) {
@@ -199,7 +185,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(), request.fragment.output_sink,
                                                    request.fragment.output_exprs, params,
-                                                   row_desc(), runtime_state()->enable_vectorized_exec(), &_sink));
+                                                   row_desc(), runtime_state()->enable_vectorized_exec(),
+                                                   &_sink, *desc_tbl));
         RETURN_IF_ERROR(_sink->prepare(runtime_state()));
 
         RuntimeProfile* sink_profile = _sink->profile();
@@ -344,8 +331,6 @@ Status PlanFragmentExecutor::open_internal() {
     _sink.reset(NULL);
     _done = true;
 
-    release_thread_token();
-
     stop_report_thread();
     send_report(true);
 
@@ -463,7 +448,6 @@ Status PlanFragmentExecutor::get_next(RowBatch** batch) {
         LOG(INFO) << "Finished executing fragment query_id=" << print_id(_query_id)
                   << " instance_id=" << print_id(_runtime_state->fragment_instance_id());
         // Query is done, return the thread token
-        release_thread_token();
         stop_report_thread();
         send_report(true);
     }
@@ -538,14 +522,6 @@ const RowDescriptor& PlanFragmentExecutor::row_desc() {
 
 RuntimeProfile* PlanFragmentExecutor::profile() {
     return _runtime_state->runtime_profile();
-}
-
-void PlanFragmentExecutor::release_thread_token() {
-    if (_has_thread_token) {
-        _has_thread_token = false;
-        _runtime_state->resource_pool()->release_thread_token(true);
-        profile()->stop_sampling_counters_updates(_average_thread_tokens);
-    }
 }
 
 void PlanFragmentExecutor::close() {

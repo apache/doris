@@ -283,7 +283,7 @@ Dictionary compression column size, less than this value using dictionary compre
 Tablet scan frequency can be taken into consideration when selecting an tablet for compaction and preferentially do compaction for those tablets which are scanned frequently during a latest period of time at the present.
 Tablet score can be calculated like this:
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 
@@ -789,6 +789,12 @@ Default：100
 
 Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
 
+### `max_send_batch_parallelism_per_job`
+
+* Type: int
+* Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
+* Default value: 1
+
 ### `max_tablet_num_per_shard`
 
 Default：1024
@@ -1056,6 +1062,17 @@ Default：5
 
 This configuration is used for the context gc thread scheduling cycle. Note: The unit is minutes, and the default is 5 minutes
 
+### `send_batch_thread_pool_thread_num`
+
+* Type: int32
+* Description: The number of threads in the SendBatch thread pool. In NodeChannels' sending data tasks, the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the SendBatch thread pool.
+* Default value: 256
+
+### `send_batch_thread_pool_queue_size`
+
+* Type: int32
+* Description: The queue length of the SendBatch thread pool. In NodeChannels' sending data tasks,  the SendBatch operation of each NodeChannel will be submitted as a thread task to the thread pool waiting to be scheduled, and after the number of submitted tasks exceeds the length of the thread pool queue, subsequent submitted tasks will be blocked until there is a empty slot in the queue.
+
 ### `sleep_one_second`
 
 + Type: int32
@@ -1114,11 +1131,17 @@ Cache for storage page size
 * Type: string
 
 * Description: data root path, separate by ';'.you can specify the storage medium of each root path, HDD or SSD. you can add capacity limit at the end of each root path, seperate by ','
-eg: storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
+
+    eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
     * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
     * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
     * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    
+    eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+      
+    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
+    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
 
 * Default: ${DORIS_HOME}
 

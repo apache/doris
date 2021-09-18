@@ -67,6 +67,8 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(scanner_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(etl_thread_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_thread_num, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(send_batch_thread_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(query_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "query"}}));
 
@@ -91,8 +93,21 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
             new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _pool_mem_trackers = new PoolMemTrackerRegistry();
     _thread_mgr = new ThreadResourceMgr();
-    _thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
+    _scan_thread_pool = new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
                                           config::doris_scanner_thread_pool_queue_size);
+
+    ThreadPoolBuilder("LimitedScanThreadPool")
+            .set_min_threads(1)    
+            .set_max_threads(config::doris_scanner_thread_pool_thread_num)
+            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+            .build(&_limited_scan_thread_pool);    
+
+    ThreadPoolBuilder("SendBatchThreadPool")
+            .set_min_threads(1)
+            .set_max_threads(config::send_batch_thread_pool_thread_num)
+            .set_max_queue_size(config::send_batch_thread_pool_queue_size)
+            .build(&_send_batch_thread_pool);
+    
     _etl_thread_pool = new PriorityThreadPool(config::etl_thread_pool_size,
                                               config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
@@ -233,17 +248,27 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size, int64_t capacity,
 
 void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(scanner_thread_pool_queue_size, [this]() {
-        return _thread_pool->get_queue_size();
+        return _scan_thread_pool->get_queue_size();
     });
 
     REGISTER_HOOK_METRIC(etl_thread_pool_queue_size, [this]() {
         return _etl_thread_pool->get_queue_size();
+    });
+
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num, [this]() {
+        return _send_batch_thread_pool->num_threads();
+    });
+
+    REGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size, [this]() {
+        return _send_batch_thread_pool->get_queue_size();
     });
 }
 
 void ExecEnv::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(scanner_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(etl_thread_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num);
+    DEREGISTER_HOOK_METRIC(send_batch_thread_pool_queue_size);
 }
 
 void ExecEnv::_destroy() {
@@ -266,7 +291,7 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_fold_constant_mgr);
     SAFE_DELETE(_cgroups_mgr);
     SAFE_DELETE(_etl_thread_pool);
-    SAFE_DELETE(_thread_pool);
+    SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_pool_mem_trackers);
     SAFE_DELETE(_broker_client_cache);

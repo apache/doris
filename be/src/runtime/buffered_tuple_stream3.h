@@ -211,7 +211,6 @@ public:
     /// ext_varlen_slots: set of varlen slots with data stored externally to the stream
     BufferedTupleStream3(RuntimeState* state, const RowDescriptor* row_desc,
                          BufferPool::ClientHandle* buffer_pool_client, int64_t default_page_len,
-                         int64_t max_page_len,
                          const std::set<SlotId>& ext_varlen_slots = std::set<SlotId>());
 
     virtual ~BufferedTupleStream3();
@@ -501,11 +500,6 @@ private:
     /// The default length in bytes of pages used to store the stream's rows. All rows that
     /// fit in a default-sized page are stored in default-sized page.
     const int64_t default_page_len_;
-
-    /// The maximum length in bytes of pages used to store the stream's rows. This is a
-    /// hard limit on the maximum size of row that can be stored in the stream and the
-    /// amount of reservation required to read or write to an unpinned stream.
-    const int64_t max_page_len_;
 
     /// Whether any tuple in the rows is nullable.
     const bool has_nullable_tuple_;

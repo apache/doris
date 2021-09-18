@@ -91,11 +91,11 @@ public class CanalSyncJobTest {
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDb(10000L);
+                catalog.getDbNullable(10000L);
                 minTimes = 0;
                 result = database;
 
-                catalog.getDb("testDb");
+                catalog.getDbNullable("testDb");
                 minTimes = 0;
                 result = database;
 
@@ -115,7 +115,7 @@ public class CanalSyncJobTest {
                 minTimes = 0;
                 result = dbId;
 
-                database.getTable("testTbl");
+                database.getTableNullable("testTbl");
                 minTimes = 0;
                 result = table;
             }

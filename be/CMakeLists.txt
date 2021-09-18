@@ -170,6 +170,9 @@ set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(gtest STATIC IMPORTED)
 set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
 
+add_library(benchmark STATIC IMPORTED)
+set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
+
 add_library(gmock STATIC IMPORTED)
 set_target_properties(gmock PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgmock.a)
 
@@ -521,6 +524,13 @@ set(COMMON_THIRDPARTY
     ${AWS_LIBS}
 )
 
+if (${MAKE_TEST} STREQUAL "ON")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        benchmark       
+    )
+endif()
+
 # thirdparties dependescies that can only run on X86 platform
 set(X86_DEPENDENCIES
     ${COMMON_THIRDPARTY}   
@@ -686,6 +696,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
     add_subdirectory(${TEST_DIR}/geo)
+    add_subdirectory(${TEST_DIR}/gutil)
     add_subdirectory(${TEST_DIR}/http)
     add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/runtime)
@@ -693,6 +704,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/util)
     add_subdirectory(${TEST_DIR}/plugin)
     add_subdirectory(${TEST_DIR}/plugin/example)
+    add_subdirectory(${TEST_DIR}/tools)
 endif ()
 
 # Install be

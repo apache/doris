@@ -66,6 +66,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 public class S3Storage extends BlobStorage {
+    public static final String S3_PROPERTIES_PREFIX = "AWS";
     public static final String S3_AK = "AWS_ACCESS_KEY";
     public static final String S3_SK = "AWS_SECRET_KEY";
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
@@ -105,7 +106,7 @@ public class S3Storage extends BlobStorage {
 
     }
 
-    private void checkS3() throws UserException {
+    public static void checkS3(CaseInsensitiveMap caseInsensitiveProperties) throws UserException {
         if (!caseInsensitiveProperties.containsKey(S3_REGION)) {
             throw new UserException("AWS_REGION not found.");
         }
@@ -122,7 +123,7 @@ public class S3Storage extends BlobStorage {
 
     private S3Client getClient(String bucket) throws UserException {
         if (client == null) {
-            checkS3();
+            checkS3(caseInsensitiveProperties);
             URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3_ENDPOINT).toString());
             AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
                     caseInsensitiveProperties.get(S3_AK).toString(),
@@ -307,7 +308,7 @@ public class S3Storage extends BlobStorage {
     // broker file pattern glob is too complex, so we use hadoop directly
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         try {
-            checkS3();
+            checkS3(caseInsensitiveProperties);
             Configuration conf = new Configuration();
             String s3AK = caseInsensitiveProperties.get(S3_AK).toString();
             String s3Sk = caseInsensitiveProperties.get(S3_SK).toString();

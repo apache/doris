@@ -91,7 +91,7 @@ public class LoadManagerTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = "label1";
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -117,10 +117,10 @@ public class LoadManagerTest {
                                         @Injectable Table table) throws Exception {
         new Expectations(){
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
@@ -152,10 +152,10 @@ public class LoadManagerTest {
                                                 @Injectable Table table) throws Exception {
         new Expectations(){
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
