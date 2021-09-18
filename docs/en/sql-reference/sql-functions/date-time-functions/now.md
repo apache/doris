@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'DATETIME NOW ()'
+`DATETIME NOW ()`
 
 
 Get the current time and return it in Datetime type

@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)
+`DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)`
 
 
 Parse and get the floating-point content of the specified path in the JSON string.
