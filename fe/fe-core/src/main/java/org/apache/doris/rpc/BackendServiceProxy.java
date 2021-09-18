@@ -17,6 +17,7 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -31,6 +32,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 
 import java.util.List;
 import java.util.Map;
@@ -59,23 +61,19 @@ public class BackendServiceProxy {
     }
 
     public void removeProxy(TNetworkAddress address) {
-        lock.writeLock().lock();
-        try {
-            serviceMap.remove(address);
-        } finally {
-            lock.writeLock().unlock();
+        LOG.warn("begin to remove proxy: {}", address);
+        BackendServiceClient service;
+        synchronized (this) {
+            service = serviceMap.remove(address);
+        }
+
+        if (service != null) {
+            service.shutdown();
         }
     }
 
-    private BackendServiceClient getProxy(TNetworkAddress address) {
-        BackendServiceClient service;
-        lock.readLock().lock();
-        try {
-            service = serviceMap.get(address);
-        } finally {
-            lock.readLock().unlock();
-        }
-
+    private synchronized BackendServiceClient getProxy(TNetworkAddress address) {
+        BackendServiceClient service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
@@ -97,8 +95,16 @@ public class BackendServiceProxy {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
-        final InternalService.PExecPlanFragmentRequest pRequest = InternalService.PExecPlanFragmentRequest.newBuilder()
-                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+        InternalService.PExecPlanFragmentRequest.Builder builder = InternalService.PExecPlanFragmentRequest.newBuilder();
+        if (Config.use_compact_thrift_rpc) {
+            builder.setRequest(ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(tRequest)));
+            builder.setCompact(true);
+        } else {
+            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+            builder.setCompact(false);
+        }
+
+        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentAsync(pRequest);

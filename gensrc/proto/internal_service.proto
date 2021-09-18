@@ -116,6 +116,7 @@ message PTabletWriterCancelResult {
 
 message PExecPlanFragmentRequest {
     optional bytes request = 1;
+    optional bool compact = 2;
 };
 
 message PExecPlanFragmentResult {
