@@ -36,40 +36,40 @@ Its original name was Palo, developed in Baidu. After donated to Apache Software
 
 [Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
 
+> **Note**   
+> Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
+some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
+
 ## 2. Technology
 Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
 
-## 3. User cases
-Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis.
+## 3. Use cases
+- Doris provides high concurrent low latency point query performance, as well as high throughput queries of ad-hoc analysis.
 
-Doris not only provides batch data loading, but also provides near real-time mini-batch data loading.
+- Doris provides batch data loading and real-time mini-batch data loading.
 
-Doris also provides high availability, reliability, fault tolerance, and scalability.
+- Doris provides high availability, reliability, fault tolerance, and scalability.
 
-The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Doris (refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview)).
+The main advantages of Doris are the simplicity (of developing, deploying and using) and meeting many data serving requirements in a single system. For details, refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview).
 
 ## 4. Compile and install
 
 See [Compilation](https://github.com/apache/incubator-doris/blob/master/docs/en/installing/compilation.md) for details.
 
-## 5. License Notice
 
-Some of the third-party dependencies' license are not compatible with Apache 2.0 License. So you may have to disable
-some features of Doris to be complied with Apache 2.0 License. Details can be found in `thirdparty/LICENSE.txt`
+## 5. Report issues or submit pull request
 
-## 6. Reporting Issues
+If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/incubator-doris/issues) or fix it by submitting a [pull request](https://github.com/apache/incubator-doris/pulls).
 
-If you find any bugs, please file a [GitHub issue](https://github.com/apache/incubator-doris/issues).
+## 6. Contact Us
 
-## 7. Contact Us
-
-### Mailing lists
+Contact us through the following mailing list.
 
 | Name                                                                          | Scope                           |                                                                 |                                                                     |                                                                              |
 |:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
 | [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
 
-## 8. Links
+## 7. Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
