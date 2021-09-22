@@ -409,7 +409,7 @@ public:
         return msg.str();
     }
 
-    bool is_consumption_metric_null() { return consumption_metric_ == nullptr; }
+    bool is_consumption_metric_null() const { return consumption_metric_ == nullptr; }
 
     static const std::string COUNTER_NAME;
 
