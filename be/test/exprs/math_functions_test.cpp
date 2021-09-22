@@ -168,6 +168,24 @@ TEST_F(MathFunctionsTest, rand) {
     ASSERT_NE(dv3.val, dv4.val);
 }
 
+TEST_F(MathFunctionsTest, hex) {
+    StringVal s1("C");
+    StringVal s2("90");
+    StringVal s3("FFFFFFFFFFFFFFFF");
+    StringVal s4("FFFFFFFFFFFFFFFE");
+    StringVal s5("24EC1");
+    StringVal s6("FFFFFFFFFFFFFFFF");
+    StringVal s7("");
+
+    ASSERT_EQ(s1, MathFunctions::hex_int(ctx, BigIntVal(12)));
+    ASSERT_EQ(s2, MathFunctions::hex_int(ctx, BigIntVal(144)));
+    ASSERT_EQ(s3, MathFunctions::hex_int(ctx, BigIntVal(-1)));
+    ASSERT_EQ(s4, MathFunctions::hex_int(ctx, BigIntVal(-2)));
+    ASSERT_EQ(s5, MathFunctions::hex_int(ctx, BigIntVal(151233)));
+    ASSERT_EQ(s6, MathFunctions::hex_int(ctx, BigIntVal(18446744073709551615))); //BigIntVal max_value
+    ASSERT_EQ(s7, MathFunctions::hex_int(ctx, BigIntVal(0)));
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {

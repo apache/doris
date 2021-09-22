@@ -339,6 +339,64 @@ TEST_F(StringFunctionsTest, reverse) {
               StringFunctions::reverse(context, StringVal("hello你好")));
 }
 
+TEST_F(StringFunctionsTest, hex) {
+    FunctionUtils fu;
+    doris_udf::FunctionContext* context = fu.get_fn_ctx();
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("0")),
+              StringFunctions::hex(context, StringVal("30")));
+
+    ASSERT_EQ(StringVal::null(),
+              StringFunctions::hex(context, StringVal::null()));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("1")),
+              StringFunctions::hex(context, StringVal("31")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("123")),
+              StringFunctions::hex(context, StringVal("313233")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("A")),
+              StringFunctions::hex(context, StringVal("41")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("a")),
+              StringFunctions::hex(context, StringVal("61")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("我")),
+              StringFunctions::hex(context, StringVal("E68891")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("?")),
+              StringFunctions::hex(context, StringVal("3F")));
+}
+
+TEST_F(StringFunctionsTest, unhex) {
+    FunctionUtils fu;
+    doris_udf::FunctionContext* context = fu.get_fn_ctx();
+    
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("@")),
+              StringFunctions::unhex(context, StringVal("")));
+    
+    ASSERT_EQ(StringVal::null(),
+              StringFunctions::unhex(context, StringVal::null()));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("@！#")),
+              StringFunctions::unhex(context, StringVal("")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("61")),
+              StringFunctions::unhex(context, StringVal("a")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("313233")),
+              StringFunctions::unhex(context, StringVal("123")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("@@")),
+              StringFunctions::unhex(context, StringVal("")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("我")),
+              StringFunctions::unhex(context, StringVal("")));
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("EFBC9F")),
+              StringFunctions::unhex(context, StringVal("？")));
+}
+
 TEST_F(StringFunctionsTest, length) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
