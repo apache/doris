@@ -75,9 +75,9 @@ under the License.
                     path: 远端存储路径
                     other properties: 其他访问远端存储所必须的信息，比如认证信息等。
 
-		7) 修改 BE 节点属性目前支持以下属性：
+        7) 修改 BE 节点属性目前支持以下属性：
 
-			1. tag.location：资源标签
+            1. tag.location：资源标签
         
 ## example
 
@@ -121,9 +121,9 @@ under the License.
         ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
         ("type"= "null");
 
-	9. 修改 BE 的资源标签
+    9. 修改 BE 的资源标签
 
-		ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location": "group_a");
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location": "group_a");
         
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE

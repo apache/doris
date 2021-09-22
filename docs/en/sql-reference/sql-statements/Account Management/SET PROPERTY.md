@@ -44,6 +44,7 @@ sql_block_rules: set sql block rules。After setting, if the query user execute 
 cpu_resource_limit: limit the cpu resource usage of a query. See session variable `cpu_resource_limit`.
 resource.cpu_share: cpu resource assignment.(Derepcated)
 Load_cluster. {cluster_name}. priority: assigns priority to a specified cluster, which can be HIGH or NORMAL
+resource_tags: Specify the user's resource tag permissions.
 
 Ordinary user rights:
 Quota.normal: Resource allocation at the normal level.
@@ -88,6 +89,9 @@ SET PROPERTY FOR 'jack' 'sql_block_rules' = 'rule1, rule2';
 
 10. Modify the cpu resource usage limit for jack
 SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
+
+11. Modify user's resource tag permission
+SET PROPERTY FOR 'jack' 'resource_tags.localtion' = 'group_a, group_b';
 
 ## keyword
 SET, PROPERTY
