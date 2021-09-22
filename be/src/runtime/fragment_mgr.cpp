@@ -248,7 +248,7 @@ Status FragmentExecState::cancel_before_execute() {
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel("Execution aborted before start");
     }
     return Status::OK();
 }
@@ -261,7 +261,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
     }
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
     }
     return Status::OK();
 }

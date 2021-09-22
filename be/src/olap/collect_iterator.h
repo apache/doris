@@ -149,6 +149,8 @@ private:
         bool _merge = true;
         bool _reverse = false;
         // used when `_merge == true`
+        // need to be cleared when deconstructing this Level1Iterator
+        // The child LevelIterator should be either in _heap or in _children
         std::unique_ptr<MergeHeap> _heap;
         // used when `_merge == false`
         int _child_idx = 0;
