@@ -1441,3 +1441,9 @@ webserver默认工作线程数
     DEBUG = 1
   ```
 * 默认值: 0
+
+### `max_segment_num_per_rowset`
+
+* 类型: int32
+* 描述: 用于限制导入时，新产生的rowset中的segment数量。如果超过阈值，导入会失败并报错 -238。过多的 segment 会导致compaction占用大量内存引发 OOM 错误。
+* 默认值: 100

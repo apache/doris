@@ -169,6 +169,9 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        if (++_segment_counter > config::max_segment_num_per_rowset) {
+            return OLAP_ERR_TOO_MANY_SEGMENTS;
+        }
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _reset_mem_table();
