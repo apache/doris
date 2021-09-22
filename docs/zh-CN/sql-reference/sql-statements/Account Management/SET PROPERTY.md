@@ -91,7 +91,7 @@ under the License.
     SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
 
     11. 修改用户的资源标签权限
-    SET PROPERTY FOR 'jack' 'resource_tags.localtion' = 'group_a, group_b';
+    SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
 
 ## keyword
     SET, PROPERTY

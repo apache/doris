@@ -91,7 +91,7 @@ SET PROPERTY FOR 'jack' 'sql_block_rules' = 'rule1, rule2';
 SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
 
 11. Modify user's resource tag permission
-SET PROPERTY FOR 'jack' 'resource_tags.localtion' = 'group_a, group_b';
+SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
 
 ## keyword
 SET, PROPERTY

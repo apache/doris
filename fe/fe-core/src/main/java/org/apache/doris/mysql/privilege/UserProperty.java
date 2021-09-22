@@ -35,13 +35,13 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 
-import org.apache.commons.lang.StringUtils;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang.StringUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -288,10 +288,17 @@ public class UserProperty implements Writable {
                 if (!keyArr[1].equals(Tag.TYPE_LOCATION)) {
                     throw new DdlException("Only support location tag now");
                 }
-                try {
-                    resourceTags = parseLocationResoureTags(value);
-                } catch (NumberFormatException e) {
-                    throw new DdlException(PROP_RESOURCE_TAGS + " parse failed: " + e.getMessage());
+
+                if (Strings.isNullOrEmpty(value)) {
+                    // This is for compatibility. empty value means to unset the resource tag property.
+                    // So that user will have permission to query all tags.
+                    resourceTags = Sets.newHashSet();
+                } else {
+                    try {
+                        resourceTags = parseLocationResoureTags(value);
+                    } catch (NumberFormatException e) {
+                        throw new DdlException(PROP_RESOURCE_TAGS + " parse failed: " + e.getMessage());
+                    }
                 }
             } else {
                 throw new DdlException("Unknown user property(" + key + ")");
