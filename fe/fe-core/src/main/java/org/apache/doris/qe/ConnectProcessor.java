@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -80,8 +79,6 @@ public class ConnectProcessor {
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
     }
-
-
 
     // COM_INIT_DB: change current database of this session.
     private void handleInitDb() {
