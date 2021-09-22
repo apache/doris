@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.AliasFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -52,9 +52,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.text.StringCharacterIterator;
 import java.util.Arrays;
 import java.util.List;
-import java.text.StringCharacterIterator;
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
@@ -64,6 +64,8 @@ public class FunctionCallExpr extends Expr {
 
     // check analytic function
     private boolean isAnalyticFnCall = false;
+    // check table function
+    private boolean isTableFnCall = false;
 
     // Indicates whether this is a merge aggregation function that should use the merge
     // instead of the update symbol. This flag also affects the behavior of
@@ -85,6 +87,10 @@ public class FunctionCallExpr extends Expr {
     
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
+    }
+
+    public void setTableFnCall(boolean tableFnCall) {
+        isTableFnCall = tableFnCall;
     }
 
     public Function getFn() {
@@ -675,6 +681,16 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
+            // now first find table function in table function sets
+            if (isTableFnCall) {
+                Type[] childTypes = collectChildReturnTypes();
+                fn = getTableFunction(fnName.getFunction(), childTypes,
+                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                if (fn == null) {
+                    throw new AnalysisException("Doris only support `explode_split(varchar, varchar)` table function");
+                }
+                return;
+            }
             // now first find function in built-in functions
             if (Strings.isNullOrEmpty(fnName.getDb())) {
                 Type[] childTypes = collectChildReturnTypes();

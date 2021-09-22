@@ -266,8 +266,9 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(),
-                    selectItemExpr.isNullable()));
+            columnList.add(new Column(colAlias, selectItemExpr.getType(),
+                    false, null, selectItemExpr.isNullable(),
+                    null, ""));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,7 +63,7 @@ public class BaseTableRef extends TableRef {
      * Register this table ref and then analyze the Join clause.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(Analyzer analyzer) throws UserException {
         name = analyzer.getFqTableName(name);
         name.analyze(analyzer);
         desc = analyzer.registerTableRef(this);
@@ -71,6 +71,17 @@ public class BaseTableRef extends TableRef {
         analyzeJoin(analyzer);
         analyzeSortHints();
         analyzeHints();
+        analyzeLateralViewRef(analyzer);
+    }
+
+    private void analyzeLateralViewRef(Analyzer analyzer) throws UserException {
+        if (lateralViewRefs == null) {
+            return;
+        }
+        for (LateralViewRef lateralViewRef : lateralViewRefs) {
+            lateralViewRef.setRelatedTable(table);
+            lateralViewRef.analyze(analyzer);
+        }
     }
 }
 
