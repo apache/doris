@@ -157,6 +157,10 @@ public abstract class SyncJob implements Writable {
 
     public synchronized void updateState(JobState newState, boolean isReplay) throws UserException {
         checkStateTransform(newState);
+        unprotectedUpdateState(newState, isReplay);
+    }
+
+    public void unprotectedUpdateState(JobState newState, boolean isReplay) {
         this.jobState = newState;
         switch (newState) {
             case PENDING:

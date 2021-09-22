@@ -28,6 +28,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Mocked;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -51,7 +53,7 @@ public class SyncJobTest {
     public void testUpdateStateToRunning() {
         SyncJob syncJob = new CanalSyncJob(jobId, jobName, dbId);
         try {
-            syncJob.updateState(JobState.RUNNING, false);
+            syncJob.updateState(JobState.RUNNING, true);
             Assert.assertEquals(JobState.RUNNING, syncJob.getJobState());
             Assert.assertNotEquals(-1L, (long) Deencapsulation.getField(syncJob, "lastStartTimeMs"));
         } catch (UserException e) {
