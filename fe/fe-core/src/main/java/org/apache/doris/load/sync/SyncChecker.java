@@ -18,6 +18,7 @@
 package org.apache.doris.load.sync;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -58,7 +59,7 @@ public class SyncChecker extends MasterDaemon {
             UserException exception = null;
             try {
                 job.execute();
-            } catch (MetaNotFoundException e) {
+            } catch (MetaNotFoundException| DdlException e) {
                 msgType = SyncFailMsg.MsgType.SCHEDULE_FAIL;
                 exception = e;
                 LOG.warn(e.getMessage());

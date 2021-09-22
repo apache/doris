@@ -82,7 +82,7 @@ public class CanalSyncJob extends SyncJob {
         this.dataSyncJobType = DataSyncJobType.CANAL;
     }
 
-    private void init() throws MetaNotFoundException, DdlException {
+    private void init() throws DdlException {
         CanalConnector connector = CanalConnectors.newSingleConnector(
                 new InetSocketAddress(ip, port), destination, username, password);
         // create channels
@@ -93,7 +93,7 @@ public class CanalSyncJob extends SyncJob {
         client.registerChannels(channels);
     }
 
-    public void initChannels() throws MetaNotFoundException, DdlException {
+    public void initChannels() throws DdlException {
         if (channels == null) {
             channels = Lists.newArrayList();
         }
