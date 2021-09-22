@@ -206,7 +206,7 @@ public abstract class SyncJob implements Writable {
     }
 
     public void checkAndDoUpdate() throws UserException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (database == null) {
             if (!isCompleted()) {
                 String msg = "The database has been deleted. Change job state to cancelled";
@@ -219,7 +219,7 @@ public abstract class SyncJob implements Writable {
         }
 
         for (ChannelDescription channelDescription : channelDescriptions) {
-            Table table = database.getTable(channelDescription.getTargetTable());
+            Table table = database.getTableNullable(channelDescription.getTargetTable());
             if (table == null) {
                 if (!isCompleted()) {
                     String msg = "The table has been deleted. Change job state to cancelled";
