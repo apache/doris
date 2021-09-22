@@ -51,7 +51,7 @@ public class DynamicPartitionProperty {
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
-    public static final String NOT_SET_RESERVED_HISTORY_PERIODS = "[9999-12-31,9999-12-31]";
+    public static final String NOT_SET_RESERVED_HISTORY_PERIODS = FeConstants.null_string;
 
     private boolean exist;
 

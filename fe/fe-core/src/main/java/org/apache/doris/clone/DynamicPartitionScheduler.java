@@ -300,18 +300,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
         List<Range> ranges = DynamicPartitionUtil.convertStringToPeriodsList(reservedHistoryPeriods);
 
-        for (Range range : ranges) {
-            try {
-                String lowerBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat);
-                String upperBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
-                Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable, partitionColumn, partitionFormat, lowerBorderOfReservedHistory,upperBorderOfReservedHistory);
-                reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
-            }
-            catch (IllegalArgumentException e) {
-                return dropPartitionClauses;
+        if (ranges.size() != 0) {
+            for (Range range : ranges) {
+                try {
+                    String lowerBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat);
+                    String upperBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
+                    Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable, partitionColumn, partitionFormat, lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
+                    reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
+                } catch (IllegalArgumentException e) {
+                    return dropPartitionClauses;
+                }
             }
         }
-
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());

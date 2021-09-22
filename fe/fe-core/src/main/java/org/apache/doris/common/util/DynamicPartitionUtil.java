@@ -242,6 +242,9 @@ public class DynamicPartitionUtil {
 
     public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods) throws DdlException {
         List<Range> reservedHistoryPeriodsToRangeList = new ArrayList<Range>();
+        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+            return reservedHistoryPeriodsToRangeList;
+        }
         Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
         Pattern pattern = Pattern.compile("\\[([0-9]{4}-[0-9]{2}-[0-9]{2}),([0-9]{4}-[0-9]{2}-[0-9]{2})\\]");
         Matcher matcher = pattern.matcher(reservedHistoryPeriods);
@@ -259,6 +262,9 @@ public class DynamicPartitionUtil {
     }
 
     public static String sortedListedToString(String reservedHistoryPeriods) throws DdlException {
+        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+            return reservedHistoryPeriods;
+        }
         List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
         reservedHistoryPeriodsToRangeList.sort(new Comparator<Range>() {
             @Override
@@ -273,8 +279,11 @@ public class DynamicPartitionUtil {
     }
 
     private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods) throws DdlException {
-        if (Strings.isNullOrEmpty(reservedHistoryPeriods) ) {
+        if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
+        }
+        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+            return;
         }
         // it has 5 kinds of situation
         // 1. "dynamic_partition.reserved_history_periods" = "[2021-07-01,]," invalid one
