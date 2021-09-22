@@ -85,6 +85,7 @@ INTO OUTFILE "file_path"
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
     * `max_file_size`: The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
+    * `schema`: schema infomation for PARQUET, only applicable to PARQUET format. If the exported file format is PARQUET, `schema` must be specified.
 
 ## Concurrent export
 
@@ -161,6 +162,26 @@ Planning example for concurrent export:
 
 2. Example 2
 
+    Export simple query results to the file `hdfs:/path/to/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set kerberos authentication information. 
+    
+    ```
+    SELECT c1, c2, c3 FROM tbl
+    INTO OUTFILE "hdfs:/path/to/result_"
+    FORMAT AS PARQUET
+    PROPERTIES
+    (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
+        "schema"="required,int32,c1;required,byte_array,c2;required,byte_array,c2"
+    );
+    ```
+   
+   If the exported file format is PARQUET, `schema` must be specified.
+
+3. Example 3
+
     Export the query result of the CTE statement to the file `hdfs:/path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default column separators and line delimiter.
 
     ```
@@ -188,7 +209,7 @@ Planning example for concurrent export:
     
     If larger than 1GB, may be: `result_0.csv, result_1.csv, ...`.
     
-3. Example 3
+4. Example 4
 
     Export the query results of the UNION statement to the file `bos://bucket/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set hdfs high availability information. PARQUET format does not need to specify the column separator and line delimiter.
     
@@ -201,15 +222,12 @@ Planning example for concurrent export:
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
         "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "schema"="required,int32,k1;required,byte_array,k2"
     );
     ```
-    
-    If the result is less than 1GB, file will be: `result_0.parquet`.
-    
-    If larger than 1GB, may be: `result_0.parquet, result_1.parquet, ...`.
 
-4. Example 4
+5. Example 5
 
     Export simple query results to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as CSV.
     And create a mark file after export finished.
@@ -239,7 +257,7 @@ Planning example for concurrent export:
     1. Paths that do not exist are automatically created.
     2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name.
 
-5. Example5
+6. Example 6
 
     Use the s3 protocol to export to bos, and concurrent export is enabled.
 
@@ -259,7 +277,7 @@ Planning example for concurrent export:
 
     The final generated file prefix is `my_file_{fragment_instance_id}_`。
 
-6. Example6
+7. Example 7
 
     Use the s3 protocol to export to bos, and enable concurrent export of session variables.
 
