@@ -97,7 +97,7 @@ public abstract class SyncJob implements Writable {
      *           v                                         ^
      *           |                                         |
      *      +------------+   pause job             +-------+----+
-     *      |  RUNNING   |                         |  PAUSED    |
+     *      |  RUNNING   |   run error             |  PAUSED    |
      *      |            +-----------------------> |            |
      *      +----+-------+                         +-------+----+
      *           |                                         |
