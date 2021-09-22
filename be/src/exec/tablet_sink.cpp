@@ -481,9 +481,10 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
-        std::stringstream ss;
-        ss << "index channel has intolerable failure. " << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        std::stringstream ss2;
+        ss2 << "index channel has intolerable failure. " << BackendOptions::get_localhost()
+            << ", err: " << ss.str();
+        return Status::InternalError(ss2.str());
     }
 
     return Status::OK();

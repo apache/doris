@@ -179,6 +179,7 @@ enum OLAPStatus {
     OLAP_ERR_TOO_MANY_VERSION = -235,
     OLAP_ERR_NOT_INITIALIZED = -236,
     OLAP_ERR_ALREADY_CANCELLED = -237,
+    OLAP_ERR_TOO_MANY_SEGMENTS = -238,
 
     // CommandExecutor
     // [-300, -400)
