@@ -19,6 +19,7 @@ package org.apache.doris.flink.table;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
+import org.apache.flink.table.api.TableSchema;
 import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.sink.OutputFormatProvider;
@@ -32,11 +33,16 @@ public class DorisDynamicTableSink implements DynamicTableSink {
     private final DorisOptions options;
     private final DorisReadOptions readOptions;
     private final DorisExecutionOptions executionOptions;
+    private final TableSchema tableSchema;
 
-    public DorisDynamicTableSink(DorisOptions options, DorisReadOptions readOptions, DorisExecutionOptions executionOptions) {
+    public DorisDynamicTableSink(DorisOptions options,
+                                 DorisReadOptions readOptions,
+                                 DorisExecutionOptions executionOptions,
+                                 TableSchema tableSchema) {
         this.options = options;
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
+        this.tableSchema = tableSchema;
     }
 
     @Override
@@ -56,14 +62,15 @@ public class DorisDynamicTableSink implements DynamicTableSink {
                 .setPassword(options.getPassword())
                 .setTableIdentifier(options.getTableIdentifier())
                 .setReadOptions(readOptions)
-                .setExecutionOptions(executionOptions);
+                .setExecutionOptions(executionOptions)
+                .setFieldNames(tableSchema.getFieldNames());
 
         return OutputFormatProvider.of(builder.build());
     }
 
     @Override
     public DynamicTableSink copy() {
-        return new DorisDynamicTableSink(options, readOptions, executionOptions);
+        return new DorisDynamicTableSink(options, readOptions, executionOptions, tableSchema);
     }
 
     @Override

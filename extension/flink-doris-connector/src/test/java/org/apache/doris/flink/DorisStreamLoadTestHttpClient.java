@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package org.apache.doris.flink.table;
+package org.apache.doris.flink;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.codec.binary.Base64;
@@ -48,9 +48,9 @@ import java.util.UUID;
 /**
  * DorisStreamLoad
  **/
-public class DorisStreamLoad implements Serializable {
+public class DorisStreamLoadTestHttpClient implements Serializable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoad.class);
+    private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoadTestHttpClient.class);
 
     private final static List<String> DORIS_SUCCESS_STATUS = new ArrayList<>(Arrays.asList("Success", "Publish Timeout"));
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
@@ -63,7 +63,7 @@ public class DorisStreamLoad implements Serializable {
     private String authEncoding;
     private Properties streamLoadProp;
 
-    public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd, Properties streamLoadProp) {
+    public DorisStreamLoadTestHttpClient(String hostPort, String db, String tbl, String user, String passwd, Properties streamLoadProp) {
         this.hostPort = hostPort;
         this.db = db;
         this.tbl = tbl;
@@ -150,6 +150,22 @@ public class DorisStreamLoad implements Serializable {
         final String tobeEncode = username + ":" + password;
         byte[] encoded = Base64.encodeBase64(tobeEncode.getBytes(StandardCharsets.UTF_8));
         return "Basic " + new String(encoded);
+    }
+
+
+    public static void main(String[] args) {
+        Properties map = new Properties();
+        DorisStreamLoadTestHttpClient dst = new DorisStreamLoadTestHttpClient(
+                "10.220.146.10",
+                "test_2",
+                "stream_load",
+                "root",
+                "",
+                map
+        );
+        String data = "doris\t1";
+        dst.loadBatch(data);
+
     }
 
     public static class LoadResponse {
