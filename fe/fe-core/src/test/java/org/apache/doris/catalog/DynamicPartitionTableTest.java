@@ -1216,7 +1216,7 @@ public class DynamicPartitionTableTest {
                 ");";
         createTable(createOlapTblStmt);
         OlapTable table = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("dynamic_partition_miss_reserved_history_periods");
-        Assert.assertEquals("\\N", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assert.assertEquals("NULL", table.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
     }
 
     @Test

@@ -242,7 +242,7 @@ public class DynamicPartitionUtil {
 
     public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods) throws DdlException {
         List<Range> reservedHistoryPeriodsToRangeList = new ArrayList<Range>();
-        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+        if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
             return reservedHistoryPeriodsToRangeList;
         }
         Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
@@ -262,7 +262,7 @@ public class DynamicPartitionUtil {
     }
 
     public static String sortedListedToString(String reservedHistoryPeriods) throws DdlException {
-        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+        if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
             return reservedHistoryPeriods;
         }
         List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
@@ -282,7 +282,7 @@ public class DynamicPartitionUtil {
         if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
         }
-        if (FeConstants.null_string.equals(reservedHistoryPeriods)) {
+        if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
             return;
         }
         // it has 5 kinds of situation
