@@ -187,26 +187,22 @@ public abstract class SyncJob implements Writable {
     }
 
     private void checkStateTransform(JobState newState) throws UserException {
-        CHECK: {
-            switch (jobState) {
-                case RUNNING:
-                    if (newState == JobState.RUNNING) {
-                        break CHECK;
-                    }
-                    break;
-                case PAUSED:
-                    if (newState == JobState.PAUSED || newState == JobState.RUNNING) {
-                        break CHECK;
-                    }
-                    break;
-                case CANCELLED:
-                    break CHECK;
-                default:
-                    break;
-            }
-            return;
+        switch (jobState) {
+            case PENDING:
+                break;
+            case RUNNING:
+                if (newState == JobState.RUNNING) {
+                    throw new DdlException("Could not transform " + jobState + " to " + newState);
+                }
+                break;
+            case PAUSED:
+                if (newState == JobState.PAUSED || newState == JobState.RUNNING) {
+                    throw new DdlException("Could not transform " + jobState + " to " + newState);
+                }
+                break;
+            case CANCELLED:
+                throw new DdlException("Could not transform " + jobState + " to " + newState);
         }
-        throw new DdlException("Could not transform " + jobState + " to " + newState);
     }
 
     public void checkAndDoUpdate() throws UserException {
