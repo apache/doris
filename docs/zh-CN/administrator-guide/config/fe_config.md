@@ -216,7 +216,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 ### default_db_data_quota_bytes
 
-默认值：1TB
+默认值：1PB
 
 是否可以动态配置：true
 

@@ -347,6 +347,14 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 
 与base_compaction_trace_threshold类似。
 
+### disable_compaction_trace_log
+
+* 类型: bool
+* 描述: 关闭compaction的trace日志
+* 默认值: true
+
+如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
+
 ### `cumulative_compaction_policy`
 
 * 类型：string

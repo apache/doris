@@ -349,6 +349,14 @@ CumulativeCompaction skips the most recently released increments to prevent comp
 
 Similar to `base_compaction_trace_threshold`.
 
+### disable_compaction_trace_log
+
+* Type: bool
+* Description: disable the trace log of compaction
+* Default value: true
+
+If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
+
 ### `cumulative_compaction_policy`
 
 * Type: string
