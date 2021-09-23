@@ -51,7 +51,7 @@ Flink Doris Connector 可以支持通过 Flink 读写 Doris 中存储的数据�
     </properties>
 ```
 
-只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编辑即可
+只需要将这里的 `flink.version` 改成和你 Flink 集群版本一致，重新编译即可。
 
 ## 编译与安装
 
