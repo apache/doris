@@ -139,28 +139,22 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
     }
 
     private void addBatch(RowData row) {
-        Object data = null;
         GenericRowData rowData = (GenericRowData) row;
-        if(jsonFormat){
-            Map<String,Object> result = Maps.newHashMap();
-            for (int i = 0; i < row.getArity(); ++i) {
-                result.put(fieldNames[i],rowData.getField(i));
-            }
-            ObjectMapper obj = new ObjectMapper();
-            JsonNode jsonNode = obj.valueToTree(result);
-            data = jsonNode;
-        }else{
-            StringJoiner value = new StringJoiner(this.fieldDelimiter);
-            for (int i = 0; i < row.getArity(); ++i) {
-                Object field = rowData.getField(i);
-                if (field != null) {
-                    value.add(field.toString());
-                } else {
-                    value.add(NULL_VALUE);
+        ObjectMapper obj = new ObjectMapper();
+        ObjectNode objectNode = obj.createObjectNode();
+        StringJoiner value = new StringJoiner(this.fieldDelimiter);
+        for (int i = 0; i < row.getArity(); ++i) {
+            Object field = rowData.getField(i);
+            if(jsonFormat){
+                objectNode.putPOJO(this.fieldNames[i], field);
+            }else{
+                if(field == null){
+                    field = NULL_VALUE;
                 }
+                value.add(field.toString());
             }
-            data = value.toString();
         }
+        Object data = jsonFormat ? objectNode : value.toString();
         batch.add(data);
     }
 
@@ -191,15 +185,13 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         }
         String result = "";
         if(jsonFormat){
-            ObjectMapper obj = new ObjectMapper();
-            result = obj.writeValueAsString(batch);
+            result = new ObjectMapper().writeValueAsString(batch);
         }else{
             result = String.join(this.lineDelimiter, batch);
         }
+        LOG.info("data is :+======{}",result);
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
-                System.out.println("======");
-                System.out.println(result);
                 dorisStreamLoad.load(result);
                 batch.clear();
                 break;

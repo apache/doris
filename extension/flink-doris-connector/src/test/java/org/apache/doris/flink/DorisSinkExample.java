@@ -47,8 +47,10 @@ public class DorisSinkExample {
                         "  'connector' = 'doris',\n" +
                         "  'fenodes' = '10.220.146.10:8030',\n" +
                         "  'table.identifier' = 'test_2.stream_load',\n" +
-                        "  'sink.properties.column_separator' = '\t',\n" +
-                        "  'sink.properties.line_delimiter' = '\n',\n" +
+                        "  'sink.properties.column_separator' = 'aa',\n" +
+                        "  'sink.properties.line_delimiter' = 'bb',\n" +
+                        "  'sink.properties.format' = 'json',\n" +
+                        "  'sink.properties.strip_outer_array' = 'true',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +
                         ")");
