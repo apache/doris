@@ -52,6 +52,7 @@ import java.util.UUID;
 public class DorisStreamLoad implements Serializable {
 
     private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoad.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final static List<String> DORIS_SUCCESS_STATUS = new ArrayList<>(Arrays.asList("Success", "Publish Timeout"));
     private static String loadUrlPattern = "http://%s/api/%s/%s/_stream_load?";
@@ -90,9 +91,8 @@ public class DorisStreamLoad implements Serializable {
         if (loadResponse.status != 200) {
             throw new StreamLoadException("stream load error: " + loadResponse.respContent);
         } else {
-            ObjectMapper obj = new ObjectMapper();
             try {
-                RespContent respContent = obj.readValue(loadResponse.respContent, RespContent.class);
+                RespContent respContent = OBJECT_MAPPER.readValue(loadResponse.respContent, RespContent.class);
                 if (!DORIS_SUCCESS_STATUS.contains(respContent.getStatus())) {
                     throw new StreamLoadException("stream load error: " + respContent.getMessage());
                 }
@@ -166,9 +166,8 @@ public class DorisStreamLoad implements Serializable {
 
         @Override
         public String toString() {
-            ObjectMapper mapper = new ObjectMapper();
             try {
-                return mapper.writeValueAsString(this);
+                return OBJECT_MAPPER.writeValueAsString(this);
             } catch (JsonProcessingException e) {
                 return "";
             }

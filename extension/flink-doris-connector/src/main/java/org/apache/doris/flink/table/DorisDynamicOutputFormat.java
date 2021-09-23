@@ -16,7 +16,6 @@
 // under the License.
 package org.apache.doris.flink.table;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
@@ -26,21 +25,16 @@ import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.exception.StreamLoadException;
 import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.io.RichOutputFormat;
-import org.apache.flink.calcite.shaded.com.google.common.collect.Maps;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.util.ExecutorThreadFactory;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.annotation.meta.field;
 
 import java.io.IOException;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Properties;
 import java.util.StringJoiner;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -54,6 +48,8 @@ import java.util.concurrent.TimeUnit;
 public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
 
     private static final Logger LOG = LoggerFactory.getLogger(DorisDynamicOutputFormat.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     private static final String FIELD_DELIMITER_KEY = "column_separator";
     private static final String FIELD_DELIMITER_DEFAULT = "\t";
     private static final String LINE_DELIMITER_KEY = "line_delimiter";
@@ -140,8 +136,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
 
     private void addBatch(RowData row) {
         GenericRowData rowData = (GenericRowData) row;
-        ObjectMapper obj = new ObjectMapper();
-        ObjectNode objectNode = obj.createObjectNode();
+        ObjectNode objectNode = OBJECT_MAPPER.createObjectNode();
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         for (int i = 0; i < row.getArity(); ++i) {
             Object field = rowData.getField(i);
@@ -185,7 +180,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         }
         String result = "";
         if(jsonFormat){
-            result = new ObjectMapper().writeValueAsString(batch);
+            result = OBJECT_MAPPER.writeValueAsString(batch);
         }else{
             result = String.join(this.lineDelimiter, batch);
         }
