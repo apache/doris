@@ -55,6 +55,10 @@ public abstract class SyncLifeCycle {
     }
 
     public void stop() {
+        if (isStart()) {
+            // Repeated stops are considered successful
+            return;
+        }
         this.running = false;
 
         if (thread != null) {
