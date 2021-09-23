@@ -454,14 +454,15 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     // 3. Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
 
+    VLOG_CRITICAL << "BuildScanKey";
+    // 4. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
+    RETURN_IF_ERROR(build_scan_key());
+
     VLOG_CRITICAL << "Filter idle conjuncts";
-    // 4. Filter idle conjunct which already trans to olap filters`
+    // 5. Filter idle conjunct which already trans to olap filters
+    // this must be after build_scan_key, it will free the StringValue memory
     // TODO: filter idle conjunct in vexpr_contexts
     remove_pushed_conjuncts(state);
-
-    VLOG_CRITICAL << "BuildScanKey";
-    // 5. Using `Key Column`'s ColumnValueRange to split ScanRange to several `Sub ScanRange`
-    RETURN_IF_ERROR(build_scan_key());
 
     VLOG_CRITICAL << "StartScanThread";
     // 6. Start multi thread to read several `Sub Sub ScanRange`
@@ -1416,12 +1417,14 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         auto iter = olap_scanners.begin();
         if (thread_token != nullptr) {
             while (iter != olap_scanners.end()) {
-                auto s = thread_token->submit_func(std::bind(&OlapScanNode::scanner_thread, this, *iter));
+                auto s = thread_token->submit_func(
+                        std::bind(&OlapScanNode::scanner_thread, this, *iter));
                 if (s.ok()) {
                     (*iter)->start_wait_worker_timer();
                     olap_scanners.erase(iter++);
                 } else {
-                    LOG(FATAL) << "Failed to assign scanner task to thread pool! " << s.get_error_msg();
+                    LOG(FATAL) << "Failed to assign scanner task to thread pool! "
+                               << s.get_error_msg();
                 }
                 ++_total_assign_num;
             }
