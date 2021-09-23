@@ -247,6 +247,14 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
+        if (type() == OLAP_FIELD_TYPE_STRING) {
+            auto slice = reinterpret_cast<Slice*>(buf);
+            if (slice->size < value_string.size()) {
+                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
+                slice->data = *_long_text_buf;
+                slice->size = value_string.size();
+            }
+        }
         return _type_info->from_string(buf, value_string);
     }
 
@@ -566,7 +574,7 @@ public:
         return type_value;
     }
 
-    // only varchar filed need modify zone map index when zone map max_value
+    // only varchar/string filed need modify zone map index when zone map max_value
     // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
     // for the last byte
     // In UTF8 encoding, here do not appear 0xff in last byte
@@ -620,6 +628,16 @@ public:
     void set_to_max(char* ch) const override {
         auto slice = reinterpret_cast<Slice*>(ch);
         memset(slice->data, 0xFF, slice->size);
+    }
+    // only varchar/string filed need modify zone map index when zone map max_value
+    // index longer than `MAX_ZONE_MAP_INDEX_SIZE`. so here we add one
+    // for the last byte
+    // In UTF8 encoding, here do not appear 0xff in last byte
+    void modify_zone_map_index(char* src) const override {
+        auto slice = reinterpret_cast<Slice*>(src);
+        if (slice->size == MAX_ZONE_MAP_INDEX_SIZE) {
+            slice->mutable_data()[slice->size - 1] += 1;
+        }
     }
 
     void set_to_zone_map_max(char* ch) const override {

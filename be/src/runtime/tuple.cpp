@@ -274,13 +274,14 @@ void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
         // TODO: revisit this logic in the FE
         PrimitiveType slot_type = slot_desc->type().type;
         PrimitiveType expr_type = materialize_expr_ctxs[mat_expr_index]->root()->type().type;
-        if ((slot_type == TYPE_CHAR) || (slot_type == TYPE_VARCHAR) || (slot_type == TYPE_HLL)) {
-            DCHECK((expr_type == TYPE_CHAR) || (expr_type == TYPE_VARCHAR) ||
-                   (expr_type == TYPE_HLL));
-        } else if ((slot_type == TYPE_DATE) || (slot_type == TYPE_DATETIME)) {
-            DCHECK((expr_type == TYPE_DATE) || (expr_type == TYPE_DATETIME));
+        if (slot_type == TYPE_CHAR || slot_type == TYPE_VARCHAR || slot_type == TYPE_HLL ||
+            slot_type == TYPE_STRING) {
+            DCHECK(expr_type == TYPE_CHAR || expr_type == TYPE_VARCHAR || expr_type == TYPE_HLL ||
+                   expr_type == TYPE_STRING);
+        } else if (slot_type == TYPE_DATE || slot_type == TYPE_DATETIME) {
+            DCHECK(expr_type == TYPE_DATE || expr_type == TYPE_DATETIME);
         } else if (slot_type == TYPE_ARRAY) {
-            DCHECK((expr_type == TYPE_ARRAY));
+            DCHECK(expr_type == TYPE_ARRAY);
         } else {
             DCHECK(slot_type == TYPE_NULL || slot_type == expr_type);
         }
