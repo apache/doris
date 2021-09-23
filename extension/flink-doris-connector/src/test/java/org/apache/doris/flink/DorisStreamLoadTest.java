@@ -134,6 +134,8 @@ public class DorisStreamLoadTest {
             // the label header is optional, not necessary
             // use label header can ensure at most once semantics
             put.setHeader("label", UUID.randomUUID().toString());
+            put.setHeader("column_separator",column_separator);
+            put.setHeader("line_delimiter",line_delimiter);
             put.setEntity(entity);
 
             CloseableHttpResponse response = null;
@@ -153,7 +155,7 @@ public class DorisStreamLoadTest {
 
                 System.out.println(loadResult);
             }catch (Exception e){
-                System.out.println("");
+               e.printStackTrace();
             }
 
         }
@@ -165,11 +167,14 @@ public class DorisStreamLoadTest {
         return "Basic " + new String(encoded);
     }
 
+    static final String column_separator = "\t";
+    static final String line_delimiter = "\n";
+
     public static void main(String[] args) throws Exception {
         int id2 = 10;
         String id3 = "张三";
         int rowNumber = 10;
-        String oneRow = id3 + "\t" + id2 + "\n";
+        String oneRow = id3 + column_separator + id2 + line_delimiter;
 
         StringBuilder stringBuilder = new StringBuilder();
         for (int i = 0; i < rowNumber; i++) {

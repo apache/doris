@@ -124,6 +124,8 @@ public class DorisStreamLoadTestHttpClient implements Serializable {
             put.setHeader(HttpHeaders.EXPECT, "100-continue");
             put.setHeader(HttpHeaders.AUTHORIZATION, this.authEncoding);
             put.setHeader("label", label);
+            put.setHeader("Content-Type","text/html; charset=utf-8");
+
             for (Map.Entry<Object, Object> entry : streamLoadProp.entrySet()) {
                 put.setHeader(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
             }
@@ -155,8 +157,10 @@ public class DorisStreamLoadTestHttpClient implements Serializable {
 
     public static void main(String[] args) {
         Properties map = new Properties();
+        map.put("column_separator","\t");
+        map.put("line_delimiter","aaa");
         DorisStreamLoadTestHttpClient dst = new DorisStreamLoadTestHttpClient(
-                "10.220.146.10",
+                "10.220.146.11:8040",
                 "test_2",
                 "stream_load",
                 "root",
@@ -164,7 +168,8 @@ public class DorisStreamLoadTestHttpClient implements Serializable {
                 map
         );
         String data = "doris\t1";
-        dst.loadBatch(data);
+        LoadResponse loadResponse = dst.loadBatch(data);
+        System.out.println(loadResponse);
 
     }
 
