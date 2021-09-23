@@ -377,7 +377,7 @@ GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
 HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
 HDFS3_NAME="libhdfs3-master.zip"
 HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
+HDFS3_MD5SUM="c0a8145a98958c5e9df372d584c7222f"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v4.0.0.tar.gz"
