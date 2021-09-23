@@ -424,14 +424,23 @@ public class InlineViewRef extends TableRef {
         String aliasSql = null;
         String alias = getExplicitAlias();
         if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
+
+        StringBuilder sb = new StringBuilder();
         if (view != null) {
-            // TODO(zc):
-            // return view_.toSql() + (aliasSql == null ? "" : " " + aliasSql);
-            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+            // When it is a local view, it does not need to be expanded into a statement,
+            // because toSql function already contains `with` statement
+            if (view.isLocalView()) {
+                return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+            }
+
+            sb.append("(")
+                    .append(view.getInlineViewDef())
+                    .append(")")
+                    .append(aliasSql == null ? "" : " " + aliasSql);
+            return sb.toString();
         }
 
-        StringBuilder sb = new StringBuilder()
-                .append("(")
+        sb.append("(")
                 .append(queryStmt.toSql())
                 .append(") ")
                 .append(aliasSql);
