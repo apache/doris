@@ -588,7 +588,7 @@ CONF_mInt32(zone_map_row_num_threshold, "20");
 CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
-CONF_mInt32(remote_storage_read_buffer_mb, "256");
+CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
