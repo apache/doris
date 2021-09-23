@@ -16,6 +16,7 @@
 // under the License.
 package org.apache.doris.flink.table;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
@@ -25,6 +26,7 @@ import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.exception.StreamLoadException;
 import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.io.RichOutputFormat;
+import org.apache.flink.calcite.shaded.com.google.common.collect.Maps;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.util.ExecutorThreadFactory;
 import org.apache.flink.table.data.GenericRowData;
@@ -35,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.StringJoiner;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -136,20 +139,20 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
 
     private void addBatch(RowData row) {
         GenericRowData rowData = (GenericRowData) row;
-        ObjectNode objectNode = OBJECT_MAPPER.createObjectNode();
+        Map<String, String> valueMap = Maps.newHashMap();
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         for (int i = 0; i < row.getArity(); ++i) {
             Object field = rowData.getField(i);
-            if(jsonFormat){
-                objectNode.putPOJO(this.fieldNames[i], field);
-            }else{
-                if(field == null){
-                    field = NULL_VALUE;
-                }
+            if (field == null) {
+                field = NULL_VALUE;
+            }
+            if (jsonFormat) {
+                valueMap.put(this.fieldNames[i], field.toString());
+            } else {
                 value.add(field.toString());
             }
         }
-        Object data = jsonFormat ? objectNode : value.toString();
+        Object data = jsonFormat ? valueMap : value.toString();
         batch.add(data);
     }
 
@@ -178,13 +181,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         if (batch.isEmpty()) {
             return;
         }
-        String result = "";
-        if(jsonFormat){
+        String result;
+        if (jsonFormat) {
             result = OBJECT_MAPPER.writeValueAsString(batch);
-        }else{
+        } else {
             result = String.join(this.lineDelimiter, batch);
         }
-        LOG.info("data is :+======{}",result);
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
                 dorisStreamLoad.load(result);

@@ -29,10 +29,7 @@ public class TTest {
 
         Map<String,Object> map  = Maps.newHashMap();
         map.put("A",2);
-        JsonNode jsonNode = obj.valueToTree(map);
-        System.out.println(jsonNode);
-        list.add(jsonNode);
-        list.add(jsonNode.toString());
+        list.add(map);
         System.out.println(obj.writeValueAsString(list));
 
     }

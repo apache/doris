@@ -49,7 +49,7 @@ public class DorisSinkExample {
                         "  'table.identifier' = 'test_2.stream_load',\n" +
                         "  'sink.properties.column_separator' = 'aa',\n" +
                         "  'sink.properties.line_delimiter' = 'bb',\n" +
-                        "  'sink.properties.format' = 'json',\n" +
+//                        "  'sink.properties.format' = 'json',\n" +
                         "  'sink.properties.strip_outer_array' = 'true',\n" +
                         "  'username' = 'root',\n" +
                         "  'password' = ''\n" +
