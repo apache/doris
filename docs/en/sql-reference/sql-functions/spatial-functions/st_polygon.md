@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'GEOMETRY ST_Polygon (VARCHAR wkt)'
+`GEOMETRY ST_Polygon (VARCHAR wkt)`
 
 
 Converting a WKT (Well Known Text) into a corresponding polygon memory form
