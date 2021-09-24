@@ -357,9 +357,6 @@ int RowDescriptor::get_tuple_idx(TupleId id) const {
 
 bool RowDescriptor::tuple_is_nullable(int tuple_idx) const {
     DCHECK_LT(tuple_idx, _tuple_idx_nullable_map.size()) << "RowDescriptor: " << debug_string();
-    if (tuple_idx >= _tuple_idx_nullable_map.size()) {
-        return false;
-    }
     return _tuple_idx_nullable_map[tuple_idx];
 }
 

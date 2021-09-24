@@ -36,10 +36,8 @@ Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& r
     // Resolve tuple ids to tuple indexes.
     for (int i = 0; i < _tuple_ids.size(); ++i) {
         int32_t tuple_idx = row_desc.get_tuple_idx(_tuple_ids[i]);
-        if (tuple_idx != RowDescriptor::INVALID_IDX) {
-            if (row_desc.tuple_is_nullable(tuple_idx)) {
-                _tuple_idxs.push_back(tuple_idx);
-            }
+        if (row_desc.tuple_is_nullable(tuple_idx)) {
+            _tuple_idxs.push_back(tuple_idx);
         }
     }
 
