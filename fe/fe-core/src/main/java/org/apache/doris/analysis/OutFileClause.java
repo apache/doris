@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.HDFSStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -84,6 +85,8 @@ public class OutFileClause {
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
     private static final String S3_FILE_PREFIX = "S3://";
+    private static final String HDFS_FILE_PREFIX = "hdfs://";
+    private static final String HDFS_PROP_PREFIX = "hdfs.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -369,6 +372,10 @@ public class OutFileClause {
         } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
             brokerName = StorageBackend.StorageType.S3.name();
             storageType = StorageBackend.StorageType.S3;
+        } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
+            brokerName = StorageBackend.StorageType.HDFS.name();
+            storageType = StorageBackend.StorageType.HDFS;
+            filePath = filePath.substring(HDFS_FILE_PREFIX.length() - 1);
         } else {
             return;
         }
@@ -383,13 +390,19 @@ public class OutFileClause {
             } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
+            } else if (entry.getKey().startsWith(HDFS_PROP_PREFIX)
+                    && storageType == StorageBackend.StorageType.HDFS) {
+                brokerProps.put(entry.getKey().substring(HDFS_PROP_PREFIX.length()), entry.getValue());
+                processedPropKeys.add(entry.getKey());
             }
+        }
+        if (storageType == StorageBackend.StorageType.S3) {
+            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            HDFSStorage.checkHDFS(brokerProps);
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
-        if (storageType == StorageBackend.StorageType.S3) {
-            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
-        }
     }
 
     /**
