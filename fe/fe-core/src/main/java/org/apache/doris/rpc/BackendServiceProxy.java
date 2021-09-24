@@ -37,34 +37,35 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
-    private static volatile BackendServiceProxy INSTANCE;
+    // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
+    // use concurrent map to allow access serviceMap in multi thread.
+    private ReentrantLock lock = new ReentrantLock();
     private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public BackendServiceProxy() {
-        serviceMap = Maps.newHashMap();
+        serviceMap = Maps.newConcurrentMap();
+    }
+
+    private static class SingletonHolder {
+        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
     }
 
     public static BackendServiceProxy getInstance() {
-        if (INSTANCE == null) {
-            synchronized (BackendServiceProxy.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new BackendServiceProxy();
-                }
-            }
-        }
-        return INSTANCE;
+        return SingletonHolder.INSTANCE;
     }
 
     public void removeProxy(TNetworkAddress address) {
         LOG.warn("begin to remove proxy: {}", address);
         BackendServiceClient service;
-        synchronized (this) {
+        lock.lock();
+        try {
             service = serviceMap.remove(address);
+        } finally {
+            lock.unlock();
         }
 
         if (service != null) {
@@ -72,14 +73,14 @@ public class BackendServiceProxy {
         }
     }
 
-    private synchronized BackendServiceClient getProxy(TNetworkAddress address) {
+    private BackendServiceClient getProxy(TNetworkAddress address) {
         BackendServiceClient service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
 
         // not exist, create one and return.
-        lock.writeLock().lock();
+        lock.lock();
         try {
             service = serviceMap.get(address);
             if (service == null) {
@@ -88,7 +89,7 @@ public class BackendServiceProxy {
             }
             return service;
         } finally {
-            lock.writeLock().unlock();
+            lock.unlock();
         }
     }
 

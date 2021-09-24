@@ -49,7 +49,6 @@ public class BackendServiceClient {
                 .usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
-
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
