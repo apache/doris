@@ -63,6 +63,15 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.error("errors while publish version to all backends", t);
         }
     }
+
+    private boolean isAllBackendsOfUnfinishedTasksDead(List<PublishVersionTask> unfinishedTasks) {
+        for (PublishVersionTask unfinishedTask : unfinishedTasks) {
+            if (Catalog.getCurrentSystemInfo().checkBackendAlive(unfinishedTask.getBackendId())) {
+                return false;
+            }
+        }
+        return true;
+    }
     
     private void publishVersion() throws UserException {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -171,7 +180,8 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             boolean shouldFinishTxn = false;
             if (!unfinishedTasks.isEmpty()) {
-                if (transactionState.isPublishTimeout()) {
+                shouldFinishTxn = isAllBackendsOfUnfinishedTasksDead(unfinishedTasks);
+                if (transactionState.isPublishTimeout() || shouldFinishTxn) {
                     // transaction's publish is timeout, but there still has unfinished tasks.
                     // we need to collect all error replicas, and try to finish this txn.
                     for (PublishVersionTask unfinishedTask : unfinishedTasks) {
@@ -192,8 +202,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                         }
 
 
-                        for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
-                            long tableId = transactionState.getTableIdList().get(i);
+                        for (long tableId : transactionState.getTableIdList()) {
                             Table table = db.getTableNullable(tableId);
                             if (table == null || table.getType() != Table.TableType.OLAP) {
                                 LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
@@ -223,7 +232,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                     }
                     shouldFinishTxn = true;
                 }
-                // transaction's publish is not timeout, waiting next round.
             } else {
                 // all publish tasks are finished, try to finish this txn.
                 shouldFinishTxn = true;
