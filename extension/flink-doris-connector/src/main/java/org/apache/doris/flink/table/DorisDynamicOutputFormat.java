@@ -141,13 +141,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
         for (int i = 0; i < row.getArity(); ++i) {
             Object field = rowData.getField(i);
-            if (field == null) {
-                field = NULL_VALUE;
-            }
             if (jsonFormat) {
-                valueMap.put(this.fieldNames[i], field.toString());
+                String data = field != null ? field.toString() : null;
+                valueMap.put(this.fieldNames[i], data);
             } else {
-                value.add(field.toString());
+                String data = field != null ? field.toString() : NULL_VALUE;
+                value.add(data);
             }
         }
         Object data = jsonFormat ? valueMap : value.toString();
