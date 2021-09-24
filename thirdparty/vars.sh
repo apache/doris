@@ -374,10 +374,11 @@ GSASL_SOURCE="libgsasl-1.10.0"
 GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
+HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
 HDFS3_NAME="libhdfs3-master.zip"
 HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
+HDFS3_MD5SUM="98dba9df5739db36b758a9e9ebff6e4c"
+# commit id: 22781c4ebd31aee918c38b3af7b2e8da5adec93e
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v4.0.0.tar.gz"
