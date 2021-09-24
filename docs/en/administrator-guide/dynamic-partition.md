@@ -153,17 +153,26 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
 * `dynamic_partition.reserved_history_periods`
 
-    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]`. The default value is `"\\N"`, which means it is not set.
+    The range of reserved history periods. It should be in the form of `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` while the `dynamic_partition.time_unit` is "DAY, WEEK, and MONTH". And it should be in the form of `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` while the dynamic_partition.time_unit` is "HOUR". And no more spaces expected. The default value is `"NULL"`, which means it is not set.
 
     Let us give an example. Suppose today is 2021-09-06，partitioned by day, and the properties of dynamic partition are set to: 
 
-    ```end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```。
+    ```time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
 
     The the system will automatically reserve following partitions in following period :
 
     ```
     ["2020-06-01","2020-06-20"],
     ["2020-10-31","2020-11-15"]
+    ```
+    or
+
+    ```time_unit="HOUR", end=3, start=-3, reserved_history_periods="[2020-06-01 00:00:00,2020-06-01 03:00:00]"```.
+
+    The the system will automatically reserve following partitions in following period :
+
+    ```
+    ["2020-06-01 00:00:00","2020-06-01 03:00:00"]
     ```
 
     Otherwise, every `[...,...]` in `reserved_history_periods` is a couple of properties, and they should be set at the same time. And the first date can't be larger than the second one.

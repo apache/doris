@@ -151,17 +151,27 @@ under the License.
 
 * `dynamic_partition.reserved_history_periods`
 
-    需要保留的历史分区的时间范围。需要以 `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` 格式进行设置。如果不设置，默认为 `"\\N"`。
+    需要保留的历史分区的时间范围。当`dynamic_partition.time_unit` 设置为 "DAY/WEEK/MONTH" 时，需要以 `[yyyy-MM-dd,yyyy-MM-dd],[...,...]` 格式进行设置。当`dynamic_partition.time_unit` 设置为 "HOUR" 时，需要以 `[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]` 的格式来进行设置。如果不设置，默认为 `"NULL"`。
 
     我们举例说明。假设今天是 2021-09-06，按天分类，动态分区的属性设置为：
 
-    ```end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```。
+    ```time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```。
 
     则系统会自动保留：
 
     ```
     ["2020-06-01","2020-06-20"],
     ["2020-10-31","2020-11-15"]
+    ```
+
+    或者
+
+    ```time_unit="HOUR", end=3, start=-3, reserved_history_periods="[2020-06-01 00:00:00,2020-06-01 03:00:00]"```.
+
+    则系统会自动保留：
+
+     ```
+    ["2020-06-01 00:00:00","2020-06-01 03:00:00"]
     ```
 
     这两个时间段的分区。其中，`reserved_history_periods` 的每一个 `[...,...]` 是一对设置项，两者需要同时被设置，且第一个时间不能大于第二个时间``。

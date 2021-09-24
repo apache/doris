@@ -88,7 +88,7 @@ public class DynamicPartitionProperty {
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
-            this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS).replace(" ", "");
+            this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -190,8 +190,8 @@ public class DynamicPartitionProperty {
         return reservedHistoryPeriods;
     }
 
-    public String getSortedReservedHistoryPeriods(String reservedHistoryPeriods) throws DdlException {
-        return DynamicPartitionUtil.sortedListedToString(reservedHistoryPeriods);
+    public String getSortedReservedHistoryPeriods(String reservedHistoryPeriods, String timeUnit) throws DdlException {
+        return DynamicPartitionUtil.sortedListedToString(reservedHistoryPeriods, timeUnit);
     }
 
     /**

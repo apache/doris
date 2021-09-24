@@ -247,7 +247,7 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY(5076, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic reserved history periods is empty."),
     ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID(5077, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid \" %s \" value %s. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\""),
+            "Invalid \" %s \" value %s. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR."),
     ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_ENDS_LENGTH_NOT_EQUAL(5078, new byte[] {'4', '2', '0', '0', '0'},
             "RESERVED_HISTORY_PERIODS must have pairs of date value. The input %s is not valid."),
     ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_START_LARGER_THAN_ENDS(5079, new byte[] {'4', '2', '0', '0', '0'},

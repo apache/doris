@@ -240,15 +240,14 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods) throws DdlException {
+    public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods, String timeUnit) throws DdlException {
         List<Range> reservedHistoryPeriodsToRangeList = new ArrayList<Range>();
         if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
             return reservedHistoryPeriodsToRangeList;
         }
-        Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
-        Pattern pattern = Pattern.compile("\\[([0-9]{4}-[0-9]{2}-[0-9]{2}),([0-9]{4}-[0-9]{2}-[0-9]{2})\\]");
+
+        Pattern pattern = getPattern(timeUnit);
         Matcher matcher = pattern.matcher(reservedHistoryPeriods);
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
         while (matcher.find()) {
             String lowerBorderOfReservedHistory = matcher.group(1);
             String upperBorderOfReservedHistory = matcher.group(2);
@@ -261,11 +260,19 @@ public class DynamicPartitionUtil {
         return reservedHistoryPeriodsToRangeList;
     }
 
-    public static String sortedListedToString(String reservedHistoryPeriods) throws DdlException {
+    private static Pattern getPattern(String timeUnit) {
+        if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+            return Pattern.compile("\\[([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}),([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})\\]");
+        } else {
+            return Pattern.compile("\\[([0-9]{4}-[0-9]{2}-[0-9]{2}),([0-9]{4}-[0-9]{2}-[0-9]{2})\\]");
+        }
+    }
+
+    public static String sortedListedToString(String reservedHistoryPeriods, String timeUnit) throws DdlException {
         if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
             return reservedHistoryPeriods;
         }
-        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
+        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods, timeUnit);
         reservedHistoryPeriodsToRangeList.sort(new Comparator<Range>() {
             @Override
             public int compare(Range o1, Range o2) {
@@ -278,7 +285,7 @@ public class DynamicPartitionUtil {
         return String.join(",", sortedReservedHistoryPeriods);
     }
 
-    private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods) throws DdlException {
+    private static void checkReservedHistoryPeriodValidate(String reservedHistoryPeriods, String timeUnit) throws DdlException {
         if (Strings.isNullOrEmpty(reservedHistoryPeriods)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_EMPTY);
         }
@@ -295,9 +302,9 @@ public class DynamicPartitionUtil {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
         }
 
-        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods);
+        List<Range> reservedHistoryPeriodsToRangeList = convertStringToPeriodsList(reservedHistoryPeriods, timeUnit);
         Integer sizeOfPeriods = reservedHistoryPeriods.split("],\\[").length;
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat sdf = getSimpleDateFormat(timeUnit);
 
         if (reservedHistoryPeriodsToRangeList.size() != sizeOfPeriods) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_RESERVED_HISTORY_PERIODS_INVALID, DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
@@ -307,12 +314,24 @@ public class DynamicPartitionUtil {
                     String formattedLowerBound = sdf.format(sdf.parse(range.lowerEndpoint().toString()));
                     String formattedUpperBound = sdf.format(sdf.parse(range.upperEndpoint().toString()));
                     if (!range.lowerEndpoint().toString().equals(formattedLowerBound) || !range.upperEndpoint().toString().equals(formattedUpperBound)) {
-                        throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
+                        throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS +
+                                " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH " +
+                                "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
                     }
                 }
             } catch (ParseException e) {
-                throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\"");
+                throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS +
+                        " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH " +
+                        "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
             }
+        }
+    }
+
+    private static SimpleDateFormat getSimpleDateFormat(String timeUnit) {
+        if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
+            return new SimpleDateFormat(DATETIME_FORMAT);
+        } else {
+            return new SimpleDateFormat(DATE_FORMAT);
         }
     }
 
@@ -544,8 +563,8 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
         }
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
-            String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS).replace(" ","");
-            checkReservedHistoryPeriodValidate(reservedHistoryPeriods);
+            String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
+            checkReservedHistoryPeriodValidate(reservedHistoryPeriods, analyzedProperties.get(DynamicPartitionProperty.TIME_UNIT));
             properties.remove(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             analyzedProperties.put(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS, reservedHistoryPeriods);
         }
@@ -657,27 +676,15 @@ public class DynamicPartitionUtil {
         Timestamp timestamp = null;
         String timeUnit = dynamicPartitionProperty.getTimeUnit();
         DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.s").withZone(zoneId);
-        if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            try {
-                date = simpleDateFormat.parse(time);
-            } catch (ParseException e) {
-                LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
-                return getFormattedTimeWithoutMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
-            }
-            timestamp = new Timestamp(date.getTime());
+        SimpleDateFormat simpleDateFormat = getSimpleDateFormat(timeUnit);
+        try {
+            date = simpleDateFormat.parse(time);
+        } catch (ParseException e) {
+            LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
             return getFormattedTimeWithoutMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
-        } else {
-            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-            try {
-                date = simpleDateFormat.parse(time);
-            } catch (ParseException e) {
-                LOG.warn("Parse dynamic partition periods error. Error={}", e.getMessage());
-                return getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
-            }
-            timestamp = new Timestamp(date.getTime());
-            return getFormattedTimeWithoutHourMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
         }
+        timestamp = new Timestamp(date.getTime());
+        return getFormattedTimeWithoutMinuteSecond(ZonedDateTime.parse(timestamp.toString(), dateTimeFormatter), format);
     }
 
     /**

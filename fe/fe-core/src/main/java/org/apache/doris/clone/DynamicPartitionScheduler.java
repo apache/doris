@@ -298,7 +298,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
 
         String reservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
-        List<Range> ranges = DynamicPartitionUtil.convertStringToPeriodsList(reservedHistoryPeriods);
+        List<Range> ranges = DynamicPartitionUtil.convertStringToPeriodsList(reservedHistoryPeriods, dynamicPartitionProperty.getTimeUnit());
 
         if (ranges.size() != 0) {
             for (Range range : ranges) {
