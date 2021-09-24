@@ -1558,22 +1558,30 @@ public class RestoreJob extends AbstractJob {
             // remove restored tbls
             for (Table restoreTbl : restoredTbls) {
                 LOG.info("remove restored table when cancelled: {}", restoreTbl.getName());
-                if (restoreTbl.getType() == TableType.OLAP) {
-                    OlapTable restoreOlapTable = (OlapTable) restoreTbl;
-                    restoreOlapTable.writeLock();
+                if (db.writeLockIfExist()) {
                     try {
-                        for (Partition part : restoreOlapTable.getPartitions()) {
-                            for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                                for (Tablet tablet : idx.getTablets()) {
-                                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                        if (restoreTbl.getType() == TableType.OLAP) {
+                            OlapTable restoreOlapTable = (OlapTable) restoreTbl;
+                            restoreOlapTable.writeLock();
+                            try {
+                                for (Partition part : restoreOlapTable.getPartitions()) {
+                                    for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                                        for (Tablet tablet : idx.getTablets()) {
+                                            Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                                        }
+                                    }
                                 }
+                                db.dropTable(restoreTbl.getName());
+                                restoreTbl.markDropped();
+                            } finally {
+                                restoreTbl.writeUnlock();
                             }
                         }
                     } finally {
-                        restoreTbl.writeUnlock();
+                        db.writeUnlock();
                     }
                 }
-                db.dropTableWithLock(restoreTbl.getName());
+
             }
 
             // remove restored partitions

@@ -372,15 +372,6 @@ public class Database extends MetaObject implements Writable {
         return result;
     }
 
-    public void dropTableWithLock(String tableName) {
-        writeLock();
-        try {
-            dropTable(tableName);
-        } finally {
-            writeUnlock();
-        }
-    }
-
     public void dropTable(String tableName) {
         if (Catalog.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
