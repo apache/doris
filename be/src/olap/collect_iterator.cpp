@@ -239,6 +239,17 @@ CollectIterator::Level1Iterator::~Level1Iterator() {
             child = nullptr;
         }
     }
+
+    if (_heap) {
+        while (!_heap->empty()) {
+            LevelIterator* it = _heap->top();
+            if (it != nullptr) {
+                delete it;
+                it = nullptr;
+            }
+            _heap->pop();
+        }
+    }
 }
 
 // Read next row into *row.

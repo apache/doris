@@ -62,6 +62,11 @@ public abstract class SyncLifeCycle {
         this.running = false;
 
         if (thread != null) {
+            // Deadlock prevention
+            if (thread == Thread.currentThread()) {
+                return;
+            }
+
             try {
                 thread.join();
             } catch (InterruptedException e) {

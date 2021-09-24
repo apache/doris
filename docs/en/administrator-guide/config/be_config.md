@@ -1419,3 +1419,9 @@ The size of the buffer before flashing
     DEBUG = 1
   ```
 * Default: 0
+
+### `max_segment_num_per_rowset`
+
+* Type: int32
+* Description: Used to limit the number of segments in the newly generated rowset when importing. If the threshold is exceeded, the import will fail with error -238. Too many segments will cause compaction to take up a lot of memory and cause OOM errors.
+* Default value: 100

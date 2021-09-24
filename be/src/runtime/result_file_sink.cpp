@@ -108,9 +108,6 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         _mem_tracker = MemTracker::CreateTracker(
                 _profile, -1, "ResultFileSink:" + print_id(state->fragment_instance_id()),
                 state->instance_mem_tracker());
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->init(state));
-        }
         // create writer
         _output_batch = new RowBatch(_output_row_descriptor, 1024, _mem_tracker.get());
         _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _storage_type,
@@ -119,6 +116,9 @@ Status ResultFileSink::prepare(RuntimeState* state) {
 
     }
     RETURN_IF_ERROR(_writer->init(state));
+    for (int i = 0; i < _channels.size(); ++i) {
+        RETURN_IF_ERROR(_channels[i]->init(state));
+    }
     return Status::OK();
 }
 
@@ -155,9 +155,11 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
                 time(NULL) + config::result_buffer_cancelled_interval_time,
                 state->fragment_instance_id());
     } else {
-        RETURN_IF_ERROR(serialize_batch(_output_batch, _current_pb_batch, _channels.size()));
-        for (auto channel : _channels) {
-            RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+        if (final_status.ok()) {
+            RETURN_IF_ERROR(serialize_batch(_output_batch, _current_pb_batch, _channels.size()));
+            for (auto channel : _channels) {
+                RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
+            }
         }
         Status final_st = Status::OK();
         for (int i = 0; i < _channels.size(); ++i) {

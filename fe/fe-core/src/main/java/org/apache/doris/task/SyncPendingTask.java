@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.task;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
+import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.SyncJob.JobState;
-import org.apache.doris.task.MasterTask;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

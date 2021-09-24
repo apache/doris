@@ -636,6 +636,11 @@ public class Config extends ConfigBase {
     @ConfField public static int sync_checker_interval_second = 5;
 
     /**
+     * max num of thread to handle sync task in sync task thread-pool.
+     */
+    @ConfField public static int max_sync_task_threads_num = 10;
+
+    /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
      * In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs

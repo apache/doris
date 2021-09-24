@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -133,10 +134,13 @@ public class StatisticProcDir implements ProcDirInterface {
                     .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
 
             SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+            ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             db.getTables().stream().filter(t -> t != null && t.getType() == TableType.OLAP).forEach(t -> {
                 ++tableNum;
                 OlapTable olapTable = (OlapTable) t;
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId()) ?
+                        colocateTableIndex.getGroup(olapTable.getId()) : null;
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
@@ -144,21 +148,30 @@ public class StatisticProcDir implements ProcDirInterface {
                         ++partitionNum;
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             ++indexNum;
-                            for (Tablet tablet : materializedIndex.getTablets()) {
+                            List<Tablet> tablets = materializedIndex.getTablets();
+                            for (int i = 0; i < tablets.size(); ++i) {
+                                Tablet tablet = tablets.get(i);
                                 ++tabletNum;
                                 replicaNum += tablet.getReplicas().size();
 
-                                Pair<TabletStatus, Priority> res = tablet.getHealthStatusWithPriority(
-                                        infoService, db.getClusterName(),
-                                        partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                        replicaAlloc, aliveBeIdsInCluster);
+                                TabletStatus res = null;
+                                if (groupId != null) {
+                                    Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
+                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc, backendsSet);
+                                } else {
+                                    Pair<TabletStatus, Priority> pair = tablet.getHealthStatusWithPriority(
+                                            infoService, db.getClusterName(),
+                                            partition.getVisibleVersion(), partition.getVisibleVersionHash(),
+                                            replicaAlloc, aliveBeIdsInCluster);
+                                    res = pair.first;
+                                }
 
                                 // here we treat REDUNDANT as HEALTHY, for user friendly.
-                                if (res.first != TabletStatus.HEALTHY && res.first != TabletStatus.REDUNDANT
-                                        && res.first != TabletStatus.COLOCATE_REDUNDANT && res.first != TabletStatus.NEED_FURTHER_REPAIR
-                                        && res.first != TabletStatus.UNRECOVERABLE) {
+                                if (res != TabletStatus.HEALTHY && res != TabletStatus.REDUNDANT
+                                        && res != TabletStatus.COLOCATE_REDUNDANT && res != TabletStatus.NEED_FURTHER_REPAIR
+                                        && res != TabletStatus.UNRECOVERABLE) {
                                     unhealthyTabletIds.add(tablet.getId());
-                                } else if (res.first == TabletStatus.UNRECOVERABLE) {
+                                } else if (res == TabletStatus.UNRECOVERABLE) {
                                     unrecoverableTabletIds.add(tablet.getId());
                                 }
 

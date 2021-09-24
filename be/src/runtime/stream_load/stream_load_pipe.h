@@ -123,7 +123,7 @@ public:
             }
             // cancelled
             if (_cancelled) {
-                return Status::InternalError("cancelled");
+                return Status::InternalError("cancelled: " + _cancelled_reason);
             }
             // finished
             if (_buf_queue.empty()) {
@@ -159,7 +159,7 @@ public:
     Status tell(int64_t* position) override { return Status::InternalError("Not implemented"); }
 
     // called when consumer finished
-    void close() override { cancel(); }
+    void close() override { cancel("closed"); }
 
     bool closed() override { return _cancelled; }
 
@@ -179,10 +179,11 @@ public:
     }
 
     // called when producer/consumer failed
-    void cancel() override {
+    void cancel(const std::string& reason) override {
         {
             std::lock_guard<std::mutex> l(_lock);
             _cancelled = true;
+            _cancelled_reason = reason;
         }
         _get_cond.notify_all();
         _put_cond.notify_all();
@@ -197,7 +198,7 @@ private:
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError("cancelled");
+            return Status::InternalError("cancelled: " + _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -237,7 +238,7 @@ private:
                 }
             }
             if (_cancelled) {
-                return Status::InternalError("cancelled");
+                return Status::InternalError("cancelled: " + _cancelled_reason);
             }
             _buf_queue.push_back(buf);
             if (_use_proto) {
@@ -271,6 +272,7 @@ private:
 
     bool _finished;
     bool _cancelled;
+    std::string _cancelled_reason = "";
 
     ByteBufferPtr _write_buf;
 };

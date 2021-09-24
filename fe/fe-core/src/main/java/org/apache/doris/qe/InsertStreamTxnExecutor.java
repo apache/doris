@@ -159,9 +159,10 @@ public class InsertStreamTxnExecutor {
             if (code != TStatusCode.OK) {
                 throw new TException("failed to insert data: " + result.getStatus().getErrorMsgsList());
             }
-            txnEntry.clearDataToSend();
         } catch (RpcException e) {
             throw new TException(e);
+        } finally {
+            txnEntry.clearDataToSend();
         }
     }
 

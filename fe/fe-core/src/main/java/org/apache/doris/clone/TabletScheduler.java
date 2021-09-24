@@ -638,7 +638,7 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (be != null) {
+            if (be != null && be.isAlive() && replica.isAlive()) {
                 Short num = currentAllocMap.getOrDefault(be.getTag(), (short) 0);
                 currentAllocMap.put(be.getTag(), (short) (num + 1));
             }
@@ -1196,11 +1196,11 @@ public class TabletScheduler extends MasterDaemon {
 
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
-                LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
                 continue;
             }
 
-            if (slot.takeSlot(rootPathLoadStatistic.getPathHash()) != -1) {
+            long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
+            if (pathHash != -1) {
                 return rootPathLoadStatistic;
             }
         }
@@ -1209,11 +1209,11 @@ public class TabletScheduler extends MasterDaemon {
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
-                LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
                 continue;
             }
 
-            if (slot.takeSlot(rootPathLoadStatistic.getPathHash()) != -1) {
+            long pathHash = slot.takeSlot(rootPathLoadStatistic.getPathHash());
+            if (pathHash != -1) {
                 return rootPathLoadStatistic;
             }
         }

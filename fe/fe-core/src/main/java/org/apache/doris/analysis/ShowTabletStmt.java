@@ -284,6 +284,7 @@ public class ShowTabletStmt extends ShowStmt {
             builder.addColumn(new Column("PartitionId", ScalarType.createVarchar(30)));
             builder.addColumn(new Column("IndexId", ScalarType.createVarchar(30)));
             builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("Order", ScalarType.createVarchar(30)));
             builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         } else {
             for (String title : TabletsProcDir.TITLE_NAMES) {
