@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT LOCATION (VARCHAR substrate, VARCHAR str [, INT pos]]'
+`INT LOCATION (VARCHAR substrate, VARCHAR str [, INT pos]]`
 
 
 Returns where substr appears in str (counting from 1). If the third parameter POS is specified, the position where substr appears is found from the string where STR starts with POS subscript. If not found, return 0
