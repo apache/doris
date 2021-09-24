@@ -49,12 +49,14 @@ public class DropDbTest {
         // create database
         String createDbStmtStr1 = "create database test1;";
         String createDbStmtStr2 = "create database test2;";
+        String createDbStmtStr3 = "create database test3;";
         String createTablleStr1 = "create table test1.tbl1(k1 int, k2 bigint) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1" + " properties('replication_num' = '1');";
         String createTablleStr2 = "create table test2.tbl1" + "(k1 int, k2 bigint)" + " duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
         createDb(createDbStmtStr1);
         createDb(createDbStmtStr2);
+        createDb(createDbStmtStr3);
         createTable(createTablleStr1);
         createTable(createTablleStr2);
     }
@@ -89,8 +91,8 @@ public class DropDbTest {
         String dropDbSql = "drop database test1";
         dropDb(dropDbSql);
         db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertNull(db);
+        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
@@ -101,6 +103,19 @@ public class DropDbTest {
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
         Assert.assertEquals("tbl1", table.getName());
+
+        dropDbSql = "drop schema test1";
+        dropDb(dropDbSql);
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
+        Assert.assertNull(db);
+        Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt);
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
+        Assert.assertNotNull(db);
+
+        dropDbSql = "drop schema if exists test1";
+        dropDb(dropDbSql);
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
+        Assert.assertNull(db);
     }
 
     @Test
@@ -120,5 +135,20 @@ public class DropDbTest {
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Unknown database 'default_cluster:test2'",
                 () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt));
+
+        dropDbSql = "drop schema test3 force";
+        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test3");
+        Assert.assertNotNull(db);
+        dropDb(dropDbSql);
+        db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test3");
+        Assert.assertNull(db);
+        recoverDbSql = "recover database test3";
+        RecoverDbStmt recoverDbStmt2 = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Unknown database 'default_cluster:test3'",
+                () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt2));
+
+        dropDbSql = "drop schema if exists test3 force";
+        dropDb(dropDbSql);
     }
 }
