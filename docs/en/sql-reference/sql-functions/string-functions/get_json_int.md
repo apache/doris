@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-`INT get_json_int(VARCHAR json_str, VARCHAR json_path)
+`INT get_json_int(VARCHAR json_str, VARCHAR json_path)`
 
 
 Parse and retrieve the integer content of the specified path in the JSON string.

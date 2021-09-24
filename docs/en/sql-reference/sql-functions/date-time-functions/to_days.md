@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT TO DAYS'
+`INT TO DAYS`
 
 
 Days of returning date distance 0000-01-01

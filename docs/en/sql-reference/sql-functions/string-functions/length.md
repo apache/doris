@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT length (VARCHAR str)'
+`INT length (VARCHAR str)`
 
 
 Returns the length of the string in byte size.
