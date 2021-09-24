@@ -63,6 +63,10 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 导入的最终结果由 Coordinator BE 返回给用户。
 
+## 支持数据格式
+
+目前 Stream Load 支持两个数据格式：CSV（文本） 和 JSON
+
 ## 基本操作
 ### 创建导入
 
@@ -103,7 +107,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     当 label 对应的导入作业状态为 CANCELLED 时，该 label 可以再次被使用。
 
 + column_separator
-    
+  
     用于指定导入文件中的列分隔符，默认为\t。如果是不可见字符，则需要加\x作为前缀，使用十六进制来表示分隔符。
     
     如hive文件的分隔符\x01，需要指定为-H "column_separator:\x01"。
@@ -111,11 +115,11 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     可以使用多个字符的组合作为列分隔符。
 
 + line_delimiter
-   
+  
    用于指定导入文件中的换行符，默认为\n。
 
    可以使用做多个字符的组合作为换行符。
-    
+   
 + max\_filter\_ratio
 
     导入任务的最大容忍率，默认为0容忍，取值范围是0~1。当导入的错误率超过该值，则导入失败。
@@ -190,7 +194,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 |not null    | 1                   | 1               | true or false      | correct data|
 
 这里以列类型为 Decimal(1,0) 举例
- 
+
 >注：当表中的列允许导入空值时
 
 |source data | source data example | string to int   | strict_mode        | result|
@@ -201,7 +205,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 |not null    | 1 or 10             | 1               | true or false      | correct data|
 
 > 注意：10 虽然是一个超过范围的值，但是因为其类型符合 decimal的要求，所以 strict mode对其不产生影响。10 最后会在其他 ETL 处理流程中被过滤。但不会被 strict mode 过滤。
-    
+
 
 ### 返回结果
 
@@ -236,9 +240,9 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 + TxnId：导入的事务ID。用户可不感知。
 
 + Label：导入 Label。由用户指定或系统自动生成。
-    
+  
 + Status：导入完成状态。
-    
+  
     "Success"：表示导入成功。
     
     "Publish Timeout"：该状态也表示导入已经完成，只是数据可能会延迟可见，无需重试。
@@ -249,7 +253,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     
 + ExistingJobStatus：已存在的 Label 对应的导入作业的状态。
 
-    这个字段只有在当 Status 为 "Label Already Exists" 是才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
+    这个字段只有在当 Status 为 "Label Already Exists" 时才会显示。用户可以通过这个状态，知晓已存在 Label 对应的导入作业的状态。"RUNNING" 表示作业还在执行，"FINISHED" 表示作业成功。
 
 + Message：导入错误信息。
 
@@ -323,7 +327,7 @@ Stream load 的默认超时为 300秒，按照 Doris 目前最大的导入限速
 例如：导入一个 10G 的文件
 timeout = 1000s 等于 10G / 10M/s
 ```
-    
+
 ### 完整例子
 数据情况： 数据在发送导入请求端的本地磁盘路径 /home/store_sales 中，导入的数据量约为 15G，希望导入到数据库 bj_sales 的表 store_sales 中。
 
@@ -367,7 +371,15 @@ timeout = 1000s 等于 10G / 10M/s
     
        排查上述可能的方法：使用 Label 搜索 FE Master 的日志，看是否存在同一个 Label 出现了两次 ```redirect load action to destination= ``` 的情况。如果有就说明，请求被 Client 端重复提交了。
     
-       建议用户根据当前请求的数据量，计算出大致导入的时间，并根据导入超时时间改大 Client 端的请求超时时间，避免请求被 Client 端多次提交。
+       建议用户根据当前请求的数据量，计算出大致导入的时间，并根据导入超时时间，将Client 端的请求超时间改成大于导入超时时间的值，避免请求被 Client 端多次提交。
+       
+    3. Connection reset 异常
+    
+       在社区版 0.14.0 及之前的版本在启用Http V2之后出现connection reset异常，因为Web 容器内置的是tomcat，Tomcat 在 307 (Temporary Redirect) 是有坑的，对这个协议实现是有问题的，所有在使用Stream load 导入大数据量的情况下会出现connect  reset异常，这个是因为tomcat在做307跳转之前就开始了数据传输，这样就造成了BE收到的数据请求的时候缺少了认证信息，之后将内置容器改成了Jetty解决了这个问题，如果你遇到这个问题，请升级你的Doris或者禁用Http V2（`enable_http_server_v2=false`）。
+    
+       
+    
+       
 
 
 
