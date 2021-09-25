@@ -335,7 +335,7 @@ public class CanalSyncJobTest {
             Assert.assertTrue(canalSyncJob.isPaused());
             // resume job
             canalSyncJob.resume();
-            Assert.assertTrue(canalSyncJob.isRunning());
+            Assert.assertSame(canalSyncJob.getJobState(), JobState.PENDING);
         } catch (UserException e) {
             Assert.fail();
         }
@@ -391,10 +391,6 @@ public class CanalSyncJobTest {
                 result = "mysqlDb";
                 channelDescription.getSrcTableName();
                 result = "mysqlTbl";
-                channelDescription.getColNames();
-                result = null;
-                channelDescription.getPartitionNames();
-                result = null;
             }
         };
         
