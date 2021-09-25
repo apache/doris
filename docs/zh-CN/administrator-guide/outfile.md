@@ -87,6 +87,7 @@ INTO OUTFILE "file_path"
     * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
     * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
     * `max_file_size`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
+    * `schema`：PARQUET 文件schema信息。仅对 PARQUET 格式适用。导出文件格式为PARQUET时，必须指定`schema`。
 
 ## 并发导出
 
@@ -150,7 +151,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
         "broker.name" = "my_broker",
         "broker.hadoop.security.authentication" = "kerberos",
         "broker.kerberos_principal" = "doris@YOUR.COM",
-        "broker.kerberos_keytab" = "/home/doris/my.keytab"
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
         "column_separator" = ",",
         "line_delimiter" = "\n",
         "max_file_size" = "100MB"
@@ -162,6 +163,26 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
 
 2. 示例2
+
+    将简单查询结果导出到文件 `hdfs:/path/to/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 kerberos 认证信息。
+
+    ```
+    SELECT c1, c2, c3 FROM tbl
+    INTO OUTFILE "hdfs:/path/to/result_"
+    FORMAT AS PARQUET
+    PROPERTIES
+    (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
+        "schema"="required,int32,c1;required,byte_array,c2;required,byte_array,c2"
+    );
+    ```
+   
+   查询结果导出到parquet文件需要明确指定`schema`。
+
+3. 示例3
 
     将 CTE 语句的查询结果导出到文件 `hdfs:/path/to/result.txt`。默认导出格式为 CSV。使用 `my_broker` 并设置 hdfs 高可用信息。使用默认的行列分隔符。
 
@@ -190,7 +211,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     
     如果大于 1GB，则可能为 `result_0.csv, result_1.csv, ...`。
     
-3. 示例3
+4. 示例4
 
     将 UNION 语句的查询结果导出到文件 `bos://bucket/result.txt`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符。
     导出完成后，生成一个标识文件。
@@ -204,15 +225,12 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
         "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "schema"="required,int32,k1;required,byte_array,k2"
     );
     ```
-    
-    最终生成文件如如果不大于 1GB，则为：`result_0.parquet`。
-    
-    如果大于 1GB，则可能为 `result_0.parquet, result_1.parquet, ...`。
 
-4. 示例4
+5. 示例5
 
     将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
     导出完成后，生成一个标识文件。
@@ -241,7 +259,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     1. 不存在的path会自动创建
     2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
 
-5. 示例5
+6. 示例6
 
     使用 s3 协议导出到 bos，并且并发导出开启。
 
@@ -261,7 +279,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
     最终生成的文件前缀为 `my_file_{fragment_instance_id}_`。
 
-6. 示例6
+7. 示例7
 
     使用 s3 协议导出到 bos，并且并发导出 session 变量开启。
 
