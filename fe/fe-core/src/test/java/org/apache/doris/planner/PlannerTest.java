@@ -367,7 +367,7 @@ public class PlannerTest {
     }
 
     @Test
-    public void testAnalyticLeftJoin() throws Exception {
+    public void testAnalyticSortNodeLeftJoin() throws Exception {
         String sql = "SELECT a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n" +
                 "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n" +
                 "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
@@ -384,7 +384,11 @@ public class PlannerTest {
         Assert.assertTrue(node instanceof SortNode);
         SortNode sortNode = (SortNode) node;
         List<Expr> tupleExprs = sortNode.resolvedTupleExprs;
+        List<Expr> sortTupleExprs = sortNode.getSortInfo().getSortTupleSlotExprs();
         for (Expr expr : tupleExprs) {
+            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
+        }
+        for (Expr expr : sortTupleExprs) {
             expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
         }
     }
