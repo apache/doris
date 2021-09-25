@@ -26,8 +26,9 @@ import org.apache.doris.flink.rest.RestService;
 import org.apache.flink.api.common.io.RichOutputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.util.ExecutorThreadFactory;
-import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.types.DataType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,11 +37,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Arrays;
 import java.util.StringJoiner;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.flink.table.data.RowData.createFieldGetter;
 
 
 /**
@@ -67,6 +71,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
     private DorisReadOptions readOptions;
     private DorisExecutionOptions executionOptions;
     private DorisStreamLoad dorisStreamLoad;
+    private final RowData.FieldGetter[] fieldGetters;
 
     private final List batch = new ArrayList<>();
     private transient volatile boolean closed = false;
@@ -78,6 +83,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
     public DorisDynamicOutputFormat(DorisOptions option,
                                     DorisReadOptions readOptions,
                                     DorisExecutionOptions executionOptions,
+                                    LogicalType[] logicalTypes,
                                     String[] fieldNames) {
         this.options = option;
         this.readOptions = readOptions;
@@ -86,6 +92,10 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         this.lineDelimiter = executionOptions.getStreamLoadProp().getProperty(LINE_DELIMITER_KEY, LINE_DELIMITER_DEFAULT);
         this.fieldNames = fieldNames;
         this.jsonFormat = FORMAT_JSON_VALUE.equals(executionOptions.getStreamLoadProp().getProperty(FORMAT_KEY));
+        this.fieldGetters = new RowData.FieldGetter[logicalTypes.length];
+        for (int i = 0; i < logicalTypes.length; i++) {
+            fieldGetters[i] = createFieldGetter(logicalTypes[i], i);
+        }
     }
 
     @Override
@@ -95,12 +105,12 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
     @Override
     public void open(int taskNumber, int numTasks) throws IOException {
         dorisStreamLoad = new DorisStreamLoad(
-                getBackend(),
-                options.getTableIdentifier().split("\\.")[0],
-                options.getTableIdentifier().split("\\.")[1],
-                options.getUsername(),
-                options.getPassword(),
-                executionOptions.getStreamLoadProp());
+            getBackend(),
+            options.getTableIdentifier().split("\\.")[0],
+            options.getTableIdentifier().split("\\.")[1],
+            options.getUsername(),
+            options.getPassword(),
+            executionOptions.getStreamLoadProp());
         LOG.info("Streamload BE:{}", dorisStreamLoad.getLoadUrlStr());
 
         if (executionOptions.getBatchIntervalMs() != 0 && executionOptions.getBatchSize() != 1) {
@@ -136,11 +146,10 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
     }
 
     private void addBatch(RowData row) {
-        GenericRowData rowData = (GenericRowData) row;
         Map<String, String> valueMap = new HashMap<>();
         StringJoiner value = new StringJoiner(this.fieldDelimiter);
-        for (int i = 0; i < row.getArity(); ++i) {
-            Object field = rowData.getField(i);
+        for (int i = 0; i < row.getArity() && i < fieldGetters.length; ++i) {
+            Object field = fieldGetters[i].getFieldOrNull(row);
             if (jsonFormat) {
                 String data = field != null ? field.toString() : null;
                 valueMap.put(this.fieldNames[i], data);
@@ -184,6 +193,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         } else {
             result = String.join(this.lineDelimiter, batch);
         }
+        System.out.println(result);
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
                 dorisStreamLoad.load(result);
@@ -234,6 +244,7 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         private DorisOptions.Builder optionsBuilder;
         private DorisReadOptions readOptions;
         private DorisExecutionOptions executionOptions;
+        private DataType[] fieldDataTypes;
         private String[] fieldNames;
 
         public Builder() {
@@ -275,9 +286,18 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
             return this;
         }
 
+        public Builder setFieldDataTypes(DataType[] fieldDataTypes) {
+            this.fieldDataTypes = fieldDataTypes;
+            return this;
+        }
+
         public DorisDynamicOutputFormat build() {
+            final LogicalType[] logicalTypes =
+                Arrays.stream(fieldDataTypes)
+                    .map(DataType::getLogicalType)
+                    .toArray(LogicalType[]::new);
             return new DorisDynamicOutputFormat(
-                    optionsBuilder.build(), readOptions, executionOptions, fieldNames
+                optionsBuilder.build(), readOptions, executionOptions, logicalTypes, fieldNames
             );
         }
     }

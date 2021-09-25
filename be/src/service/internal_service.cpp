@@ -88,10 +88,11 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
     auto st = Status::OK();
     if (request->has_request()) {
-        st = _exec_plan_fragment(request->request());
+        bool compact = request->has_compact() ? request->compact() : false;
+        st = _exec_plan_fragment(request->request(), compact);
     } else {
         // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
-        st = _exec_plan_fragment(cntl->request_attachment().to_string());
+        st = _exec_plan_fragment(cntl->request_attachment().to_string(), false);
     }
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
@@ -148,12 +149,12 @@ void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcControll
 }
 
 template <typename T>
-Status PInternalServiceImpl<T>::_exec_plan_fragment(const std::string& ser_request) {
+Status PInternalServiceImpl<T>::_exec_plan_fragment(const std::string& ser_request, bool compact) {
     TExecPlanFragmentParams t_request;
     {
         const uint8_t* buf = (const uint8_t*)ser_request.data();
         uint32_t len = ser_request.size();
-        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
+        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
     }
     // LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
     //  << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;

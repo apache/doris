@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -101,6 +102,8 @@ public class TableSchemaAction extends RestBaseAction {
                     baseInfo.put("type", primitiveType.toString());
                     baseInfo.put("comment", column.getComment());
                     baseInfo.put("name", column.getDisplayName());
+                    Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+                    baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
                     propList.add(baseInfo);
                 }
                 resultMap.put("status", 200);

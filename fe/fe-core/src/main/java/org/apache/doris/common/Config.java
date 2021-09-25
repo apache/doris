@@ -1500,4 +1500,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int default_schema_change_scheduler_interval_millisecond = 500;
+
+    /*
+     * If set to true, the thrift structure of query plan will be sent to BE in compact mode.
+     * This will significantly reduce the size of rpc data, which can reduce the chance of rpc timeout.
+     * But this may slightly decrease the concurrency of queries, because compress and decompress cost more CPU.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean use_compact_thrift_rpc = true;
 }
