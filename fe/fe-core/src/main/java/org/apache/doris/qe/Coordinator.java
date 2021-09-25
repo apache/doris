@@ -596,7 +596,8 @@ public class Coordinator {
                         cancelInternal(InternalService.PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {
                             case TIMEOUT:
-                                throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: " + pair.first.backend.getId());
+                                throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
+                                        + pair.first.backend.getId());
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
@@ -1903,7 +1904,6 @@ public class Coordinator {
                 if (this.hasCanceled) {
                     return false;
                 }
-                brpcAddress = toBrpcHost(address);
 
                 try {
                     BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
@@ -1940,7 +1940,6 @@ public class Coordinator {
         }
 
         public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentAsync() throws TException, RpcException {
-            TNetworkAddress brpcAddress = null;
             try {
                 brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
             } catch (Exception e) {

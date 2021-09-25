@@ -17,6 +17,7 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -31,57 +32,55 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
-    private static volatile BackendServiceProxy INSTANCE;
+    // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
+    // use concurrent map to allow access serviceMap in multi thread.
+    private ReentrantLock lock = new ReentrantLock();
     private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public BackendServiceProxy() {
-        serviceMap = Maps.newHashMap();
+        serviceMap = Maps.newConcurrentMap();
+    }
+
+    private static class SingletonHolder {
+        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
     }
 
     public static BackendServiceProxy getInstance() {
-        if (INSTANCE == null) {
-            synchronized (BackendServiceProxy.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new BackendServiceProxy();
-                }
-            }
-        }
-        return INSTANCE;
+        return SingletonHolder.INSTANCE;
     }
 
     public void removeProxy(TNetworkAddress address) {
-        lock.writeLock().lock();
+        LOG.warn("begin to remove proxy: {}", address);
+        BackendServiceClient service;
+        lock.lock();
         try {
-            serviceMap.remove(address);
+            service = serviceMap.remove(address);
         } finally {
-            lock.writeLock().unlock();
+            lock.unlock();
+        }
+
+        if (service != null) {
+            service.shutdown();
         }
     }
 
     private BackendServiceClient getProxy(TNetworkAddress address) {
-        BackendServiceClient service;
-        lock.readLock().lock();
-        try {
-            service = serviceMap.get(address);
-        } finally {
-            lock.readLock().unlock();
-        }
-
+        BackendServiceClient service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
 
         // not exist, create one and return.
-        lock.writeLock().lock();
+        lock.lock();
         try {
             service = serviceMap.get(address);
             if (service == null) {
@@ -90,15 +89,23 @@ public class BackendServiceProxy {
             }
             return service;
         } finally {
-            lock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
-        final InternalService.PExecPlanFragmentRequest pRequest = InternalService.PExecPlanFragmentRequest.newBuilder()
-                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+        InternalService.PExecPlanFragmentRequest.Builder builder = InternalService.PExecPlanFragmentRequest.newBuilder();
+        if (Config.use_compact_thrift_rpc) {
+            builder.setRequest(ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(tRequest)));
+            builder.setCompact(true);
+        } else {
+            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+            builder.setCompact(false);
+        }
+
+        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentAsync(pRequest);
