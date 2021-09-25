@@ -24,8 +24,10 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.sync.SyncJob.JobState;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -68,7 +70,12 @@ public class SyncJobManager implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("add sync job. {}", syncJob);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                .add("name", syncJob.getJobName())
+                .add("type", syncJob.getJobType())
+                .add("config", syncJob.getJobConfig())
+                .add("msg", "add sync job.")
+                .build());
     }
 
     private void unprotectedAddSyncJob(SyncJob syncJob) {
@@ -84,7 +91,7 @@ public class SyncJobManager implements Writable {
         map.get(syncJob.getJobName()).add(syncJob);
     }
 
-    public void pauseSyncJob(PauseSyncJobStmt stmt) throws DdlException {
+    public void pauseSyncJob(PauseSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
@@ -115,7 +122,7 @@ public class SyncJobManager implements Writable {
         }
     }
 
-    public void resumeSyncJob(ResumeSyncJobStmt stmt) throws DdlException {
+    public void resumeSyncJob(ResumeSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
@@ -146,7 +153,7 @@ public class SyncJobManager implements Writable {
         }
     }
 
-    public void stopSyncJob(StopSyncJobStmt stmt) throws DdlException {
+    public void stopSyncJob(StopSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
@@ -248,6 +255,14 @@ public class SyncJobManager implements Writable {
         return result;
     }
 
+    public void updateNeedSchedule() throws UserException {
+        for (SyncJob syncJob : idToSyncJob.values()) {
+            if (!syncJob.isCompleted()) {
+                syncJob.checkAndDoUpdate();
+            }
+        }
+    }
+
     public SyncJob getSyncJobById(long jobId) {
         return idToSyncJob.get(jobId);
     }
@@ -281,9 +296,6 @@ public class SyncJobManager implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             SyncJob syncJob = SyncJob.read(in);
-            if (!syncJob.isCompleted()) {
-                syncJob.updateState(JobState.PENDING, true);
-            }
             unprotectedAddSyncJob(syncJob);
         }
     }
@@ -292,17 +304,23 @@ public class SyncJobManager implements Writable {
         writeLock();
         try {
             unprotectedAddSyncJob(syncJob);
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                    .add("msg", "replay create sync job.")
+                    .build());
         } finally {
             writeUnlock();
         }
     }
+    
     public void replayUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
         writeLock();
         try {
             long jobId = info.getId();
             SyncJob job = idToSyncJob.get(jobId);
             if (job == null) {
-                LOG.warn("replay update sync job state failed. Job was not found, id: {}", jobId);
+                LOG.warn(new LogBuilder(LogKey.SYNC_JOB, jobId)
+                        .add("msg", "replay update sync job state failed. Job was not found.")
+                        .build());
                 return;
             }
             job.replayUpdateSyncJobState(info);
