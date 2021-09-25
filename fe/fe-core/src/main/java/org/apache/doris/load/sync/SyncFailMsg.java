@@ -32,6 +32,7 @@ public class SyncFailMsg implements Writable {
         USER_CANCEL,
         SUBMIT_FAIL,
         RUN_FAIL,
+        SCHEDULE_FAIL,
         UNKNOWN
     }
 

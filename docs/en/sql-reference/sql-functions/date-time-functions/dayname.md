@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR DAYNAME (DATE)'
+`VARCHAR DAYNAME (DATE)`
 
 
 Date name corresponding to return date

@@ -28,7 +28,7 @@ under the License.
 ## description
 ### Syntax
 
-`INT get_json_int(VARCHAR json_str, VARCHAR json_path)
+`INT get_json_int(VARCHAR json_str, VARCHAR json_path)`
 
 
 解析并获取 json 字符串内指定路径的整型内容。

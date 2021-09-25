@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR ST_AsText (GEOMETRY geo)'
+`VARCHAR ST_AsText (GEOMETRY geo)`
 
 
 Converting a geometric figure into a WKT (Well Known Text) representation

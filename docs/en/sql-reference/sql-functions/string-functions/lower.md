@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT lower (VARCHAR str)'
+`INT lower (VARCHAR str)`
 
 
 Convert all strings in parameters to lowercase

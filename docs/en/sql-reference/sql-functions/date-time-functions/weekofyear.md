@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT WEEKOFYEAR (DATETIME DATE)'
+`INT WEEKOFYEAR (DATETIME DATE)`
 
 
 
