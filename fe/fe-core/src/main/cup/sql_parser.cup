@@ -4352,6 +4352,11 @@ type ::=
      type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
+  | KW_VARCHAR LPAREN ident_or_text:lenStr RPAREN
+  {: ScalarType type = ScalarType.createVarcharType(lenStr);
+     type.setAssignedStrLenInColDefinition();
+     RESULT = type;
+  :}
   | KW_VARCHAR
   {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
@@ -4373,11 +4378,17 @@ type ::=
   {: RESULT = ScalarType.createDecimalV2Type(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
   {: RESULT = ScalarType.createDecimalV2Type(); :}
+  | KW_DECIMAL LPAREN ident_or_text:precision RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision); :}
+  | KW_DECIMAL LPAREN ident_or_text:precision COMMA ident_or_text:scale RPAREN
+  {: RESULT = ScalarType.createDecimalV2Type(precision, scale); :}
   | KW_HLL
   {: ScalarType type = ScalarType.createHllType();
      type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
+  | KW_ALL
+  {: RESULT = Type.ALL; :}
   ;
 
 opt_field_length ::=
@@ -5209,6 +5220,8 @@ keyword ::=
     | KW_DATE:id
     {: RESULT = id; :}
     | KW_DATETIME:id
+    {: RESULT = id; :}
+    | KW_DECIMAL:id
     {: RESULT = id; :}
     | KW_DISTINCTPC:id
     {: RESULT = id; :}

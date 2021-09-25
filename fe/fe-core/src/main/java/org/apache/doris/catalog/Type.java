@@ -76,6 +76,8 @@ public abstract class Type {
     public static final ScalarType HLL = ScalarType.createHllType();
     public static final ScalarType CHAR = (ScalarType) ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
+    // Only used for alias function, to represent any type in function args
+    public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
     public static final MapType Map = new MapType();
 
     private static ArrayList<ScalarType> integerTypes;
@@ -944,9 +946,9 @@ public abstract class Type {
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // Check all of the necessary entries that should be filled.
-        // ignore binary
-        for (int i = 0; i < PrimitiveType.values().length - 1; ++i) {
-            for (int j = i; j < PrimitiveType.values().length - 1; ++j) {
+        // ignore binary and all
+        for (int i = 0; i < PrimitiveType.values().length - 2; ++i) {
+            for (int j = i; j < PrimitiveType.values().length - 2; ++j) {
                 PrimitiveType t1 = PrimitiveType.values()[i];
                 PrimitiveType t2 = PrimitiveType.values()[j];
                 // DECIMAL, NULL, and INVALID_TYPE  are handled separately.

@@ -47,8 +47,8 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 > 
 > `function_name`: 要创建函数的名字, 可以包含数据库的名字。比如：`db1.my_func`。
 >
-> `arg_type`: 函数的参数类型，与建表时定义的类型一致。变长参数时可以使用`, ...`来表示，如果是变长类型，那么变长部分参数的类型与最后一个非变长参数类型一致。
-> **注意**：`ALIAS FUNCTION` 不支持变长参数，且至少有一个参数。
+> `arg_type`: 函数的参数类型，与建表时定义的类型一致。变长参数时可以使用`, ...`来表示，如果是变长类型，那么变长部分参数的类型与最后一个非变长参数类型一致。  
+> **注意**：`ALIAS FUNCTION` 不支持变长参数，且至少有一个参数。 特别地，`ALL` 类型指任一数据类型，只可以用于 `ALIAS FUNCTION`.
 > 
 > `ret_type`: 对创建新的函数来说，是必填项。如果是给已有函数取别名则可不用填写该参数。
 > 
@@ -131,8 +131,13 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 5. 创建一个自定义别名函数
 
     ```
+    -- 创建自定义功能别名函数
     CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) 
         AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+    
+    -- 创建自定义 CAST 别名函数
+    CREATE ALIAS FUNCTION decimal(ALL, INT, INT) WITH PARAMETER(col, precision, scale) 
+        AS CAST(col AS decimal(precision, scale));
     ```
 
 ## keyword
