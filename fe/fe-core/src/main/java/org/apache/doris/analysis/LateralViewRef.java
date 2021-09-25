@@ -30,6 +30,10 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
+/**
+ * lateralView: LATERAL VIEW udtf(expression) tableAlias AS columnAlias (',' columnAlias)
+ * fromClause: FROM baseTable (lateralView)
+ */
 public class LateralViewRef extends TableRef {
 
     private Expr expr;
