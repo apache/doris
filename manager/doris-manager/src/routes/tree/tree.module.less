@@ -1,0 +1,78 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+/** @format */
+.palo-tree-container {
+  height: 100%;
+
+  .palo-tree-wrapper {
+    height: calc(100% - 87px);
+    padding: 0 0 20px 0;
+    overflow-y: scroll;
+  }
+}
+
+:global .ant-tree-node-content-wrapper {
+  display: flex;
+}
+
+:global .ant-tree-node-selected {
+  color: @primary-color !important;
+}
+
+.palo-tree-title {
+  width: 100%;
+  padding: 10px 15px;
+  margin: 0;
+  margin-top: 20px;
+  color: #555;
+  text-align: center;
+  background-color: #fff;
+  border: 1px solid #eee;
+  border-radius: 5px;
+
+  span {
+    padding-right: 15px;
+    cursor: pointer;
+  }
+}
+
+.palo-side-tree {
+  width: 100%;
+  min-height: 100%;
+  // width: 100%;
+  // height: calc(100vh - 245px);
+  padding: 18px;
+  overflow: hidden;
+  // overflow: hidden;
+  // overflow-y: scroll;
+  font-size: 17px;
+  color: #555;
+  border: 1px solid #eee;
+
+  :global .ant-tree-node-content-wrapper {
+    // display: contents;
+  }
+
+  :global .ant-tree .ant-tree-treenod {
+    padding: 0 0 7px;
+  }
+
+  .display_none {
+    display: none;
+  }
+}
