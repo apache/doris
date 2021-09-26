@@ -18,21 +18,17 @@
 package org.apache.doris.spark.sql
 
 import java.io.IOException
-import java.util.StringJoiner
 
-import org.apache.commons.collections.CollectionUtils
 import org.apache.doris.spark.DorisStreamLoad
 import org.apache.doris.spark.cfg.SparkSettings
-import org.apache.doris.spark.exception.DorisException
 import org.apache.doris.spark.rest.RestService
+import org.apache.doris.spark.util.RowUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext, SaveMode}
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
 import org.apache.spark.sql.types.StructType
-import org.json4s.jackson.Json
 
 import scala.collection.mutable.ListBuffer
-import scala.util.Random
 import scala.util.control.Breaks
 
 private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with Logging {
@@ -41,6 +37,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
   override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation = {
     new DorisRelation(sqlContext, Utils.params(parameters, log))
   }
+
 
 
   /**
@@ -56,9 +53,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     val choosedBeHost = RestService.randomBackend(sparkSettings, dorisWriterOption, log)
     // init stream loader
     val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dorisWriterOption.dbName, dorisWriterOption.tbName, dorisWriterOption.user, dorisWriterOption.password)
-    val fieldDelimiter: String = "\t"
     val lineDelimiter: String = "\n"
-    val NULL_VALUE: String = "\\N"
 
     val maxRowCount = dorisWriterOption.maxRowCount
     val maxRetryTimes = dorisWriterOption.maxRetryTimes
@@ -67,16 +62,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
 
       val buffer = ListBuffer[String]()
       partition.foreach(row => {
-        val value = new StringJoiner(fieldDelimiter)
-        // create one row string
-        for (i <- 0 until row.size) {
-          val field = row.get(i)
-          if (field == null) {
-            value.add(NULL_VALUE)
-          } else {
-            value.add(field.toString)
-          }
-        }
+        val value = RowUtil.convertRow2JsonString(row)
         // add one row string to buffer
         buffer += value.toString
         if (buffer.size > maxRowCount) {
@@ -87,6 +73,8 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
       if (buffer.nonEmpty) {
         flush
       }
+
+
 
       /**
        * flush data to Doris and do retry when flush error

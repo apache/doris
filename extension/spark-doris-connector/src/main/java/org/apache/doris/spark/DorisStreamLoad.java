@@ -89,6 +89,10 @@ public class DorisStreamLoad implements Serializable{
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        conn.addRequestProperty("format", "json");
+        conn.addRequestProperty("read_json_by_line", "true");
+        conn.addRequestProperty("fuzzy_parse", "true");
+
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;
@@ -124,7 +128,7 @@ public class DorisStreamLoad implements Serializable{
             try {
                 RespContent respContent = obj.readValue(loadResponse.respContent, RespContent.class);
                 if(!DORIS_SUCCESS_STATUS.contains(respContent.getStatus())){
-                    throw new StreamLoadException("stream load error: " + respContent.getMessage());
+                    throw new StreamLoadException("stream load error: " + respContent.toString());
                 }
             } catch (IOException e) {
                 throw new StreamLoadException(e);
@@ -134,7 +138,7 @@ public class DorisStreamLoad implements Serializable{
 
     private LoadResponse loadBatch(String value) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+        String label = String.format("spark_connector_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 UUID.randomUUID().toString().replaceAll("-", ""));
