@@ -598,6 +598,10 @@ public class SetOperationStmt extends QueryStmt {
             return toSqlString;
         }
         StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toSql());
+            strBuilder.append(" ");
+        }
         Preconditions.checkState(operands.size() > 0);
         strBuilder.append(operands.get(0).getQueryStmt().toSql());
         for (int i = 1; i < operands.size() - 1; ++i) {
