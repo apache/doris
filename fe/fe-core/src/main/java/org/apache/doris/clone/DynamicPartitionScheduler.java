@@ -322,7 +322,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             Long checkDropPartitionId = idToItem.getKey();
             Range<PartitionKey> checkDropPartitionKey = idToItem.getValue().getItems();
             for (Range<PartitionKey> reserveHistoryPartitionKeyRange : reservedHistoryPartitionKeyRangeList) {
-                if (reserveHistoryPartitionKeyRange.contains(checkDropPartitionKey.lowerEndpoint())) {
+                if (RangeUtils.checkIsTwoRangesIntersect(reserveHistoryPartitionKeyRange, checkDropPartitionKey)) {
                     isContaineds.put(checkDropPartitionId, true);
                 }
             }

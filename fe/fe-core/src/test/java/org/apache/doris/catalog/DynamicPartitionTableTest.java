@@ -1292,6 +1292,35 @@ public class DynamicPartitionTableTest {
         OlapTable table2 = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods2");
         Assert.assertEquals("[2014-01-01 00:00:00,2014-01-01 03:00:00]", table2.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
         Assert.assertEquals(table2.getAllPartitions().size(), 6);
+
+        String createOlapTblStmt3 = "CREATE TABLE test.`dynamic_partition_normal_reserved_history_periods3` (\n" +
+                "  `k1` int NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p202127 VALUES [(\"20200527\"), (\"20200628\"))\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k2`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.reserved_history_periods\" = \"[2020-06-01,2020-06-30]\"\n" +
+                ");";
+        createTable(createOlapTblStmt3);
+        OlapTable table3 = (OlapTable) Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test").getTableOrAnalysisException("dynamic_partition_normal_reserved_history_periods3");
+        Assert.assertEquals("[2020-06-01,2020-06-30]", table3.getTableProperty().getDynamicPartitionProperty().getReservedHistoryPeriods());
+        Assert.assertEquals(table3.getAllPartitions().size(), 5);
     }
 
     @Test
