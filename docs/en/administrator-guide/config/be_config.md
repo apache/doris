@@ -1441,3 +1441,9 @@ The size of the buffer before flashing
 * Default value: 16MB
 
 Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
+
+### `external_table_connect_timeout_sec`
+
+* Type: int32
+* Description: The timeout when establishing connection with external table such as ODBC table.
+* Default value: 5 seconds

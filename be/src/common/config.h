@@ -630,6 +630,9 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 // When doing compaction, each segment may take at least 1MB buffer.
 CONF_mInt32(max_segment_num_per_rowset, "100");
 
+// The connection timeout when connecting to external table such as odbc table.
+CONF_mInt32(external_table_connect_timeout_sec, "5");
+
 } // namespace config
 
 } // namespace doris
