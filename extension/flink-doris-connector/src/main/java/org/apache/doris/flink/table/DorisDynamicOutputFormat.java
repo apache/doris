@@ -193,7 +193,6 @@ public class DorisDynamicOutputFormat extends RichOutputFormat<RowData> {
         } else {
             result = String.join(this.lineDelimiter, batch);
         }
-        System.out.println(result);
         for (int i = 0; i <= executionOptions.getMaxRetries(); i++) {
             try {
                 dorisStreamLoad.load(result);
