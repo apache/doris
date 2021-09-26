@@ -201,14 +201,14 @@ check_if_archieve_exist() {
 build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
     cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
-    if [ ! -f configure ]; then
-        ./autogen.sh
-    fi
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
 
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
+    CPPLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-shared=no --disable-samples --disable-libevent-regress
-    make -j $PARALLEL && make install
+    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DEVENT__DISABLE_TESTS=ON \
+    -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
+    ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
 build_openssl() {
@@ -243,10 +243,6 @@ build_thrift() {
     check_if_source_exist $THRIFT_SOURCE
     cd $TP_SOURCE_DIR/$THRIFT_SOURCE
 
-    if [ ! -f configure ]; then
-        ./bootstrap.sh
-    fi
-
     echo ${TP_LIB_DIR}
     ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
     --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
@@ -262,41 +258,13 @@ build_thrift() {
     make -j $PARALLEL && make install
 }
 
-# llvm
-build_llvm() {
-    MACHINE_TYPE=$(uname -m)
-    LLVM_TARGET="X86"
-    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
-        LLVM_TARGET="AArch64"
-    fi
-
-    check_if_source_exist $LLVM_SOURCE
-    check_if_source_exist $CLANG_SOURCE
-    check_if_source_exist $COMPILER_RT_SOURCE
-
-    if [ ! -d $TP_SOURCE_DIR/$LLVM_SOURCE/tools/clang ]; then
-        cp -rf $TP_SOURCE_DIR/$CLANG_SOURCE $TP_SOURCE_DIR/$LLVM_SOURCE/tools/clang
-    fi
-
-    if [ ! -d $TP_SOURCE_DIR/$LLVM_SOURCE/projects/compiler-rt ]; then
-        cp -rf $TP_SOURCE_DIR/$COMPILER_RT_SOURCE $TP_SOURCE_DIR/$LLVM_SOURCE/projects/compiler-rt
-    fi
-
-    cd $TP_SOURCE_DIR
-    mkdir -p llvm-build && cd llvm-build
-    rm -rf CMakeCache.txt CMakeFiles/
-    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGET} -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
-    ${BUILD_SYSTEM} -j $PARALLEL REQUIRES_RTTI=1 && ${BUILD_SYSTEM} install
-}
-
 # protobuf
 build_protobuf() {
     check_if_source_exist $PROTOBUF_SOURCE
     cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE
     rm -fr gmock
-    mkdir gmock && cd gmock && tar xf ${TP_SOURCE_DIR}/googletest-release-1.8.0.tar.gz \
-    && mv googletest-release-1.8.0 gtest && cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE && ./autogen.sh
+    mkdir gmock && cd gmock && tar xf ${TP_SOURCE_DIR}/${GTEST_NAME} \
+    && mv ${GTEST_SOURCE} gtest && cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE && ./autogen.sh
     CXXFLAGS="-fPIC -O2 -I ${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
@@ -416,8 +384,18 @@ build_lz4() {
     check_if_source_exist $LZ4_SOURCE
     cd $TP_SOURCE_DIR/$LZ4_SOURCE
 
-    make -j $PARALLEL install PREFIX=$TP_INSTALL_DIR \
+    make -j $PARALLEL install PREFIX=$TP_INSTALL_DIR BUILD_SHARED=no\
     INCLUDEDIR=$TP_INCLUDE_DIR/lz4/
+}
+
+# zstd
+build_zstd() {
+    check_if_source_exist $ZSTD_SOURCE
+    cd $TP_SOURCE_DIR/$ZSTD_SOURCE/build/cmake
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_TESTING=OFF -DZSTD_BUILD_TESTS=OFF -ZSTD_BUILD_STATIC=ON \
+    -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_SHARED=OFF  -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+    ${BUILD_SYSTEM} -j $PARALLEL install
 }
 
 # bzip
@@ -588,36 +566,39 @@ build_arrow() {
     check_if_source_exist $ARROW_SOURCE
     cd $TP_SOURCE_DIR/$ARROW_SOURCE/cpp && mkdir -p release && cd release
     export ARROW_BROTLI_URL=${TP_SOURCE_DIR}/${BROTLI_NAME}
-    export ARROW_DOUBLE_CONVERSION_URL=${TP_SOURCE_DIR}/${DOUBLE_CONVERSION_NAME}
     export ARROW_GLOG_URL=${TP_SOURCE_DIR}/${GLOG_NAME}
     export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
     export ARROW_FLATBUFFERS_URL=${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}
     export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
     export ARROW_JEMALLOC_URL=${TP_SOURCE_DIR}/${JEMALLOC_NAME}
     export ARROW_Thrift_URL=${TP_SOURCE_DIR}/${THRIFT_NAME}
+    export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
+    export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
     export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
 
-    #--trace-expand \
-    ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off \
-    -DARROW_BUILD_SHARED=OFF -DARROW_BUILD_STATIC=ON -DARROW_WITH_ZSTD=ON \
+    ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+    -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON \
+    -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
+    -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=OFF \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF -DARROW_GFLAGS_USE_SHARED=OFF \
     -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
     -DPARQUET_ARROW_LINKAGE=static \
-    -Dgflags_ROOT=$TP_INSTALL_DIR/ \
-    -DSnappy_ROOT=$TP_INSTALL_DIR/ \
-    -DGLOG_ROOT=$TP_INSTALL_DIR/ \
+    -Dgflags_ROOT=$TP_INSTALL_DIR \
+    -DSnappy_ROOT=$TP_INSTALL_DIR \
+    -DGLOG_ROOT=$TP_INSTALL_DIR \
     -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a \
     -DGLOG_LIB=$TP_INSTALL_DIR/lib/libglog.a \
-    -DLZ4_ROOT=$TP_INSTALL_DIR/ \
+    -DLZ4_ROOT=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
-    -DZSTD_SOURCE=BUNDLED \
+    -DZSTD_ROOT=$TP_INSTALL_DIR \
     -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DZLIB_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DGFLAGS_LIBRARY=$TP_INSTALL_DIR/lib/libgflags.a \
-    -Ddouble-conversion_SOURCE=BUNDLED \
-    -DThrift_ROOT=$TP_INSTALL_DIR/ ..
+    -DBoost_NO_BOOST_CMAKE=ON \
+    -DBOOST_ROOT=$TP_INSTALL_DIR \
+    -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 
@@ -626,12 +607,6 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a $TP_INSTALL_DIR/lib64/libbrotlienc.a	
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a $TP_INSTALL_DIR/lib64/libbrotlidec.a	
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a	
-    if [ -f ./zstd_ep-install/lib64/libzstd.a ]; then	
-        cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a	
-    else	
-        cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a	
-    fi	
-    cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
 }
 
 # s2
@@ -648,9 +623,9 @@ build_s2() {
     -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
     -DWITH_GFLAGS=ON \
     -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib" \
-    -DOPENSSL_ROOT_DIR=$TP_INSTALL_DIR/include \
-    -DWITH_GLOG=ON ..
+    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" \
+    -DOPENSSL_ROOT_DIR="$TP_INSTALL_DIR/include" \
+    -DWITH_GLOG=ON .. 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -714,8 +689,7 @@ build_croaringbitmap() {
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
-    -DENABLE_ROARING_TESTS=OFF ..
+    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" -DENABLE_ROARING_TESTS=OFF ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -763,7 +737,7 @@ build_orc() {
     -DGTEST_HOME=$TP_INSTALL_DIR \
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
-    -DZLIB_HOME=$TP_INSTALL_DIR\
+    -DZLIB_HOME=$TP_INSTALL_DIR \
     -DBUILD_LIBHDFSPP=OFF \
     -DBUILD_CPP_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
@@ -929,20 +903,14 @@ build_benchmark() {
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
 }
 
-# See https://github.com/apache/incubator-doris/issues/2910
-# LLVM related codes have already be removed in master, so there is
-# no need to build llvm tool here.
-# Currently, some old release of Doris may still need it, so for now
-# we just comment it, instead of remove it.
-# build_llvm
-
 build_libunixodbc
+build_openssl
 build_libevent
 build_zlib
 build_lz4
 build_bzip
 build_lzo2
-build_openssl
+build_zstd
 build_boost # must before thrift
 build_protobuf
 build_gflags
@@ -986,3 +954,4 @@ build_hdfs3
 build_benchmark
 
 echo "Finished to build all thirdparties"
+

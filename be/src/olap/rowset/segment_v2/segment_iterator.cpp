@@ -43,7 +43,7 @@ namespace segment_v2 {
 //   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BitmapRangeIterator(const Roaring& bitmap)
+    explicit BitmapRangeIterator(const roaring::Roaring& bitmap)
             : _last_val(0), _buf(new uint32_t[256]), _buf_pos(0), _buf_size(0), _eof(false) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
         _read_next_batch();
@@ -75,14 +75,14 @@ public:
 
 private:
     void _read_next_batch() {
-        uint32_t n = roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
+        uint32_t n = roaring::api::roaring_read_uint32_iterator(&_iter, _buf, kBatchSize);
         _buf_pos = 0;
         _buf_size = n;
         _eof = n == 0;
     }
 
     static const uint32_t kBatchSize = 256;
-    roaring_uint32_iterator_t _iter;
+    roaring::api::roaring_uint32_iterator_t _iter;
     uint32_t _last_val;
     uint32_t* _buf = nullptr;
     uint32_t _buf_pos;

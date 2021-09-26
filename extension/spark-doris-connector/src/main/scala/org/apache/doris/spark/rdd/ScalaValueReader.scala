@@ -107,9 +107,9 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
       DORIS_EXEC_MEM_LIMIT_DEFAULT
     }
 
-    params.setBatch_size(batchSize)
-    params.setQuery_timeout(queryDorisTimeout)
-    params.setMem_limit(execMemLimit)
+    params.setBatchSize(batchSize)
+    params.setQueryTimeout(queryDorisTimeout)
+    params.setMemLimit(execMemLimit)
     params.setUser(settings.getProperty(DORIS_REQUEST_AUTH_USER, ""))
     params.setPasswd(settings.getProperty(DORIS_REQUEST_AUTH_PASSWORD, ""))
 
@@ -117,25 +117,25 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         s"cluster: ${params.getCluster}, " +
         s"database: ${params.getDatabase}, " +
         s"table: ${params.getTable}, " +
-        s"tabletId: ${params.getTablet_ids}, " +
+        s"tabletId: ${params.getTabletIds}, " +
         s"batch size: $batchSize, " +
         s"query timeout: $queryDorisTimeout, " +
         s"execution memory limit: $execMemLimit, " +
         s"user: ${params.getUser}, " +
-        s"query plan: ${params.opaqued_query_plan}")
+        s"query plan: ${params.getOpaquedQueryPlan}")
 
     params
   }
 
   protected val openResult: TScanOpenResult = lockClient(_.openScanner(openParams))
-  protected val contextId: String = openResult.getContext_id
+  protected val contextId: String = openResult.getContextId
   protected val schema: Schema =
-    SchemaUtils.convertToSchema(openResult.getSelected_columns)
+    SchemaUtils.convertToSchema(openResult.getSelectedColumns)
 
   protected val asyncThread: Thread = new Thread {
     override def run {
       val nextBatchParams = new TScanNextBatchParams
-      nextBatchParams.setContext_id(contextId)
+      nextBatchParams.setContextId(contextId)
       while (!eos.get) {
         nextBatchParams.setOffset(offset)
         val nextResult = lockClient(_.getNext(nextBatchParams))
@@ -194,7 +194,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
           rowBatch.close
         }
         val nextBatchParams = new TScanNextBatchParams
-        nextBatchParams.setContext_id(contextId)
+        nextBatchParams.setContextId(contextId)
         nextBatchParams.setOffset(offset)
         val nextResult = lockClient(_.getNext(nextBatchParams))
         eos.set(nextResult.isEos)
@@ -221,7 +221,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
 
   def close(): Unit = {
     val closeParams = new TScanCloseParams
-    closeParams.context_id = contextId
+    closeParams.setContextId(contextId)
     lockClient(_.closeScanner(closeParams))
   }
 

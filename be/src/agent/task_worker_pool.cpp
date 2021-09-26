@@ -425,7 +425,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatus task_status;
         string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, &err);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, false, &err);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -1194,7 +1194,8 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
             // report, and the report version has a small probability that it has not been updated in time. When FE
             // receives this report, it is possible to delete the new tablet.
-            LOG(WARNING) << "report version " << report_version << " change to " << _s_report_version;
+            LOG(WARNING) << "report version " << report_version << " change to "
+                         << _s_report_version;
             DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
             continue;
         }

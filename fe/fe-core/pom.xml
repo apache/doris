@@ -779,7 +779,7 @@ under the License.
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>build-helper-maven-plugin</artifactId>
-                <version>1.7</version>
+                <version>3.2.0</version>
                 <executions>
                     <execution>
                         <id>add-source</id>
