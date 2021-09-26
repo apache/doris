@@ -41,7 +41,7 @@ public class SqlCache extends Cache {
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(selectStmt.getOrigStmt().originStmt))
+                .setSqlKey(CacheProxy.getMd5(selectStmt.toSql()))
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
@@ -74,8 +74,8 @@ public class SqlCache extends Cache {
         }
 
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(selectStmt.getOrigStmt().originStmt,
-                        latestTable.latestPartitionId, latestTable.latestVersion, latestTable.latestTime);
+                rowBatchBuilder.buildSqlUpdateRequest(selectStmt.toSql(), latestTable.latestPartitionId,
+                        latestTable.latestVersion, latestTable.latestTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
