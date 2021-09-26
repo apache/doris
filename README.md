@@ -26,24 +26,6 @@ under the License.
 Doris is an MPP-based interactive SQL data warehousing for reporting and analysis.
 Its original name was Palo, developed in Baidu. After donated to Apache Software Foundation, it was renamed Doris.
 
-**Official website: https://doris.apache.org/**
-
-[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/incubator-doris)
-
-[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/incubator-doris)
-
-## 1. License
-
-[Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
-
-> **Note**   
-> Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
-some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
-
-## 2. Technology
-Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
-
-## 3. Use cases
 - Doris provides high concurrent low latency point query performance, as well as high throughput queries of ad-hoc analysis.
 
 - Doris provides batch data loading and real-time mini-batch data loading.
@@ -52,16 +34,32 @@ Doris mainly integrates the technology of Google Mesa and Apache Impala, and it 
 
 The main advantages of Doris are the simplicity (of developing, deploying and using) and meeting many data serving requirements in a single system. For details, refer to [Overview](https://github.com/apache/incubator-doris/wiki/Doris-Overview).
 
-## 4. Compile and install
+**Official website: https://doris.apache.org/**
+
+[![Monthly Active Contributors](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorMonthlyActivity&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorMonthlyActivity&repo=apache/incubator-doris)
+
+[![Contributor over time](https://contributor-overtime-api.apiseven.com/contributors-svg?chart=contributorOverTime&repo=apache/incubator-doris)](https://www.apiseven.com/en/contributor-graph?chart=contributorOverTime&repo=apache/incubator-doris)
+
+## License
+
+[Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+> **Note**   
+> Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
+some Doris features to be complied with Apache 2.0 License. For details, refer to the `thirdparty/LICENSE.txt`
+
+## Technology
+Doris mainly integrates the technology of Google Mesa and Apache Impala, and it is based on a column-oriented storage engine and can communicate by MySQL client.
+
+## Compile and install
 
 See [Compilation](https://github.com/apache/incubator-doris/blob/master/docs/en/installing/compilation.md) for details.
 
-
-## 5. Report issues or submit pull request
+## Report issues or submit pull request
 
 If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/incubator-doris/issues) or fix it by submitting a [pull request](https://github.com/apache/incubator-doris/pulls).
 
-## 6. Contact Us
+## Contact Us
 
 Contact us through the following mailing list.
 
@@ -69,7 +67,7 @@ Contact us through the following mailing list.
 |:------------------------------------------------------------------------------|:--------------------------------|:----------------------------------------------------------------|:--------------------------------------------------------------------|:-----------------------------------------------------------------------------|
 | [dev@doris.apache.org](mailto:dev@doris.apache.org)     | Development-related discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org)   | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org)   | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/)   |
 
-## 7. Links
+## Links
 
 * Doris official site - <http://doris.incubator.apache.org>
 * User Manual (GitHub Wiki) - <https://github.com/apache/incubator-doris/wiki>
