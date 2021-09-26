@@ -37,6 +37,7 @@ import com.sleepycat.je.OperationStatus;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+import com.sleepycat.je.rep.RollbackException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -191,7 +192,7 @@ public class BDBJEJournal implements Journal {
 
     @Override
     public JournalEntity read(long journalId) {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return null;
         }
@@ -252,7 +253,7 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return ret;
         }
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return ret;
         }
@@ -275,7 +276,7 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return ret;
         }
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             return ret;
         }
@@ -323,7 +324,7 @@ public class BDBJEJournal implements Journal {
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
-                dbNames = bdbEnvironment.getDatabaseNames();
+                dbNames = getDatabaseNames();
                 
                 if (dbNames == null) {
                     LOG.error("fail to get dbNames while open bdbje journal. will exit");
@@ -364,7 +365,7 @@ public class BDBJEJournal implements Journal {
     
     @Override
     public void deleteJournals(long deleteToJournalId) {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.info("delete database names is null.");
             return;
@@ -393,7 +394,7 @@ public class BDBJEJournal implements Journal {
     
     @Override
     public long getFinalizedJournalId() {
-        List<Long> dbNames = bdbEnvironment.getDatabaseNames();
+        List<Long> dbNames = getDatabaseNames();
         if (dbNames == null) {
             LOG.error("database name is null.");
             return 0;
@@ -417,8 +418,31 @@ public class BDBJEJournal implements Journal {
         if (bdbEnvironment == null) {
             return null;
         }
-        
-        return bdbEnvironment.getDatabaseNames();
+
+        // Open a new journal database or get last existing one as current journal database
+        Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
+        List<Long>  dbNames = null;
+        for (int i = 0; i < RETRY_TIME; i++) {
+            try {
+                dbNames = bdbEnvironment.getDatabaseNames();
+            } catch (InsufficientLogException insufficientLogEx) {
+                // Copy the missing log files from a member of the replication group who owns the files
+                LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
+                NetworkRestore restore = new NetworkRestore();
+                NetworkRestoreConfig config = new NetworkRestoreConfig();
+                config.setRetainLogFiles(false);
+                restore.execute(insufficientLogEx, config);
+                bdbEnvironment.close();
+                bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
+                        helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
+            } catch (RollbackException rollbackEx) {
+                LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
+                bdbEnvironment.closeReplicatedEnvironment();
+                bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
+            }
+        }
+
+        return dbNames;
     }
     
     public boolean isPortUsing(String host, int port) throws UnknownHostException {  
