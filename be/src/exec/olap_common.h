@@ -19,9 +19,9 @@
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
 
 #include <stdint.h>
+#include <variant>
 
 #include <boost/lexical_cast.hpp>
-#include <boost/variant.hpp>
 #include <map>
 #include <sstream>
 #include <string>
@@ -317,7 +317,7 @@ private:
     bool _is_convertible;
 };
 
-typedef boost::variant<
+typedef std::variant<
         ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
         ColumnValueRange<int64_t>, ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
         ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
