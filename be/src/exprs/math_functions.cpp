@@ -327,13 +327,14 @@ StringVal MathFunctions::hex_int(FunctionContext* ctx, const BigIntVal& v) {
     uint64_t num = v.val;
     char hex[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     // uint64_t max value 0xFFFFFFFFFFFFFFFF , 16 'F'
-    char ans[16];
+    // need 1 more space for '\0'
+    char ans[17];
     int i = 0;
     while (num) {
         ans[i++] = hex[num & 15];
         num = num >> 4;
     }
-    ans[i] = '/0';
+    ans[i] = '\0';
     // reverse
     for (int k = 0, j = i - 1; k <= j; k++, j--) {
         char tmp = ans[j];

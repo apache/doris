@@ -24,6 +24,7 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
+#include "test_util/test_util.h"
 #include "testutil/function_utils.h"
 #include "util/logging.h"
 
@@ -168,22 +169,97 @@ TEST_F(MathFunctionsTest, rand) {
     ASSERT_NE(dv3.val, dv4.val);
 }
 
-TEST_F(MathFunctionsTest, hex) {
-    StringVal s1("C");
-    StringVal s2("90");
-    StringVal s3("FFFFFFFFFFFFFFFF");
-    StringVal s4("FFFFFFFFFFFFFFFE");
-    StringVal s5("24EC1");
-    StringVal s6("FFFFFFFFFFFFFFFF");
-    StringVal s7("");
+TEST_F(MathFunctionsTest, hex_int) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    
+    ASSERT_EQ(StringVal::null(),
+              MathFunctions::hex_string(context, StringVal::null()));
+    
+    ASSERT_EQ(StringVal("7FFFFFFFFFFFFFFF"),
+              MathFunctions::hex_int(context, BigIntVal(9223372036854775807))); //BigIntVal max_value
+    
+    ASSERT_EQ(StringVal("FFE5853AB393E6C0"),
+              MathFunctions::hex_int(context, BigIntVal(-7453337203775808)));
+    
+    ASSERT_EQ(StringVal(""),
+              MathFunctions::hex_int(context, BigIntVal(0)));
+    
+    ASSERT_EQ(StringVal("C"),
+              MathFunctions::hex_int(context, BigIntVal(12)));
+    
+    ASSERT_EQ(StringVal("90"),
+              MathFunctions::hex_int(context, BigIntVal(144)));
+    
+    ASSERT_EQ(StringVal("FFFFFFFFFFFFFFFF"),
+              MathFunctions::hex_int(context, BigIntVal(-1)));
+    
+    ASSERT_EQ(StringVal("FFFFFFFFFFFFFFFE"),
+              MathFunctions::hex_int(context, BigIntVal(-2)));
+    
+    ASSERT_EQ(StringVal("24EC1"),
+              MathFunctions::hex_int(context, BigIntVal(151233)));
+    
+    delete context;
+}
 
-    ASSERT_EQ(s1, MathFunctions::hex_int(ctx, BigIntVal(12)));
-    ASSERT_EQ(s2, MathFunctions::hex_int(ctx, BigIntVal(144)));
-    ASSERT_EQ(s3, MathFunctions::hex_int(ctx, BigIntVal(-1)));
-    ASSERT_EQ(s4, MathFunctions::hex_int(ctx, BigIntVal(-2)));
-    ASSERT_EQ(s5, MathFunctions::hex_int(ctx, BigIntVal(151233)));
-    ASSERT_EQ(s6, MathFunctions::hex_int(ctx, BigIntVal(18446744073709551615))); //BigIntVal max_value
-    ASSERT_EQ(s7, MathFunctions::hex_int(ctx, BigIntVal(0)));
+TEST_F(MathFunctionsTest, hex_string) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    
+    ASSERT_EQ(StringVal::null(),
+              MathFunctions::hex_string(context, StringVal::null()));
+    
+    ASSERT_EQ(StringVal("30"),
+     MathFunctions::hex_string(context, StringVal("0")));
+
+    ASSERT_EQ(StringVal("31"),
+     MathFunctions::hex_string(context, StringVal("1")));
+
+    ASSERT_EQ(StringVal("313233"),
+     MathFunctions::hex_string(context, StringVal("123")));
+
+    ASSERT_EQ(StringVal("41"),
+     MathFunctions::hex_string(context, StringVal("A")));
+
+    ASSERT_EQ(StringVal("61"),
+     MathFunctions::hex_string(context, StringVal("a")));
+
+    ASSERT_EQ(StringVal("E68891"),
+     MathFunctions::hex_string(context, StringVal("我")));
+
+    ASSERT_EQ(StringVal("3F"),
+              MathFunctions::hex_string(context, StringVal("?")));
+    
+    delete context;
+}
+
+TEST_F(MathFunctionsTest, unhex) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    
+    ASSERT_EQ(StringVal::null(),
+     MathFunctions::unhex(context, StringVal::null()));
+    
+    ASSERT_EQ(StringVal("123"),
+              MathFunctions::unhex(context, StringVal("313233")));
+
+    ASSERT_EQ(StringVal(""),
+              MathFunctions::unhex(context, StringVal("@!#")));
+    
+    ASSERT_EQ(StringVal(""),
+              MathFunctions::unhex(context, StringVal("@@")));
+    
+    ASSERT_EQ(StringVal("a"),
+              MathFunctions::unhex(context, StringVal("61")));
+    
+    ASSERT_EQ(StringVal("123"),
+              MathFunctions::unhex(context, StringVal("313233")));
+    
+    ASSERT_EQ(StringVal(""),
+              MathFunctions::unhex(context, StringVal("我")));
+    
+    ASSERT_EQ(StringVal("？"),
+              MathFunctions::unhex(context, StringVal("EFBC9F")));
+    
+    delete context;
 }
 
 } // namespace doris

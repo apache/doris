@@ -1,7 +1,7 @@
 ---
 {
-"title": "hex",
-"language": "zh-CN"
+    "title": "hex",
+    "language": "zh-CN"
 }
 ---
 
