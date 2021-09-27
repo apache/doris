@@ -17,7 +17,11 @@
 package org.apache.doris.spark;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.doris.spark.cfg.ConfigurationOptions;
+import org.apache.doris.spark.cfg.SparkSettings;
+import org.apache.doris.spark.exception.DorisException;
 import org.apache.doris.spark.exception.StreamLoadException;
+import org.apache.doris.spark.rest.RestService;
 import org.apache.doris.spark.rest.models.RespContent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,12 +40,16 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.List;
+import java.util.StringJoiner;
 import java.util.UUID;
 
 /**
  * DorisStreamLoad
  **/
 public class DorisStreamLoad implements Serializable{
+    public static final String FIELD_DELIMITER = "\t";
+    public static final String LINE_DELIMITER = "\n";
+    public static final String NULL_VALUE = "\\N";
 
     private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoad.class);
 
@@ -65,6 +73,18 @@ public class DorisStreamLoad implements Serializable{
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
     }
 
+    public DorisStreamLoad(SparkSettings settings) throws IOException, DorisException {
+        String hostPort = RestService.randomBackend(settings, LOG);
+        this.hostPort = hostPort;
+        String[] dbTable = settings.getProperty(ConfigurationOptions.DORIS_TABLE_IDENTIFIER).split("\\.");
+        this.db = dbTable[0];
+        this.tbl = dbTable[1];
+        this.user = settings.getProperty(ConfigurationOptions.DORIS_REQUEST_AUTH_USER);
+        this.passwd = settings.getProperty(ConfigurationOptions.DORIS_REQUEST_AUTH_PASSWORD);
+        this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
+        this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+    }
+
     public String getLoadUrlStr() {
         return loadUrlStr;
     }
@@ -84,7 +104,6 @@ public class DorisStreamLoad implements Serializable{
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setRequestMethod("PUT");
-        String authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
         conn.setRequestProperty("Authorization", "Basic " + authEncoding);
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
@@ -112,6 +131,22 @@ public class DorisStreamLoad implements Serializable{
             sb.append(", resp content: ").append(respContent);
             return sb.toString();
         }
+    }
+
+    public void load(List<List<Object>> rows) throws StreamLoadException {
+        StringJoiner lines = new StringJoiner(LINE_DELIMITER);
+        for (List<Object> row : rows) {
+            StringJoiner line = new StringJoiner(FIELD_DELIMITER);
+            for (Object field : row) {
+                if (field == null) {
+                    line.add(NULL_VALUE);
+                } else {
+                    line.add(field.toString());
+                }
+            }
+            lines.add(line.toString());
+        }
+        load(lines.toString());
     }
 
     public void load(String value) throws StreamLoadException {
