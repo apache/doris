@@ -18,7 +18,6 @@
 #include "exec/olap_scan_node.h"
 
 #include <algorithm>
-#include <boost/variant.hpp>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -50,7 +49,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _tuple_desc(NULL),
           _tuple_idx(0),
           _eos(false),
-          _scanner_pool(new ObjectPool()),
           _max_materialized_row_batches(config::doris_scanner_queue_size),
           _start(false),
           _scanner_done(false),
@@ -186,11 +184,9 @@ Status OlapScanNode::prepare(RuntimeState* state) {
             _collection_slots.push_back(slots[i]);
         }
 
-        if (!slots[i]->type().is_string_type()) {
-            continue;
+        if (slots[i]->type().is_string_type()) {
+            _string_slots.push_back(slots[i]);
         }
-
-        _string_slots.push_back(slots[i]);
     }
 
     _runtime_state = state;
@@ -297,7 +293,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         }
 
         if (!_materialized_row_batches.empty()) {
-            materialized_batch = dynamic_cast<RowBatch*>(_materialized_row_batches.front());
+            materialized_batch = _materialized_row_batches.front();
             DCHECK(materialized_batch != NULL);
             _materialized_row_batches.pop_front();
         }
@@ -377,7 +373,7 @@ Status OlapScanNode::close(RuntimeState* state) {
     _scan_batch_added_cv.notify_all();
 
     // join transfer thread
-    _transfer_thread.join_all();
+    _transfer_thread->join();
 
     // clear some row batch in queue
     for (auto row_batch : _materialized_row_batches) {
@@ -621,17 +617,11 @@ Status OlapScanNode::normalize_conjuncts() {
 
 Status OlapScanNode::build_olap_filters() {
     for (auto& iter : _column_value_ranges) {
-        ToOlapFilterVisitor visitor;
-        boost::variant<std::vector<TCondition>> filters;
-        boost::apply_visitor(visitor, iter.second, filters);
+        std::vector<TCondition> filters;
+        std::visit([&](auto &&range) { range.to_olap_filter(filters); }, iter.second);
 
-        std::vector<TCondition> new_filters = boost::get<std::vector<TCondition>>(filters);
-        if (new_filters.empty()) {
-            continue;
-        }
-
-        for (const auto& filter : new_filters) {
-            _olap_filter.push_back(filter);
+        for (const auto& filter : filters) {
+            _olap_filter.push_back(std::move(filter));
         }
     }
 
@@ -648,13 +638,12 @@ Status OlapScanNode::build_scan_key() {
 
     for (int column_index = 0; column_index < column_names.size() && !_scan_keys.has_range_value();
          ++column_index) {
-        auto column_range_iter = _column_value_ranges.find(column_names[column_index]);
-        if (_column_value_ranges.end() == column_range_iter) {
+        auto iter = _column_value_ranges.find(column_names[column_index]);
+        if (_column_value_ranges.end() == iter) {
             break;
         }
 
-        ExtendScanKeyVisitor visitor(_scan_keys, _max_scan_key_num);
-        RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
+        RETURN_IF_ERROR(std::visit([&](auto &&range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); }, iter->second));
     }
 
     VLOG_CRITICAL << _scan_keys.debug_string();
@@ -790,7 +779,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                                                    _need_agg_finalize, *scan_range, scanner_ranges);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
-            _scanner_pool->add(scanner);
+            _scanner_pool.add(scanner);
             RETURN_IF_ERROR(scanner->prepare(*scan_range, scanner_ranges, _olap_filter,
                                              _bloom_filters_push_down));
 
@@ -807,7 +796,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     ss << "ScanThread complete (node=" << id() << "):";
     _progress = ProgressUpdater(ss.str(), _olap_scanners.size(), 1);
 
-    _transfer_thread.add_thread(new boost::thread(&OlapScanNode::transfer_thread, this, state));
+    _transfer_thread = std::make_shared<std::thread>(&OlapScanNode::transfer_thread, this, state);
 
     return Status::OK();
 }
@@ -1443,7 +1432,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             }
         }
 
-        RowBatchInterface* scan_batch = NULL;
+        RowBatch* scan_batch = NULL;
         {
             // 1 scanner idle task not empty, assign new scanner task
             std::unique_lock<std::mutex> l(_scan_batches_lock);
@@ -1658,7 +1647,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     _scan_thread_exit_cv.notify_one();
 }
 
-Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
+Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
 
