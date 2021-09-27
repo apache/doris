@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -88,6 +89,11 @@ public class ColocateTableTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void alterTable(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
     }
 
     @Test
@@ -317,5 +323,39 @@ public class ColocateTableTest {
                 " \"replication_num\" = \"1\",\n" +
                 " \"colocate_with\" = \"" + groupName + "\"\n" +
                 ");");
+    }
+
+
+    @Test
+    public void testModifyGroupNameForBucketSeqInconsistent() throws Exception {
+        createTable("create table " + dbName + "." + tableName1 + " (\n" +
+                " `k1` int NULL COMMENT \"\",\n" +
+                " `k2` varchar(10) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\",\n" +
+                " \"colocate_with\" = \"" + groupName + "\"\n" +
+                ");");
+
+        ColocateTableIndex index = Catalog.getCurrentColocateIndex();
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        long tableId = db.getTableOrMetaException(tableName1).getId();
+        GroupId groupId1 = index.getGroup(tableId);
+
+        Map<Tag, List<List<Long>>> backendIds1 = index.getBackendsPerBucketSeq(groupId1);
+        Assert.assertEquals(1, backendIds1.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
+
+        // set same group name
+        alterTable("ALTER TABLE "+ dbName + "." + tableName1 + " SET (" + "\"colocate_with\" = \"" + groupName + "\")");
+        GroupId groupId2 = index.getGroup(tableId);
+
+        // verify groupId group2BackendsPerBucketSeq
+        Map<Tag, List<List<Long>>> backendIds2 = index.getBackendsPerBucketSeq(groupId2);
+        Assert.assertEquals(1, backendIds2.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
+        Assert.assertEquals(groupId1, groupId2);
+        Assert.assertEquals(backendIds1, backendIds2);
     }
 }
