@@ -173,7 +173,7 @@ public class CreateFunctionTest {
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k3` AS DECIMAL(4,1))"));
 
         // cast any type to varchar with fixed length
-        createFuncStr = "create alias function db1.to_string(all, int) with parameter(text, length) as " +
+        createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as " +
                 "cast(text as varchar(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
@@ -181,7 +181,7 @@ public class CreateFunctionTest {
         functions = db.getFunctions();
         Assert.assertEquals(4, functions.size());
 
-        queryStr = "select db1.to_string(333, 4);";
+        queryStr = "select db1.varchar(333, 4);";
         ctx.getState().reset();
         stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
@@ -196,7 +196,34 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
 
-        queryStr = "select db1.to_string(k1, 4) from db1.tbl1;";
+        queryStr = "select db1.varchar(k1, 4) from db1.tbl1;";
+        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
+
+        // cast any type to char with fixed length
+        createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as " +
+                "cast(text as char(length));";
+        createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
+        Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
+
+        functions = db.getFunctions();
+        Assert.assertEquals(5, functions.size());
+
+        queryStr = "select db1.char(333, 4);";
+        ctx.getState().reset();
+        stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        Assert.assertNotEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+        planner = stmtExecutor.planner();
+        Assert.assertEquals(1, planner.getFragments().size());
+        fragment = planner.getFragments().get(0);
+        Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
+        unionNode =  (UnionNode)fragment.getPlanRoot();
+        constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
+        Assert.assertEquals(1, constExprLists.size());
+        Assert.assertEquals(1, constExprLists.get(0).size());
+        Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
+
+        queryStr = "select db1.char(k1, 4) from db1.tbl1;";
         Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("CAST(`k1` AS CHARACTER)"));
     }
 }

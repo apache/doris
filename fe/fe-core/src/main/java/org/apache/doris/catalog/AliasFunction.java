@@ -27,7 +27,6 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.SqlModeHelper;
@@ -249,12 +248,6 @@ public class AliasFunction extends Function {
         }
         // 4. expr
         Expr.writeTo(originFunction, output);
-
-        // 5. TypeDef
-        output.writeInt(typeDefParams.size());
-        for (String p : typeDefParams) {
-            Text.writeString(output, p);
-        }
     }
 
     @Override
@@ -265,12 +258,6 @@ public class AliasFunction extends Function {
             parameters.add(Text.readString(input));
         }
         originFunction = Expr.readIn(input);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_106) {
-            int typeDefParamsSize = input.readInt();
-            for (int i = 0; i < typeDefParamsSize; i++) {
-                typeDefParams.add(Text.readString(input));
-            }
-        }
     }
 
     @Override

@@ -4370,6 +4370,11 @@ type ::=
      type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
+  | KW_CHAR LPAREN ident_or_text:lenStr RPAREN
+  {: ScalarType type = ScalarType.createCharType(lenStr);
+     type.setAssignedStrLenInColDefinition();
+     RESULT = type;
+  :}
   | KW_CHAR
   {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
@@ -5191,6 +5196,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}
+    | KW_CHAR:id
+    {: RESULT = id; :}
     | KW_CHARSET:id
     {: RESULT = id; :}
     | KW_CHECK:id
@@ -5468,6 +5475,8 @@ keyword ::=
     | KW_FEATURE:id
     {: RESULT = id; :}
     | KW_MAP:id
+    {: RESULT = id; :}
+    | KW_VARCHAR:id
     {: RESULT = id; :}
     ;
 

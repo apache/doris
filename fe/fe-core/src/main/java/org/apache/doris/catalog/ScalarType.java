@@ -224,6 +224,12 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createCharType(String lenStr) {
+        ScalarType type = new ScalarType(PrimitiveType.CHAR);
+        type.lenStr = lenStr;
+        return type;
+    }
+
     public static ScalarType createChar(int len) {
         ScalarType type = new ScalarType(PrimitiveType.CHAR);
         type.len = len;
@@ -337,21 +343,23 @@ public class ScalarType extends Type {
                 if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("char").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("char").append("(").append(lenStr).append(")");
+                    stringBuilder.append("char").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case VARCHAR:
                 if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("varchar").append("(").append(lenStr).append(")");
+                    stringBuilder.append("varchar").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
-                } else {
+                } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`, `").append(scaleStr).append("`)");
+                } else {
+                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case BOOLEAN:
