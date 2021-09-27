@@ -76,7 +76,7 @@ OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_t
 }
 
 OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count,
+                                   uint64_t request_block_row_count, size_t key_num,
                                    std::vector<OlapTuple>* ranges) {
     ranges->emplace_back(start_key.to_tuple());
     ranges->emplace_back(end_key.to_tuple());
