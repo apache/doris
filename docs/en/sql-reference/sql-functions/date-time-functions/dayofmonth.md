@@ -29,7 +29,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT DAYOFMONTH (DATETIME date)'
+`INT DAYOFMONTH (DATETIME date)`
 
 
 Get the day information in the date, and return values range from 1 to 31.

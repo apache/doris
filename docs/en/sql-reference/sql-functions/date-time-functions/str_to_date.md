@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'DATETIME STR TWO DATES (VARCHAR STR, VARCHAR format)'
+`DATETIME STR TWO DATES (VARCHAR STR, VARCHAR format)`
 
 
 Convert STR to DATE type by format specified, if the conversion result does not return NULL
