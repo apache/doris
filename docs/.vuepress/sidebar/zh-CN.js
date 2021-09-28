@@ -209,6 +209,7 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
+      "multi-tenant",
     ],
     sidebarDepth: 1,
   },

@@ -864,6 +864,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
                                uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
     DCHECK(ranges != nullptr);
 
+    size_t key_num = 0;
     RowCursor start_key;
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
@@ -876,6 +877,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
             LOG(WARNING) << "init end key failed";
             return OLAP_ERR_INVALID_SCHEMA;
         }
+        key_num = start_key_strings.size();
     } else {
         if (start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
@@ -884,6 +886,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
 
         start_key.allocate_memory_for_string_type(_schema);
         start_key.build_min_key();
+        key_num = num_short_key_columns();
     }
 
     RowCursor end_key;
@@ -919,7 +922,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-    return rowset->split_range(start_key, end_key, request_block_row_count, ranges);
+    return rowset->split_range(start_key, end_key, request_block_row_count, key_num, ranges);
 }
 
 // NOTE: only used when create_table, so it is sure that there is no concurrent reader and writer.
@@ -1367,7 +1370,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });
@@ -1389,7 +1392,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });
