@@ -268,7 +268,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[8]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
-            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
+            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength && _desc_result.columns[_column_index].columnDesc.columnLength > 0) {
                 *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
             } else {
                 tuple->set_null(_tuple_desc->slots()[8]->null_indicator_offset());
@@ -285,7 +285,7 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             data_type == TPrimitiveType::STRING) {
             void* slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
             int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
-            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
+            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength && _desc_result.columns[_column_index].columnDesc.columnLength > 0) {
                 *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength * 4;
             } else {
                 tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
