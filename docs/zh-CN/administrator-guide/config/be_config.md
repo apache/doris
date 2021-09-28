@@ -347,6 +347,14 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 
 与base_compaction_trace_threshold类似。
 
+### disable_compaction_trace_log
+
+* 类型: bool
+* 描述: 关闭compaction的trace日志
+* 默认值: true
+
+如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
+
 ### `cumulative_compaction_policy`
 
 * 类型：string
@@ -1431,7 +1439,6 @@ webserver默认工作线程数
   ```
 * 默认值: 3
 
-
 ### `mem_tracker_level`
 
 * 类型: int16
@@ -1447,3 +1454,17 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: 用于限制导入时，新产生的rowset中的segment数量。如果超过阈值，导入会失败并报错 -238。过多的 segment 会导致compaction占用大量内存引发 OOM 错误。
 * 默认值: 100
+
+### `remote_storage_read_buffer_mb`
+
+* 类型: int32
+* 描述: 读取hdfs或者对象存储上的文件时，使用的缓存大小。
+* 默认值: 16MB
+
+增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
+
+### `external_table_connect_timeout_sec`
+
+* 类型: int32
+* 描述: 和外部表建立连接的超时时间。
+* 默认值: 5秒

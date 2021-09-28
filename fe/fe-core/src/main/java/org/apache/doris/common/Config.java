@@ -701,44 +701,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int tablet_delete_timeout_second = 2;
     /**
-     * Clone checker's running interval.
-     */
-    @ConfField public static int clone_checker_interval_second = 300;
-    /**
-     * Default timeout of a single clone job. Set long enough to fit your replica size.
-     * The larger the replica data size is, the more time is will cost to finish clone.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int clone_job_timeout_second = 7200; // 2h
-    /**
-     * Concurrency of LOW priority clone jobs.
-     * Concurrency of High priority clone jobs is currently unlimited.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int clone_max_job_num = 100;
-    /**
-     * LOW priority clone job's delay trigger time.
-     * A clone job contains a tablet which need to be cloned(recovery or migration).
-     * If the priority is LOW, it will be delayed *clone_low_priority_delay_second*
-     * after the job creation and then be executed.
-     * This is to avoid a large number of clone jobs running at same time only because a host is down for a short time.
-     *
-     * NOTICE that this config(and *clone_normal_priority_delay_second* as well)
-     * will not work if it's smaller then *clone_checker_interval_second*
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int clone_low_priority_delay_second = 600;
-    /**
-     * NORMAL priority clone job's delay trigger time.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int clone_normal_priority_delay_second = 300;
-    /**
-     * HIGH priority clone job's delay trigger time.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int clone_high_priority_delay_second = 0;
-    /**
      * the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1380,7 +1342,7 @@ public class Config extends ConfigBase {
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
+    public static long default_db_data_quota_bytes = 1024L * 1024 * 1024 * 1024 * 1024L; // 1PB
 
     /*
      * Maximum percentage of data that can be filtered (due to reasons such as data is irregularly)
@@ -1508,4 +1470,10 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = false)
     public static boolean use_compact_thrift_rpc = true;
+
+    /*
+     * If set to true, the tablet scheduler will not work, so that all tablet repair/balance task will not work.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean disable_tablet_scheduler = false;
 }

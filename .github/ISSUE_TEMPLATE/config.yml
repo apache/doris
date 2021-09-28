@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
   - name: Ask a question or get support
     url: https://github.com/apache/incubator-doris/discussions
