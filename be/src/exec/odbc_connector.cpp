@@ -22,6 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <codecvt>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "runtime/primitive_type.h"
@@ -100,6 +101,10 @@ Status ODBCConnector::open() {
                  "set env attr");
     // Allocate a connection handle
     ODBC_DISPOSE(_env, SQL_HANDLE_ENV, SQLAllocHandle(SQL_HANDLE_DBC, _env, &_dbc), "alloc dbc");
+    // Set connect timeout
+    unsigned int timeout = config::external_table_connect_timeout_sec;
+    SQLSetConnectAttr(_dbc, SQL_LOGIN_TIMEOUT, (SQLPOINTER) timeout, 0);
+    SQLSetConnectAttr(_dbc, SQL_ATTR_CONNECTION_TIMEOUT, (SQLPOINTER) timeout, 0);
     // Connect to the Database
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
                  SQLDriverConnect(_dbc, NULL, (SQLCHAR*)_connect_string.c_str(), SQL_NTS, NULL, 0,

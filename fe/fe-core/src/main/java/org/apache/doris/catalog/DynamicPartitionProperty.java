@@ -19,7 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -43,11 +45,13 @@ public class DynamicPartitionProperty {
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
     public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
+    public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
     public static final int MAX_END_OFFSET = Integer.MAX_VALUE;
     public static final int NOT_SET_REPLICATION_NUM = -1;
     public static final int NOT_SET_HISTORY_PARTITION_NUM = -1;
+    public static final String NOT_SET_RESERVED_HISTORY_PERIODS = "NULL";
 
     private boolean exist;
 
@@ -67,6 +71,7 @@ public class DynamicPartitionProperty {
     // This property are used to describe the number of partitions that need to be reserved on the high-speed storage.
     // If not set, default is 0
     private int hotPartitionNum;
+    private String reservedHistoryPeriods;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
@@ -83,6 +88,7 @@ public class DynamicPartitionProperty {
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
+            this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -180,6 +186,14 @@ public class DynamicPartitionProperty {
         return replicaAlloc;
     }
 
+    public String getReservedHistoryPeriods() {
+        return reservedHistoryPeriods;
+    }
+
+    public String getSortedReservedHistoryPeriods(String reservedHistoryPeriods, String timeUnit) throws DdlException {
+        return DynamicPartitionUtil.sortedListedToString(reservedHistoryPeriods, timeUnit);
+    }
+
     /**
      * use table replication_num as dynamic_partition.replication_num default value
      */
@@ -195,7 +209,8 @@ public class DynamicPartitionProperty {
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
                 ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
                 ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
-                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"";
+                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"" +
+                ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {

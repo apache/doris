@@ -40,14 +40,14 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -247,6 +247,10 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     isGroupStable = false;
                                     LOG.debug("get unhealthy tablet {} in colocate table. status: {}", tablet.getId(), st);
 
+                                    if (!tablet.readyToBeRepaired(Priority.HIGH)) {
+                                        continue;
+                                    }
+
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR, db.getClusterName(),
                                             db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(),
@@ -259,10 +263,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     tabletCtx.setTabletOrderIdx(idx);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                                    if (res == AddResult.LIMIT_EXCEED) {
-                                        // tablet in scheduler exceed limit, skip this group and check next one.
-                                        LOG.info("number of scheduling tablets in tablet scheduler"
-                                                + " exceed to limit. stop colocate table check");
+                                    if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                                        // tablet in scheduler exceed limit, or scheduler is disabled, skip this group and check next one.
+                                        LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
                                         break OUT;
                                     }
                                 }

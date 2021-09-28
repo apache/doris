@@ -349,6 +349,14 @@ CumulativeCompaction skips the most recently released increments to prevent comp
 
 Similar to `base_compaction_trace_threshold`.
 
+### disable_compaction_trace_log
+
+* Type: bool
+* Description: disable the trace log of compaction
+* Default value: true
+
+If set to true, the `cumulative_compaction_trace_threshold` and `base_compaction_trace_threshold` won't work and log is disabled.
+
 ### `cumulative_compaction_policy`
 
 * Type: string
@@ -1425,3 +1433,17 @@ The size of the buffer before flashing
 * Type: int32
 * Description: Used to limit the number of segments in the newly generated rowset when importing. If the threshold is exceeded, the import will fail with error -238. Too many segments will cause compaction to take up a lot of memory and cause OOM errors.
 * Default value: 100
+
+### `remote_storage_read_buffer_mb`
+
+* Type: int32
+* Description: The cache size used when reading files on hdfs or object storage.
+* Default value: 16MB
+
+Increasing this value can reduce the number of calls to read remote data, but it will increase memory overhead.
+
+### `external_table_connect_timeout_sec`
+
+* Type: int32
+* Description: The timeout when establishing connection with external table such as ODBC table.
+* Default value: 5 seconds
