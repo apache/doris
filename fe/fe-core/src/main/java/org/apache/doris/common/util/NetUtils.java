@@ -77,13 +77,13 @@ public class NetUtils {
         return hostName;
     }
 
-    public static boolean isPortUsing(String host, int port, String portName, String suggestion) {
+    public static boolean isValidPort(String host, int port, String portName, String suggestion) {
         boolean flag = false;
         try {
             InetAddress theAddress = InetAddress.getByName(host);
             Socket socket = new Socket(theAddress, port);
-            flag = true;
             socket.close();
+            flag = true;
         } catch (UnknownHostException e) {
             LOG.warn("unknown host {} when checking port {}", host, port);
         } catch (IOException e) {

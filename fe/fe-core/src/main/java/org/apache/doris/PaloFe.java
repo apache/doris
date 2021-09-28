@@ -167,25 +167,23 @@ public class PaloFe {
     }
 
     private static void checkAllPorts() throws IOException {
-        final String donot = "But if this is not the first time your start this FE, please DO NOT change it." +
-                " You need to find the service that occupies the port and shut it down, and then return the port to Doris";
-        if (NetUtils.isPortUsing(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
+        if (!NetUtils.isValidPort(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
                 "Edit log port", "Please change the 'edit_log_port' in fe.conf and try again." +
                         " But if this is not the first time your start this FE, please DO NOT change it. " +
                         " You need to find the service that occupies the port and shut it down, and then return the port to Doris.")) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
-        if (NetUtils.isPortUsing(FrontendOptions.getLocalHostAddress(), Config.http_port,
-                "Edit log port", "Please change the 'http_port' in fe.conf and try again. " +
+        if (!NetUtils.isValidPort(FrontendOptions.getLocalHostAddress(), Config.http_port,
+                "Http port", "Please change the 'http_port' in fe.conf and try again. " +
                         "But you need to make sure that ALL FEs http_port are same.")) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
-        if (NetUtils.isPortUsing(FrontendOptions.getLocalHostAddress(), Config.query_port,
-                "Edit log port", "Please change the 'query_port' in fe.conf and try again.")) {
+        if (!NetUtils.isValidPort(FrontendOptions.getLocalHostAddress(), Config.query_port,
+                "Query port", "Please change the 'query_port' in fe.conf and try again.")) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
-        if (NetUtils.isPortUsing(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-                "Edit log port", "Please change the 'rpc_port' in fe.conf and try again.")) {
+        if (!NetUtils.isValidPort(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
+                "Rpc port", "Please change the 'rpc_port' in fe.conf and try again.")) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
