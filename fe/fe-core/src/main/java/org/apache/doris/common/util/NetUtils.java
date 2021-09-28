@@ -20,9 +20,11 @@ package org.apache.doris.common.util;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
+import java.net.Socket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Enumeration;
@@ -73,5 +75,20 @@ public class NetUtils {
             hostName = "unknown";
         }
         return hostName;
+    }
+
+    public static boolean isPortUsing(String host, int port, String portName, String suggestion) {
+        boolean flag = false;
+        try {
+            InetAddress theAddress = InetAddress.getByName(host);
+            Socket socket = new Socket(theAddress, port);
+            flag = true;
+            socket.close();
+        } catch (UnknownHostException e) {
+            LOG.warn("unknown host {} when checking port {}", host, port);
+        } catch (IOException e) {
+            LOG.warn("{} {} is already in use. {}", portName, port, suggestion);
+        }
+        return flag;
     }
 }
