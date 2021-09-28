@@ -17,11 +17,13 @@
 
 import CSSModules from 'react-css-modules';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import styles from './connect-info.less';
 import { Card, message } from 'antd';
 import { DashboardAPI } from '../dashboard.api';
 
 export function Component(props: any) {
+    const { t } = useTranslation();
     const [spaceList, setSpaceList] = useState<any>({});
     const [https, setHttps] = useState<any>([]);
     const [mysqls, setMysqls] = useState<any>([]);
@@ -46,7 +48,7 @@ export function Component(props: any) {
                     setMysqls(mysql);
                 }
             } else if (code === 404) {
-                message.error('请升级Doris集群！');
+                message.error(t`updateDoris`);
                 window.location.href = `${window.location.origin}`;
             } else {
                 message.error(msg);
@@ -56,8 +58,8 @@ export function Component(props: any) {
     return (
         <div styleName="connect-info-container">
             <Card style={{ width: '100%' }}>
-                <p>HTTP连接信息：{https}</p>
-                <p>JDBC连接信息：{mysqls}</p>
+                <p>t`httpInfo` {https}</p>
+                <p>t`JDBCInfo` {mysqls}</p>
             </Card>
         </div>
     );

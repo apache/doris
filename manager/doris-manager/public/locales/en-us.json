@@ -156,6 +156,14 @@
     "PleaseTypeInYourName":"Please type in your name",
     "pleaseInputYourEmail":"Please input your email",
     "update":"Update",
-    "Details":"Details"
+    "Details":"Details",
 
+    "updateDoris": "Please Update Doris Cluster",
+    "httpInfo": "HTTP Connected Info",
+    "JDBCInfo": "JDBC Connected Info",
+
+    "DatabseNum": "Databse Number",
+    "DataTableNum": "Data Table Number",
+    "DiskUsage": "Disk Usage",
+    "RemainingDiskSpace": "Remaining Disk Space"
 }
