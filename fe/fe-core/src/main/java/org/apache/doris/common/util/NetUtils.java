@@ -21,10 +21,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
-import java.net.Socket;
+import java.net.ServerSocket;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.Enumeration;
@@ -77,18 +78,31 @@ public class NetUtils {
         return hostName;
     }
 
-    public static boolean isValidPort(String host, int port, String portName, String suggestion) {
-        boolean flag = false;
+    // This is the implementation is inspired by Apache camel project:
+    public static boolean isPortAvailable(String host, int port, String portName, String suggestion) {
+        ServerSocket ss = null;
+        DatagramSocket ds = null;
         try {
-            InetAddress theAddress = InetAddress.getByName(host);
-            Socket socket = new Socket(theAddress, port);
-            socket.close();
-            flag = true;
-        } catch (UnknownHostException e) {
-            LOG.warn("unknown host {} when checking port {}", host, port);
+            ss = new ServerSocket(port);
+            ss.setReuseAddress(true);
+            ds = new DatagramSocket(port);
+            ds.setReuseAddress(true);
+            return true;
         } catch (IOException e) {
-            LOG.warn("{} {} is already in use. {}", portName, port, suggestion);
+            LOG.warn("{} {} is already in use. {}", portName, port, suggestion, e);
+        } finally {
+            if (ds != null) {
+                ds.close();
+            }
+
+            if (ss != null) {
+                try {
+                    ss.close();
+                } catch (IOException e) {
+                    /* should not be thrown */
+                }
+            }
         }
-        return flag;
+        return false;
     }
 }
