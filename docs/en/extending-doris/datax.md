@@ -83,6 +83,20 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
         > hdfsreader, hdfswriter and oscarwriter needs some extra jar packages. If you don't need to use these components, you can comment out the corresponding module in DataX/pom.xml.
 
+	3. Compilation error
+
+        If you encounter the following compilation errors:
+
+        ```
+        Could not find artifact com.alibaba.datax:datax-all:pom:0.0.1-SNAPSHOT ...
+        ```
+
+        You can try the following solutions:
+
+        1. Download [alibaba-datax-maven-m2-20210928.tar.gz](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/alibaba-datax-maven-m2-20210928.tar.gz)
+        2. After decompression, copy the resulting `alibaba/datax/` directory to `.m2/repository/com/alibaba/` corresponding to the maven used.
+        3. Try to compile again.
+
 4. Commit code of doriswriter in `doriswriter` if you need.
 
 ### Example

@@ -420,25 +420,43 @@ public class BDBJEJournal implements Journal {
         }
 
         // Open a new journal database or get last existing one as current journal database
-        Pair<String, Integer> helperNode = Catalog.getCurrentCatalog().getHelperNode();
         List<Long>  dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 dbNames = bdbEnvironment.getDatabaseNames();
+                break;
             } catch (InsufficientLogException insufficientLogEx) {
-                // Copy the missing log files from a member of the replication group who owns the files
-                LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false);
-                restore.execute(insufficientLogEx, config);
-                bdbEnvironment.close();
-                bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                        helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
+                /*
+                 * If this is not a checkpoint thread, which means this maybe the FE startup thread,
+                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get valid log
+                 * from helper nodes.
+                 *
+                 * The checkpoint thread will only run on Master FE. And Master FE should not encounter
+                 * these exception. So if it happens, throw exception out.
+                 */
+                if (!Catalog.isCheckpointThread()) {
+                    // Copy the missing log files from a member of the replication group who owns the files
+                    LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
+                    NetworkRestore restore = new NetworkRestore();
+                    NetworkRestoreConfig config = new NetworkRestoreConfig();
+                    config.setRetainLogFiles(false);
+                    restore.execute(insufficientLogEx, config);
+                    bdbEnvironment.close();
+                    // ATTN: here we use `getServingCatalog()`, because only serving catalog has helper nodes.
+                    Pair<String, Integer> helperNode = Catalog.getServingCatalog().getHelperNode();
+                    bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
+                            helperNode.first + ":" + helperNode.second, Catalog.getCurrentCatalog().isElectable());
+                } else {
+                    throw insufficientLogEx;
+                }
             } catch (RollbackException rollbackEx) {
-                LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
-                bdbEnvironment.closeReplicatedEnvironment();
-                bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
+                if (!Catalog.isCheckpointThread()) {
+                    LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
+                    bdbEnvironment.closeReplicatedEnvironment();
+                    bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
+                } else {
+                    throw rollbackEx;
+                }
             }
         }
 

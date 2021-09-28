@@ -83,7 +83,7 @@ public class Checkpoint extends MasterDaemon {
             if (imageVersion >= checkPointVersion) {
                 return;
             }
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.error("Does not get storage info", e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
@@ -117,7 +117,7 @@ public class Checkpoint extends MasterDaemon {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             e.printStackTrace();
             LOG.error("Exception when generate new image file", e);
             if (MetricRepo.isInit) {
@@ -127,7 +127,7 @@ public class Checkpoint extends MasterDaemon {
         } finally {
             // destroy checkpoint catalog, reclaim memory
             catalog = null;
-            Catalog.destroyCheckpoint(); 
+            Catalog.destroyCheckpoint();
         }
         
         // push image file to all the other non master nodes
@@ -202,7 +202,7 @@ public class Checkpoint extends MasterDaemon {
                             if (minOtherNodesJournalId > id) {
                                 minOtherNodesJournalId = id;
                             }
-                        } catch (IOException e) {
+                        } catch (Throwable e) {
                             throw new CheckpointException(String.format("Exception when getting current replayed journal id. host=%s, port=%d",
                                     host, port), e);
                         } finally {
@@ -235,7 +235,7 @@ public class Checkpoint extends MasterDaemon {
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
             }
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.error("Master delete old image file fail.", e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
