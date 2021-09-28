@@ -238,21 +238,27 @@ public class CanalSyncChannel extends SyncChannel {
     }
 
     public void submit(long batchId, CanalEntry.EventType eventType, CanalEntry.RowChange rowChange) {
-        String sql = rowChange.getSql();
         for (CanalEntry.RowData rowData : rowChange.getRowDatasList()) {
-            switch (eventType) {
-                case DELETE:
-                    execute(batchId, eventType, rowData.getBeforeColumnsList());
-                    break;
-                case INSERT:
-                    execute(batchId, eventType, rowData.getAfterColumnsList());
-                    break;
-                case UPDATE:
-                    execute(batchId, eventType, rowData.getAfterColumnsList());
-                    break;
-                default:
-                    LOG.warn("ignore event, channel: {}, schema: {}, table: {}, SQL: {}", id, srcDataBase, srcTable, sql);
+            List<InternalService.PDataRow> rows = parseRow(eventType, rowData);
+            try {
+                Preconditions.checkState(isTxnInit());
+                if (batchId > lastBatchId) {
+                    if (!isTxnBegin()) {
+                        beginTxn(batchId);
+                    } else {
+                        SendTask task = new SendTask(id, index, callback, batchBuffer, txnExecutor);
+                        SyncTaskPool.submit(task);
+                        this.batchBuffer = new Data<>();
+                    }
+                    updateBatchId(batchId);
+                }
+            } catch (Exception e) {
+                String errMsg = "encounter exception when submit in channel " + id + ", table: "
+                        + targetTable + ", batch: " + batchId;
+                LOG.error(errMsg, e);
+                throw new CanalException(errMsg, e);
             }
+            this.batchBuffer.addRows(rows);
         }
     }
 
@@ -261,36 +267,33 @@ public class CanalSyncChannel extends SyncChannel {
         SyncTaskPool.submit(task);
     }
 
-    public void execute(long batchId, CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
-        InternalService.PDataRow row = parseRow(eventType, columns);
-        try {
-            Preconditions.checkState(isTxnInit());
-            if (batchId > lastBatchId) {
-                if (!isTxnBegin()) {
-                    beginTxn(batchId);
-                } else {
-                    SendTask task = new SendTask(id, index, callback, batchBuffer, txnExecutor);
-                    SyncTaskPool.submit(task);
-                    this.batchBuffer = new Data<>();
-                }
-                updateBatchId(batchId);
-            }
-        } catch (Exception e) {
-            String errMsg = "encounter exception when submit in channel " + id + ", table: "
-                    + targetTable + ", batch: " + batchId;
-            LOG.error(errMsg, e);
-            throw new CanalException(errMsg, e);
+    private List<InternalService.PDataRow> parseRow(CanalEntry.EventType eventType, CanalEntry.RowData rowData) {
+        List<InternalService.PDataRow> rows = Lists.newArrayList();
+        switch (eventType) {
+            case DELETE:
+                rows.add(parseRow(CanalEntry.EventType.DELETE, rowData.getBeforeColumnsList()));
+                break;
+            case INSERT:
+                rows.add(parseRow(CanalEntry.EventType.INSERT, rowData.getAfterColumnsList()));
+                break;
+            case UPDATE:
+                // update is to delete first and then insert
+                rows.add(parseRow(CanalEntry.EventType.DELETE, rowData.getBeforeColumnsList()));
+                rows.add(parseRow(CanalEntry.EventType.INSERT, rowData.getAfterColumnsList()));
+                break;
+            default:
+                LOG.warn("ignore event, channel: {}, schema: {}, table: {}", id, srcDataBase, srcTable);
         }
-        this.batchBuffer.addRow(row);
+        return rows;
     }
 
     private InternalService.PDataRow parseRow(CanalEntry.EventType eventType, List<CanalEntry.Column> columns) {
         InternalService.PDataRow.Builder row = InternalService.PDataRow.newBuilder();
-        for (int i = 0; i < columns.size(); i++) {
-            if (columns.get(i).getIsNull()) {
+        for (CanalEntry.Column column : columns) {
+            if (column.getIsNull()) {
                 row.addColBuilder().setValue(NULL_VALUE_FOR_LOAD);
             } else {
-                row.addColBuilder().setValue(columns.get(i).getValue());
+                row.addColBuilder().setValue(column.getValue());
             }
         }
         // add batch delete condition to the tail

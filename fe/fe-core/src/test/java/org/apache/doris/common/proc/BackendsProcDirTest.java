@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -30,6 +28,9 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class BackendsProcDirTest {
     private Backend b1;
@@ -184,5 +185,4 @@ public class BackendsProcDirTest {
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
     }
-
 }

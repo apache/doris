@@ -216,7 +216,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 ### default_db_data_quota_bytes
 
-默认值：1TB
+默认值：1PB
 
 是否可以动态配置：true
 
@@ -2048,3 +2048,20 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 默认值：-1
 
 用户属性max_query_instances小于等于0时，使用该配置，用来限制单个用户同一时刻可使用的查询instance个数。该参数小于等于0表示无限制。
+
+### use_compact_thrift_rpc
+
+默认值：true
+
+是否使用压缩格式发送查询计划结构体。开启后，可以降低约50%的查询计划结构体大小，从而避免一些 "send fragment timeout" 错误。
+但是在某些高并发小查询场景下，可能会降低约10%的并发度。
+
+### disable_tablet_scheduler
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为true，将关闭副本修复和均衡逻辑。

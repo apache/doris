@@ -30,7 +30,7 @@ This document describes how to use the `SELECT INTO OUTFILE` command to export q
 
 ## Syntax
 
-The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently supports export to remote storage through Broker process, or directly through S3 protocol such as HDFS, S3, BOS and COS(Tencent Cloud) through the Broker process. The syntax is as follows:
+The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently supports export to remote storage through Broker process, or directly through S3, HDFS  protocol such as HDFS, S3, BOS and COS(Tencent Cloud) through the Broker process. The syntax is as follows:
 
 ```
 query_stmt
@@ -61,15 +61,18 @@ INTO OUTFILE "file_path"
 
 * `[properties]`
 
-    Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3 protocol.
+    Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
 
     + Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker Document](./broker.html).
+    + HDFS protocal can directly execute HDFS protocal configuration.
     + S3 protocol can directly execute S3 protocol configuration.
 
     ```
     PROPERTIES
     ("broker.prop_key" = "broker.prop_val", ...)
     or 
+    ("hdfs.fs.defaultFS" = "xxx", "hdfs.user" = "xxx")
+    or
     ("AWS_ENDPOINT" = "xxx", ...)
     ```
 
@@ -85,13 +88,14 @@ INTO OUTFILE "file_path"
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
     * `max_file_size`: The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
+    * `schema`: schema infomation for PARQUET, only applicable to PARQUET format. If the exported file format is PARQUET, `schema` must be specified.
 
 ## Concurrent export
 
 By default, the export of the query result set is non-concurrent, that is, a single point of export. If the user wants the query result set to be exported concurrently, the following conditions need to be met:
 
 1. session variable 'enable_parallel_outfile' to enable concurrent export: ```set enable_parallel_outfile = true;```
-2. The export method is S3 instead of using a broker
+2. The export method is S3, HDFS instead of using a broker
 3. The query can meet the needs of concurrent export, for example, the top level does not contain single point nodes such as sort. (I will give an example later, which is a query that does not export the result set concurrently)
 
 If the above three conditions are met, the concurrent export query result set can be triggered. Concurrency = ```be_instacne_num * parallel_fragment_exec_instance_num```
@@ -161,6 +165,26 @@ Planning example for concurrent export:
 
 2. Example 2
 
+    Export simple query results to the file `hdfs:/path/to/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set kerberos authentication information. 
+    
+    ```
+    SELECT c1, c2, c3 FROM tbl
+    INTO OUTFILE "hdfs:/path/to/result_"
+    FORMAT AS PARQUET
+    PROPERTIES
+    (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
+        "schema"="required,int32,c1;required,byte_array,c2;required,byte_array,c2"
+    );
+    ```
+   
+   If the exported file format is PARQUET, `schema` must be specified.
+
+3. Example 3
+
     Export the query result of the CTE statement to the file `hdfs:/path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default column separators and line delimiter.
 
     ```
@@ -188,7 +212,7 @@ Planning example for concurrent export:
     
     If larger than 1GB, may be: `result_0.csv, result_1.csv, ...`.
     
-3. Example 3
+4. Example 4
 
     Export the query results of the UNION statement to the file `bos://bucket/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set hdfs high availability information. PARQUET format does not need to specify the column separator and line delimiter.
     
@@ -201,15 +225,12 @@ Planning example for concurrent export:
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
         "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "schema"="required,int32,k1;required,byte_array,k2"
     );
     ```
-    
-    If the result is less than 1GB, file will be: `result_0.parquet`.
-    
-    If larger than 1GB, may be: `result_0.parquet, result_1.parquet, ...`.
 
-4. Example 4
+5. Example 5
 
     Export simple query results to the file `cos://${bucket_name}/path/result.txt`. Specify the export format as CSV.
     And create a mark file after export finished.
@@ -239,7 +260,7 @@ Planning example for concurrent export:
     1. Paths that do not exist are automatically created.
     2. These parameters(access.key/secret.key/endpointneed) need to be confirmed with `Tecent Cloud COS`. In particular, the value of endpoint does not need to be filled in bucket_name.
 
-5. Example5
+6. Example 6
 
     Use the s3 protocol to export to bos, and concurrent export is enabled.
 
@@ -259,7 +280,7 @@ Planning example for concurrent export:
 
     The final generated file prefix is `my_file_{fragment_instance_id}_`。
 
-6. Example6
+7. Example 7
 
     Use the s3 protocol to export to bos, and enable concurrent export of session variables.
 
@@ -279,6 +300,27 @@ Planning example for concurrent export:
 
     **But because the query statement has a top-level sorting node, even if the query is enabled for concurrently exported session variables, it cannot be exported concurrently.**
 
+7. Example 7
+
+    Export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV. Use HDFS protocal directly and set kerberos authentication information.
+    
+    ```
+    SELECT * FROM tbl
+    INTO OUTFILE "hdfs://path/to/result_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+        "hdfs.fs.defaultFS" = "hdfs://namenode_ip:namenode_port",
+        "hdfs.hadoop.security.authentication" = "kerberos",
+        "hdfs.kerberos_principal" = "doris@YOUR.COM",
+        "hdfs.kerberos_keytab" = "/home/doris/my.keytab",
+        "max_file_size" = "100MB"
+    );
+    ```
+    
+    If the result is less than 100MB, file will be: `result_0.csv`.
+    
+    If larger than 100MB, may be: `result_0.csv, result_1.csv, ...`.
 ## Return result
 
 The command is a synchronization command. The command returns, which means the operation is over.

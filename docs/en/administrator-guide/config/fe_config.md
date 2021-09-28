@@ -222,7 +222,7 @@ Maximum percentage of data that can be filtered (due to reasons such as data is 
 
 ### default_db_data_quota_bytes
 
-Default：1TB
+Default：1PB
 
 IsMutable：true
 
@@ -2038,3 +2038,10 @@ the transaction will be cleaned after transaction_clean_interval_second seconds 
 The default value when user property max_query_instances is equal or less than 0. This config is used to limit the max number of instances for a user. This parameter is less than or equal to 0 means unlimited.
 
 The default value is -1。
+
+### use_compact_thrift_rpc
+
+Default: true
+
+Whether to use compressed format to send query plan structure. After it is turned on, the size of the query plan structure can be reduced by about 50%, thereby avoiding some "send fragment timeout" errors.
+However, in some high-concurrency small query scenarios, the concurrency may be reduced by about 10%.

@@ -30,7 +30,7 @@ under the License.
 
 ## 语法
 
-`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前支持通过 Broker 进程, 或直接通过 S3 协议导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。语法如下
+`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前支持通过 Broker 进程, 通过 S3 协议, 或直接通过 HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。语法如下
 
 ```
 query_stmt
@@ -65,10 +65,13 @@ INTO OUTFILE "file_path"
     指定相关属性。目前支持通过 Broker 进程, 或通过 S3 协议进行导出。
 
     + Broker 相关属性需加前缀 `broker.`。具体参阅[Broker 文档](./broker.html)。
+    + HDFS 相关属性需加前缀 `hdfs.`。
     + S3 协议则直接执行 S3 协议配置即可。
 
     ```
     ("broker.prop_key" = "broker.prop_val", ...)
+    or
+    ("hdfs.fs.defaultFS" = "xxx", "hdfs.hdfs_user" = "xxx")
     or 
     ("AWS_ENDPOINT" = "xxx", ...)
     ``` 
@@ -84,13 +87,14 @@ INTO OUTFILE "file_path"
     * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
     * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
     * `max_file_size`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
+    * `schema`：PARQUET 文件schema信息。仅对 PARQUET 格式适用。导出文件格式为PARQUET时，必须指定`schema`。
 
 ## 并发导出
 
 默认情况下，查询结果集的导出是非并发的，也就是单点导出。如果用户希望查询结果集可以并发导出，需要满足以下条件：
 
 1. session variable 'enable_parallel_outfile' 开启并发导出: ```set enable_parallel_outfile = true;```
-2. 导出方式为 S3 , 而不是使用 broker
+2. 导出方式为 S3 , 或者 HDFS， 而不是使用 broker
 3. 查询可以满足并发导出的需求，比如顶层不包含 sort 等单点节点。（后面会举例说明，哪种属于不可并发导出结果集的查询）
 
 满足以上三个条件，就能触发并发导出查询结果集了。并发度 = ```be_instacne_num * parallel_fragment_exec_instance_num```
@@ -136,7 +140,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 1. 示例1
 
-    将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
+    使用 broker 方式导出，将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
 
     ```
     SELECT * FROM tbl
@@ -147,7 +151,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
         "broker.name" = "my_broker",
         "broker.hadoop.security.authentication" = "kerberos",
         "broker.kerberos_principal" = "doris@YOUR.COM",
-        "broker.kerberos_keytab" = "/home/doris/my.keytab"
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
         "column_separator" = ",",
         "line_delimiter" = "\n",
         "max_file_size" = "100MB"
@@ -159,6 +163,26 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
 
 2. 示例2
+
+    将简单查询结果导出到文件 `hdfs:/path/to/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 kerberos 认证信息。
+
+    ```
+    SELECT c1, c2, c3 FROM tbl
+    INTO OUTFILE "hdfs:/path/to/result_"
+    FORMAT AS PARQUET
+    PROPERTIES
+    (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab",
+        "schema"="required,int32,c1;required,byte_array,c2;required,byte_array,c2"
+    );
+    ```
+   
+   查询结果导出到parquet文件需要明确指定`schema`。
+
+3. 示例3
 
     将 CTE 语句的查询结果导出到文件 `hdfs:/path/to/result.txt`。默认导出格式为 CSV。使用 `my_broker` 并设置 hdfs 高可用信息。使用默认的行列分隔符。
 
@@ -187,7 +211,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     
     如果大于 1GB，则可能为 `result_0.csv, result_1.csv, ...`。
     
-3. 示例3
+4. 示例4
 
     将 UNION 语句的查询结果导出到文件 `bos://bucket/result.txt`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符。
     导出完成后，生成一个标识文件。
@@ -201,15 +225,12 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
         "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "schema"="required,int32,k1;required,byte_array,k2"
     );
     ```
-    
-    最终生成文件如如果不大于 1GB，则为：`result_0.parquet`。
-    
-    如果大于 1GB，则可能为 `result_0.parquet, result_1.parquet, ...`。
 
-4. 示例4
+5. 示例5
 
     将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
     导出完成后，生成一个标识文件。
@@ -238,7 +259,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     1. 不存在的path会自动创建
     2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
 
-5. 示例5
+6. 示例6
 
     使用 s3 协议导出到 bos，并且并发导出开启。
 
@@ -258,7 +279,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
     最终生成的文件前缀为 `my_file_{fragment_instance_id}_`。
 
-6. 示例6
+7. 示例7
 
     使用 s3 协议导出到 bos，并且并发导出 session 变量开启。
 
@@ -278,6 +299,23 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
     **但由于查询语句带了一个顶层的排序节点，所以这个查询即使开启并发导出的 session 变量，也是无法并发导出的。**
 
+7. 示例7
+
+    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用并设置 kerberos 认证信息。
+
+    ```
+    SELECT * FROM tbl
+    INTO OUTFILE "hdfs://path/to/result_"
+    FORMAT AS CSV
+    PROPERTIES
+    (
+        "hdfs.fs.defaultFS" = "hdfs://namenode:port",
+        "hdfs.hadoop.security.authentication" = "kerberos",
+        "hdfs.kerberos_principal" = "doris@YOUR.COM",
+        "hdfs.kerberos_keytab" = "/home/doris/my.keytab"
+    );
+    ```
+    
 ## 返回结果
 
 导出命令为同步命令。命令返回，即表示操作结束。同时会返回一行结果来展示导出的执行结果。

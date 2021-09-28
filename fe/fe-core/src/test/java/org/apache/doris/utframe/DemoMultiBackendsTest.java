@@ -31,6 +31,8 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.proc.BackendsProcDir;
+import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -190,6 +192,14 @@ public class DemoMultiBackendsTest {
         PlanFragment fragment = fragments.get(1);
         Assert.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
         Assert.assertEquals(0, fragment.getChildren().size());
+
+        // test show backends;
+        BackendsProcDir dir = new BackendsProcDir(Catalog.getCurrentSystemInfo());
+        ProcResult result = dir.fetchResult();
+        Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
+        Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(19));
+        Assert.assertEquals("{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1}",
+                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
     }
 
     private static void updateReplicaPathHash() {

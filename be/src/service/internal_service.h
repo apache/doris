@@ -107,7 +107,7 @@ public:
                             google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(const std::string& s_request);
+    Status _exec_plan_fragment(const std::string& s_request, bool compact);
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 

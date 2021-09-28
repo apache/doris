@@ -393,9 +393,8 @@ public class TabletChecker extends MasterDaemon {
                 tabletCtx.setOrigPriority(statusWithPrio.second);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                if (res == AddResult.LIMIT_EXCEED) {
-                    LOG.info("number of scheduling tablets in tablet scheduler"
-                            + " exceed to limit. stop tablet checker");
+                if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                    LOG.info("tablet scheduler return: {}. stop tablet checker", res.name());
                     return LoopControlStatus.BREAK_OUT;
                 } else if (res == AddResult.ADDED) {
                     counter.addToSchedulerTabletNum++;
