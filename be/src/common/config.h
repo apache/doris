@@ -298,6 +298,7 @@ CONF_mInt64(row_step_for_compaction_merge_log, "0");
 // Threshold to logging compaction trace, in seconds.
 CONF_mInt32(base_compaction_trace_threshold, "60");
 CONF_mInt32(cumulative_compaction_trace_threshold, "10");
+CONF_mBool(disable_compaction_trace_log, "true");
 
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");
@@ -587,7 +588,7 @@ CONF_mInt32(zone_map_row_num_threshold, "20");
 CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
-CONF_mInt32(remote_storage_read_buffer_mb, "256");
+CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
@@ -628,6 +629,9 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
 CONF_mInt32(max_segment_num_per_rowset, "100");
+
+// The connection timeout when connecting to external table such as odbc table.
+CONF_mInt32(external_table_connect_timeout_sec, "5");
 
 } // namespace config
 

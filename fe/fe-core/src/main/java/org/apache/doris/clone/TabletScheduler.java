@@ -138,7 +138,8 @@ public class TabletScheduler extends MasterDaemon {
     public enum AddResult {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
-        LIMIT_EXCEED // number of pending tablets exceed the limit
+        LIMIT_EXCEED, // number of pending tablets exceed the limit
+        DISABLED // scheduler has been disabled.
     }
 
     public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
@@ -216,6 +217,9 @@ public class TabletScheduler extends MasterDaemon {
      * if force is true, do not check if tablet is already added before.
      */
     public synchronized AddResult addTablet(TabletSchedCtx tablet, boolean force) {
+        if (!force && Config.disable_tablet_scheduler) {
+            return AddResult.DISABLED;
+        }
         if (!force && containsTablet(tablet.getTabletId())) {
             return AddResult.ALREADY_IN;
         }
@@ -1081,8 +1085,8 @@ public class TabletScheduler extends MasterDaemon {
      * and waiting to be scheduled.
      */
     private void selectTabletsForBalance() {
-        if (Config.disable_balance) {
-            LOG.info("balance is disabled. skip selecting tablets for balance");
+        if (Config.disable_balance || Config.disable_tablet_scheduler) {
+            LOG.info("balance or tablet scheduler is disabled. skip selecting tablets for balance");
             return;
         }
 

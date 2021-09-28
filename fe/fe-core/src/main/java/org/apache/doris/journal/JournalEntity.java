@@ -318,6 +318,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
+            case OperationType.OP_MODIFY_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
                 data = Backend.read(in);
                 isRead = true;

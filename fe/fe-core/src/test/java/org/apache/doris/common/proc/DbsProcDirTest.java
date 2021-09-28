@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -33,6 +31,9 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class DbsProcDirTest {
     private Database db1;
@@ -185,10 +186,10 @@ public class DbsProcDirTest {
         Assert.assertTrue(result instanceof BaseProcResult);
 
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
-                            result.getColumnNames());
+                result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 GB", FeConstants.null_string, "1073741824"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 GB", FeConstants.null_string, "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
         Assert.assertEquals(rows, result.getRows());
     }
 
