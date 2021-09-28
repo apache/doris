@@ -16,12 +16,14 @@
 // under the License.
 
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 import './loading.less';
 export const Loading = () => {
+    const { t } = useTranslation();
     return (
         <>
             <div className="components-loading">
-                <span>加载中...</span>
+                <span>{t`loading`}...</span>
             </div>
         </>
     );

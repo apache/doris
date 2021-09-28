@@ -25,10 +25,11 @@ import { IResult } from 'src/interfaces/http.interface';
 import { isSuccess } from '@src/utils/http';
 import { SchemaAPI } from './schema.api';
 import EventEmitter from '@src/utils/event-emitter';
-
+import { useTranslation } from 'react-i18next';
 import styles from '../tabs/tabs.module.less';
 
 export function Schema(props: any) {
+    const {t } = useTranslation()
     const [dataSource, setDataSource] = useState([]);
     const [columns, setColumns] = useState<ColumnsType<any>>([]);
     const [tableType, setTableType] = useState('');
@@ -73,12 +74,12 @@ export function Schema(props: any) {
     return (
         <div>
             <Row className={styles['schema-row']}>
-                <Form.Item label="表类型（数据模型）">
+                <Form.Item label={t`TableType`}>
                     <span className="ant-form-text">{tableType}</span>
                 </Form.Item>
             </Row>
             <Row className={styles['schema-row']}>
-                <Form.Item label="表结构"></Form.Item>
+                <Form.Item label={t`TableStructure`}></Form.Item>
             </Row>
             <LoadingWrapper loading={loading}>
                 <Table

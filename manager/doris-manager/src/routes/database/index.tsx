@@ -26,7 +26,9 @@ import { HddOutlined } from '@ant-design/icons';
 import { CommonHeader } from '@src/components/common-header/header';
 import { DatabaseAPI } from './database.api';
 import { DatabaseInfoResponse } from './database.interface';
+import { useTranslation } from 'react-i18next';
 import { getShowTime } from '@src/utils/utils';
+
 const { Content, Sider } = Layout;
 const iconDatabase = <HddOutlined />;
 const { TabPane } = Tabs;
@@ -37,6 +39,7 @@ const layout = {
 
 function Database(props: any) {
     const history = useHistory();
+    const { t } = useTranslation();
     const [dbName, setDbName] = useState<any>('');
     const [databaseInfo, setDatabaseInfo] = useState<DatabaseInfoResponse>({
         createTime: '',
@@ -68,14 +71,14 @@ function Database(props: any) {
             <CommonHeader title={dbName} icon={iconDatabase} callback={refresh}></CommonHeader>
             <div styleName="database-content">
                 <Tabs defaultActiveKey="1">
-                    <TabPane tab="数据库基本信息" key="1">
+                    <TabPane tab={t`BasicInformationOfDatabase`} key="1">
                         <div styleName="database-content-des">
                             <Form {...layout} labelAlign="left">
-                                <Form.Item label="数据库名称">{databaseInfo.name}</Form.Item>
-                                <Form.Item label="数据库描述信息">
+                                <Form.Item label={t`DatabaseName`}>{databaseInfo.name}</Form.Item>
+                                <Form.Item label={t`DatabaseDescriptionInformation`}>
                                     {databaseInfo.describe ? databaseInfo.describe : '-'}
                                 </Form.Item>
-                                <Form.Item label="创建时间">{getShowTime(databaseInfo.createTime) ? getShowTime(databaseInfo.createTime) : '-'}</Form.Item>
+                                <Form.Item label={t`CreationTime`}>{getShowTime(databaseInfo.createTime) ? getShowTime(databaseInfo.createTime) : '-'}</Form.Item>
                             </Form>
                         </div>
                     </TabPane>

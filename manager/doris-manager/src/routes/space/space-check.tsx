@@ -23,9 +23,11 @@ import styles from './index.module.less';
 import Password from 'antd/lib/input/Password';
 type RequiredMark = boolean | 'optional';
 import { SpaceAPI } from './space.api';
+import { useTranslation } from 'react-i18next';
 
 const user = JSON.parse(JSON.stringify(window.localStorage.getItem('user')));
 const FormLayoutDemo = () => {
+    const { t } = useTranslation();
     const [form] = Form.useForm();
     const [ formData, setFormData ] = useState<any>({});
     const params = useParams<{spaceId: string}>();
@@ -58,40 +60,40 @@ const FormLayoutDemo = () => {
             requiredMark={requiredMark}
             className={styles['input-gird']}
         >
-            <h2>空间信息</h2>
+            <h2>{t`spaceInfo`}</h2>
             <Divider plain></Divider>
-            <Form.Item label="空间名称" required>
+            <Form.Item label={t`spaceName`}  required>
                 <Input placeholder="input placeholder" value={formData.name} disabled/>
             </Form.Item>
-            <Form.Item label="空间简介" required>
+            <Form.Item label={t`spaceIntroduction`} required>
                 <Input placeholder="input placeholder" value={formData.description} disabled/>
             </Form.Item>
             {/* {user.authType === "studio" && ( */}
-                 <Form.Item label="管理员姓名" required>
+                 <Form.Item label={t`adminName`} required>
                     <Input placeholder="input placeholder" value={formData.spaceAdminUser} disabled/>
                 </Form.Item>
             {/* )} */}
             {/* {user.authType === "studio" && ( */}
-                {/* <Form.Item label="管理员密码" required>
+                {/* <Form.Item label={t`adminpsw`} required>
                     <Input.Password style={{ width: '400px' }} className={styles['input-password']} disabled/>
                 </Form.Item> */}
             {/* )} */}
             
-            <h2>集群信息</h2>
+            <h2>{t`clusterInfo`}</h2>
             <Divider plain></Divider>
-            <Form.Item label="集群地址" required>
+            <Form.Item label={t`clusterAddr`}  required>
                 <Input placeholder="input placeholder" value={formData.paloAddress} disabled/>
             </Form.Item>
-            <Form.Item label="HTTP端口" required>
+            <Form.Item label={t`httpPort`} required>
                 <Input placeholder="input placeholder" value={formData.httpPort} disabled/>
             </Form.Item>
-            <Form.Item label="JDBC端口" required>
+            <Form.Item label={t`JDBCPort`} required>
                 <Input placeholder="input placeholder"  value={formData.queryPort} disabled/>
             </Form.Item>
-            <Form.Item label="用户名" required>
+            <Form.Item label={t`userName`} required>
                 <Input placeholder="input placeholder" value={formData.paloAdminUser}  disabled/>
             </Form.Item>
-            {/* <Form.Item label="密码" required>
+            {/* <Form.Item label={t`userPwd`}  required>
                 <Input.Password style={{ width: '400px' }} className={styles['input-password']} disabled/>
             </Form.Item> */}
             {/* <Form.Item>

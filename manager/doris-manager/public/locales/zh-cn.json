@@ -172,8 +172,19 @@
     "DatabseNum": "数据库数量",
     "DataTableNum": "数据表数量",
     "DiskUsage": "磁盘占用量",
-    "RemainingDiskSpace": "剩余磁盘空间"
+    "RemainingDiskSpace": "剩余磁盘空间",
+    "dataWarehouse": "数据仓库",
+    "ClusterIinformationOverview": "集群信息概览",
+    "ConnectionInformation": "连接信息",
 
+    "BasicInformationOfDatabase": "数据库基本信息",
+    "DatabaseName": "数据库名称",
+    "DatabaseDescriptionInformation": "数据库描述信息",
+    "CreationTime": "创建时间",
+
+    "TableType": "表类型（数据模型）",
+    "TableStructure": "表结构",
+    "loading":"加载中"
 
 }
 

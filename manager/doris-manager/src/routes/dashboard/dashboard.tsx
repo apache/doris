@@ -25,12 +25,14 @@ import { HomeOutlined } from '@ant-design/icons';
 import { Link, match, Redirect, Route, Switch, useHistory, useLocation } from 'react-router-dom';
 import { Overview } from './overview/overview';
 import { Tabs } from 'antd';
+import { useTranslation } from 'react-i18next';
 
 const ICON_HOME = <HomeOutlined />;
 const { TabPane } = Tabs;
 
 function Component(props: any) {
     const { match } = props;
+    const { t } = useTranslation();
     const [refreshToken, setRefreshToken] = useState(new Date().getTime());
     const history = useHistory();
     const location = useLocation();
@@ -45,7 +47,7 @@ function Component(props: any) {
     return (
         <div styleName="home-main">
             <CommonHeader
-                title="数据仓库"
+                title={t`dataWarehouse`}
                 icon={ICON_HOME}
                 callback={() => setRefreshToken(new Date().getTime())}
             ></CommonHeader>
@@ -58,8 +60,8 @@ function Component(props: any) {
                         history.push(`${match.path}/connect-info`);
                     }
                 }}>
-                    <TabPane tab="集群信息概览" key={DashboardTabEnum.Overview}></TabPane>
-                    <TabPane tab="连接信息" key={DashboardTabEnum.ConnectInfo}></TabPane>
+                    <TabPane tab={t`ClusterIinformationOverview`} key={DashboardTabEnum.Overview}></TabPane>
+                    <TabPane tab={t`ConnectionInformation`} key={DashboardTabEnum.ConnectInfo}></TabPane>
                 </Tabs>
             </div>
             <Switch>

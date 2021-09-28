@@ -165,5 +165,18 @@
     "DatabseNum": "Databse Number",
     "DataTableNum": "Data Table Number",
     "DiskUsage": "Disk Usage",
-    "RemainingDiskSpace": "Remaining Disk Space"
+    "RemainingDiskSpace": "Remaining Disk Space",
+    "dataWarehouse": "Data Warehouse",
+    "ClusterIinformationOverview": "Cluster information overview",
+    "ConnectionInformation": "Connection information",
+
+    "BasicInformationOfDatabase": "Basic information of database",
+    "DatabaseName": "Database name",
+    "DatabaseDescriptionInformation": "Database description information",
+    "CreationTime": "Creation time",
+    "TableType": "Table type (data model)",
+    "TableStructure": "Table structure",
+    "loading":"加载中"
+
+
 }
