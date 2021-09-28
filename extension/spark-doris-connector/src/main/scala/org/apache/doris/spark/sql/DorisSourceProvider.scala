@@ -17,25 +17,24 @@
 
 package org.apache.doris.spark.sql
 
-import java.io.IOException
-import java.util.StringJoiner
-
-import org.apache.commons.collections.CollectionUtils
 import org.apache.doris.spark.DorisStreamLoad
-import org.apache.doris.spark.cfg.SparkSettings
-import org.apache.doris.spark.exception.DorisException
-import org.apache.doris.spark.rest.RestService
+import org.apache.doris.spark.cfg.{ConfigurationOptions, SparkSettings}
+import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
+import org.apache.spark.sql.sources.v2.writer.streaming.StreamWriter
+import org.apache.spark.sql.sources.v2.{DataSourceOptions, StreamWriteSupport}
+import org.apache.spark.sql.streaming.OutputMode
+import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
 import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
-import org.apache.spark.sql.types.StructType
-import org.json4s.jackson.Json
 
-import scala.collection.mutable.ListBuffer
-import scala.util.Random
+import java.io.IOException
+import java.util
+import scala.collection.JavaConversions.mapAsScalaMap
+import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.util.control.Breaks
 
-private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with Logging {
+private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with StreamWriteSupport with Logging {
   override def shortName(): String = "doris"
 
   override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation = {
@@ -50,41 +49,29 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
                               mode: SaveMode, parameters: Map[String, String],
                               data: DataFrame): BaseRelation = {
 
-    val dorisWriterOption = DorisWriterOption(parameters)
     val sparkSettings = new SparkSettings(sqlContext.sparkContext.getConf)
-    // choose available be node
-    val choosedBeHost = RestService.randomBackend(sparkSettings, dorisWriterOption, log)
+    sparkSettings.merge(Utils.params(parameters, log).asJava)
     // init stream loader
-    val dorisStreamLoader = new DorisStreamLoad(choosedBeHost, dorisWriterOption.dbName, dorisWriterOption.tbName, dorisWriterOption.user, dorisWriterOption.password)
-    val fieldDelimiter: String = "\t"
-    val lineDelimiter: String = "\n"
-    val NULL_VALUE: String = "\\N"
+    val dorisStreamLoader = new DorisStreamLoad(sparkSettings)
 
-    val maxRowCount = dorisWriterOption.maxRowCount
-    val maxRetryTimes = dorisWriterOption.maxRetryTimes
+    val maxRowCount = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_BATCH_SIZE, ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT)
+    val maxRetryTimes = sparkSettings.getIntegerProperty(ConfigurationOptions.DORIS_REQUEST_RETRIES, ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT)
 
     data.rdd.foreachPartition(partition => {
-
-      val buffer = ListBuffer[String]()
+      val rowsBuffer: util.List[util.List[Object]] = new util.ArrayList[util.List[Object]](maxRowCount)
       partition.foreach(row => {
-        val value = new StringJoiner(fieldDelimiter)
-        // create one row string
+        val line: util.List[Object] = new util.ArrayList[Object]()
         for (i <- 0 until row.size) {
           val field = row.get(i)
-          if (field == null) {
-            value.add(NULL_VALUE)
-          } else {
-            value.add(field.toString)
-          }
+          line.add(field.asInstanceOf[AnyRef])
         }
-        // add one row string to buffer
-        buffer += value.toString
-        if (buffer.size > maxRowCount) {
+        rowsBuffer.add(line)
+        if (rowsBuffer.size > maxRowCount) {
           flush
         }
       })
       // flush buffer
-      if (buffer.nonEmpty) {
+      if (!rowsBuffer.isEmpty) {
         flush
       }
 
@@ -98,16 +85,16 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
 
           for (i <- 1 to maxRetryTimes) {
             try {
-              dorisStreamLoader.load(buffer.mkString(lineDelimiter))
-              buffer.clear()
+              dorisStreamLoader.load(rowsBuffer)
+              rowsBuffer.clear()
               loop.break()
             }
             catch {
               case e: Exception =>
                 try {
                   Thread.sleep(1000 * i)
-                  dorisStreamLoader.load(buffer.mkString(lineDelimiter))
-                  buffer.clear()
+                  dorisStreamLoader.load(rowsBuffer)
+                  rowsBuffer.clear()
                 } catch {
                   case ex: InterruptedException =>
                     Thread.currentThread.interrupt()
@@ -136,8 +123,9 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     }
   }
 
-
-
-
-
+  override def createStreamWriter(queryId: String, structType: StructType, outputMode: OutputMode, dataSourceOptions: DataSourceOptions): StreamWriter = {
+    val sparkSettings = new SparkSettings(new SparkConf())
+    sparkSettings.merge(Utils.params(dataSourceOptions.asMap().toMap, log).asJava)
+    new DorisStreamWriter(sparkSettings)
+  }
 }

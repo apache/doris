@@ -24,9 +24,10 @@ import org.apache.spark.SparkConf;
 import com.google.common.base.Preconditions;
 
 import scala.Option;
+import scala.Serializable;
 import scala.Tuple2;
 
-public class SparkSettings extends Settings {
+public class SparkSettings extends Settings implements Serializable {
 
     private final SparkConf cfg;
 
