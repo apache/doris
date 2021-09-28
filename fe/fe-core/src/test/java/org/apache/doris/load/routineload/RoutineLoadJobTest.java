@@ -31,13 +31,13 @@ import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.kafka.common.PartitionInfo;
-import org.junit.Assert;
-import org.junit.Test;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.kafka.common.PartitionInfo;
+import org.junit.Assert;
+import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
@@ -196,7 +196,7 @@ public class RoutineLoadJobTest {
     public void testUpdateWhileDbDeleted(@Mocked Catalog catalog) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -213,10 +213,10 @@ public class RoutineLoadJobTest {
                                             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -238,10 +238,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
             }
@@ -328,22 +328,24 @@ public class RoutineLoadJobTest {
                 "PROPERTIES\n" +
                 "(\n" +
                 "\"desired_concurrent_number\" = \"0\",\n" +
+                "\"max_error_number\" = \"10\",\n" +
                 "\"max_batch_interval\" = \"10\",\n" +
                 "\"max_batch_rows\" = \"10\",\n" +
                 "\"max_batch_size\" = \"104857600\",\n" +
-                "\"max_error_number\" = \"10\",\n" +
+                "\"format\" = \"csv\",\n" +
+                "\"strip_outer_array\" = \"false\",\n" +
+                "\"num_as_string\" = \"false\",\n" +
+                "\"fuzzy_parse\" = \"false\",\n" +
                 "\"strict_mode\" = \"false\",\n" +
                 "\"timezone\" = \"Asia/Shanghai\",\n" +
-                "\"format\" = \"csv\",\n" +
-                "\"jsonpaths\" = \"\",\n" +
-                "\"strip_outer_array\" = \"false\",\n" +
-                "\"json_root\" = \"\"\n" +
+                "\"exec_mem_limit\" = \"2147483648\"\n" +
                 ")\n" +
                 "FROM KAFKA\n" +
                 "(\n" +
                 "\"kafka_broker_list\" = \"localhost:9092\",\n" +
                 "\"kafka_topic\" = \"test_topic\"\n" +
                 ");";
+        System.out.println(showCreateInfo);
         Assert.assertEquals(expect, showCreateInfo);
     }
 

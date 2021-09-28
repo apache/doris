@@ -87,6 +87,15 @@ module.exports = [
             title: "FE",
             directoryPath: "fe/",
             children: [
+                {
+                  title: "MANAGER",
+                  directoryPath: "manager/",
+                  children: [
+                    "cluster-action",
+                    "node-action",
+                    "query-profile-action",
+                  ],
+                },
                 "bootstrap-action",
                 "cancel-load-action",
                 "check-decommission-action",
@@ -144,6 +153,7 @@ module.exports = [
         directoryPath: "operation/",
         children: [
           "doris-error-code",
+          "be-olap-error-code",
           "disk-capacity",
           "metadata-operation",
           "monitor-alert",
@@ -172,6 +182,14 @@ module.exports = [
         ],
         sidebarDepth: 1,
       },
+      {
+        title: "拦截规则",
+        directoryPath: "block-rule/",
+        children: [
+          "sql-block",
+        ],
+        sidebarDepth: 1,
+      },
       "backup-restore",
       "broker",
       "colocation-join",
@@ -181,6 +199,7 @@ module.exports = [
       "outfile",
       "partition_cache",
       "privilege",
+      "ldap",
       "resource-management",
       "running-profile",
       "runtime-filter",
@@ -190,6 +209,7 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
+      "multi-tenant",
     ],
     sidebarDepth: 1,
   },
@@ -197,7 +217,9 @@ module.exports = [
     title: "最佳实践",
     directoryPath: "best-practices/",
     children: [
-      "fe-load-balance"
+      "fe-load-balance",
+      "systemd",
+      "samples"
     ],
   },
   {
@@ -211,6 +233,7 @@ module.exports = [
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",
+      "datax",
       {
         title: "UDF",
         directoryPath: "udf/",
@@ -329,6 +352,7 @@ module.exports = [
               "money_format",
               "null_or_empty",
               "repeat",
+              "replace",
               "reverse",
               "right",
               "rpad",
@@ -367,6 +391,7 @@ module.exports = [
               "hll_union_agg",
               "max",
               "min",
+              "percentile",
               "percentile_approx",
               "stddev",
               "stddev_samp",
@@ -403,6 +428,7 @@ module.exports = [
           },
           "window-function",
           "cast",
+          "digital-masking",
         ],
       },
       {
@@ -430,6 +456,7 @@ module.exports = [
             directoryPath: "Administration/",
             children: [
               "ADMIN CANCEL REPAIR",
+              "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",
@@ -437,6 +464,7 @@ module.exports = [
               "ADMIN SHOW CONFIG",
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
+              "ADMIN-SHOW-DATA-SKEW",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",
@@ -448,6 +476,7 @@ module.exports = [
               "INSTALL PLUGIN",
               "LINK DATABASE",
               "MIGRATE DATABASE",
+              "SET LDAP_ADMIN_PASSWORD",
               "SHOW BACKENDS",
               "SHOW BROKER",
               "SHOW FILE",
@@ -457,6 +486,7 @@ module.exports = [
               "SHOW MIGRATIONS",
               "SHOW PLUGINS",
               "SHOW TABLE STATUS",
+              "SHOW TRASH",
               "UNINSTALL PLUGIN",
             ],
           },
@@ -559,6 +589,7 @@ module.exports = [
               "INT",
               "LARGEINT",
               "SMALLINT",
+              "STRING",
               "TINYINT",
               "VARCHAR",
             ],
@@ -577,6 +608,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+        "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",

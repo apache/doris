@@ -18,6 +18,7 @@
 #include "base_scanner.h"
 
 #include "common/logging.h"
+#include "common/utils.h"
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"

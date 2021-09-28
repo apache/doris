@@ -26,10 +26,12 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
@@ -54,6 +56,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -120,6 +123,8 @@ import org.glassfish.jersey.internal.guava.Sets;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -148,6 +153,7 @@ public class StmtExecutor implements ProfileWriter {
     private RuntimeProfile plannerRuntimeProfile;
     private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
+    private String queryType = "Query";
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -195,10 +201,13 @@ public class StmtExecutor implements ProfileWriter {
             profile.addChild(summaryProfile);
             summaryProfile.addInfoString(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
             summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(context.getStartTime()));
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
-            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
-            summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
+            summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
             summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
@@ -209,8 +218,12 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addChild(plannerRuntimeProfile);
             profile.addChild(coord.getQueryProfile());
         } else {
-            summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
+            summaryProfile.addInfoString(ProfileManager.END_TIME,
+                    waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
+            summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
+                            "RUNNING" : context.getState().toString());
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
@@ -324,7 +337,7 @@ public class StmtExecutor implements ProfileWriter {
                         if (i > 0) {
                             UUID uuid = UUID.randomUUID();
                             TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                            LOG.warn("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                            AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
                         }
                         handleQueryStmt();
@@ -354,12 +367,11 @@ public class StmtExecutor implements ProfileWriter {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
-            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
-                handleInsertStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
                     if (!((InsertStmt) parsedStmt).getQueryStmt().isExplain()) {
+                        queryType = "Insert";
                         writeProfile(true);
                     }
                 } catch (Throwable t) {
@@ -390,12 +402,12 @@ public class StmtExecutor implements ProfileWriter {
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}", e);
+            LOG.warn("execute Exception. {}", e.getMessage());
             context.getState().setError(e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
             LOG.warn("execute Exception", e);
-            context.getState().setError(e.getMessage());
+            context.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -428,7 +440,6 @@ public class StmtExecutor implements ProfileWriter {
                 }
             }
         }
-
     }
 
     private void analyzeVariablesInStmt() throws DdlException {
@@ -498,13 +509,12 @@ public class StmtExecutor implements ProfileWriter {
             if (parsedStmt instanceof QueryStmt) {
                 queryStmt = (QueryStmt) parsedStmt;
                 queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
+            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
+                CreateTableAsSelectStmt parsedStmt = (CreateTableAsSelectStmt) this.parsedStmt;
+                queryStmt = parsedStmt.getQueryStmt();
+                queryStmt.getTables(analyzer, tableMap, parentViewNameSet);
             } else {
-                InsertStmt insertStmt;
-                if (parsedStmt instanceof InsertStmt) {
-                    insertStmt = (InsertStmt) parsedStmt;
-                } else {
-                    insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
-                }
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
                 insertStmt.getTables(analyzer, tableMap, parentViewNameSet);
             }
             // table id in tableList is in ascending order because that table map is a sorted map
@@ -531,7 +541,7 @@ public class StmtExecutor implements ProfileWriter {
         } else {
             try {
                 parsedStmt.analyze(analyzer);
-            } catch (AnalysisException e) {
+            } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
                 LOG.warn("Analyze failed because ", e);
@@ -628,9 +638,6 @@ public class StmtExecutor implements ProfileWriter {
         planner = new Planner();
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
             planner.plan(parsedStmt, analyzer, tQueryOptions);
-        } else {
-            planner.plan(((CreateTableAsSelectStmt) parsedStmt).getInsertStmt(),
-                    analyzer, new TQueryOptions());
         }
         // TODO(zc):
         // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
@@ -802,6 +809,29 @@ public class StmtExecutor implements ProfileWriter {
         return;
     }
 
+    private boolean handleSelectRequestInFe(SelectStmt parsedSelectStmt) throws IOException {
+        List<SelectListItem> selectItemList = parsedSelectStmt.getSelectList().getItems();
+        List<Column> columns = new ArrayList<>(selectItemList.size());
+        ResultSetMetaData metadata = new CommonResultSet.CommonResultSetMetaData(columns);
+
+        List<String> columnLabels = parsedSelectStmt.getColLabels();
+        List<String> data = new ArrayList<>();
+        for (int i = 0; i < selectItemList.size(); i++) {
+            SelectListItem item = selectItemList.get(i);
+            Expr expr = item.getExpr();
+            String columnName = columnLabels.get(i);
+            if (expr instanceof LiteralExpr) {
+                columns.add(new Column(columnName, PrimitiveType.VARCHAR));
+                data.add(((LiteralExpr) expr).getStringValue());
+            } else {
+                return false;
+            }
+        }
+        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+        sendResult(resultSet);
+        return true;
+    }
+
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
@@ -816,6 +846,15 @@ public class StmtExecutor implements ProfileWriter {
                                                   originStmt.originStmt);
         context.setQueryDetail(queryDetail);
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
+
+        // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
+        if (parsedStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).getTableRefs().isEmpty()
+                    && Catalog.getCurrentSystemInfo().getBackendIds(true).isEmpty() ) {
+            SelectStmt parsedSelectStmt = (SelectStmt) parsedStmt;
+            if (handleSelectRequestInFe(parsedSelectStmt)) {
+                return;
+            }
+        }
 
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(planner.getFragments(), queryStmt.getExplainOptions());
@@ -1050,14 +1089,8 @@ public class StmtExecutor implements ProfileWriter {
         TTxnParams txnConf = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
-        Database dbObj = Catalog.getCurrentCatalog().getDb(dbName);
-        if (dbObj == null) {
-            throw new TException("database is invalid for dbName: " + dbName);
-        }
-        Table tblObj = dbObj.getTable(tblName);
-        if (tblObj == null) {
-            throw new TException("table is invalid: " + tblName);
-        }
+        Database dbObj = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new TException("database is invalid for dbName: " + s));
+        Table tblObj = dbObj.getTableOrException(tblName, s -> new TException("table is invalid: " + s));
         txnConf.setDbId(dbObj.getId()).setTbl(tblName).setDb(dbName);
         txnEntry.setTable(tblObj);
         txnEntry.setDb(dbObj);
@@ -1116,14 +1149,7 @@ public class StmtExecutor implements ProfileWriter {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         // create plan
-        InsertStmt insertStmt = null;
-        if (parsedStmt instanceof CreateTableAsSelectStmt) {
-            // Create table here
-            ((CreateTableAsSelectStmt) parsedStmt).createTable(analyzer);
-            insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
-        } else {
-            insertStmt = (InsertStmt) parsedStmt;
-        }
+        InsertStmt insertStmt = (InsertStmt) parsedStmt;
 
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
@@ -1207,9 +1233,7 @@ public class StmtExecutor implements ProfileWriter {
                     Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
                             insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                     context.getState().setOk();
-                    return;
-                }
-                if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                } else if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()), insertStmt.getTransactionId(),
                         TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                         context.getSessionVariable().getInsertVisibleTimeoutMs())) {
@@ -1251,9 +1275,18 @@ public class StmtExecutor implements ProfileWriter {
             }
 
             // Go here, which means:
-            // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
-            // 2. transaction failed but Config.using_old_load_usage_pattern is true.
-            // we will record the load job info for these 2 cases
+            // 1. transaction aborted for no data inserted into table, or
+            // 2. transaction is finished successfully (COMMITTED or VISIBLE), or
+            // 3. transaction failed but Config.using_old_load_usage_pattern is true.
+            // we will record the load job info for these 3 cases
+
+            String message = "";
+            if (txnStatus == TransactionStatus.ABORTED) {
+                message = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+                errMsg = TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG;
+            } else if (throwable != null) {
+                message = throwable.getMessage();
+            }
 
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
@@ -1262,7 +1295,7 @@ public class StmtExecutor implements ProfileWriter {
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
                         createTime,
-                        throwable == null ? "" : throwable.getMessage(),
+                        message,
                         coord.getTrackingUrl());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
@@ -1305,7 +1338,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
-    private void sendMetaData(ShowResultSetMetaData metaData) throws IOException {
+    private void sendMetaData(ResultSetMetaData metaData) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(metaData.getColumnCount());
@@ -1341,8 +1374,7 @@ public class StmtExecutor implements ProfileWriter {
         eofPacket.writeTo(serializer);
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
-
-    public void sendShowResult(ShowResultSet resultSet) throws IOException {
+    public void sendResult(ResultSet resultSet) throws IOException {
         context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
         sendMetaData(resultSet.getMetaData());
@@ -1375,7 +1407,7 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        sendShowResult(resultSet);
+        sendResult(resultSet);
     }
 
     private void handleExplainStmt(String result) throws IOException {
@@ -1402,6 +1434,7 @@ public class StmtExecutor implements ProfileWriter {
             context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
             context.getState().setError(e.getMessage());
         } catch (Exception e) {
             // Maybe our bug

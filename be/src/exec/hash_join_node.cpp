@@ -181,10 +181,6 @@ Status HashJoinNode::close(RuntimeState* state) {
 
 void HashJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>* status) {
     status->set_value(construct_hash_table(state));
-    // Release the thread token as soon as possible (before the main thread joins
-    // on it).  This way, if we had a chain of 10 joins using 1 additional thread,
-    // we'd keep the additional thread busy the whole time.
-    state->resource_pool()->release_thread_token(false);
 }
 
 Status HashJoinNode::construct_hash_table(RuntimeState* state) {
@@ -238,13 +234,8 @@ Status HashJoinNode::open(RuntimeState* state) {
     // Only do this if we can get a thread token.  Otherwise, do this in the
     // main thread
     boost::promise<Status> thread_status;
-
-    if (state->resource_pool()->try_acquire_thread_token()) {
-        add_runtime_exec_option("Hash Table Built Asynchronously");
-        boost::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status));
-    } else {
-        thread_status.set_value(construct_hash_table(state));
-    }
+    add_runtime_exec_option("Hash Table Built Asynchronously");
+    boost::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status));
 
     if (!_runtime_filter_descs.empty()) {
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,

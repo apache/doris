@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR ltrim (VARCHAR str)'
+`VARCHAR ltrim (VARCHAR str)`
 
 
 Remove the space that appears continuously from the beginning of the parameter str

@@ -162,8 +162,14 @@ OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remo
 }
 
 OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                    uint64_t request_block_row_count,
+                                    uint64_t request_block_row_count, size_t key_num,
                                     std::vector<OlapTuple>* ranges) {
+    if (key_num > _schema->num_short_key_columns()) {
+        // should not happen
+        LOG(WARNING) << "key num " << key_num << " should less than or equal to short key column number: "
+                << _schema->num_short_key_columns();
+        return OLAP_ERR_INVALID_SCHEMA;
+    }
     EntrySlice entry;
     RowBlockPosition start_pos;
     RowBlockPosition end_pos;
@@ -184,12 +190,12 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     if (expected_rows == 0) {
         LOG(WARNING) << "expected_rows less than 1. [request_block_row_count = "
                      << request_block_row_count << "]";
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return OLAP_ERR_INVALID_SCHEMA;
     }
 
-    // 找到startkey对应的起始位置
+    // find the start position of start key
     RowCursor helper_cursor;
-    if (helper_cursor.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
+    if (helper_cursor.init(*_schema, key_num) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
         return OLAP_ERR_INVALID_SCHEMA;
     }
@@ -220,14 +226,14 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
     RowCursor cur_start_key;
     RowCursor last_start_key;
 
-    if (cur_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS ||
-        last_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
+    if (cur_start_key.init(*_schema, key_num) != OLAP_SUCCESS ||
+        last_start_key.init(*_schema, key_num) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init cursor";
         return OLAP_ERR_INIT_FAILED;
     }
 
     std::vector<uint32_t> cids;
-    for (uint32_t cid = 0; cid < _schema->num_short_key_columns(); ++cid) {
+    for (uint32_t cid = 0; cid < key_num; ++cid) {
         cids.push_back(cid);
     }
 
@@ -387,6 +393,9 @@ std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
     size_t largest_segment_group_sizes = 0;
 
     for (auto segment_group : _segment_groups) {
+        if (!segment_group->index_loaded()) {
+            continue;
+        }
         if (segment_group->empty() || segment_group->zero_num_rows()) {
             continue;
         }

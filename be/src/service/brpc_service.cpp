@@ -44,8 +44,6 @@ Status BRpcService::start(int port) {
     // Add service
     _server->AddService(new PInternalServiceImpl<PBackendService>(_exec_env),
                         brpc::SERVER_OWNS_SERVICE);
-    _server->AddService(new PInternalServiceImpl<palo::PInternalService>(_exec_env),
-                        brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
     if (config::brpc_num_threads != -1) {

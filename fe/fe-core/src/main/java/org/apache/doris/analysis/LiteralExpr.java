@@ -72,6 +72,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 literalExpr = new StringLiteral(value);
                 break;
             case DATE:
@@ -80,6 +81,41 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
+        }
+
+        Preconditions.checkNotNull(literalExpr);
+        return literalExpr;
+    }
+
+    /**
+     * Init LiteralExpr's Type information
+     * only use in rewrite alias function
+     * @param expr
+     * @return
+     * @throws AnalysisException
+     */
+    public static LiteralExpr init(LiteralExpr expr) throws AnalysisException {
+        Preconditions.checkArgument(expr.getType().equals(Type.INVALID));
+        String value = expr.getStringValue();
+        LiteralExpr literalExpr = null;
+        if (expr instanceof NullLiteral) {
+            literalExpr = new NullLiteral();
+        } else if (expr instanceof BoolLiteral) {
+            literalExpr = new BoolLiteral(value);
+        } else if (expr instanceof IntLiteral) {
+            literalExpr = new IntLiteral(Long.parseLong(value));
+        } else if (expr instanceof LargeIntLiteral) {
+            literalExpr = new LargeIntLiteral(value);
+        } else if (expr instanceof FloatLiteral) {
+            literalExpr = new FloatLiteral(value);
+        } else if (expr instanceof DecimalLiteral) {
+            literalExpr = new DecimalLiteral(value);
+        } else if (expr instanceof StringLiteral) {
+            literalExpr = new StringLiteral(value);
+        } else if (expr instanceof DateLiteral) {
+            literalExpr = new DateLiteral(value, expr.getType());
+        } else {
+            throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
         }
 
         Preconditions.checkNotNull(literalExpr);
@@ -193,6 +229,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             return false;
         }
         return this.compareLiteral(((LiteralExpr) obj)) == 0;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return this instanceof NullLiteral;
     }
 }
 

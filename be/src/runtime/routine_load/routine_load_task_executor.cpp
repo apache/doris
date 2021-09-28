@@ -325,9 +325,10 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
-    } break;
+        break;
+    }
     default:
-        return;
+        break;
     }
     cb(ctx);
 }
@@ -341,7 +342,7 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
         ctx->need_rollback = false;
     }
     if (ctx->body_sink.get() != nullptr) {
-        ctx->body_sink->cancel();
+        ctx->body_sink->cancel(err_msg);
     }
 
     return;

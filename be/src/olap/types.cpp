@@ -29,6 +29,7 @@ ScalarTypeInfo::ScalarTypeInfo(TypeTraitsClass t)
           _deep_copy(TypeTraitsClass::deep_copy),
           _copy_object(TypeTraitsClass::copy_object),
           _direct_copy(TypeTraitsClass::direct_copy),
+          _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
           _convert_from(TypeTraitsClass::convert_from),
           _from_string(TypeTraitsClass::from_string),
           _to_string(TypeTraitsClass::to_string),
@@ -78,6 +79,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
     add_mapping<OLAP_FIELD_TYPE_OBJECT>();
 }
@@ -138,6 +140,7 @@ ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
 }
 
 // equal to get_scalar_type_info

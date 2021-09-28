@@ -109,6 +109,7 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 #### `DataStreamSender`
    - BytesSent: 发送的总数据量 = 接受者 * 发送数据量
    - IgnoreRows: 过滤的行数
+   - LocalBytesSent: 数据在Exchange过程中，记录本机节点的自发自收数据量
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小

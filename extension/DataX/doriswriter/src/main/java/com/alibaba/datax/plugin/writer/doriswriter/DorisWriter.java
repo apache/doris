@@ -53,7 +53,7 @@ public class DorisWriter extends Writer {
 
         private DorisWriterEmitter dorisWriterEmitter;
         private Key keys;
-        private DorisJsonCodec rowCodec;
+        private DorisCodec rowCodec;
         private int batchNum = 0;
 
         public Task() {
@@ -62,7 +62,11 @@ public class DorisWriter extends Writer {
         @Override
         public void init() {
             this.keys = new Key(super.getPluginJobConf());
-            this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
+            if("csv".equalsIgnoreCase(this.keys.getFormat())){
+                this.rowCodec = new DorisCsvCodec(this.keys.getColumns(),this.keys.getColumnSeparator());
+            }else{
+                this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
+            }
             this.dorisWriterEmitter = new DorisWriterEmitter(keys);
         }
 
@@ -84,11 +88,12 @@ public class DorisWriter extends Writer {
                     if (record.getColumnNumber() != this.keys.getColumns().size()) {
                         throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
                                 String.format("config writer column info error. because the column number of reader is :%s" +
-                                        "and the column number of writer is:%s. please check you datax job config json.",
+                                                "and the column number of writer is:%s. please check you datax job config json.",
                                         record.getColumnNumber(), this.keys.getColumns().size()));
                     }
                     // codec record
                     final String recordStr = this.rowCodec.serialize(record);
+
                     // put into buffer
                     flushBatch.putData(recordStr);
                     batchCount += 1;

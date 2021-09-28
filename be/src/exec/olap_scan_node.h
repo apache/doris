@@ -19,8 +19,6 @@
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
 #include <atomic>
-#include <boost/thread.hpp>
-#include <boost/variant/static_visitor.hpp>
 #include <condition_variable>
 #include <queue>
 
@@ -66,45 +64,6 @@ protected:
         Tuple* tuple;
         int id;
     } HeapType;
-    class IsFixedValueRangeVisitor : public boost::static_visitor<bool> {
-    public:
-        template <class T>
-        bool operator()(T& v) const {
-            return v.is_fixed_value_range();
-        }
-    };
-
-    class GetFixedValueSizeVisitor : public boost::static_visitor<size_t> {
-    public:
-        template <class T>
-        size_t operator()(T& v) const {
-            return v.get_fixed_value_size();
-        }
-    };
-
-    class ExtendScanKeyVisitor : public boost::static_visitor<Status> {
-    public:
-        ExtendScanKeyVisitor(OlapScanKeys& scan_keys, int32_t max_scan_key_num)
-                : _scan_keys(scan_keys), _max_scan_key_num(max_scan_key_num) {}
-        template <class T>
-        Status operator()(T& v) {
-            return _scan_keys.extend_scan_key(v, _max_scan_key_num);
-        }
-
-    private:
-        OlapScanKeys& _scan_keys;
-        int32_t _max_scan_key_num;
-    };
-
-    typedef boost::variant<std::list<std::string>> string_list;
-
-    class ToOlapFilterVisitor : public boost::static_visitor<void> {
-    public:
-        template <class T, class P>
-        void operator()(T& v, P& v2) const {
-            v.to_olap_filter(v2);
-        }
-    };
 
     class MergeComparison {
     public:
@@ -148,7 +107,7 @@ protected:
     Status normalize_conjuncts();
     Status build_olap_filters();
     Status build_scan_key();
-    Status start_scan_thread(RuntimeState* state);
+    virtual Status start_scan_thread(RuntimeState* state);
 
     template <class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
@@ -172,14 +131,13 @@ protected:
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);
 
-    Status add_one_batch(RowBatchInterface* row_batch);
+    Status add_one_batch(RowBatch* row_batch);
 
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
 
-private:
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
     // according to the calling relationship
@@ -193,6 +151,12 @@ private:
 
     std::pair<bool, void*> should_push_down_eq_predicate(SlotDescriptor* slot, Expr* pred,
                                                          int conj_idx, int child_idx);
+
+    static Status get_hints(const TPaloScanRange& scan_range, int block_row_count,
+                            bool is_begin_include, bool is_end_include,
+                            const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                            std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                            RuntimeProfile* profile);
 
     friend class OlapScanner;
 
@@ -231,9 +195,9 @@ private:
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
-    std::unique_ptr<ObjectPool> _scanner_pool;
+    ObjectPool _scanner_pool;
 
-    boost::thread_group _transfer_thread;
+    std::shared_ptr<std::thread> _transfer_thread;
 
     // Keeps track of total splits and the number finished.
     ProgressUpdater _progress;
@@ -248,14 +212,14 @@ private:
     std::condition_variable _row_batch_added_cv;
     std::condition_variable _row_batch_consumed_cv;
 
-    std::list<RowBatchInterface*> _materialized_row_batches;
+    std::list<RowBatch*> _materialized_row_batches;
 
     std::mutex _scan_batches_lock;
     std::condition_variable _scan_batch_added_cv;
     int64_t _running_thread = 0;
     std::condition_variable _scan_thread_exit_cv;
 
-    std::list<RowBatchInterface*> _scan_row_batches;
+    std::list<RowBatch*> _scan_row_batches;
 
     std::list<OlapScanner*> _olap_scanners;
 
@@ -356,6 +320,8 @@ private:
 
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
+
+    RuntimeProfile::Counter* _olap_wait_batch_queue_timer = nullptr;
 };
 
 } // namespace doris

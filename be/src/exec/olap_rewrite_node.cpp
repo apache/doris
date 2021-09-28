@@ -135,7 +135,8 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
         const TColumnType& column_type = _column_types[i];
         switch (column_type.type) {
         case TPrimitiveType::CHAR:
-        case TPrimitiveType::VARCHAR: {
+        case TPrimitiveType::VARCHAR:
+        case TPrimitiveType::STRING: {
             // Fixed length string
             StringValue* str_val = (StringValue*)src_value;
             if (str_val->len > column_type.len) {
@@ -145,8 +146,7 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
                       << "schema length: " << column_type.len << "; "
                       << "actual length: " << str_val->len << "; ";
                 return false;
-            }
-            StringValue* dst_val = (StringValue*)tuple->get_slot(slot_desc->tuple_offset());
+            } StringValue* dst_val = (StringValue*)tuple->get_slot(slot_desc->tuple_offset());
             if (column_type.type == TPrimitiveType::CHAR) {
                 dst_val->ptr = (char*)pool->allocate(column_type.len);
                 memcpy(dst_val->ptr, str_val->ptr, str_val->len);
@@ -156,10 +156,8 @@ bool OlapRewriteNode::copy_one_row(TupleRow* src_row, Tuple* tuple, MemPool* poo
                 dst_val->ptr = (char*)pool->allocate(column_type.len);
                 memcpy(dst_val->ptr, str_val->ptr, str_val->len);
                 dst_val->len = str_val->len;
-            }
-            break;
-        }
-        case TPrimitiveType::DECIMALV2: {
+            } break;
+        } case TPrimitiveType::DECIMALV2: {
             DecimalV2Value* dec_val = (DecimalV2Value*)src_value;
             DecimalV2Value* dst_val = (DecimalV2Value*)tuple->get_slot(slot_desc->tuple_offset());
             if (dec_val->greater_than_scale(column_type.scale)) {

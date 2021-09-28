@@ -43,6 +43,8 @@ message PTransmitDataParams {
     // different per packet
     required int64 packet_seq = 7;
     optional PQueryStatistics query_statistics = 8;
+
+    optional PBlock block = 9;
 };
 
 message PTransmitDataResult {
@@ -99,6 +101,7 @@ message PTabletWriterAddBatchResult {
     repeated PTabletInfo tablet_vec = 2;
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
+    optional int64 wait_execution_time_us = 5;
 };
 
 // tablet writer cancel
@@ -113,6 +116,7 @@ message PTabletWriterCancelResult {
 
 message PExecPlanFragmentRequest {
     optional bytes request = 1;
+    optional bool compact = 2;
 };
 
 message PExecPlanFragmentResult {
@@ -318,6 +322,7 @@ enum PColumnType {
     COLUMN_TYPE_FLOAT = 11;
     COLUMN_TYPE_DECIMAL = 12;
     COLUMN_TYPE_DECIMALV2 = 13;
+    COLUMN_TYPE_STRING = 14;
 }
 
 message PMinMaxFilter {
@@ -377,8 +382,6 @@ message PConstantExprResult {
     map<string, PExprResultMap> expr_result_map = 2;
 };
 
-// NOTE(zc): If you want to add new method here,
-// you MUST add same method to palo_internal_service.proto
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -397,5 +400,6 @@ service PBackendService {
     rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
 };
 

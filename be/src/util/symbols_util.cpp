@@ -154,6 +154,7 @@ static void append_any_val_type(int namespace_id, const TypeDescriptor& type,
     case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         append_mangled_token("StringVal", s);
         break;
     case TYPE_DATE:

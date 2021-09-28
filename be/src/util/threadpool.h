@@ -27,6 +27,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "common/atomic.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/condition_variable.h"
@@ -179,6 +180,9 @@ public:
     // Returns true if the pool reached the idle state, false otherwise.
     bool wait_for(const MonoDelta& delta);
 
+    Status set_min_threads(int min_threads);
+    Status set_max_threads(int max_threads);
+
     // Allocates a new token for use in token-based task submission. All tokens
     // must be destroyed before their ThreadPool is destroyed.
     //
@@ -197,6 +201,31 @@ public:
     int num_threads() const {
         MutexLock l(&_lock);
         return _num_threads + _num_threads_pending_start;
+    }
+
+    int max_threads() const {
+        MutexLock l(&_lock);
+        return _max_threads;
+    }
+
+    int min_threads() const {
+        MutexLock l(&_lock);
+        return _min_threads;
+    }
+
+    int num_threads_pending_start() const {
+        MutexLock l(&_lock);
+        return _num_threads_pending_start;
+    }
+
+    int num_active_threads() const {
+        MutexLock l(&_lock);
+        return _active_threads;
+    }
+    
+    int get_queue_size() const {
+        MutexLock l(&_lock);
+        return _total_queued_tasks;
     }
 
 private:
@@ -236,8 +265,8 @@ private:
     void release_token(ThreadPoolToken* t);
 
     const std::string _name;
-    const int _min_threads;
-    const int _max_threads;
+    int _min_threads;
+    int _max_threads;
     const int _max_queue_size;
     const MonoDelta _idle_timeout;
 

@@ -211,7 +211,7 @@ TEST_F(StreamLoadPipeTest, cancel) {
             pipe.append(&buf, 1);
         }
         SleepFor(MonoDelta::FromMilliseconds(100));
-        pipe.cancel();
+        pipe.cancel("test");
     };
     std::thread t1(appender);
 

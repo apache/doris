@@ -22,11 +22,9 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.RoutineLoadDataSourceProperties;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
@@ -55,15 +53,16 @@ import com.google.gson.GsonBuilder;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -75,6 +74,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
     public static final String KAFKA_FILE_CATALOG = "kafka";
+    public static final String PROP_GROUP_ID = "group.id";
 
     private String brokerList;
     private String topic;
@@ -354,14 +354,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws UserException {
         // check db and table
-        Database db = Catalog.getCurrentCatalog().getDb(stmt.getDBName());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, stmt.getDBName());
-        }
-
-        checkMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-        Table table = db.getTable(stmt.getTableName());
-        long tableId = table.getId();
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDBName());
+        OlapTable olapTable = db.getOlapTableOrDdlException(stmt.getTableName());
+        checkMeta(olapTable, stmt.getRoutineLoadDesc());
+        long tableId = olapTable.getId();
 
         // init kafka routine load job
         long id = Catalog.getCurrentCatalog().getNextId();
@@ -444,6 +440,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         if (!stmt.getCustomKafkaProperties().isEmpty()) {
             setCustomKafkaProperties(stmt.getCustomKafkaProperties());
+        }
+        // set group id if not specified
+        if (!this.customProperties.containsKey(PROP_GROUP_ID)) {
+            this.customProperties.put(PROP_GROUP_ID, name + "_" + UUID.randomUUID().toString());
         }
     }
 
@@ -554,7 +554,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
-
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
@@ -593,15 +592,23 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             ((KafkaProgress) progress).modifyOffset(kafkaPartitionOffsets);
         }
 
+        if (!customKafkaProperties.isEmpty()) {
+            this.customProperties.putAll(customKafkaProperties);
+            convertCustomProperties(true);
+        }
+
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
             modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
         }
 
-        if (!customKafkaProperties.isEmpty()) {
-            this.customProperties.putAll(customKafkaProperties);
-            convertCustomProperties(true);
+        // modify broker list and topic
+        if (!Strings.isNullOrEmpty(dataSourceProperties.getKafkaBrokerList())) {
+            this.brokerList = dataSourceProperties.getKafkaBrokerList();
+        }
+        if (!Strings.isNullOrEmpty(dataSourceProperties.getKafkaTopic())) {
+            this.topic = dataSourceProperties.getKafkaTopic();
         }
 
         LOG.info("modify the properties of kafka routine load job: {}, jobProperties: {}, datasource properties: {}",

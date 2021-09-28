@@ -35,14 +35,14 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-	`$ docker pull apache/incubator-doris:build-env-1.3`
+	`$ docker pull apache/incubator-doris:build-env-1.3.1`
 
 	Check mirror download completed:
 
     ```
     $ docker images
     REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.3           49f68cecbc1a        4 days ago          3.76GB
+    apache/incubator-doris   build-env-1.3.1           49f68cecbc1a        4 days ago          3.76GB
     ```
 
 Note: For different versions of Doris, you need to download the corresponding mirror version.
@@ -52,13 +52,13 @@ Note: For different versions of Doris, you need to download the corresponding mi
 | apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
-| apache/incubator-doris:build-env-1.3 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
+| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
 
 **note**:
 
-> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.
+> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.1.
 
-> 2. In the docker image of build-env-1.3, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
+> 2. In the docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
 >
 >   Switch to JDK 8:
 >   
@@ -78,14 +78,14 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
 2. Running Mirror
 
-	`$ docker run -it apache/incubator-doris:build-env-1.3`
+	`$ docker run -it apache/incubator-doris:build-env-1.3.1`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
      At the same time, it is recommended to mount the maven `.m2` directory in the mirror to the host directory at the same time to prevent repeated downloading of maven's dependent libraries each time the compilation is started.
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.3.1
     ```
 
 3. Download source code

@@ -138,30 +138,30 @@ under the License.
             用于指定一些特殊参数。
             语法：
             [PROPERTIES ("key"="value", ...)]
-        
+
             可以指定如下参数：
-                
-              line_delimiter： 用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
 
-              fuzzy_parse： 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json格式。
-            
-              jsonpaths: 导入json方式分为：简单模式和匹配模式。
-              简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
-              {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
-              匹配模式：用于json数据相对复杂，需要通过jsonpaths参数匹配对应的value。
-            
-              strip_outer_array: 布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。例如：
-                [
-                  {"k1" : 1, "v1" : 2},
-                  {"k1" : 3, "v1" : 4}
-                ]
-              当strip_outer_array为true，最后导入到doris中会生成两行数据。
-           
-              json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
-           
-              num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+            line_delimiter： 用于指定导入文件中的换行符，默认为\n。可以使用做多个字符的组合作为换行符。
 
-    3. broker_name
+            fuzzy_parse： 布尔类型，为true表示json将以第一行为schema 进行解析，开启这个选项可以提高json 导入效率，但是要求所有json 对象的key的顺序和第一行一致， 默认为false，仅用于json格式。
+
+            jsonpaths: 导入json方式分为：简单模式和匹配模式。
+            简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
+            {"k1":1, "k2":2, "k3":"hello"}，其中k1，k2，k3是列名字。
+            匹配模式：用于json数据相对复杂，需要通过jsonpaths参数匹配对应的value。
+
+            strip_outer_array: 布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。例如：
+            [
+             {"k1" : 1, "v1" : 2},
+             {"k1" : 3, "v1" : 4}
+             ]
+             当strip_outer_array为true，最后导入到doris中会生成两行数据。
+
+             json_root: json_root为合法的jsonpath字符串，用于指定json document的根节点，默认值为""。
+
+             num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
+
+      3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
 
@@ -246,6 +246,7 @@ under the License.
         exec_mem_limit：  导入内存限制。默认为 2GB。单位为字节。
         strict mode：     是否对数据进行严格限制。默认为 false。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
+        send_batch_parallelism: 用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
 
     5. 导入数据格式样例
 
@@ -537,7 +538,7 @@ under the License.
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
 
-    14. 先过滤原始数据，在进行列的映射、转换和过滤操作
+    15. 先过滤原始数据，在进行列的映射、转换和过滤操作
 
         LOAD LABEL example_db.label_filter
         (
@@ -550,8 +551,8 @@ under the License.
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
-         
-     15. 导入json文件中数据  指定FORMAT为json， 默认是通过文件后缀判断，设置读取数据的参数
+
+     16. 导入json文件中数据  指定FORMAT为json， 默认是通过文件后缀判断，设置读取数据的参数
 
         LOAD LABEL example_db.label9
         (
@@ -563,7 +564,7 @@ under the License.
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
 
-    16. LOAD WITH HDFS, 普通HDFS集群
+     17. LOAD WITH HDFS, 普通HDFS集群
         LOAD LABEL example_db.label_filter
         (
             DATA INFILE("hdfs://host:port/user/data/*/test.txt")
@@ -575,7 +576,7 @@ under the License.
             "fs.defaultFS"="hdfs://testFs",
             "hdfs_user"="user"
         );
-    17. LOAD WITH HDFS, 带ha的HDFS集群
+     18. LOAD WITH HDFS, 带ha的HDFS集群
         LOAD LABEL example_db.label_filter
         (
             DATA INFILE("hdfs://host:port/user/data/*/test.txt")

@@ -22,9 +22,7 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "exprs/expr.h"
 #include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/descriptors.pb.h"
 
 namespace doris {
@@ -282,10 +280,12 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
         : _tuple_idx_nullable_map(nullable_tuples) {
     DCHECK(nullable_tuples.size() == row_tuples.size());
     DCHECK_GT(row_tuples.size(), 0);
+    _num_materialized_slots = 0;
     _num_null_slots = 0;
 
     for (int i = 0; i < row_tuples.size(); ++i) {
         TupleDescriptor* tupleDesc = desc_tbl.get_tuple_descriptor(row_tuples[i]);
+        _num_materialized_slots += tupleDesc->num_materialized_slots();
         _num_null_slots += tupleDesc->num_null_slots();
         _tuple_desc_map.push_back(tupleDesc);
         DCHECK(_tuple_desc_map.back() != NULL);
@@ -459,6 +459,20 @@ std::string RowDescriptor::debug_string() const {
     ss << "] ";
 
     return ss.str();
+}
+
+
+int RowDescriptor::get_column_id(int slot_id) const {
+    int column_id_counter = 0;
+    for(const auto tuple_desc:_tuple_desc_map) {
+        for(const auto slot:tuple_desc->slots()) {
+            if(slot->id() == slot_id) {
+                return column_id_counter;
+            }
+            column_id_counter++;
+        }
+    }
+    return -1;
 }
 
 Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tbl,

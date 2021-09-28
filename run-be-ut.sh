@@ -128,7 +128,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Running Backend Unit Test    "
+echo "   Running Backend Unit Test  "
 echo "******************************"
 
 cd ${DORIS_HOME}

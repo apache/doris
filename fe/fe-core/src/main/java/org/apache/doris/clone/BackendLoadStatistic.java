@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -87,6 +88,8 @@ public class BackendLoadStatistic {
 
     private boolean isAvailable;
 
+    private Tag tag;
+
     public static class LoadScore {
         public double replicaNumCoefficient = 0.5;
         public double capacityCoefficient = 0.5;
@@ -102,10 +105,11 @@ public class BackendLoadStatistic {
     private Map<TStorageMedium, Classification> clazzMap = Maps.newHashMap();
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
-    public BackendLoadStatistic(long beId, String clusterName, SystemInfoService infoService,
-            TabletInvertedIndex invertedIndex) {
+    public BackendLoadStatistic(long beId, String clusterName, Tag tag, SystemInfoService infoService,
+                                TabletInvertedIndex invertedIndex) {
         this.beId = beId;
         this.clusterName = clusterName;
+        this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
     }
@@ -116,6 +120,10 @@ public class BackendLoadStatistic {
 
     public String getClusterName() {
         return clusterName;
+    }
+
+    public Tag getTag() {
+        return tag;
     }
 
     public boolean isAvailable() {

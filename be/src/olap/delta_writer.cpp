@@ -119,32 +119,6 @@ OLAPStatus DeltaWriter::init() {
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
                                                                   _req.txn_id, _req.load_id));
-        if (_req.need_gen_rollup) {
-            AlterTabletTaskSharedPtr alter_task = _tablet->alter_task();
-            if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
-                TTabletId new_tablet_id = alter_task->related_tablet_id();
-                TSchemaHash new_schema_hash = alter_task->related_schema_hash();
-                LOG(INFO) << "load with schema change. "
-                          << "old_tablet_id=" << _tablet->tablet_id() << ", "
-                          << ", old_schema_hash=" << _tablet->schema_hash() << ", "
-                          << ", new_tablet_id=" << new_tablet_id << ", "
-                          << ", new_schema_hash=" << new_schema_hash << ", "
-                          << ", transaction_id=" << _req.txn_id;
-                _new_tablet = tablet_mgr->get_tablet(new_tablet_id, new_schema_hash);
-                if (_new_tablet == nullptr) {
-                    LOG(WARNING) << "find alter task, but could not find new tablet. "
-                                 << "new_tablet_id=" << new_tablet_id
-                                 << ", new_schema_hash=" << new_schema_hash;
-                    return OLAP_ERR_TABLE_NOT_FOUND;
-                }
-                ReadLock new_migration_rlock(_new_tablet->get_migration_lock_ptr(), TRY_LOCK);
-                if (!new_migration_rlock.own_lock()) {
-                    return OLAP_ERR_RWLOCK_ERROR;
-                }
-                RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(
-                        _req.partition_id, _new_tablet, _req.txn_id, _req.load_id));
-            }
-        }
     }
 
     RowsetWriterContext writer_context;
@@ -195,6 +169,9 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     // if memtable is full, push it to the flush executor,
     // and create a new memtable for incoming data
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        if (++_segment_counter > config::max_segment_num_per_rowset) {
+            return OLAP_ERR_TOO_MANY_SEGMENTS;
+        }
         RETURN_NOT_OK(_flush_memtable_async());
         // create a new memtable for new incoming data
         _reset_mem_table();

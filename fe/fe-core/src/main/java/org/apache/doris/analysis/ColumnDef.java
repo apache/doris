@@ -279,6 +279,7 @@ public class ColumnDef {
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }

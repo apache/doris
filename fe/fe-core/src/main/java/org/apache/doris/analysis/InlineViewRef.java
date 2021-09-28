@@ -266,9 +266,8 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            // TODO: inlineView threat all column is nullable to make sure query results are correct
-            // we should judge column whether is nullable by selectItemExpr in the future
-            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(), true));
+            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(),
+                    selectItemExpr.isNullable()));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 
@@ -425,14 +424,23 @@ public class InlineViewRef extends TableRef {
         String aliasSql = null;
         String alias = getExplicitAlias();
         if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
+
+        StringBuilder sb = new StringBuilder();
         if (view != null) {
-            // TODO(zc):
-            // return view_.toSql() + (aliasSql == null ? "" : " " + aliasSql);
-            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+            // When it is a local view, it does not need to be expanded into a statement,
+            // because toSql function already contains `with` statement
+            if (view.isLocalView()) {
+                return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+            }
+
+            sb.append("(")
+                    .append(view.getInlineViewDef())
+                    .append(")")
+                    .append(aliasSql == null ? "" : " " + aliasSql);
+            return sb.toString();
         }
 
-        StringBuilder sb = new StringBuilder()
-                .append("(")
+        sb.append("(")
                 .append(queryStmt.toSql())
                 .append(") ")
                 .append(aliasSql);

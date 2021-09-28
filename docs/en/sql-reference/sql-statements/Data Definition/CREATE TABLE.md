@@ -261,7 +261,8 @@ Syntax:
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
-            ["replication_num" = "3"]
+            ["replication_num" = "3"],
+			["replica_allocation" = "xxx"]
             )
         ```
     
@@ -271,6 +272,8 @@ Syntax:
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
         replication_num:        Replication number of a partition. Default is 3.
+        replica_allocation:     Specify the distribution of replicas according to the resource tag.
+
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
         User can specify different properties for different partition by `ADD PARTITION` or     `MODIFY PARTITION` statements.
     2) If Engine type is olap, user can set bloom filter index for column.
@@ -297,7 +300,7 @@ Syntax:
         PROPERTIES (
             "dynamic_partition.enable" = "true|false",
             "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
-            "dynamic_partitoin.end" = "${integer_value}",
+            "dynamic_partition.end" = "${integer_value}",
             "dynamic_partition.prefix" = "${string_value}",
             "dynamic_partition.buckets" = "${integer_value}
         )    
@@ -311,6 +314,7 @@ Syntax:
        dynamic_partition.buckets: specifies the number of partition buckets that are automatically created
        dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
        dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
+       dynamic_partition.reserved_history_periods: Used to specify the range of reserved history periods
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:
@@ -682,12 +686,7 @@ Syntax:
         )
         ENGINE=olap
         DUPLICATE KEY(k1, k2, k3)
-        PARTITION BY RANGE (k1)
-        (
-        PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-        PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-        PARTITION p3 VALUES LESS THAN ("2014-12-01")
-        )
+        PARTITION BY RANGE (k1) ()
         DISTRIBUTED BY HASH(k2) BUCKETS 32
         PROPERTIES(
         "storage_medium" = "SSD",
@@ -750,6 +749,39 @@ Syntax:
       "table" = "hive_table_name",
       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     );
+```
+
+16. Specify the replica distribution of the table through replica_allocation
+
+```	
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+		"replica_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+	);
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition."replica_allocation" = "tag.location.group_a:3"
+     );
 ```
 
 ## keyword

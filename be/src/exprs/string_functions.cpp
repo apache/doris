@@ -217,7 +217,7 @@ StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -268,7 +268,7 @@ StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -550,8 +550,9 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
+    // ATTN(cmy): no set it, or the lazy mode of regex won't work. See Doris #6587
     // Return the leftmost longest match (rather than the first match).
-    options.set_longest_match(true);
+    // options.set_longest_match(true);
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
@@ -879,9 +880,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     if (v.is_null) {
         return StringVal::null();
     }
-
-    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false) * 100;
-    return do_money_format(context, std::to_string(v_cent));
+    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
+    return do_money_format(context, fmt::format("{:.2f}", v_cent));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -891,25 +891,21 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalV2Value tmp(std::string_view("100"));
-    DecimalV2Value result = rounded * tmp;
-    return do_money_format(context, result.to_string());
+    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    return do_money_format<int64_t, 26>(context, v.val);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    return do_money_format<__int128_t, 52>(context, v.val);
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,
@@ -976,14 +972,19 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
+    // Empty string is a substring of all strings. 
+    // If old str is an empty string, the std::string.find(oldStr) is always return 0.
+    // With an empty old str, there is no need to do replace. 
+    if (oldStr.len == 0) {
+        return origStr;
+    }
     std::string orig_str = std::string(reinterpret_cast<const char*>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char*>(oldStr.ptr), oldStr.len);
     std::string new_str = std::string(reinterpret_cast<const char*>(newStr.ptr), newStr.len);
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while ((pos = orig_str.find(old_str, pos))) {
-        if (pos == std::string::npos) break;
+    while ((pos = orig_str.find(old_str, pos)) != std::string::npos) {
         orig_str.replace(pos, oldLen, new_str);
         pos += newLen;
     }

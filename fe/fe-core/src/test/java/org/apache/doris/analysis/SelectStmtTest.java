@@ -57,7 +57,7 @@ public class SelectStmtTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
@@ -695,5 +695,108 @@ public class SelectStmtTest {
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
+    }
+
+    @Test
+    public void testSystemViewCaseInsensitive() throws Exception {
+        String sql1 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY ROUTINES.ROUTINE_SCHEMA\n";
+        // The system view names in information_schema are case-insensitive,
+        dorisAssert.query(sql1).explainQuery();
+
+        String sql2 = "SELECT ROUTINE_SCHEMA, ROUTINE_NAME FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = " +
+                "'ech_dw' ORDER BY routines.ROUTINE_SCHEMA\n";
+        try {
+            // Should not refer to one of system views using different cases within the same statement.
+            // sql2 is wrong because 'ROUTINES' and 'routines' are used.
+            dorisAssert.query(sql2).explainQuery();
+            Assert.fail("Refer to one of system views using different cases within the same statement is wrong.");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testWithUnionToSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 =
+                "select \n" +
+                "  t.k1 \n" +
+                "from (\n" +
+                "  with \n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        stmt1.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt1.toSql().equals("SELECT `t`.`k1` AS `k1` " +
+                "FROM (WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t1)," +
+                "v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2) " +
+                "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t"));
+
+        String sql2 =
+                "with\n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "select\n" +
+                "  t.k1\n" +
+                "from (\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM " +
+                "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
+    }
+
+    @Test
+    public void testViewConvertFinalSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        dorisAssert.useDatabase("db1");
+        String testView1 = "CREATE VIEW `view1` as (select t1.k1, t1.k2 from db1.tbl1 t1)";
+        dorisAssert.withView(testView1);
+
+        String sql1 = "select * from db1.view1;";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        stmt1.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt1.toSql().contains("FROM " +
+                "(SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1)"));
+
+        String sql2 =
+                "select \n" +
+                "  t.k1 \n" +
+                "from (\n" +
+                "  select v1.k1 from db1.view1 v1\n" +
+                ") t";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt2.toSql().contains("FROM " +
+                "(SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) v1"));
+
+        // WITH statement contains view, that is, localView contains normal view
+        String sql3 =
+                "with\n" +
+                "    v1 as (select t1.k1 from db1.view1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.view1 t2)\n" +
+                "select\n" +
+                "  t.k1\n" +
+                "from (\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
+        stmt3.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        System.out.println(stmt3.toSql());
+        Assert.assertTrue(stmt3.toSql().contains("WITH " +
+                "v1 AS (SELECT `t1`.`k1` AS `k1` FROM (SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) t1)," +
+                "v2 AS (SELECT `t2`.`k1` AS `k1` FROM (SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) t2)"));
+
+        dorisAssert.dropView("view1");
     }
 }

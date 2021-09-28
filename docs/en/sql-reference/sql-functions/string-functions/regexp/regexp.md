@@ -28,7 +28,7 @@ under the License.
 ## description
 ### syntax
 
-'BOOLEAN regexp(VARCHAR str, VARCHAR pattern)'
+`BOOLEAN regexp(VARCHAR str, VARCHAR pattern)`
 
 Perform regular matching on the string str, return true if it matches, and return false if it doesn't match. pattern is a regular expression.
 

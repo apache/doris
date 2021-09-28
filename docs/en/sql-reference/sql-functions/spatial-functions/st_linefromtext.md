@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'GEOMETRY ST LineFromText (VARCHAR wkt)'
+`GEOMETRY ST LineFromText (VARCHAR wkt)`
 
 
 Converting a WKT (Well Known Text) into a Line-style memory representation
