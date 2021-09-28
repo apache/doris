@@ -28,8 +28,6 @@ import java.util
 import scala.util.control.Breaks
 
 /**
- * @author wei.zhao
- *
  * A [[StreamWriter]] for Apache Doris streaming writing.
  *
  * @param settings params for writing doris table

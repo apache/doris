@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.spark.sql
 
 import org.apache.spark.sql.SparkSession
@@ -21,7 +22,6 @@ import org.apache.spark.sql.SparkSession
 object TestStreamSinkDoris {
   val kafkaServers = ""
   val kafkaTopics = ""
-
   val dorisFeNodes = "your_doris_host_port"
   val dorisUser = "root"
   val dorisPwd = ""
@@ -49,8 +49,5 @@ object TestStreamSinkDoris {
       .option("user", dorisUser)
       .option("password", dorisPwd)
       .start().awaitTermination()
-
-
   }
-
 }
