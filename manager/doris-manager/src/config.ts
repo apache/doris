@@ -16,7 +16,7 @@
 // under the License.
 
 import { getDefaultPageSize } from './utils/utils';
-import version from '../../version.json';
+import version from '../version.json';
 
 export const DEFAULT_NAMESPACE_ID = '0';
 
