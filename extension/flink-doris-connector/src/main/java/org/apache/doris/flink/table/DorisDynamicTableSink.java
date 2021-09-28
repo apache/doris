@@ -35,7 +35,10 @@ public class DorisDynamicTableSink implements DynamicTableSink {
     private final DorisExecutionOptions executionOptions;
     private final TableSchema tableSchema;
 
-    public DorisDynamicTableSink(DorisOptions options, DorisReadOptions readOptions, DorisExecutionOptions executionOptions, TableSchema tableSchema) {
+    public DorisDynamicTableSink(DorisOptions options,
+                                 DorisReadOptions readOptions,
+                                 DorisExecutionOptions executionOptions,
+                                 TableSchema tableSchema) {
         this.options = options;
         this.readOptions = readOptions;
         this.executionOptions = executionOptions;
@@ -60,8 +63,8 @@ public class DorisDynamicTableSink implements DynamicTableSink {
             .setTableIdentifier(options.getTableIdentifier())
             .setReadOptions(readOptions)
             .setExecutionOptions(executionOptions)
-            .setFieldDataTypes(tableSchema.getFieldDataTypes());;
-
+            .setFieldDataTypes(tableSchema.getFieldDataTypes())
+            .setFieldNames(tableSchema.getFieldNames());
         return OutputFormatProvider.of(builder.build());
     }
 
