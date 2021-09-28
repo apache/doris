@@ -38,7 +38,15 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
-import static org.apache.doris.flink.cfg.ConfigurationOptions.*;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_BATCH_SIZE_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_EXEC_MEM_LIMIT_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_CONNECT_TIMEOUT_MS_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_READ_TIMEOUT_MS_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_REQUEST_RETRIES_DEFAULT;
+import static org.apache.doris.flink.cfg.ConfigurationOptions.DORIS_TABLET_SIZE_DEFAULT;
 
 /**
  * The {@link DorisDynamicTableFactory} translates the catalog table to a table source.
@@ -260,13 +268,13 @@ public final class DorisDynamicTableFactory implements DynamicTableSourceFactory
 
         Properties streamLoadProp = getStreamLoadProp(context.getCatalogTable().getOptions());
         TableSchema physicalSchema =
-            TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
+                TableSchemaUtils.getPhysicalSchema(context.getCatalogTable().getSchema());
         // create and return dynamic table source
         return new DorisDynamicTableSink(
-            getDorisOptions(helper.getOptions()),
-            getDorisReadOptions(helper.getOptions()),
-            getDorisExecutionOptions(helper.getOptions(), streamLoadProp),
-            physicalSchema
+                getDorisOptions(helper.getOptions()),
+                getDorisReadOptions(helper.getOptions()),
+                getDorisExecutionOptions(helper.getOptions(), streamLoadProp),
+                physicalSchema
         );
     }
 }
