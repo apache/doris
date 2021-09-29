@@ -287,6 +287,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+
 import javax.annotation.Nullable;
 
 public class Catalog {
@@ -1456,7 +1457,9 @@ public class Catalog {
 
         Frontend fe = checkFeExist(selfNode.first, selfNode.second);
         if (fe == null) {
-            LOG.error("current node is not added to the cluster, will exit");
+            LOG.error("current node {}:{} is not added to the cluster, will exit." +
+                            " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
+                    selfNode.first, selfNode.second);
             System.exit(-1);
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,
