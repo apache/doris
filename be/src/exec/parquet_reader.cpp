@@ -174,9 +174,9 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
                                             bool* eof) {
     if (_current_line_of_group >= _rows_of_group) { // read next row group
         VLOG_DEBUG << "read_record_batch, current group id:" << _current_group
-                << " current line of group:" << _current_line_of_group
-                << " is larger than rows group size:" << _rows_of_group
-                << ". start to read next row group";
+                   << " current line of group:" << _current_line_of_group
+                   << " is larger than rows group size:" << _rows_of_group
+                   << ". start to read next row group";
         _current_group++;
         if (_current_group >= _total_groups) { // read completed.
             _parquet_column_ids.clear();
@@ -199,9 +199,9 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
         _current_line_of_batch = 0;
     } else if (_current_line_of_batch >= _batch->num_rows()) {
         VLOG_DEBUG << "read_record_batch, current group id:" << _current_group
-                << " current line of batch:" << _current_line_of_batch
-                << " is larger than batch size:" << _batch->num_rows()
-                << ". start to read next batch";
+                   << " current line of batch:" << _current_line_of_batch
+                   << " is larger than batch size:" << _batch->num_rows()
+                   << ". start to read next batch";
         arrow::Status status = _rb_batch->ReadNext(&_batch);
         if (!status.ok()) {
             return Status::InternalError("Read Batch Error With Libarrow.");
@@ -213,7 +213,7 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
                                            uint8_t* buf, int32_t* wbytes) {
-    const auto type = std::dynamic_pointer_cast<arrow::TimestampType>(ts_array->type());
+    const auto type = std::static_pointer_cast<arrow::TimestampType>(ts_array->type());
     // Doris only supports seconds
     int64_t timestamp = 0;
     switch (type->unit()) {
@@ -264,7 +264,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             switch (_parquet_column_type[i]) {
             case arrow::Type::type::STRING: {
                 auto str_array =
-                        std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::StringArray>(_batch->column(column_index));
                 if (str_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -275,7 +275,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::INT32: {
                 auto int32_array =
-                        std::dynamic_pointer_cast<arrow::Int32Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Int32Array>(_batch->column(column_index));
                 if (int32_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -287,7 +287,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::INT64: {
                 auto int64_array =
-                        std::dynamic_pointer_cast<arrow::Int64Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Int64Array>(_batch->column(column_index));
                 if (int64_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -299,7 +299,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::UINT32: {
                 auto uint32_array =
-                        std::dynamic_pointer_cast<arrow::UInt32Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::UInt32Array>(_batch->column(column_index));
                 if (uint32_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -311,7 +311,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::UINT64: {
                 auto uint64_array =
-                        std::dynamic_pointer_cast<arrow::UInt64Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::UInt64Array>(_batch->column(column_index));
                 if (uint64_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -323,7 +323,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::BINARY: {
                 auto str_array =
-                        std::dynamic_pointer_cast<arrow::BinaryArray>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::BinaryArray>(_batch->column(column_index));
                 if (str_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -333,7 +333,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 break;
             }
             case arrow::Type::type::FIXED_SIZE_BINARY: {
-                auto fixed_array = std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(
+                auto fixed_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(
                         _batch->column(column_index));
                 if (fixed_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
@@ -344,8 +344,8 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 break;
             }
             case arrow::Type::type::BOOL: {
-                auto boolean_array = std::dynamic_pointer_cast<arrow::BooleanArray>(
-                        _batch->column(column_index));
+                auto boolean_array =
+                        std::static_pointer_cast<arrow::BooleanArray>(_batch->column(column_index));
                 if (boolean_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -360,7 +360,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::UINT8: {
                 auto uint8_array =
-                        std::dynamic_pointer_cast<arrow::UInt8Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::UInt8Array>(_batch->column(column_index));
                 if (uint8_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -372,7 +372,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::INT8: {
                 auto int8_array =
-                        std::dynamic_pointer_cast<arrow::Int8Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Int8Array>(_batch->column(column_index));
                 if (int8_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -384,7 +384,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::UINT16: {
                 auto uint16_array =
-                        std::dynamic_pointer_cast<arrow::UInt16Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::UInt16Array>(_batch->column(column_index));
                 if (uint16_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -396,7 +396,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::INT16: {
                 auto int16_array =
-                        std::dynamic_pointer_cast<arrow::Int16Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Int16Array>(_batch->column(column_index));
                 if (int16_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -407,7 +407,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 break;
             }
             case arrow::Type::type::HALF_FLOAT: {
-                auto half_float_array = std::dynamic_pointer_cast<arrow::HalfFloatArray>(
+                auto half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(
                         _batch->column(column_index));
                 if (half_float_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
@@ -420,7 +420,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::FLOAT: {
                 auto float_array =
-                        std::dynamic_pointer_cast<arrow::FloatArray>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::FloatArray>(_batch->column(column_index));
                 if (float_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -435,7 +435,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::DOUBLE: {
                 auto double_array =
-                        std::dynamic_pointer_cast<arrow::DoubleArray>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::DoubleArray>(_batch->column(column_index));
                 if (double_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -446,7 +446,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 break;
             }
             case arrow::Type::type::TIMESTAMP: {
-                auto ts_array = std::dynamic_pointer_cast<arrow::TimestampArray>(
+                auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(
                         _batch->column(column_index));
                 if (ts_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
@@ -458,8 +458,8 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 break;
             }
             case arrow::Type::type::DECIMAL: {
-                auto decimal_array = std::dynamic_pointer_cast<arrow::DecimalArray>(
-                        _batch->column(column_index));
+                auto decimal_array =
+                        std::static_pointer_cast<arrow::DecimalArray>(_batch->column(column_index));
                 if (decimal_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -471,7 +471,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::DATE32: {
                 auto ts_array =
-                        std::dynamic_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
                 if (ts_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
@@ -487,7 +487,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             }
             case arrow::Type::type::DATE64: {
                 auto ts_array =
-                        std::dynamic_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
+                        std::static_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
                 if (ts_array->IsNull(_current_line_of_batch)) {
                     RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                 } else {
