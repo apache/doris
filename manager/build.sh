@@ -41,6 +41,6 @@ cp manager-bin/* output/
 cp -r dm-agent/src/main/resources/agent output/
 mkdir -p output/agent/lib
 mv dm-agent/target/dm-agent-1.0.0.jar output/agent/lib/dm-agent.jar
-cp -r manager-server/src/main/resources output/
+cp -r manager-server/src/main/resources/static output/
 tar -zcvf output.tar.gz output/
 rm -rf output/
