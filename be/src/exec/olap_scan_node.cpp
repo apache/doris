@@ -372,8 +372,11 @@ Status OlapScanNode::close(RuntimeState* state) {
     _row_batch_added_cv.notify_all();
     _scan_batch_added_cv.notify_all();
 
-    // join transfer thread
-    _transfer_thread->join();
+	// _transfer_thread
+	// _transfer_thread may not be initialized. So need to check it
+	if (_transfer_thread != nullptr) {
+		_transfer_thread->join();
+	}
 
     // clear some row batch in queue
     for (auto row_batch : _materialized_row_batches) {

@@ -35,9 +35,9 @@ This document focuses on how to code Doris through source code.
 
 1. Download Docker Mirror
 
-	`$ docker pull apache/incubator-doris:build-env-1.3.1`
+    `$ docker pull apache/incubator-doris:build-env-1.3.1`
 
-	Check mirror download completed:
+    Check mirror download completed:
 
     ```
     $ docker images
@@ -78,7 +78,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
 2. Running Mirror
 
-	`$ docker run -it apache/incubator-doris:build-env-1.3.1`
+    `$ docker run -it apache/incubator-doris:build-env-1.3.1`
 
     It is recommended to run the container by mounting the local Doris source directory, so that the compiled binary file will be stored in the host machine and will not disappear because the container exits.
 
@@ -90,7 +90,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
 3. Download source code
 
-	After starting the mirror, you should be in the container. The Doris source code can be downloaded from the following command (local source directory mounted is not required):
+    After starting the mirror, you should be in the container. The Doris source code can be downloaded from the following command (local source directory mounted is not required):
 
     ```
     $ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
@@ -104,7 +104,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
     $ sh build.sh
     ```
 
-	After compilation, the output file is in the `output/` directory.
+    After compilation, the output file is in the `output/` directory.
 
 ### Self-compiling Development Environment Mirror
 
@@ -166,13 +166,31 @@ You can try to compile Doris directly in your own Linux environment.
     ```
     $ sh build.sh
     ```
-	After compilation, the output file is in the `output/` directory.
+    After compilation, the output file is in the `output/` directory.
 
 ## FAQ
 
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
     If you encounter the above error, please refer to [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) to modify the cloudera-related repo configuration in `fe/pom.xml`.
+
+2. The third party relies on download connection errors, failures, etc.
+
+     The download links of the third-party libraries that Doris relies on are all in the `thirdparty/vars.sh` file. Over time, some download connections may fail. If you encounter this situation. It can be solved in the following two ways:
+
+     1. Manually modify the `thirdparty/vars.sh` file
+
+         Manually modify the problematic download connection and the corresponding MD5 value.
+
+     2. Use a third-party download warehouse:
+
+         ```
+         export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+         sh build-thirdparty.sh
+         ```
+
+         REPOSITORY_URL contains all third-party library source code packages and their historical versions.
+
 ## Special statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.

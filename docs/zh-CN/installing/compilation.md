@@ -159,6 +159,7 @@ under the License.
    
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
     注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
+
 2. 编译 Doris
 
     ```
@@ -172,6 +173,23 @@ under the License.
 1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
 
     如遇到上述错误，请参照 [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) 修改 `fe/pom.xml` 中 cloudera 相关的仓库配置。
+
+2. 第三方依赖下载连接错误、失效等问题
+
+    Doris 所依赖的第三方库的下载连接都在 `thirdparty/vars.sh` 文件内。随着时间推移，一些下载连接可能会失效。如果遇到这种情况。可以使用如下两种方式解决：
+
+    1. 手动修改 `thirdparty/vars.sh` 文件
+
+        手动修改有问题的下载连接和对应的 MD5 值。
+
+    2. 使用第三方下载仓库：
+
+        ```
+        export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+        sh build-thirdparty.sh
+        ```
+
+        REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
 
 ## 特别声明
 
