@@ -26,11 +26,11 @@ under the License.
 
 # Spark Doris Connector
 
-Spark Doris Connector can support reading data stored in Doris through Spark.
+Spark Doris Connector can support reading data stored in Doris through Spark and writing data to Doris .
 
-- The current version only supports reading data from `Doris`.
-- You can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.
-- Support the completion of data filtering on the `Doris` side to reduce the amount of data transmission.
+- When read data from Doris , you can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.
+- When read data from Doris , support the completion of data filtering on the `Doris` side to reduce the amount of data transmission.
+- When write data to Doris , you can use ` DataFrame`
 
 ## Version Compatibility
 
@@ -84,6 +84,16 @@ val dorisSparkDF = spark.read.format("doris")
   .load()
 
 dorisSparkDF.show(5)
+
+dorisSparkDF.write.format("doris")
+      .option("feHostPort", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+      .option("dbName", "$YOUR_DORIS_DATABASE_NAME")
+      .option("tbName", "$YOUR_DORIS_TABLE_NAME")
+      .option("maxRowCount", "10000")
+      .option("user", "$YOUR_DORIS_USERNAME")
+      .option("password", "$YOUR_DORIS_PASSWORD")
+      .save()
+
 ```
 
 ### RDD
@@ -104,7 +114,7 @@ dorisSparkRDD.collect()
 
 ## Configuration
 
-### General
+###  Read Data from Doris General Configuration
 
 | Key                              | Default Value     | Comment                                                      |
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
@@ -120,7 +130,7 @@ dorisSparkRDD.collect()
 | doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for spark-doris-connector iteration                 |
 | doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
 
-### SQL & Dataframe Configuration
+### SparkSQL & Dataframe Read Data from Doris Configuration
 
 | Key                             | Default Value | Comment                                                      |
 | ------------------------------- | ------------- | ------------------------------------------------------------ |
@@ -128,7 +138,7 @@ dorisSparkRDD.collect()
 | password                        | --            | Doris password                                              |
 | doris.filter.query.in.max.count | 100           | In the predicate pushdown, the maximum number of elements in the in expression value list. If this number is exceeded, the in-expression conditional filtering is processed on the Spark side. |
 
-### RDD Configuration
+### Read Data from Doris through RDD Configuration
 
 | Key                         | Default Value | Comment                                                      |
 | --------------------------- | ------------- | ------------------------------------------------------------ |
@@ -137,9 +147,19 @@ dorisSparkRDD.collect()
 | doris.read.field            | --            | List of column names in the Doris table, separated by commas                  |
 | doris.filter.query          | --            | Filter expression of the query, which is transparently transmitted to Doris. Doris uses this expression to complete source-side data filtering. |
 
+### Write Data to Doris through Dataframe Configuration
+
+| Key                         | Default Value | Comment                                                      |
+| --------------------------- | ------------- | ------------------------------------------------------------ |
+| user                        | --            | Doris username                                   |
+| password                    | --            | Doris password                                            |
+| tbName                      | --            | Doris table identifier, eg, tbl1                                                  |
+| dbName                      | --            | Doris database identifier, eg, db1                                            |
+| feHostPort                  | --            | Doris FE http address, support multiple addresses, separated by commas            |
+| maxRowCount                  | --            | max row number of write buffer                                          |
 
 
-## Doris & Spark Column Type Mapping
+##  Doris & Spark Column Type Mapping of Reading Data from Doris
 
 | Doris Type | Spark Type                       |
 | ---------- | -------------------------------- |

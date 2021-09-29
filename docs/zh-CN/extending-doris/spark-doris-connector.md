@@ -26,11 +26,11 @@ under the License.
 
 # Spark Doris Connector
 
-Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据。
+Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据，也支持通过 Spark 将处理完的数据写入到 Doris。
 
-- 当前版本只支持从`Doris`中读取数据。
-- 可以将`Doris`表映射为`DataFrame`或者`RDD`，推荐使用`DataFrame`。
-- 支持在`Doris`端完成数据过滤，减少数据传输量。
+- 读取Doris数据时，可以将`Doris`表映射为`DataFrame`或者`RDD`，推荐使用`DataFrame`。
+- 读取Doris数据时，支持在`Doris`端完成数据过滤，减少数据传输量。
+- 写出数据到Doris时，支持使用`DataFrame`。
 
 ## 版本兼容
 
@@ -84,6 +84,16 @@ val dorisSparkDF = spark.read.format("doris")
   .load()
 
 dorisSparkDF.show(5)
+
+dorisSparkDF.write.format("doris")
+      .option("feHostPort", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+      .option("dbName", "$YOUR_DORIS_DATABASE_NAME")
+      .option("tbName", "$YOUR_DORIS_TABLE_NAME")
+      .option("maxRowCount", "10000")
+      .option("user", "$YOUR_DORIS_USERNAME")
+      .option("password", "$YOUR_DORIS_PASSWORD")
+      .save()
+
 ```
 
 ### RDD
@@ -104,7 +114,7 @@ dorisSparkRDD.collect()
 
 ## 配置
 
-### 通用配置项
+### 读取Doris数据通用配置项
 
 | Key                              | Default Value     | Comment                                                      |
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
@@ -120,7 +130,7 @@ dorisSparkRDD.collect()
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换Arrow格式到spark-doris-connector迭代所需的RowBatch                 |
 | doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |
 
-### SQL 和 Dataframe 专有配置
+### SparkSQL 和 Dataframe 读取专有配置
 
 | Key                             | Default Value | Comment                                                      |
 | ------------------------------- | ------------- | ------------------------------------------------------------ |
@@ -128,7 +138,7 @@ dorisSparkRDD.collect()
 | password                        | --            | 访问Doris的密码                                              |
 | doris.filter.query.in.max.count | 100           | 谓词下推中，in表达式value列表元素最大数量。超过此数量，则in表达式条件过滤在Spark侧处理。 |
 
-### RDD 专有配置
+### 读取Doris数据为RDD 专有配置
 
 | Key                         | Default Value | Comment                                                      |
 | --------------------------- | ------------- | ------------------------------------------------------------ |
@@ -138,7 +148,20 @@ dorisSparkRDD.collect()
 | doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris。Doris使用此表达式完成源端数据过滤。 |
 
 
-## Doris 和 Spark 列类型映射关系
+### Dataframe 写出专有配置
+
+| Key                         | Default Value | Comment                                                      |
+| --------------------------- | ------------- | ------------------------------------------------------------ |
+| user                        | --            | 访问Doris的用户名                                            |
+| password                    | --            | 访问Doris的密码                                              |
+| tbName                      | --            | 写出的表名                                                   |
+| dbName                      | --            | 写出的数据库名                                                |
+| feHostPort                  | --            | Doris FE http 地址，支持多个地址，使用逗号分隔                   |
+| maxRowCount                  | --            | 缓存中数据最大的行数                                          |
+
+
+
+## 读取Doris数据时Doris 和 Spark 列类型映射关系
 
 | Doris Type | Spark Type                       |
 | ---------- | -------------------------------- |
