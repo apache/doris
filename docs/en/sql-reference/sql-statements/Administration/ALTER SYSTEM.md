@@ -119,7 +119,7 @@ ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 
 9. Modify BE resource tag
 
-ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location": "group_a");
+ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
 
 ## keyword
 AGE,SYSTEM,BACKGROUND,BROKER,FREE
