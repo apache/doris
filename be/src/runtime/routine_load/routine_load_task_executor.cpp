@@ -351,6 +351,7 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
 // for test only
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
+		ctx->ref();
         std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
         bool eof = false;
         std::stringstream ss;
@@ -377,6 +378,9 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             } else {
                 ss << one;
             }
+        }
+        if (ctx->unref()) {
+            delete ctx;
         }
     };
 
