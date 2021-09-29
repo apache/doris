@@ -168,22 +168,19 @@ public class PaloFe {
 
     private static void checkAllPorts() throws IOException {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
-                "Edit log port", "Please change the 'edit_log_port' in fe.conf and try again." +
-                        " But if this is not the first time your start this FE, please DO NOT change it. " +
-                        " You need to find the service that occupies the port and shut it down, and then return the port to Doris.")) {
+                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
-                "Http port", "Please change the 'http_port' in fe.conf and try again. " +
-                        "But you need to make sure that ALL FEs http_port are same.")) {
+                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
-                "Query port", "Please change the 'query_port' in fe.conf and try again.")) {
+                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-                "Rpc port", "Please change the 'rpc_port' in fe.conf and try again.")) {
+                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
