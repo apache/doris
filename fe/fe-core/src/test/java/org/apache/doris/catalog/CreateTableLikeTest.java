@@ -17,11 +17,14 @@
 
 package org.apache.doris.catalog;
 
+import avro.shaded.com.google.common.collect.Lists;
+import org.apache.commons.collections.ListUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -284,8 +287,8 @@ public class CreateTableLikeTest {
                 ")\n" +
                 "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String createTableLikeWithRollupSql1_1 = "create table test.table_like_rollup like test.table_with_rollup with rollup r1,r2";
-        String createTableLikeWithRollupSql1_2 = "create table test.table_like_rollup1 like test.table_with_rollup with rollup all";
+        String createTableLikeWithRollupSql1_1 = "create table test.table_like_rollup like test.table_with_rollup with rollup (r1,r2)";
+        String createTableLikeWithRollupSql1_2 = "create table test.table_like_rollup1 like test.table_with_rollup with rollup";
 
         String newDbName10 = "test";
         String existedDbName10 = "test";
@@ -295,8 +298,8 @@ public class CreateTableLikeTest {
         checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_1, newDbName10, existedDbName10, newTblName10_1, existedTblName10, 2);
         checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSql1_2, newDbName10, existedDbName10, newTblName10_2, existedTblName10, 4);
 
-        String createTableLikeWithRollupSql2_1 = "create table test2.table_like_rollup like test.table_with_rollup with rollup r1,r2";
-        String createTableLikeWithRollupSql2_2 = "create table test2.table_like_rollup1 like test.table_with_rollup with rollup all";
+        String createTableLikeWithRollupSql2_1 = "create table test2.table_like_rollup like test.table_with_rollup with rollup (r1,r2)";
+        String createTableLikeWithRollupSql2_2 = "create table test2.table_like_rollup1 like test.table_with_rollup with rollup";
 
         String newDbName11 = "test2";
         String existedDbName11 = "test";
@@ -355,7 +358,8 @@ public class CreateTableLikeTest {
                 ")\n" +
                 "PROPERTIES(\"replication_num\" = \"1\");";
 
-        String createTableLikeWithRollupSq3 = "create table test.table_like_rollup like test.table_with_rollup with rollup r11";
+        String createTableLikeWithRollupSq3 = "create table test.table_like_rollup like test.table_with_rollup with rollup (r11)";
+
         String newDbName3 = "test";
         String existedDbName3 = "test";
         String newTblName3 = "table_like_rollup";
