@@ -64,6 +64,8 @@ public:
 
     bool check_file_exist() override;
 
+    OLAPStatus load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+
 protected:
     BetaRowset(const TabletSchema* schema, std::string rowset_path,
                RowsetMetaSharedPtr rowset_meta);
@@ -78,7 +80,7 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
-    std::vector<segment_v2::SegmentSharedPtr> _segments;
+    // std::vector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris
