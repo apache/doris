@@ -32,7 +32,7 @@ under the License.
 语法：
 
 ```
-    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name
+    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name [WITH ROLLUP (r1,r2,r3,...)]
 ```
 
 说明:
@@ -52,19 +52,19 @@ under the License.
 
     3. 在test1库下创建一张表结构和table1相同的空表，表名为table2，同时复制table1的r1，r2两个rollup
 
-        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP (r1,r2)
 
     4. 在test1库下创建一张表结构和table1相同的空表，表名为table2，同时复制table1的所有rollup
 
-        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP ALL
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP
 
     5. 在test2库下创建一张表结构和test1.table1相同的空表，表名为table2，同时复制table1的r1，r2两个rollup
 
-        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP (r1,r2)
 
     6. 在test2库下创建一张表结构和test1.table1相同的空表，表名为table2，同时复制table1的所有rollup
 
-        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP ALL
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP
 
     7. 在test1库下创建一张表结构和MySQL外表table1相同的空表，表名为table2
 
