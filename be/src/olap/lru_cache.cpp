@@ -175,7 +175,7 @@ void HandleTable::_resize() {
     _length = new_length;
 }
 
-LRUCache::LRUCache() {
+LRUCache::LRUCache(LRUCacheType type) : _type(type) {
     // Make empty circular linked list
     _lru_normal.next = &_lru_normal;
     _lru_normal.prev = &_lru_normal;
@@ -300,7 +300,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->deleter = deleter;
     e->charge = charge;
     e->key_length = key.size();
-    e->total_size = key.size() + charge;
+    e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : 1);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
@@ -313,7 +313,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
 
         // Free the space following strict LRU policy until enough space
         // is freed or the lru list is empty
-        _evict_from_lru(total_size, &to_remove_head);
+        _evict_from_lru(e->total_size, &to_remove_head);
 
         // insert into the cache
         // note that the cache might get larger than its capacity if not enough
@@ -413,12 +413,14 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, std::shared_ptr<MemTracker> parent)
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
+                                 LRUCacheType type, std::shared_ptr<MemTracker> parent)
         : _name(name), _last_id(1),
         _mem_tracker(MemTracker::CreateTracker(-1, name, parent, true, false, MemTrackerLevel::OVERVIEW)) {
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
-        _shards[s].set_capacity(per_shard);
+        _shards[s] = new LRUCache(type);
+        _shards[s]->set_capacity(per_shard);
     }
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
@@ -433,6 +435,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
+    for (int s = 0; s < kNumShards; s++) {
+        delete _shards[s];
+    }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
     _mem_tracker->Release(_mem_tracker->consumption());
@@ -442,22 +447,22 @@ Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t 
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)].insert(key, hash, value, charge, deleter, priority);
+    return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)].lookup(key, hash);
+    return _shards[_shard(hash)]->lookup(key, hash);
 }
 
 void ShardedLRUCache::release(Handle* handle) {
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
-    _shards[_shard(h->hash)].release(handle);
+    _shards[_shard(h->hash)]->release(handle);
 }
 
 void ShardedLRUCache::erase(const CacheKey& key) {
     const uint32_t hash = _hash_slice(key);
-    _shards[_shard(hash)].erase(key, hash);
+    _shards[_shard(hash)]->erase(key, hash);
 }
 
 void* ShardedLRUCache::value(Handle* handle) {
@@ -476,7 +481,7 @@ uint64_t ShardedLRUCache::new_id() {
 void ShardedLRUCache::prune() {
     int num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
-        num_prune += _shards[s].prune();
+        num_prune += _shards[s]->prune();
     }
     VLOG_DEBUG << "Successfully prune cache, clean " << num_prune << " entries.";
 }
@@ -487,10 +492,10 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
     for (int i = 0; i < kNumShards; i++) {
-        total_capacity += _shards[i].get_capacity();
-        total_usage += _shards[i].get_usage();
-        total_lookup_count += _shards[i].get_lookup_count();
-        total_hit_count += _shards[i].get_hit_count();
+        total_capacity += _shards[i]->get_capacity();
+        total_usage += _shards[i]->get_usage();
+        total_lookup_count += _shards[i]->get_lookup_count();
+        total_hit_count += _shards[i]->get_hit_count();
     }
 
     capacity->set_value(total_capacity);
@@ -504,7 +509,11 @@ void ShardedLRUCache::update_cache_metrics() const {
 }
 
 Cache* new_lru_cache(const std::string& name, size_t capacity, std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, parent_tracker);
+    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE, parent_tracker);
+}
+
+Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type, std::shared_ptr<MemTracker> parent_tracker) {
+    return new ShardedLRUCache(name, capacity, type, parent_tracker);
 }
 
 } // namespace doris
