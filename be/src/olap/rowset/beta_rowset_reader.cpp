@@ -35,7 +35,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
           _rowset(std::move(rowset)),
           _stats(&_owned_stats),
           _parent_tracker(std::move(parent_tracker)) {
-    _rowset->aquire();
+    _rowset->acquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {

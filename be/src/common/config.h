@@ -633,6 +633,8 @@ CONF_mInt32(max_segment_num_per_rowset, "100");
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "5");
 
+CONF_Int32(rowset_cache_capacity, "100");
+
 } // namespace config
 
 } // namespace doris
