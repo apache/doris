@@ -121,5 +121,5 @@ add_library(Olap STATIC
     task/engine_alter_tablet_task.cpp
     olap_snapshot_converter.cpp
     column_vector.cpp
-    segment_cache.cpp
+    segment_loader.cpp
 )

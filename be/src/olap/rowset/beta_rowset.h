@@ -80,7 +80,6 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
-    // std::vector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris

@@ -24,7 +24,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/segment_cache.h"
+#include "olap/segment_loader.h"
 
 namespace doris {
 

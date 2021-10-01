@@ -46,20 +46,7 @@ OLAPStatus BetaRowset::init() {
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> parent) {
-#if 0
-    // Open all segments under the current rowset
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
-        std::shared_ptr<segment_v2::Segment> segment;
-        auto s = segment_v2::Segment::open(seg_path, seg_id, _schema, &segment);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment " << seg_path << " under rowset " << unique_id()
-                         << " : " << s.to_string();
-            return OLAP_ERR_ROWSET_LOAD_FAILED;
-        }
-        _segments.push_back(std::move(segment));
-    }
-#endif
+    // do nothing
     return OLAP_SUCCESS;
 }
 
@@ -125,7 +112,7 @@ OLAPStatus BetaRowset::remove() {
 }
 
 void BetaRowset::do_close() {
-    // _segments.clear();
+    // do nothing
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {

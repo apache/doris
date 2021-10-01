@@ -294,7 +294,6 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
                                 void (*deleter)(const CacheKey& key, void* value),
                                 CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
-    size_t total_size = handle_size + charge;
     LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
     e->deleter = deleter;
@@ -319,7 +318,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
         // note that the cache might get larger than its capacity if not enough
         // space was freed
         auto old = _table.insert(e);
-        _usage += total_size;
+        _usage += e->total_size;
         if (old != nullptr) {
             old->in_cache = false;
             if (_unref(old)) {

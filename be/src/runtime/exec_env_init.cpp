@@ -26,7 +26,7 @@
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
-#include "olap/segment_cache.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "plugin/plugin_mgr.h"
 #include "runtime/broker_mgr.h"
@@ -230,7 +230,7 @@ Status ExecEnv::_init_mem_tracker() {
     LOG(INFO) << "Storage page cache memory limit: " << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
             << ", origin config value: " << config::storage_page_cache_limit;
 
-    SegmentCache::create_global_cache(config::rowset_cache_capacity);
+    SegmentLoader::create_global_instance(config::segment_cache_capacity);
 
     // 4. init other managers
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));

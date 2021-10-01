@@ -93,7 +93,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     read_options.use_page_cache = read_context->use_page_cache;
 
     // load segments
-    RETURN_NOT_OK(SegmentCache::instance()->load_segments(_rowset, &_segment_cache_handle));
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(_rowset, &_segment_cache_handle));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
