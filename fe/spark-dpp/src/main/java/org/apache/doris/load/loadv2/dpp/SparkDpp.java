@@ -187,7 +187,7 @@ public final class SparkDpp implements java.io.Serializable {
                                                              long tableId,
                                                              EtlJobConfig.EtlIndex indexMeta,
                                                              SparkRDDAggregator[] sparkRDDAggregators) throws SparkDppException {
-        // TODO(wb) should deal largint as BigInteger instead of string when using biginteger as key,
+        // TODO(wb) should deal largeint as BigInteger instead of string when using biginteger as key,
         // data type may affect sorting logic
         StructType dstSchema = DppUtils.createDstTableSchema(indexMeta.columns, false, true);
         ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
@@ -379,7 +379,7 @@ public final class SparkDpp implements java.io.Serializable {
                 DecimalParser decimalParser = (DecimalParser) columnParser;
                 BigDecimal srcBigDecimal = (BigDecimal) srcValue;
                 if (srcValue != null && (decimalParser.getMaxValue().compareTo(srcBigDecimal) < 0 || decimalParser.getMinValue().compareTo(srcBigDecimal) > 0)) {
-                    LOG.warn(String.format("decimal value is not valid for defination, column=%s, value=%s,precision=%s,scale=%s",
+                    LOG.warn(String.format("decimal value is not valid for definition, column=%s, value=%s,precision=%s,scale=%s",
                             etlColumn.columnName, srcValue.toString(), srcBigDecimal.precision(), srcBigDecimal.scale()));
                     return false;
                 }
@@ -477,7 +477,7 @@ public final class SparkDpp implements java.io.Serializable {
                         LOG.info("invalid rows contents:" + invalidRows.value());
                     }
                 } else {
-                    // TODO(wb) support lagreint for hash
+                    // TODO(wb) support largeint for hash
                     long hashValue = DppUtils.getHashValue(row, distributeColumns, dstTableSchema);
                     int bucketId = (int) ((hashValue & 0xffffffff) % partitionInfo.partitions.get(pid).bucketNum);
                     long partitionId = partitionInfo.partitions.get(pid).partitionId;
@@ -705,7 +705,7 @@ public final class SparkDpp implements java.io.Serializable {
         }
         int index = 0;
         int lastIndex = 0;
-        // line-begin char and line-end char are considered to be 'delimeter'
+        // line-begin char and line-end char are considered to be 'delimiter'
         List<String> values = new ArrayList<>();
         for (int i = 0 ; i < line.length(); i++, index++) {
             if (line.charAt(index) == sep) {
@@ -746,8 +746,8 @@ public final class SparkDpp implements java.io.Serializable {
                 return srcValue.toString();
             }
         } else {
-            LOG.warn("unsupport partition key:" + srcValue);
-            throw new SparkDppException("unsupport partition key:" + srcValue);
+            LOG.warn("unsupported partition key:" + srcValue);
+            throw new SparkDppException("unsupported partition key:" + srcValue);
         }
     }
 
@@ -886,7 +886,7 @@ public final class SparkDpp implements java.io.Serializable {
         List<ColumnParser> columnParserArrayList = new ArrayList<>();
         for (EtlJobConfig.EtlColumn column : baseIndex.columns) {
             // note(wb): there are three data source for bitmap column
-            // case 1: global dict; need't check
+            // case 1: global dict; needn't check
             // case 2: bitmap hash function; this func is not supported in spark load now, so ignore it here
             // case 3: origin value is a integer value; it should be checked use LongParser
             if (StringUtils.equalsIgnoreCase(column.columnType, "bitmap")) {
@@ -912,7 +912,7 @@ public final class SparkDpp implements java.io.Serializable {
             @Override
             public Iterator<Row> call(Row row) throws Exception {
                 List<Row> result = new ArrayList<>();
-                Set<Integer> columnIndexNeedToRepalceNull = new HashSet<Integer>();
+                Set<Integer> columnIndexNeedToReplaceNull = new HashSet<Integer>();
                 boolean validRow = true;
                 for (int i = 0; i < columnNameArray.length; i++) {
                     EtlJobConfig.EtlColumn column = columnNameArray[i];
@@ -933,7 +933,7 @@ public final class SparkDpp implements java.io.Serializable {
                             LOG.warn("column:" + i + " can not be null. row:" + row.toString());
                             break;
                         } else {
-                            columnIndexNeedToRepalceNull.add(fieldIndex);
+                            columnIndexNeedToReplaceNull.add(fieldIndex);
                         }
                     }
                 }
@@ -943,10 +943,10 @@ public final class SparkDpp implements java.io.Serializable {
                     if (abnormalRowAcc.value() <= 5) {
                         invalidRows.add(row.toString());
                     }
-                } else if (columnIndexNeedToRepalceNull.size() != 0) {
+                } else if (columnIndexNeedToReplaceNull.size() != 0) {
                     Object[] newRow = new Object[row.size()];
                     for (int i = 0; i < row.size(); i++) {
-                        if (columnIndexNeedToRepalceNull.contains(i)) {
+                        if (columnIndexNeedToReplaceNull.contains(i)) {
                             newRow[i] = null;
                         } else {
                             newRow[i] = row.get(i);
@@ -980,7 +980,7 @@ public final class SparkDpp implements java.io.Serializable {
                     }
                 }
 
-                // get key column names and value column names seperately
+                // get key column names and value column names separately
                 List<String> keyColumnNames = new ArrayList<>();
                 List<String> valueColumnNames = new ArrayList<>();
                 for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
