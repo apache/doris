@@ -95,7 +95,7 @@ private:
     std::shared_ptr<ParquetFile> _parquet;
 
     // parquet file reader object
-    std::shared_ptr<::arrow::RecordBatchReader> _rb_batch;
+    std::unique_ptr<::arrow::RecordBatchReader> _rb_batch;
     std::shared_ptr<arrow::RecordBatch> _batch;
     std::unique_ptr<parquet::arrow::FileReader> _reader;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
