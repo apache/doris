@@ -59,12 +59,8 @@ public class CanalSyncJob extends SyncJob {
     protected final static String CANAL_BATCH_SIZE = "canal.batchSize";
     protected final static String CANAL_DEBUG = "canal.debug";
 
-    @SerializedName(value = "ip")
-    private String ip;
-    @SerializedName(value = "port")
-    private int port;
-    @SerializedName(value = "destination")
-    private String destination;
+    @SerializedName(value = "remote")
+    private CanalDestination remote;
     @SerializedName(value = "username")
     private String username;
     @SerializedName(value = "password")
@@ -79,15 +75,16 @@ public class CanalSyncJob extends SyncJob {
     public CanalSyncJob(long id, String jobName, long dbId) {
         super(id, jobName, dbId);
         this.dataSyncJobType = DataSyncJobType.CANAL;
+        this.remote = new CanalDestination("", 0, "");
     }
 
     private void init() throws DdlException {
         CanalConnector connector = CanalConnectors.newSingleConnector(
-                new InetSocketAddress(ip, port), destination, username, password);
+                new InetSocketAddress(remote.getIp(), remote.getPort()), remote.getDestination(), username, password);
         // create channels
         initChannels();
         // create client
-        client = new SyncCanalClient(this, destination, connector, batchSize, debug);
+        client = new SyncCanalClient(this, remote.getDestination(), connector, batchSize, debug);
         // register channels into client
         client.registerChannels(channels);
     }
@@ -129,29 +126,7 @@ public class CanalSyncJob extends SyncJob {
         super.checkAndSetBinlogInfo(binlogDesc);
         Map<String, String> properties = binlogDesc.getProperties();
 
-        // required binlog properties
-        if (!properties.containsKey(CANAL_SERVER_IP)) {
-            throw new DdlException("Missing " + CANAL_SERVER_IP + " property in binlog properties");
-        } else {
-            ip = properties.get(CANAL_SERVER_IP);
-        }
-
-        if (!properties.containsKey(CANAL_SERVER_PORT)) {
-            throw new DdlException("Missing " + CANAL_SERVER_PORT + " property in binlog properties");
-        } else {
-            try {
-                port = Integer.parseInt(properties.get(CANAL_SERVER_PORT));
-            } catch (NumberFormatException e) {
-                throw new DdlException("canal port is not int");
-            }
-        }
-
-        if (!properties.containsKey(CANAL_DESTINATION)) {
-            throw new DdlException("Missing " + CANAL_DESTINATION + " property in binlog properties");
-        } else {
-            destination = properties.get(CANAL_DESTINATION);
-        }
-
+        remote.parse(properties);
         if (!properties.containsKey(CANAL_USERNAME)) {
             throw new DdlException("Missing " + CANAL_USERNAME + " property in binlog properties");
         } else {
@@ -188,7 +163,13 @@ public class CanalSyncJob extends SyncJob {
 
     @Override
     public void execute() throws UserException {
-        LOG.info("try to start canal client. Remote ip: {}, remote port: {}, debug: {}", ip, port, debug);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                .add("remote ip", remote.getIp())
+                .add("remote port", remote.getPort())
+                .add("msg", "Try to start canal client.")
+                .add("debug", debug)
+                .build());
+
         // init
         if (!isInit()) {
             init();
@@ -231,8 +212,8 @@ public class CanalSyncJob extends SyncJob {
     public void pause() throws UserException {
         unprotectedStopClient(JobState.PAUSED);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", ip)
-                .add("remote port", port)
+                .add("remote ip", remote.getIp())
+                .add("remote port", remote.getPort())
                 .add("msg", "Pause canal sync job.")
                 .add("debug", debug)
                 .build());
@@ -242,8 +223,8 @@ public class CanalSyncJob extends SyncJob {
     public void resume() throws UserException {
         updateState(JobState.PENDING, false);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", ip)
-                .add("remote port", port)
+                .add("remote ip", remote.getIp())
+                .add("remote port", remote.getPort())
                 .add("msg", "Resume canal sync job.")
                 .add("debug", debug)
                 .build());
@@ -318,10 +299,14 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String getJobConfig() {
         StringBuilder sb = new StringBuilder();
-        sb.append("address:").append(ip).append(":").append(port).append(",")
-                .append("destination:").append(destination).append(",")
+        sb.append("address:").append(remote.getIp()).append(":").append(remote.getPort()).append(",")
+                .append("destination:").append(remote.getDestination()).append(",")
                 .append("batchSize:").append(batchSize);
         return sb.toString();
+    }
+
+    public CanalDestination getRemote() {
+        return remote;
     }
 
     @Override
