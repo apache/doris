@@ -57,6 +57,7 @@ public class QueryAction extends WebBaseAction {
     // Note: we do not show 'Query ID' column in web page
     private void addFinishedQueryInfo(StringBuilder buffer) {
         buffer.append("<h2>Finished Queries</h2>");
+        buffer.append("<p>You need to set session variable by executing 'set is_report_success=true' before executing the SQL, to view the profile</p>");
         buffer.append("<p>This table lists the latest 100 queries</p>");
         
         List<List<String>> finishedQueries = ProfileManager.getInstance().getAllQueries();
