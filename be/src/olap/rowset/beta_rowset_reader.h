@@ -53,6 +53,8 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
+    RowsetReaderType type() const override { return RowsetReaderType::BETA; }
+
 private:
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;

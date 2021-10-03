@@ -372,11 +372,11 @@ Status OlapScanNode::close(RuntimeState* state) {
     _row_batch_added_cv.notify_all();
     _scan_batch_added_cv.notify_all();
 
-	// _transfer_thread
-	// _transfer_thread may not be initialized. So need to check it
-	if (_transfer_thread != nullptr) {
-		_transfer_thread->join();
-	}
+    // _transfer_thread
+    // _transfer_thread may not be initialized. So need to check it
+    if (_transfer_thread != nullptr) {
+        _transfer_thread->join();
+    }
 
     // clear some row batch in queue
     for (auto row_batch : _materialized_row_batches) {
@@ -621,7 +621,7 @@ Status OlapScanNode::normalize_conjuncts() {
 Status OlapScanNode::build_olap_filters() {
     for (auto& iter : _column_value_ranges) {
         std::vector<TCondition> filters;
-        std::visit([&](auto &&range) { range.to_olap_filter(filters); }, iter.second);
+        std::visit([&](auto&& range) { range.to_olap_filter(filters); }, iter.second);
 
         for (const auto& filter : filters) {
             _olap_filter.push_back(std::move(filter));
@@ -646,7 +646,9 @@ Status OlapScanNode::build_scan_key() {
             break;
         }
 
-        RETURN_IF_ERROR(std::visit([&](auto &&range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); }, iter->second));
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& range) { return _scan_keys.extend_scan_key(range, _max_scan_key_num); },
+                iter->second));
     }
 
     VLOG_CRITICAL << _scan_keys.debug_string();
@@ -978,7 +980,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot,
 
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
-            InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            InPredicate* pred = static_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
             if (!should_push_down_in_predicate(slot, pred)) {
                 continue;
             }
@@ -1061,7 +1063,7 @@ Status OlapScanNode::normalize_not_in_and_not_eq_predicate(SlotDescriptor* slot,
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // 1. Normalize in conjuncts like 'where col not in (v1, v2, v3)'
         if (TExprOpcode::FILTER_NOT_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
-            InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
+            InPredicate* pred = static_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
             if (!should_push_down_in_predicate(slot, pred)) {
                 continue;
             }
