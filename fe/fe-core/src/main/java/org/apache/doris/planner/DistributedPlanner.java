@@ -321,6 +321,7 @@ public class DistributedPlanner {
             node.setChild(1, rightChildFragment.getPlanRoot());
             leftChildFragment.setPlanRoot(node);
             fragments.remove(rightChildFragment);
+            leftChildFragment.setHasColocatePlanNode(true);
             return leftChildFragment;
         } else {
             node.setColocate(false, reason.get(0));
@@ -932,6 +933,7 @@ public class DistributedPlanner {
         } else {
             if (canColocateAgg(node.getAggInfo(), childFragment.getInputDataPartition())) {
                 childFragment.addPlanRoot(node);
+                childFragment.setHasColocatePlanNode(true);
                 return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);
