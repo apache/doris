@@ -51,12 +51,12 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
     我们可以使用以下命令将这6个节点划分成3个资源组：group_a、group_b、group_c：
     
     ```sql
-    alter system modify backend "host1:9050" set ("tag.location": "group_a");
-    alter system modify backend "host2:9050" set ("tag.location": "group_a");
-    alter system modify backend "host3:9050" set ("tag.location": "group_b");
-    alter system modify backend "host4:9050" set ("tag.location": "group_b");
-    alter system modify backend "host5:9050" set ("tag.location": "group_c");
-    alter system modify backend "host6:9050" set ("tag.location": "group_c");
+    alter system modify backend "host1:9050" set ("tag.location" = "group_a");
+    alter system modify backend "host2:9050" set ("tag.location" = "group_a");
+    alter system modify backend "host3:9050" set ("tag.location" = "group_b");
+    alter system modify backend "host4:9050" set ("tag.location" = "group_b");
+    alter system modify backend "host5:9050" set ("tag.location" = "group_c");
+    alter system modify backend "host6:9050" set ("tag.location" = "group_c");
     ```
     
     这里我们将 `host[1-2]` 组成资源组 `group_a`，`host[3-4]` 组成资源组 `group_b`，`host[5-6]` 组成资源组 `group_c`。
@@ -125,9 +125,9 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
     比如我们可以通过以下语句，限制 user1 只能使用 `group_a` 资源组中的节点进行数据查询，user2 只能使用 `group_b` 资源组，而 user3 可以同时使用 3 个资源组：
     
     ```sql
-    set property for 'user1' 'resource_tags.location' : 'group_a';
-    set property for 'user2' 'resource_tags.location' : 'group_b';
-    set property for 'user3' 'resource_tags.location' : 'group_a, group_b, group_c';
+	set property for 'user1' 'resource_tags.location' = 'group_a';
+    set property for 'user2' 'resource_tags.location' = 'group_b';
+    set property for 'user3' 'resource_tags.location' = 'group_a, group_b, group_c';
     ```
     
     设置完成后，user1 在发起对 UserTable 表的查询时，只会访问 `group_a` 资源组内节点上的数据副本，并且查询仅会使用 `group_a` 资源组内的节点计算资源。而 user3 的查询可以使用任意资源组内的副本和计算资源。
@@ -200,7 +200,7 @@ Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从�
     接下来可以通过 `alter system modify backend` 语句进行 BE 的 Tag 设置。以及通过 `alter table` 语句修改表的副本分布策略。示例如下：
     
     ```
-    alter system modify backend "host1:9050, 1212:9050" set ("tag.location": "group_a");
+    alter system modify backend "host1:9050, 1212:9050" set ("tag.location" = "group_a");
     alter table my_table modify partition p1 set ("replica_allocation" = "tag.location.group_a:2");
     ```
 
