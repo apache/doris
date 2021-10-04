@@ -110,7 +110,9 @@ public class StmtRewriter {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString_ = null;
-        if (LOG.isDebugEnabled()) LOG.debug("rewritten stmt: " + result.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rewritten stmt: " + result.toSql());
+        }
         return result;
     }
 
@@ -204,7 +206,7 @@ public class StmtRewriter {
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
-        LOG.debug("Outer query is changed to " + inlineViewRef.tableRefToSql());
+        LOG.debug("Outer query is changed to {}", inlineViewRef.tableRefToSql());
 
         /*
          * Columns which belong to outer query can substitute for output columns of inline view
