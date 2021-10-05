@@ -1018,6 +1018,13 @@ public abstract class Type {
                 || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING)) {
             return Type.STRING;
         }
+
+        // int family type and char family type should cast to char family type
+        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily()) ||
+                (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
+            return t1.isStringType() ?  t1 : t2;
+        }
+
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
             return getAssignmentCompatibleType(t1, t2, false);
         }
