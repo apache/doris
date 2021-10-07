@@ -87,10 +87,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void process() throws UserException, InterruptedException {
+        // update the max slot num of each backend periodically
         updateBackendSlotIfNecessary();
 
+        long start = System.currentTimeMillis();
         // if size of queue is zero, tasks will be submitted by batch
         int idleSlotNum = routineLoadManager.getClusterIdleSlotNum();
+        LOG.info("cmy get slot num cost: {}", (System.currentTimeMillis() - start));
         // scheduler will be blocked when there is no slot for task in cluster
         if (idleSlotNum == 0) {
             Thread.sleep(SLOT_FULL_SLEEP_MS);
@@ -100,6 +103,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         try {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
+            LOG.debug("get routine load task info {} for job {}", routineLoadTaskInfo.id, routineLoadTaskInfo.getJobId());
             if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime() < routineLoadTaskInfo.getTimeoutMs()) {
                 // try to delay scheduling this task for 'timeout', to void too many failure
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
@@ -115,12 +119,18 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         // check if task has been abandoned
-        if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo.getId())) {
+        if (!routineLoadManager.checkTaskInJob(routineLoadTaskInfo)) {
             // task has been abandoned while renew task has been added in queue
             // or database has been deleted
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId())
                              .add("error_msg", "task has been abandoned when scheduling task")
                              .build());
+            return;
+        }
+
+        // check if topic has more data to consume
+        if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
+            needScheduleTasksQueue.put(routineLoadTaskInfo);
             return;
         }
 
@@ -294,3 +304,4 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         return true;
     }
 }
+

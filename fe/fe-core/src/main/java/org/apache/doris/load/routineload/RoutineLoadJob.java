@@ -637,11 +637,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
                 if (routineLoadTaskInfo.getBeId() != -1L) {
                     long beId = routineLoadTaskInfo.getBeId();
-                    if (beIdConcurrentTasksNum.containsKey(beId)) {
-                        beIdConcurrentTasksNum.put(beId, beIdConcurrentTasksNum.get(beId) + 1);
-                    } else {
-                        beIdConcurrentTasksNum.put(beId, 1);
-                    }
+                    beIdConcurrentTasksNum.put(beId, beIdConcurrentTasksNum.getOrDefault(beId, 1));
                 }
             }
             return beIdConcurrentTasksNum;
@@ -1205,7 +1201,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             try {
                 if (!state.isFinalState()) {
                     unprotectUpdateState(JobState.CANCELLED,
-                            new ErrorReason(InternalErrorCode.TABLE_ERR, "table not exist"), false /* not replay */);
+                            new ErrorReason(InternalErrorCode.TABLE_ERR, "table does not exist"), false /* not replay */);
                 }
                 return;
             } finally {
@@ -1213,19 +1209,28 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
         }
 
-        // check if partition has been changed
+        preCheckNeedScheduler();
+
         writeLock();
         try {
             if (unprotectNeedReschedule()) {
                 LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                  .add("msg", "Job need to be rescheduled")
-                                  .build());
+                        .add("msg", "Job need to be rescheduled")
+                        .build());
                 unprotectUpdateProgress();
                 executeNeedSchedule();
             }
         } finally {
             writeUnlock();
         }
+    }
+
+    // Call this before calling unprotectUpdateProgress().
+    // Because unprotectUpdateProgress() is protected by writelock.
+    // So if there are time-consuming operations, they should be done in this method.
+    // (Such as getAllKafkaPartitions() in KafkaRoutineLoad)
+    protected void preCheckNeedScheduler() throws UserException {
+
     }
 
     protected void unprotectUpdateProgress() throws UserException {

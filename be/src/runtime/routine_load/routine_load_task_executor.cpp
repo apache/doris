@@ -126,6 +126,27 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(const PKaf
     return st;
 }
 
+Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+        std::vector<PIntegerPair>* partition_offsets) {
+    CHECK(request.has_kafka_info());
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_latest_offsets_for_partitions(
+            std::vector<int32_t>(request.partition_id_for_latest_offsets().begin(),
+                request.partition_id_for_latest_offsets().end()),
+            partition_offsets);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     std::unique_lock<std::mutex> l(_lock);
     if (_task_map.find(task.id) != _task_map.end()) {

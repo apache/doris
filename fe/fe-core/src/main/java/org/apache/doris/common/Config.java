@@ -1168,7 +1168,7 @@ public class Config extends ConfigBase {
      * not work to avoid OOM.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long metadata_checkpoint_memory_threshold = 60;
+    public static long metadata_checkpoint_memory_threshold = 70;
 
     /**
      * If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent.
