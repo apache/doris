@@ -1288,9 +1288,11 @@ public class StmtExecutor implements ProfileWriter {
                 message = throwable.getMessage();
             }
 
+            txnId = insertStmt.getTransactionId();
             try {
                 context.getCatalog().getLoadManager().recordFinishedLoadJob(
                         label,
+                        txnId,
                         insertStmt.getDb(),
                         insertStmt.getTargetTable().getId(),
                         EtlJobType.INSERT,
@@ -1301,7 +1303,6 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();
             }
-            txnId = insertStmt.getTransactionId();
         }
 
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
