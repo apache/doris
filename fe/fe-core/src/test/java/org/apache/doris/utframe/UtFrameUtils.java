@@ -33,6 +33,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -260,6 +261,17 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             return stmtExecutor.planner();
+        } else {
+            return null;
+        }
+    }
+
+    public static StmtExecutor getSqlStmtExecutor(ConnectContext ctx, String queryStr) throws Exception {
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            return stmtExecutor;
         } else {
             return null;
         }

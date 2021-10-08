@@ -1120,7 +1120,7 @@ public class Coordinator {
 
             int parallelExecInstanceNum = fragment.getParallelExecNum();
             //for ColocateJoin fragment
-            if ((isColocateJoin(fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
+            if ((isColocateFragment(fragment, fragment.getPlanRoot()) && fragmentIdToSeqToAddressMap.containsKey(fragment.getFragmentId())
                     && fragmentIdToSeqToAddressMap.get(fragment.getFragmentId()).size() > 0)) {
                 computeColocateJoinInstanceParam(fragment.getFragmentId(), parallelExecInstanceNum, params);
             } else if (bucketShuffleJoinController.isBucketShuffleJoin(fragment.getFragmentId().asInt())) {
@@ -1204,8 +1204,8 @@ public class Coordinator {
         runtimeFilterMergeInstanceId = uppermostParams.instanceExecParams.get(0).instanceId;
     }
 
-    // One fragment could only have one HashJoinNode
-    private boolean isColocateJoin(PlanNode node) {
+    // If fragment has colocated plan node, it will return true.
+    private boolean isColocateFragment(PlanFragment planFragment, PlanNode node) {
         // TODO(cmy): some internal process, such as broker load task, do not have ConnectContext.
         // Any configurations needed by the Coordinator should be passed in Coordinator initialization.
         // Refine this later.
@@ -1221,6 +1221,10 @@ public class Coordinator {
             return true;
         }
 
+        if (planFragment.hasColocatePlanNode()) {
+            return true;
+        }
+
         if (node instanceof HashJoinNode) {
             HashJoinNode joinNode = (HashJoinNode) node;
             if (joinNode.isColocate()) {
@@ -1230,7 +1234,7 @@ public class Coordinator {
         }
 
         for (PlanNode childNode : node.getChildren()) {
-            if (isColocateJoin(childNode)) {
+            if (isColocateFragment(planFragment, childNode)) {
                 return true;
             }
         }
@@ -1356,7 +1360,7 @@ public class Coordinator {
             scanNodeIds.add(scanNode.getId().asInt());
 
             FragmentScanRangeAssignment assignment = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
-            boolean fragmentContainsColocateJoin = isColocateJoin(scanNode.getFragment().getPlanRoot());
+            boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(), scanNode.getFragment().getPlanRoot());
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController.isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
 
             // A fragment may contain both colocate join and bucket shuffle join

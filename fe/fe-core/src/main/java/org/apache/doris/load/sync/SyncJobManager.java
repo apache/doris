@@ -28,6 +28,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.sync.canal.CanalDestination;
+import org.apache.doris.load.sync.canal.CanalSyncJob;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -65,6 +67,7 @@ public class SyncJobManager implements Writable {
         SyncJob syncJob = SyncJob.fromStmt(jobId, stmt);
         writeLock();
         try {
+            checkDuplicateRemote(syncJob);
             unprotectedAddSyncJob(syncJob);
             Catalog.getCurrentCatalog().getEditLog().logCreateSyncJob(syncJob);
         } finally {
@@ -76,6 +79,19 @@ public class SyncJobManager implements Writable {
                 .add("config", syncJob.getJobConfig())
                 .add("msg", "add sync job.")
                 .build());
+    }
+
+    private void checkDuplicateRemote(SyncJob syncJob) throws DdlException {
+        if (syncJob.getJobType() == DataSyncJobType.CANAL) {
+            CanalDestination remote = ((CanalSyncJob) syncJob).getRemote();
+            List<SyncJob> unCompletedJobs = idToSyncJob.values().stream().filter(job -> !job.isCompleted())
+                    .collect(Collectors.toList());
+            for (SyncJob job : unCompletedJobs) {
+                if (job instanceof CanalSyncJob && ((CanalSyncJob) job).getRemote().equals(remote)) {
+                    throw new DdlException("Remote Canal instance already exists. conflict destination: " + remote);
+                }
+            }
+        }
     }
 
     private void unprotectedAddSyncJob(SyncJob syncJob) {

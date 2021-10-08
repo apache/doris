@@ -123,7 +123,7 @@ under the License.
 
     9. 修改 BE 的资源标签
 
-        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location": "group_a");
+        ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
         
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE

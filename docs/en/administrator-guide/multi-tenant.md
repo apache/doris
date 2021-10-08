@@ -51,12 +51,12 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     We can use the following command to divide these 6 nodes into 3 resource groups: group_a, group_b, group_c:
     
     ```sql
-    alter system modify backend "host1:9050" set ("tag.location": "group_a");
-    alter system modify backend "host2:9050" set ("tag.location": "group_a");
-    alter system modify backend "host3:9050" set ("tag.location": "group_b");
-    alter system modify backend "host4:9050" set ("tag.location": "group_b");
-    alter system modify backend "host5:9050" set ("tag.location": "group_c");
-    alter system modify backend "host6:9050" set ("tag.location": "group_c");
+    alter system modify backend "host1:9050" set ("tag.location" = "group_a");
+    alter system modify backend "host2:9050" set ("tag.location" = "group_a");
+    alter system modify backend "host3:9050" set ("tag.location" = "group_b");
+    alter system modify backend "host4:9050" set ("tag.location" = "group_b");
+    alter system modify backend "host5:9050" set ("tag.location" = "group_c");
+    alter system modify backend "host6:9050" set ("tag.location" = "group_c");
     ```
     
     Here we combine `host[1-2]` to form a resource group `group_a`, `host[3-4]` to form a resource group `group_b`, and `host[5-6]` to form a resource group `group_c`.
@@ -125,9 +125,9 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     For example, we can use the following statement to restrict user1 to only use nodes in the `group_a` resource group for data query, user2 can only use the `group_b` resource group, and user3 can use 3 resource groups at the same time:
     
     ```sql
-    set property for'user1''resource_tags.location':'group_a';
-    set property for'user2''resource_tags.location':'group_b';
-    set property for'user3''resource_tags.location':'group_a, group_b, group_c';
+    set property for'user1''resource_tags.location' = 'group_a';
+    set property for'user2''resource_tags.location' = 'group_b';
+    set property for'user3''resource_tags.location' = 'group_a, group_b, group_c';
     ```
     
     After the setting is complete, when user1 initiates a query on the UserTable table, it will only access the data copy on the nodes in the `group_a` resource group, and the query will only use the node computing resources in the `group_a` resource group. The query of user3 can use copies and computing resources in any resource group.
@@ -200,7 +200,7 @@ Here we give an example of the steps to start using the resource division functi
     Next, you can use the `alter system modify backend` statement to set the BE Tag. And through the `alter table` statement to modify the copy distribution strategy of the table. Examples are as follows:
     
     ```
-    alter system modify backend "host1:9050, 1212:9050" set ("tag.location": "group_a");
+    alter system modify backend "host1:9050, 1212:9050" set ("tag.location" = "group_a");
     alter table my_table modify partition p1 set ("replica_allocation" = "tag.location.group_a:2");
     ```
 
