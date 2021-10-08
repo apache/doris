@@ -146,7 +146,7 @@ You can see that the current `mv_test` table has three materialized views: mv\_1
 
 ### Delete materialized view
 
-If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commend:
+If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
 
 The specific syntax can be viewed through the following command:
 
