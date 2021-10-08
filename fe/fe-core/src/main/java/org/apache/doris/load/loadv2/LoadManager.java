@@ -260,9 +260,11 @@ public class LoadManager implements Writable{
             return;
         }
         addLoadJob(loadJob);
-        // add callback before txn created, because callback will be performed on replay without txn begin
+        // add callback before txn if load job is uncompleted, because callback will be performed on replay without txn begin
         // register txn state listener
-        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+        if (!loadJob.isCompleted()) {
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(loadJob);
+        }
     }
 
     private void addLoadJob(LoadJob loadJob) {
@@ -278,7 +280,7 @@ public class LoadManager implements Writable{
         labelToLoadJobs.get(loadJob.getLabel()).add(loadJob);
     }
 
-    public void recordFinishedLoadJob(String label, String dbName, long tableId, EtlJobType jobType,
+    public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
             long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
@@ -287,7 +289,7 @@ public class LoadManager implements Writable{
         LoadJob loadJob;
         switch (jobType) {
             case INSERT:
-                loadJob = new InsertLoadJob(label, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
+                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg, trackingUrl);
                 break;
             default:
                 return;
