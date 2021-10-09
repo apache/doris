@@ -3017,7 +3017,7 @@ public class Catalog {
         String tableName = stmt.getTableName();
 
         // check if db exists
-        Database db = this.getDbOrDdlException(stmt.getDbName());
+        Database db = this.getDbOrDdlException(dbName);
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
