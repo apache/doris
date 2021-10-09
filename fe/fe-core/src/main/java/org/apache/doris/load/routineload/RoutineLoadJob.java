@@ -1209,7 +1209,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
         }
 
-        preCheckNeedScheduler();
+        preCheckNeedSchedule();
 
         writeLock();
         try {
@@ -1229,7 +1229,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // Because unprotectUpdateProgress() is protected by writelock.
     // So if there are time-consuming operations, they should be done in this method.
     // (Such as getAllKafkaPartitions() in KafkaRoutineLoad)
-    protected void preCheckNeedScheduler() throws UserException {
+    protected void preCheckNeedSchedule() throws UserException {
 
     }
 

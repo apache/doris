@@ -290,7 +290,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    protected void preCheckNeedScheduler() throws UserException {
+    protected void preCheckNeedSchedule() throws UserException {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
