@@ -19,6 +19,7 @@ package org.apache.doris.spark.sql
 
 import org.apache.doris.spark.DorisStreamLoad
 import org.apache.doris.spark.cfg.{ConfigurationOptions, SparkSettings}
+import org.apache.doris.spark.sql.DorisSourceProvider.SHORT_NAME
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.sources.v2.writer.streaming.StreamWriter
@@ -35,7 +36,7 @@ import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.util.control.Breaks
 
 private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with StreamWriteSupport with Logging {
-  override def shortName(): String = "doris"
+  override def shortName(): String = SHORT_NAME
 
   override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation = {
     new DorisRelation(sqlContext, Utils.params(parameters, log))
@@ -128,4 +129,8 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     sparkSettings.merge(Utils.params(dataSourceOptions.asMap().toMap, log).asJava)
     new DorisStreamWriter(sparkSettings)
   }
+}
+
+object DorisSourceProvider {
+  val SHORT_NAME: String = "doris"
 }
