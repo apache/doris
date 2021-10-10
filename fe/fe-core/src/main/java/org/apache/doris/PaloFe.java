@@ -162,7 +162,6 @@ public class PaloFe {
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            return;
         }
     }
 
