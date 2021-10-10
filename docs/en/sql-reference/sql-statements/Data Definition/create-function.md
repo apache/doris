@@ -47,8 +47,8 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 > 
 > `Function_name`: To create the name of the function, you can include the name of the database. For example: `db1.my_func'.
 >
-> `arg_type`: The parameter type of the function is the same as the type defined at the time of table building. Variable-length parameters can be represented by `,...`. If it is a variable-length type, the type of the variable-length part of the parameters is the same as the last non-variable-length parameter type.
-> **NOTICE**: `ALIAS FUNCTION` variable-length parameters are not supported, and there is at least one parameter.
+> `arg_type`: The parameter type of the function is the same as the type defined at the time of table building. Variable-length parameters can be represented by `,...`. If it is a variable-length type, the type of the variable-length part of the parameters is the same as the last non-variable-length parameter type.  
+> **NOTICE**: `ALIAS FUNCTION` variable-length parameters are not supported, and there is at least one parameter. In particular, the type `ALL` refers to any data type and can only be used for `ALIAS FUNCTION`.
 > 
 > `ret_type`: Required for creating a new function. This parameter is not required if you are aliasing an existing function.
 >
@@ -130,8 +130,13 @@ If the `function_name` contains the database name, the custom function will be c
 5. Create a custom alias function
 
     ```
+    -- create a custom functional alias function
     CREATE ALIAS FUNCTION id_masking(INT) WITH PARAMETER(id) 
         AS CONCAT(LEFT(id, 3), '****', RIGHT(id, 4));
+
+    -- create a custom cast alias function
+    CREATE ALIAS FUNCTION decimal(ALL, INT, INT) WITH PARAMETER(col, precision, scale) 
+        AS CAST(col AS decimal(precision, scale));
     ```
 
 ## keyword
