@@ -100,7 +100,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 * `dynamic_partition.start`
 
     The starting offset of the dynamic partition, usually a negative number. Depending on the `time_unit` attribute, based on the current day (week / month), the partitions with a partition range before this offset will be deleted. If not filled, the default is `-2147483648`, that is, the history partition will not be  deleted.
-    
+
 * `dynamic_partition.end`
 
     The end offset of the dynamic partition, usually a positive number. According to the difference of the `time_unit` attribute, the partition of the corresponding range is created in advance based on the current day (week / month).
@@ -139,8 +139,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Specify how many of the latest partitions are hot partitions. For hot partition, the system will automatically set its `storage_medium` parameter to SSD, and set `storage_cooldown_time`.
 
-    Let us give an example. Suppose today is 2021-05-20, partition by day, and the properties of dynamic partition are set to: hot_partition_num=2, end=3, start=-3. Then the system will automatically create the following partitions, and set the `storage_medium` and `storage_cooldown_time` properties:
+    `hot_partition_num` is all partitions in the previous n days and in the future.
 
+    
+    Let us give an example. Suppose today is 2021-05-20, partition by day, and the properties of dynamic partition are set to: hot_partition_num=2, end=3, start=-3. Then the system will automatically create the following partitions, and set the `storage_medium` and `storage_cooldown_time` properties:
+    
     ```
     p20210517: ["2021-05-17", "2021-05-18") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
     p20210518: ["2021-05-18", "2021-05-19") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
@@ -150,6 +153,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     p20210522: ["2021-05-22", "2021-05-23") storage_medium=SSD storage_cooldown_time=2021-05-24 00:00:00
     p20210523: ["2021-05-23", "2021-05-24") storage_medium=SSD storage_cooldown_time=2021-05-25 00:00:00
     ```
+
 
 * `dynamic_partition.reserved_history_periods`
 
@@ -176,6 +180,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
     ```
 
     Otherwise, every `[...,...]` in `reserved_history_periods` is a couple of properties, and they should be set at the same time. And the first date can't be larger than the second one.
+
 
 #### Create History Partition Rules
 
@@ -395,7 +400,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 +-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+-------------------------+
 7 rows in set (0.02 sec)
 ```
-    
+
 * LastUpdateTime: The last time of modifying dynamic partition properties 
 * LastSchedulerTime: The last time of performing dynamic partition scheduling
 * State: The state of the last execution of dynamic partition scheduling
@@ -455,5 +460,5 @@ When dynamic partitioning feature is disabled, Doris will no longer manage parti
 1. After creating the dynamic partition table, it prompts ```Could not create table with dynamic partition when fe config dynamic_partition_enable is false```
 
          Because the main switch of dynamic partition, that is, the configuration of FE ```dynamic_partition_enable``` is false, the dynamic partition table cannot be created.
-
+         
          At this time, please modify the FE configuration file, add a line ```dynamic_partition_enable=true```, and restart FE. Or execute the command ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") to turn on the dynamic partition switch.

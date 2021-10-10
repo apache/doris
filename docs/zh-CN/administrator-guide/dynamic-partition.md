@@ -130,15 +130,17 @@ under the License.
     当不指定 `start` 属性时，该参数不生效。
 
 * `dynamic_partition.history_partition_num`
-   
+  
    当 `create_history_partition` 为 `true` 时，该参数用于指定创建历史分区数量。默认值为 -1， 即未设置。
 
 * `dynamic_partition.hot_partition_num`
 
     指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。
 
-    我们举例说明。假设今天是 2021-05-20，按天分区，动态分区的属性设置为：hot_partition_num=2, end=3, start=-3。则系统会自动创建以下分区，并且设置 `storage_medium` 和 `storage_cooldown_time` 参数：
+    `hot_partition_num` 是往前 n 天和未来所有分区
 
+    我们举例说明。假设今天是 2021-05-20，按天分区，动态分区的属性设置为：hot_partition_num=2, end=3, start=-3。则系统会自动创建以下分区，并且设置 `storage_medium` 和 `storage_cooldown_time` 参数：
+    
     ```
     p20210517：["2021-05-17", "2021-05-18") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
     p20210518：["2021-05-18", "2021-05-19") storage_medium=HDD storage_cooldown_time=9999-12-31 23:59:59
@@ -231,7 +233,7 @@ under the License.
     ```
 
 ### 注意事项 
- 
+
 动态分区使用过程中，如果因为一些意外情况导致 `dynamic_partition.start` 和 `dynamic_partition.end` 之间的某些分区丢失，那么当前时间与 `dynamic_partition.end` 之间的丢失分区会被重新创建，`dynamic_partition.start`与当前时间之间的丢失分区不会重新创建。
     
 ## 示例
@@ -394,7 +396,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 +-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+-------------------------+
 7 rows in set (0.02 sec)
 ```
-    
+
 * LastUpdateTime: 最后一次修改动态分区属性的时间 
 * LastSchedulerTime:   最后一次执行动态分区调度的时间
 * State: 最后一次执行动态分区调度的状态
