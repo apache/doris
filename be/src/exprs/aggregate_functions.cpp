@@ -1112,7 +1112,7 @@ void AggregateFunctions::hll_update(FunctionContext* ctx, const T& src, StringVa
     if (hash_value != 0) {
         int idx = hash_value % dst->len;
         uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
-        dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);
+        dst->ptr[idx] = (dst->ptr[idx] < first_one_bit ? first_one_bit : dst->ptr[idx]);
     }
 }
 
@@ -1122,8 +1122,10 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
 
+    auto dp = dst->ptr;
+    auto sp = src.ptr;
     for (int i = 0; i < src.len; ++i) {
-        dst->ptr[i] = std::max(dst->ptr[i], src.ptr[i]);
+        dp[i] = (dp[i] < sp[i] ? sp[i] : dp[i]);
     }
 }
 
