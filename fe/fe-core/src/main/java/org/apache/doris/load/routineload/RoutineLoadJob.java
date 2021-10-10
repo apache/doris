@@ -637,7 +637,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadTaskInfoList) {
                 if (routineLoadTaskInfo.getBeId() != -1L) {
                     long beId = routineLoadTaskInfo.getBeId();
-                    beIdConcurrentTasksNum.put(beId, beIdConcurrentTasksNum.getOrDefault(beId, 1));
+                    beIdConcurrentTasksNum.put(beId, beIdConcurrentTasksNum.getOrDefault(beId, 0) + 1);
                 }
             }
             return beIdConcurrentTasksNum;
