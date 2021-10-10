@@ -17,8 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.Objects;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -85,6 +90,16 @@ public class ScalarType extends Type {
     @SerializedName(value = "scale")
     private int scale;
 
+    // Only used for alias function decimal
+    @SerializedName(value = "precisionStr")
+    private String precisionStr;
+    // Only used for alias function decimal
+    @SerializedName(value = "scaleStr")
+    private String scaleStr;
+    // Only used for alias function char/varchar
+    @SerializedName(value = "lenStr")
+    private String lenStr;
+
     protected ScalarType(PrimitiveType type) {
         this.type = type;
     }
@@ -144,6 +159,8 @@ public class ScalarType extends Type {
                 return DEFAULT_DECIMALV2;
             case LARGEINT:
                 return LARGEINT;
+            case ALL:
+                return ALL;
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false);
@@ -207,6 +224,12 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createCharType(String lenStr) {
+        ScalarType type = new ScalarType(PrimitiveType.CHAR);
+        type.lenStr = lenStr;
+        return type;
+    }
+
     public static ScalarType createChar(int len) {
         ScalarType type = new ScalarType(PrimitiveType.CHAR);
         type.len = len;
@@ -230,6 +253,20 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createDecimalV2Type(String precisionStr) {
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = null;
+        return type;
+    }
+
+    public static ScalarType createDecimalV2Type(String precisionStr, String scaleStr) {
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        type.precisionStr = precisionStr;
+        type.scaleStr = scaleStr;
+        return type;
+    }
+
     public static ScalarType createDecimalV2TypeInternal(int precision, int scale) {
         ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
         type.precision = Math.min(precision, MAX_PRECISION);
@@ -241,6 +278,13 @@ public class ScalarType extends Type {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
         type.len = len;
+        return type;
+    }
+
+    public static ScalarType createVarcharType(String lenStr) {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
+        type.lenStr = lenStr;
         return type;
     }
 
@@ -296,13 +340,27 @@ public class ScalarType extends Type {
         StringBuilder stringBuilder = new StringBuilder();
         switch (type) {
             case CHAR:
-                stringBuilder.append("char").append("(").append(len).append(")");
+                if (Strings.isNullOrEmpty(lenStr)) {
+                    stringBuilder.append("char").append("(").append(len).append(")");
+                } else {
+                    stringBuilder.append("char").append("(`").append(lenStr).append("`)");
+                }
                 break;
             case VARCHAR:
-                stringBuilder.append("varchar").append("(").append(len).append(")");
+                if (Strings.isNullOrEmpty(lenStr)) {
+                    stringBuilder.append("varchar").append("(").append(len).append(")");
+                } else {
+                    stringBuilder.append("varchar").append("(`").append(lenStr).append("`)");
+                }
                 break;
             case DECIMALV2:
-                stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
+                if (Strings.isNullOrEmpty(precisionStr)) {
+                    stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
+                } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
+                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`, `").append(scaleStr).append("`)");
+                } else {
+                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
+                }
                 break;
             case BOOLEAN:
                 return "boolean";
@@ -392,6 +450,18 @@ public class ScalarType extends Type {
     // add scalar infix to override with getPrecision
     public int getScalarScale() { return scale; }
     public int getScalarPrecision() { return precision; }
+
+    public String getScalarPrecisionStr() {
+        return precisionStr;
+    }
+
+    public String getScalarScaleStr() {
+        return scaleStr;
+    }
+
+    public String getLenStr() {
+        return lenStr;
+    }
 
     @Override
     public boolean isWildcardDecimal() {
@@ -606,6 +676,11 @@ public class ScalarType extends Type {
             return INVALID;
         }
 
+        // for cast all type
+        if (t1.type == PrimitiveType.ALL || t2.type == PrimitiveType.ALL) {
+            return Type.ALL;
+        }
+
         if (t1.isStringType() || t2.isStringType()) {
             if (t1.type == PrimitiveType.STRING || t2.type == PrimitiveType.STRING) {
                 return createStringType();
@@ -707,5 +782,15 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    public static ScalarType read(DataInput input) throws IOException {
+        String json = Text.readString(input);
+        return GsonUtils.GSON.fromJson(json, ScalarType.class);
     }
 }
