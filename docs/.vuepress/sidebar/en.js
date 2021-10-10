@@ -218,7 +218,8 @@ module.exports = [
     children: [
       "fe-load-balance",
       "systemd",
-      "samples"
+      "samples",
+      "datax-doris-writer"
     ],
   },
   {
