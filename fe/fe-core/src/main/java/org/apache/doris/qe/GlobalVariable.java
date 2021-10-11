@@ -74,7 +74,7 @@ public final class GlobalVariable {
     public volatile static long queryCacheSize = 1048576;
 
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE, flag = VariableMgr.GLOBAL)
-    public volatile static String defaultRowsetType = "alpha";
+    public volatile static String defaultRowsetType = "beta";
 
     // add performance schema to support MYSQL JDBC 8.0.16 or later versions.
     @VariableMgr.VarAttr(name = PERFORMANCE_SCHEMA, flag = VariableMgr.READ_ONLY)
