@@ -46,7 +46,8 @@ OLAPStatus BetaRowset::init() {
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> parent) {
-    // do nothing
+    // do nothing.
+    // the segments in this rowset will be loaded by calling load_segments() explicitly.
     return OLAP_SUCCESS;
 }
 
@@ -112,7 +113,7 @@ OLAPStatus BetaRowset::remove() {
 }
 
 void BetaRowset::do_close() {
-    // do nothing
+    // do nothing.
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {

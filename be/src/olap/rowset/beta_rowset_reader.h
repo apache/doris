@@ -71,6 +71,8 @@ private:
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
 
+    // make sure this handle is initialized and valid before
+    // reading data.
     SegmentCacheHandle _segment_cache_handle;
 };
 
