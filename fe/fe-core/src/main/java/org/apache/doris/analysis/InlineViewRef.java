@@ -423,23 +423,17 @@ public class InlineViewRef extends TableRef {
         // This is needed for view compatibility between Impala and Hive.
         String aliasSql = null;
         String alias = getExplicitAlias();
-        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
-
-        StringBuilder sb = new StringBuilder();
-        if (view != null) {
-            // When it is a local view, it does not need to be expanded into a statement,
-            // because toSql function already contains `with` statement
-            if (view.isLocalView()) {
-                return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
-            }
-
-            sb.append("(")
-                    .append(view.getInlineViewDef())
-                    .append(")")
-                    .append(aliasSql == null ? "" : " " + aliasSql);
-            return sb.toString();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
         }
 
+        if (view != null) {
+            // FIXME: this may result in a sql cache problem
+            // See pr #6736 and issue #6735
+            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+        }
+
+        StringBuilder sb = new StringBuilder();
         sb.append("(")
                 .append(queryStmt.toSql())
                 .append(") ")
