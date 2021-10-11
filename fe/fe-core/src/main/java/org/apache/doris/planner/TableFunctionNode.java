@@ -20,45 +20,32 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LateralViewRef;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TTableFunctionNode;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-
-import java.util.List;
-
 public class TableFunctionNode extends PlanNode {
 
-    private List<LateralViewRef> lateralViewRefList;
+    private LateralViewRef lateralViewRef;
 
-    private List<FunctionCallExpr> fnCallExprList;
-    private List<TupleId> inputTupleIds;
+    private FunctionCallExpr fnCallExpr;
 
-    protected TableFunctionNode(PlanNodeId id, PlanNode inputScanNode, List<LateralViewRef> lateralViewRefList) {
+    protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, LateralViewRef lateralViewRef) {
         super(id, "TABLE FUNCTION NODE");
-        this.inputTupleIds = inputScanNode.getTupleIds();
-        tupleIds.addAll(inputScanNode.getTupleIds());
-        tblRefIds.addAll(inputScanNode.getTupleIds());
-        for (LateralViewRef lateralViewRef : lateralViewRefList) {
-            tupleIds.add(lateralViewRef.getDesc().getId());
-            tblRefIds.add(lateralViewRef.getDesc().getId());
-        }
-        children.add(inputScanNode);
-        this.lateralViewRefList = lateralViewRefList;
+        tupleIds.addAll(inputNode.getTupleIds());
+        tblRefIds.addAll(inputNode.getTupleIds());
+        tupleIds.add(lateralViewRef.getDesc().getId());
+        tblRefIds.add(lateralViewRef.getDesc().getId());
+        children.add(inputNode);
+        this.lateralViewRef = lateralViewRef;
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        fnCallExprList = Lists.newArrayList();
-        for (LateralViewRef lateralViewRef: lateralViewRefList) {
-            fnCallExprList.add(lateralViewRef.getFnExpr());
-        }
+        fnCallExpr = lateralViewRef.getFnExpr();
         computeStats(analyzer);
     }
 
@@ -72,12 +59,11 @@ public class TableFunctionNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "table function: ").append(getExplainString(fnCallExprList) + "\n");
+        output.append(prefix + "table function: ").append(fnCallExpr.toSql() + "\n");
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
 
-        output.append(prefix + "input tuple ids: ").append(Joiner.on(",").join(inputTupleIds) + "\n");
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
                     getExplainString(conjuncts)).append("\n");
@@ -90,11 +76,6 @@ public class TableFunctionNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_FUNCTION_NODE;
         msg.table_function_node = new TTableFunctionNode();
-        for (FunctionCallExpr functionCallExpr : fnCallExprList) {
-            msg.table_function_node.addToFnCallExprList(functionCallExpr.treeToThrift());
-        }
-        for (TupleId tupleId : inputTupleIds) {
-            msg.table_function_node.addToInputTupleIds(tupleId.asInt());
-        }
+        msg.table_function_node.setFnCallExpr(fnCallExpr.treeToThrift());
     }
 }

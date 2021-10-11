@@ -1873,15 +1873,18 @@ public class SingleNodePlanner {
         throw new UserException("unknown TableRef node");
     }
 
-    private TableFunctionNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,
+    private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,
                                                       List<LateralViewRef> lateralViewRefs)
             throws UserException {
         Preconditions.checkNotNull(lateralViewRefs);
         Preconditions.checkState(lateralViewRefs.size() > 0);
-        TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
-                lateralViewRefs);
-        tableFunctionNode.init(analyzer);
-        return tableFunctionNode;
+        for (LateralViewRef lateralViewRef: lateralViewRefs) {
+            TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
+                    lateralViewRef);
+            tableFunctionNode.init(analyzer);
+            inputNode = tableFunctionNode;
+        }
+        return inputNode;
     }
 
     /**

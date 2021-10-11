@@ -66,7 +66,6 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -82,7 +81,6 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`k1`"));
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -102,7 +100,6 @@ public class TableFunctionPlanTest {
         // table function node
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -120,7 +117,6 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
         Assert.assertTrue(explainString.contains("PREDICATES: `e1` = '1'"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
@@ -137,7 +133,6 @@ public class TableFunctionPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
         Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e1, type=VARCHAR(*)}"));
@@ -154,10 +149,12 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1, e2 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " lateral view explode_split(k2, \",\") tmp2 as e2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ','), explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("input tuple ids: 0"));
+        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
         Assert.assertTrue(explainString.contains("tuple ids: 0 1 2"));
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
         // lateral view 2 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, type=VARCHAR(*)}"));
