@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -38,6 +39,7 @@ import org.junit.rules.ExpectedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -752,51 +754,5 @@ public class SelectStmtTest {
         stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM " +
                 "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
-    }
-
-    @Test
-    public void testViewConvertFinalSql() throws Exception {
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        dorisAssert.useDatabase("db1");
-        String testView1 = "CREATE VIEW `view1` as (select t1.k1, t1.k2 from db1.tbl1 t1)";
-        dorisAssert.withView(testView1);
-
-        String sql1 = "select * from db1.view1;";
-        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
-        stmt1.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt1.toSql().contains("FROM " +
-                "(SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1)"));
-
-        String sql2 =
-                "select \n" +
-                "  t.k1 \n" +
-                "from (\n" +
-                "  select v1.k1 from db1.view1 v1\n" +
-                ") t";
-        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
-        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt2.toSql().contains("FROM " +
-                "(SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) v1"));
-
-        // WITH statement contains view, that is, localView contains normal view
-        String sql3 =
-                "with\n" +
-                "    v1 as (select t1.k1 from db1.view1 t1),\n" +
-                "    v2 as (select t2.k1 from db1.view1 t2)\n" +
-                "select\n" +
-                "  t.k1\n" +
-                "from (\n" +
-                "  select v1.k1 as k1 from v1\n" +
-                "  union\n" +
-                "  select v2.k1 as k1 from v2\n" +
-                ") t";
-        SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
-        stmt3.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        System.out.println(stmt3.toSql());
-        Assert.assertTrue(stmt3.toSql().contains("WITH " +
-                "v1 AS (SELECT `t1`.`k1` AS `k1` FROM (SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) t1)," +
-                "v2 AS (SELECT `t2`.`k1` AS `k1` FROM (SELECT `t1`.`k1` AS `k1`, `t1`.`k2` AS `k2` FROM `default_cluster:db1`.`tbl1` t1) t2)"));
-
-        dorisAssert.dropView("view1");
     }
 }

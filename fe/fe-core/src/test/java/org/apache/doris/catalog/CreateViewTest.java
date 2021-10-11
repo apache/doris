@@ -115,4 +115,18 @@ public class CreateViewTest {
         Assert.assertTrue(view5.getDdlSql().contains("hour") && view5.getDdlSql().contains("now")
                 && view5.getDdlSql().contains("curdate"));
     }
+
+    @Test
+    public void testNestedViews() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv1 as select * from test.tbl1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv2 as select * from test.nv1;"));
+
+        String sql = "select * from test.nv2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("OlapScanNode"));
+    }
 }
