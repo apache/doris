@@ -49,12 +49,12 @@ class Cache;
 class CacheKey;
 
 enum LRUCacheType {
-    SIZE,
-    NUMBER
+    SIZE, // The capacity of cache is based on the size of cache entry.
+    NUMBER  // The capacity of cache is based on the number of cache entry.
 };
 
-// Create a new cache with a specified name and a fixed size capacity.  This implementation
-// of Cache uses a least-recently-used eviction policy.
+// Create a new cache with a specified name and a fixed SIZE capacity.
+// This implementation of Cache uses a least-recently-used eviction policy.
 extern Cache* new_lru_cache(const std::string& name, size_t capacity,
         std::shared_ptr<MemTracker> parent_tracekr = nullptr);
 
@@ -210,7 +210,13 @@ public:
     // Default implementation of Prune() does nothing.  Subclasses are strongly
     // encouraged to override the default implementation.  A future release of
     // leveldb may change prune() to a pure abstract method.
-    virtual void prune() {}
+    // return num of entries being pruned.
+    virtual int64_t prune() { return 0; }
+
+    // Same as prune(), but the entry will only be pruned if the predicate matched.
+    // NOTICE: the predicate should be simple enough, or the prune_if() function
+    // may hold lock for a long time to execute predicate.
+    virtual int64_t prune_if(bool (*pred)(const void* value)) { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -310,7 +316,8 @@ public:
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
-    int prune();
+    int64_t prune();
+    int64_t prune_if(bool (*pred)(const void* value));
 
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
@@ -366,7 +373,8 @@ public:
     virtual void* value(Handle* handle);
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id();
-    virtual void prune();
+    virtual int64_t prune();
+    virtual int64_t prune_if(bool (*pred)(const void* value));
 
 private:
     void update_cache_metrics() const;

@@ -18,6 +18,7 @@
 #include "olap/segment_loader.h"
 
 #include "olap/rowset/rowset.h"
+#include "util/stopwatch.hpp"
 
 namespace doris {
 
@@ -47,7 +48,6 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
     auto deleter = [](const doris::CacheKey& key, void* value) {
         SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*) value;
         cache_value->segments.clear();
-        // LOG(INFO) << "delete segment cache for rowset: ";
         delete cache_value;
     };
 
@@ -70,10 +70,25 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
     SegmentLoader::CacheValue* cache_value = new SegmentLoader::CacheValue();
     cache_value->segments = std::move(segments);
+    cache_value->last_visit_time = UnixMillis();
     _insert(cache_key, *cache_value, &handle);
-    // LOG(INFO) << "insert segment cache for rowset: " << cache_key.encode();
     *cache_handle = std::move(handle);
     
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus SegmentLoader::prune() {
+    bool (*pred)(const void* value) = [](const void* value) -> bool {
+        int64_t curtime = UnixMillis();
+        SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*) value;
+        return curtime - cache_value->last_visit_time > config::tablet_rowset_stale_sweep_time_sec * 1000;
+    };
+
+    MonotonicStopWatch watch;
+    watch.start();
+    int64_t prune_num = _cache->prune_if(pred);
+    LOG(INFO) << "prune " << prune_num << " entries in segment cache. cost(ms): "
+            << watch.elapsed_time() / 1000 / 1000;
     return OLAP_SUCCESS;
 }
 

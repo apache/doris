@@ -377,7 +377,7 @@ void LRUCache::_prune_one(LRUHandle* old) {
     _usage -= old->total_size;
 }
 
-int LRUCache::prune() {
+int64_t LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
         MutexLock l(&_mutex);
@@ -394,7 +394,47 @@ int LRUCache::prune() {
             to_remove_head = old;
         }
     }
-    int pruned_count = 0;
+    int64_t pruned_count = 0;
+    while (to_remove_head != nullptr) {
+        ++pruned_count;
+        LRUHandle* next = to_remove_head->next;
+        to_remove_head->free();
+        to_remove_head = next;
+    }
+    return pruned_count;
+}
+
+int64_t LRUCache::prune_if(bool (*pred)(const void* value)) {
+    LRUHandle* to_remove_head = nullptr;
+    {
+        MutexLock l(&_mutex);
+        LRUHandle* p = _lru_normal.next;
+        while (p != &_lru_normal) {
+            LRUHandle* old = _lru_normal.next;
+            if (pred(old->value)) {
+                _prune_one(old);
+                old->next = to_remove_head;
+                to_remove_head = old;
+                p = _lru_normal.next;
+            } else {
+                p = p->next;
+            }
+        }
+
+        p = _lru_durable.next;
+        while (_lru_durable.next != &_lru_durable) {
+            LRUHandle* old = _lru_durable.next;
+            if (pred(old->value)) {
+                _prune_one(old);
+                old->next = to_remove_head;
+                to_remove_head = old;
+                p = _lru_durable.next;
+            } else {
+                p = p->next;
+            }
+        }
+    }
+    int64_t pruned_count = 0;
     while (to_remove_head != nullptr) {
         ++pruned_count;
         LRUHandle* next = to_remove_head->next;
@@ -477,12 +517,20 @@ uint64_t ShardedLRUCache::new_id() {
     return _last_id.fetch_add(1, std::memory_order_relaxed);
 }
 
-void ShardedLRUCache::prune() {
-    int num_prune = 0;
+int64_t ShardedLRUCache::prune() {
+    int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune();
     }
-    VLOG_DEBUG << "Successfully prune cache, clean " << num_prune << " entries.";
+    return num_prune;
+}
+
+int64_t ShardedLRUCache::prune_if(bool (*pred)(const void* value)) {
+    int64_t num_prune = 0;
+    for (int s = 0; s < kNumShards; s++) {
+        num_prune += _shards[s]->prune_if(pred);
+    }
+    return num_prune;
 }
 
 void ShardedLRUCache::update_cache_metrics() const {

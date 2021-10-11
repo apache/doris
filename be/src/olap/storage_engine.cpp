@@ -51,6 +51,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -632,6 +633,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 void StorageEngine::_start_clean_fd_cache() {
     VLOG_TRACE << "start clean file descritpor cache";
     _file_cache->prune();
+    SegmentLoader::instance()->prune();
     VLOG_TRACE << "end clean file descritpor cache";
 }
 

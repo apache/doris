@@ -26,6 +26,7 @@
 #include "olap/olap_common.h" // for rowset id
 #include "olap/rowset/beta_rowset.h"
 #include "runtime/mem_tracker.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -61,6 +62,9 @@ public:
     // The cache value of segment lru cache.
     // Holding all opened segments of a rowset.
     struct CacheValue {
+        // Save the last visit time of this cache entry.
+        // Use atomic because it may be modified by multi threads.
+        std::atomic<int64_t> last_visit_time = 0;
         std::vector<segment_v2::SegmentSharedPtr> segments;
     };
 
@@ -81,6 +85,9 @@ public:
 
     // Load segments of "rowset" from _cache, return the "cache_handle" which contains segments
     OLAPStatus load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle);
+
+    // Try to prune the segment cache if expired.
+    OLAPStatus prune();
 
 private:
     SegmentLoader();
@@ -110,7 +117,10 @@ private:
 class SegmentCacheHandle {
 public:
     SegmentCacheHandle() {}
-    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
+    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {
+        value()->last_visit_time = UnixMillis();
+    }
+
     ~SegmentCacheHandle() {
         if (_handle != nullptr) {
             _cache->release(_handle);
