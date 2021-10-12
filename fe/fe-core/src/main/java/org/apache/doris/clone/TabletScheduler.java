@@ -955,10 +955,11 @@ public class TabletScheduler extends MasterDaemon {
     private boolean handleColocateRedundant(TabletSchedCtx tabletCtx) throws SchedException {
         Preconditions.checkNotNull(tabletCtx.getColocateBackendsSet());
         for (Replica replica : tabletCtx.getReplicas()) {
-            if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendId())) {
+            if (tabletCtx.getColocateBackendsSet().contains(replica.getBackendId()) && !replica.isBad()) {
                 continue;
             }
 
+            // If the replica is not in ColocateBackendsSet or is bad, delete it.
             deleteReplicaInternal(tabletCtx, replica, "colocate redundant", false);
             throw new SchedException(Status.FINISHED, "colocate redundant replica is deleted");
         }

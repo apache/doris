@@ -578,9 +578,15 @@ public class Tablet extends MetaObject implements Writable {
             }
 
             if (!replica.isAlive()) {
-                // maybe in replica's DECOMMISSION state.
-                // Here we return VERSION_INCOMPLETE, and the tablet scheduler will finally set it's state to NORMAL.
-                return TabletStatus.VERSION_INCOMPLETE;
+                if (replica.isBad()) {
+                    // If this replica is bad but located on one of backendsSet,
+                    // we have drop it first, or we can find any other BE for new replica.
+                    return TabletStatus.COLOCATE_REDUNDANT;
+                } else {
+                    // maybe in replica's DECOMMISSION state
+                    // Here we return VERSION_INCOMPLETE, and the tablet scheduler will finally set it's state to NORMAL.
+                    return TabletStatus.VERSION_INCOMPLETE;
+                }
             }
 
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {

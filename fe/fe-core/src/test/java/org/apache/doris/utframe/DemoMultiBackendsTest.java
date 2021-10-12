@@ -201,12 +201,6 @@ public class DemoMultiBackendsTest {
         Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(19));
         Assert.assertEquals("{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1}",
                 result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
-
-        // update replica path hash again because we do alter table before.
-        updateReplicaPathHash();
-        // set a replicas state to DECOMMISSION, to see if it can recover
-        updateReplicaState();
-        Assert.assertTrue(checkReplicaState());
     }
 
     private static void updateReplicaPathHash() {
@@ -227,39 +221,6 @@ public class DemoMultiBackendsTest {
                 }
             }
         }
-    }
-
-    private static void updateReplicaState() {
-        Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
-        for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
-            long beId = cell.getColumnKey();
-            Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
-            if (be == null) {
-                continue;
-            }
-            Replica replica = cell.getValue();
-            replica.setState(Replica.ReplicaState.DECOMMISSION);
-            break;
-        }
-    }
-
-    private static boolean checkReplicaState() throws Exception {
-        Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
-        for (int i = 0; i < 10; i++) {
-            Thread.sleep(1000);
-            boolean allNormal = true;
-            for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
-                Replica replica = cell.getValue();
-                if (replica.getState() != Replica.ReplicaState.NORMAL) {
-                    allNormal = false;
-                    break;
-                }
-            }
-            if (allNormal) {
-                return true;
-            }
-        }
-        return false;
     }
 }
 
