@@ -796,6 +796,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableLateralView;
     }
 
+    public void setEnableLateralView(boolean enableLateralView) {
+        this.enableLateralView = enableLateralView;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
