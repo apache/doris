@@ -625,7 +625,7 @@ public class TabletScheduler extends MasterDaemon {
         tabletCtx.setDest(destPath.getBeId(), destPath.getPathHash());
 
         // choose a source replica for cloning from
-        tabletCtx.chooseSrcReplica(backendsWorkingSlots);
+        tabletCtx.chooseSrcReplica(backendsWorkingSlots, -1);
 
         // create clone task
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
@@ -1074,7 +1074,7 @@ public class TabletScheduler extends MasterDaemon {
         tabletCtx.setDest(destPath.getBeId(), destPath.getPathHash());
 
         // choose a source replica for cloning from
-        tabletCtx.chooseSrcReplica(backendsWorkingSlots);
+        tabletCtx.chooseSrcReplica(backendsWorkingSlots, -1);
 
         // create clone task
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());

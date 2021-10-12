@@ -83,6 +83,13 @@ public class ClusterLoadStatistic {
     public void init() {
         List<Backend> backends = infoService.getBackendsByTagInCluster(clusterName, tag);
         for (Backend backend : backends) {
+            if (backend.isDecommissioned()) {
+                // Skip the decommission backend.
+                // Otherwise, before the decommission is done, these BE will always to treated
+                // as LOW Backends. But the balancer will not handle BE in decommission state.
+                // So balance will be blocked.
+                continue;
+            }
             BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
                     backend.getOwnerClusterName(), backend.getTag(), infoService, invertedIndex);
             try {
