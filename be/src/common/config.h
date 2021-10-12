@@ -182,7 +182,8 @@ CONF_mInt64(column_dictionary_key_size_threshold, "0");
 // memory_limitation_per_thread_for_schema_change unit GB
 CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
 
-CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
+// the clean interval of file descriptor cache and segment cache
+CONF_mInt32(cache_clean_interval, "1800");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");

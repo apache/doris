@@ -117,12 +117,13 @@ private:
 class SegmentCacheHandle {
 public:
     SegmentCacheHandle() {}
-    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {
-        value()->last_visit_time = UnixMillis();
-    }
+    SegmentCacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
 
     ~SegmentCacheHandle() {
         if (_handle != nullptr) {
+            // last_visit_time is set when release.
+            // because it only be needed when pruning.
+            value()->last_visit_time = UnixMillis();
             _cache->release(_handle);
         }
     }

@@ -630,11 +630,9 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-void StorageEngine::_start_clean_fd_cache() {
-    VLOG_TRACE << "start clean file descritpor cache";
+void StorageEngine::_start_clean_cache() {
     _file_cache->prune();
     SegmentLoader::instance()->prune();
-    VLOG_TRACE << "end clean file descritpor cache";
 }
 
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {

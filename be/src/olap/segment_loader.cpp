@@ -70,7 +70,6 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
     SegmentLoader::CacheValue* cache_value = new SegmentLoader::CacheValue();
     cache_value->segments = std::move(segments);
-    cache_value->last_visit_time = UnixMillis();
     _insert(cache_key, *cache_value, &handle);
     *cache_handle = std::move(handle);
     
