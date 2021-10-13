@@ -493,6 +493,12 @@ public class Config extends ConfigBase {
     @ConfField public static int load_checker_interval_second = 5;
 
     /**
+     * The spark load scheduler running interval.
+     * Default 60 seconds, because spark load job is heavy and yarn client returns slowly.
+     */
+    @ConfField public static int spark_load_checker_interval_second = 60;
+
+    /**
      * Concurrency of HIGH priority pending load jobs.
      * Load job priority is defined as HIGH or NORMAL.
      * All mini batch load jobs are HIGH priority, other types of load jobs are NORMAL priority.
