@@ -330,6 +330,10 @@ public class Backend implements Writable {
         return disksRef.values().stream().allMatch(DiskInfo::hasPathHash);
     }
 
+    public boolean hasSpecifiedStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.values().stream().anyMatch(d -> d.isStorageMediumMatch(storageMedium));
+    }
+
     public long getTotalCapacityB() {
         ImmutableMap<String, DiskInfo> disks = disksRef;
         long totalCapacityB = 0L;
