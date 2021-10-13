@@ -91,6 +91,14 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private Map<String, String> customProperties = Maps.newHashMap();
     private Map<String, String> convertedCustomProperties = Maps.newHashMap();
 
+    // The latest offset of each partition fetched from kafka server.
+    // Will be updated periodically by calling hasMoreDataToConsume()
+    private Map<Integer, Long> cachedPartitionWithLatestOffsets = Maps.newConcurrentMap();
+
+    // The kafka partition fetch from kafka server.
+    // Will be updated periodically by calling updateKafkaPartitions();
+    private List<Integer> newCurrentKafkaPartition = Lists.newArrayList();
+
     public KafkaRoutineLoadJob() {
         // for serialization, id is dummy
         super(-1, LoadDataSourceType.KAFKA);
@@ -281,6 +289,34 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         updateNewPartitionProgress();
     }
 
+    @Override
+    protected void preCheckNeedSchedule() throws UserException {
+        // If user does not specify kafka partition,
+        // We will fetch partition from kafka server periodically
+        if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
+            if (customKafkaPartitions == null && !customKafkaPartitions.isEmpty()) {
+                return;
+            }
+            updateKafkaPartitions();
+        }
+    }
+
+    private void updateKafkaPartitions() throws UserException {
+        try {
+            this.newCurrentKafkaPartition = getAllKafkaPartitions();
+        } catch (Exception e) {
+            LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                    .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
+                    .build(), e);
+            if (this.state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+                                "Job failed to fetch all current partition with error " + e.getMessage()),
+                        false /* not replay */);
+            }
+        }
+    }
+
     // if customKafkaPartition is not null, then return false immediately
     // else if kafka partitions of topic has been changed, return true.
     // else return false
@@ -294,24 +330,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 currentKafkaPartitions = customKafkaPartitions;
                 return false;
             } else {
-                List<Integer> newCurrentKafkaPartition;
-                try {
-                    newCurrentKafkaPartition = getAllKafkaPartitions();
-                } catch (Exception e) {
-                    LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                            .add("error_msg", "Job failed to fetch all current partition with error " + e.getMessage())
-                            .build(), e);
-                    if (this.state == JobState.NEED_SCHEDULE) {
-                        unprotectUpdateState(JobState.PAUSED,
-                                new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
-                                        "Job failed to fetch all current partition with error " + e.getMessage()),
-                                false /* not replay */);
-                    }
-                    return false;
-                }
-                if (currentKafkaPartitions.containsAll(newCurrentKafkaPartition)) {
-                    if (currentKafkaPartitions.size() > newCurrentKafkaPartition.size()) {
-                        currentKafkaPartitions = newCurrentKafkaPartition;
+                // the newCurrentKafkaPartition should be already updated in preCheckNeedScheduler()
+                Preconditions.checkNotNull(this.newCurrentKafkaPartition);
+                if (currentKafkaPartitions.containsAll(this.newCurrentKafkaPartition)) {
+                    if (currentKafkaPartitions.size() > this.newCurrentKafkaPartition.size()) {
+                        currentKafkaPartitions = this.newCurrentKafkaPartition;
                         if (LOG.isDebugEnabled()) {
                             LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                     .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
@@ -323,7 +346,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                         return false;
                     }
                 } else {
-                    currentKafkaPartitions = newCurrentKafkaPartition;
+                    currentKafkaPartitions = this.newCurrentKafkaPartition;
                     if (LOG.isDebugEnabled()) {
                         LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
                                 .add("current_kafka_partitions", Joiner.on(",").join(currentKafkaPartitions))
@@ -623,5 +646,50 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);
         }
+    }
+
+    // check if given partitions has more data to consume.
+    // 'partitionIdToOffset' to the offset to be consumed.
+    public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) {
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
+                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
+                // "entry.getValue()" is the offset to be consumed.
+                // "cachedPartitionWithLatestOffsets.get(entry.getKey())" is the "next" offset of this partition.
+                // (because librdkafa's query_watermark_offsets() will return the next offset.
+                //  For example, there 4 msg in partition with offset 0,1,2,3,
+                //  query_watermark_offsets() will return 4.)
+                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                return true;
+            }
+        }
+
+        try {
+            // all offsets to be consumed are newer than offsets in cachedPartitionWithLatestOffsets,
+            // maybe the cached offset is out-of-date, fetch from kafka server again
+            List<Pair<Integer, Long>> tmp = KafkaUtil.getLatestOffsets(id, taskId, getBrokerList(),
+                    getTopic(), getConvertedCustomProperties(), Lists.newArrayList(partitionIdToOffset.keySet()));
+            for (Pair<Integer, Long> pair : tmp) {
+                cachedPartitionWithLatestOffsets.put(pair.first, pair.second);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get latest partition offset. {}", e.getMessage(), e);
+            return false;
+        }
+
+        // check again
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (cachedPartitionWithLatestOffsets.containsKey(entry.getKey())
+                    && entry.getValue() < cachedPartitionWithLatestOffsets.get(entry.getKey())) {
+                LOG.debug("has more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                        partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+                return true;
+            }
+        }
+
+        LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
+                partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
+        return false;
     }
 }
