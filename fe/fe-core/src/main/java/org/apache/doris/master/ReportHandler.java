@@ -759,9 +759,19 @@ public class ReportHandler extends Daemon {
     private static void handleMigration(ListMultimap<TStorageMedium, Long> tabletMetaMigrationMap,
                                         long backendId) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Backend be = infoService.getBackend(backendId);
+        if (be == null) {
+            return;
+        }
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TStorageMedium storageMedium : tabletMetaMigrationMap.keySet()) {
             List<Long> tabletIds = tabletMetaMigrationMap.get(storageMedium);
+            if (!be.hasSpecifiedStorageMedium(storageMedium)) {
+                LOG.warn("no specified storage medium {} on backend {}, skip storage migration." +
+                        " sample tablet id: {}", storageMedium, backendId, tabletIds.isEmpty() ? "-1" : tabletIds.get(0));
+                continue;
+            }
             List<TabletMeta> tabletMetaList = invertedIndex.getTabletMetaList(tabletIds);
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 long tabletId = tabletIds.get(i);

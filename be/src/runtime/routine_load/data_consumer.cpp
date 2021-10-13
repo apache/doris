@@ -172,7 +172,6 @@ Status KafkaDataConsumer::assign_topic_partitions(
 
 Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                                         int64_t max_running_time_ms) {
-    _last_visit_time = time(nullptr);
     int64_t left_time = max_running_time_ms;
     LOG(INFO) << "start kafka consumer: " << _id << ", grp: " << _grp_id
               << ", max running time(ms): " << left_time;
@@ -338,7 +337,30 @@ Status KafkaDataConsumer::get_offsets_for_times(const std::vector<PIntegerPair>&
         PIntegerPair pair;
         pair.set_key(topic_partition->partition());
         pair.set_val(topic_partition->offset());
-        offsets->push_back(pair);
+        offsets->push_back(std::move(pair));
+    }
+
+    return Status::OK();
+}
+
+// get latest offsets for given partitions
+Status KafkaDataConsumer::get_latest_offsets_for_partitions(const std::vector<int32_t>& partition_ids,
+        std::vector<PIntegerPair>* offsets) {
+    for (int32_t partition_id : partition_ids) {
+        int64_t low = 0;
+        int64_t high = 0;
+        RdKafka::ErrorCode err = _k_consumer->query_watermark_offsets(_topic, partition_id, &low, &high, 5000);
+        if (err != RdKafka::ERR_NO_ERROR) {
+            std::stringstream ss;
+            ss << "failed to get latest offset for partition: " << partition_id << ", err: " << RdKafka::err2str(err);
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+        
+        PIntegerPair pair;
+        pair.set_key(partition_id);
+        pair.set_val(high);
+        offsets->push_back(std::move(pair));
     }
 
     return Status::OK();
@@ -358,6 +380,9 @@ Status KafkaDataConsumer::cancel(StreamLoadContext* ctx) {
 Status KafkaDataConsumer::reset() {
     std::unique_lock<std::mutex> l(_lock);
     _cancelled = false;
+    // reset will be called before this consumer being returned to the pool.
+    // so update _last_visit_time is reasonable.
+    _last_visit_time = time(nullptr);
     return Status::OK();
 }
 
