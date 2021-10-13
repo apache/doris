@@ -692,6 +692,15 @@ public class SelectStmt extends QueryStmt {
             materializeSlots(analyzer, havingConjuncts);
             aggInfo.materializeRequiredSlots(analyzer, baseTblSmap);
         }
+
+        // materialized all lateral view column and origin column
+        for (TableRef tableRef : fromClause_.getTableRefs()) {
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    lateralViewRef.materializeRequiredSlots();
+                }
+            }
+        }
     }
 
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
