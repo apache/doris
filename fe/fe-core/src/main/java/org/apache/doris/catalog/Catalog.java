@@ -5888,6 +5888,10 @@ public class Catalog {
         return functionSet.getBulitinFunctions();
     }
 
+    public Function getTableFunction(Function desc, Function.CompareMode mode) {
+        return  functionSet.getFunction(desc, mode, true);
+    }
+
     public boolean isNullResultWithOneNullParamFunction(String funcName) {
         return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }

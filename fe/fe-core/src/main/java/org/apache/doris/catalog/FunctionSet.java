@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -27,6 +26,7 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -51,6 +51,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     // FunctionResolutionOrder.
     private final HashMap<String, List<Function>> functions;
     private final HashMap<String, List<Function>> vectorizedFunctions;
+    private final HashMap<String, List<Function>> tableFunctions;
     // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
     // But a few functions need to handle NullLiteral differently, such as "if". It need to add
     // an attribute to LiteralExpr to mark null and check the attribute to decide whether to
@@ -66,6 +67,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public FunctionSet() {
         functions = Maps.newHashMap();
         vectorizedFunctions = Maps.newHashMap();
+        tableFunctions = Maps.newHashMap();
     }
 
     public void init() {
@@ -82,6 +84,9 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         LikePredicate.initBuiltins(this);
         InPredicate.initBuiltins(this);
         AliasFunction.initBuiltins(this);
+
+        // init table function
+        initTableFunction();
     }
 
     public void buildNullResultWithOneNullParamFunction(Set<String> funcNames) {
@@ -977,7 +982,18 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     .build();
 
     public Function getFunction(Function desc, Function.CompareMode mode) {
-        List<Function> fns = desc.isVectorized() ? vectorizedFunctions.get(desc.functionName()) : functions.get(desc.functionName());
+        return getFunction(desc, mode, false);
+    }
+
+    public Function getFunction(Function desc, Function.CompareMode mode, boolean isTableFunction) {
+        List<Function> fns;
+        if (isTableFunction) {
+            fns = tableFunctions.get(desc.functionName());
+        } else if (desc.isVectorized()) {
+            fns = vectorizedFunctions.get(desc.functionName());
+        } else {
+            fns = functions.get(desc.functionName());
+        }
         if (fns == null) {
             return null;
         }
@@ -1032,6 +1048,10 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         final String functionName = desc.getFunctionName().getFunction();
         final Type[] descArgTypes = desc.getArgs();
         final Type[] candicateArgTypes = candicate.getArgs();
+        if (!(descArgTypes[0] instanceof ScalarType)
+                || !(candicateArgTypes[0] instanceof ScalarType)) {
+            return false;
+        }
         if (functionName.equalsIgnoreCase("hex")
                 || functionName.equalsIgnoreCase("greast")
                 || functionName.equalsIgnoreCase("least")
@@ -1988,5 +2008,21 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
             builtinFunctions.addAll(entry.getValue());
         }
         return builtinFunctions;
+    }
+
+
+    public static final String EXPLODE_SPLIT = "explode_split";
+
+    private void initTableFunction() {
+        // init explode_split function
+        ArrayList<Type> argsType = Lists.newArrayList();
+        argsType.add(Type.VARCHAR);
+        argsType.add(Type.VARCHAR);
+        Function explodeSplit = ScalarFunction.createBuiltin(
+                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT, argsType, false,
+                "", "", "", true);
+        List<Function> explodeSplits = Lists.newArrayList();
+        explodeSplits.add(explodeSplit);
+        tableFunctions.put(EXPLODE_SPLIT, explodeSplits);
     }
 }

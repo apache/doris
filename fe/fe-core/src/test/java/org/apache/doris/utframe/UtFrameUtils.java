@@ -244,12 +244,16 @@ public class UtFrameUtils {
     }
 
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
+        return getSQLPlanOrErrorMsg(ctx, queryStr, false);
+    }
+
+    public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr, boolean isVerbose) throws Exception {
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
+            return planner.getExplainString(planner.getFragments(), new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }

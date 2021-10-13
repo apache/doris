@@ -1575,6 +1575,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return f;
     }
 
+    protected Function getTableFunction(String name, Type[] argTypes,
+                                        Function.CompareMode mode) {
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
+        Function f = Catalog.getCurrentCatalog().getTableFunction(searchDesc, mode);
+        return f;
+    }
+
     /**
      * Pushes negation to the individual operands of a predicate
      * tree rooted at 'root'.
