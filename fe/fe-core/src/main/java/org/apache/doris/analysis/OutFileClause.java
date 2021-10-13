@@ -118,16 +118,20 @@ public class OutFileClause {
     private List<List<String>> schema = new ArrayList<>();
     private Map<String, String> fileProperties = new HashMap<>();
 
+    private boolean isAnalyzed = false;
+
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
         this.format = Strings.isNullOrEmpty(format) ? "csv" : format.toLowerCase();
         this.properties = properties;
+        this.isAnalyzed = false;
     }
 
     public OutFileClause(OutFileClause other) {
         this.filePath = other.filePath;
         this.format = other.format;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
+        this.isAnalyzed = other.isAnalyzed;
     }
 
     public String getColumnSeparator() {
@@ -155,6 +159,13 @@ public class OutFileClause {
     }
 
     private void analyze(Analyzer analyzer) throws UserException {
+        if (isAnalyzed) {
+            // If the query stmt is rewritten, the whole stmt will be analyzed again.
+            // But some of fields in this OutfileClause has been changed,
+            // such as `filePath`'s schema header has been removed.
+            // So OutfileClause does not support to be analyzed again.
+            return;
+        }
         analyzeFilePath();
 
         switch (this.format) {
@@ -175,6 +186,7 @@ public class OutFileClause {
         } else if (brokerDesc == null && !isLocalOutput) {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
         }
+        isAnalyzed = true;
     }
 
     public void analyze(Analyzer analyzer, SelectStmt stmt) throws UserException {
