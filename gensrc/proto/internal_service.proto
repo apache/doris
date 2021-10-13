@@ -239,7 +239,10 @@ message PKafkaLoadInfo {
 
 message PKafkaMetaProxyRequest {
     optional PKafkaLoadInfo kafka_info = 1;
+    // optional for getting offsets for times
     repeated PIntegerPair offset_times = 3;
+    // optional for getting latest offsets of partitons
+    repeated int32 partition_id_for_latest_offsets = 4;
 };
 
 message PProxyRequest {

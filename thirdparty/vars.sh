@@ -202,11 +202,11 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
-# librdkafka-1.6.1
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.6.1-RC3.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.6.1-RC3.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.6.1-RC3
-LIBRDKAFKA_MD5SUM="11b02507db989a0fb5220fcc4df8f79a"
+# librdkafka-1.7.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.7.0.tar.gz"
+LIBRDKAFKA_NAME=v1.7.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.7.0
+LIBRDKAFKA_MD5SUM="fe3c45deb182bd9c644b6bc6375bffc3"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.3.7.tar.gz"

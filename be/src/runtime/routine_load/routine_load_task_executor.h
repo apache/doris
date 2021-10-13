@@ -55,6 +55,9 @@ public:
     Status get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
         std::vector<PIntegerPair>* partition_offsets);
 
+    Status get_kafka_latest_offsets_for_partitions(const PKafkaMetaProxyRequest& request,
+        std::vector<PIntegerPair>* partition_offsets);
+
 private:
     // execute the task
     void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
