@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
@@ -44,18 +45,17 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.apache.commons.lang3.StringUtils;
-
 import com.google.common.collect.Lists;
 
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
+import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
 
 public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
@@ -1774,4 +1774,29 @@ public class QueryPlanTest {
         String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
         Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
     }
+
+    @Test
+    public void testOutfile() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        Config.enable_outfile_to_local = true;
+        createTable("CREATE TABLE test.`outfile1` (\n" +
+                "  `date` date NOT NULL,\n" +
+                "  `road_code` int(11) NOT NULL DEFAULT \"-1\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`date`, `road_code`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`date`)\n" +
+                "(PARTITION v2x_ads_lamp_source_percent_statistic_20210929 VALUES [('2021-09-29'), ('2021-09-30')))\n" +
+                "DISTRIBUTED BY HASH(`road_code`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        // test after query rewrite, outfile still work
+        String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'" +
+                "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES (     \"column_separator\" = \",\",     \"line_delimiter\" = \"\\n\",     \"max_file_size\" = \"500MB\" );";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
+    }
+
 }
