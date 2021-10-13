@@ -25,6 +25,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InlineViewRef;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableRef;
@@ -54,7 +55,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Analyze which caching mode a SQL is suitable for
@@ -90,6 +93,7 @@ public class CacheAnalyzer {
     private CompoundPredicate partitionPredicate;
     private Cache cache;
     private StringBuilder allViewStmtSuffix;
+    private Set<String> allViewStmtSet;
 
     public Cache getCache() {
         return cache;
@@ -102,6 +106,7 @@ public class CacheAnalyzer {
         scanNodes = planner.getScanNodes();
         latestTable = new CacheTable();
         allViewStmtSuffix = new StringBuilder();
+        allViewStmtSet = new HashSet<>();
         checkCacheConfig();
     }
 
@@ -111,6 +116,7 @@ public class CacheAnalyzer {
         this.parsedStmt = parsedStmt;
         this.scanNodes = scanNodes;
         allViewStmtSuffix = new StringBuilder();
+        allViewStmtSet = new HashSet<>();
         checkCacheConfig();
     }
 
@@ -213,7 +219,11 @@ public class CacheAnalyzer {
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
         latestTable.Debug();
-        getAllViews(selectStmt);
+
+        addAllViewStmt(selectStmt);
+        for (String stmt : allViewStmtSet) {
+            allViewStmtSuffix.append("_").append(stmt);
+        }
 
         if (now == 0) {
             now = nowtime();
@@ -436,21 +446,48 @@ public class CacheAnalyzer {
         return table;
     }
 
-    private void getAllViews(SelectStmt selectStmt) {
-        for (TableRef tblRef : selectStmt.getTableRefs()) {
+    private void addAllViewStmt(QueryStmt queryStmt) {
+        List<TableRef> tblRefs = new ArrayList<>();
+        if (queryStmt instanceof SelectStmt) {
+            tblRefs.addAll(((SelectStmt) queryStmt).getTableRefs());
+        } else if (queryStmt instanceof SetOperationStmt) {
+            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getAllOperands()) {
+                tblRefs.addAll(((SelectStmt) operand.getQueryStmt()).getTableRefs());
+            }
+        }
+
+        for (TableRef tblRef : tblRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
                 if (inlineViewRef.isLocalView()) {
                     Collection<View> localViews = inlineViewRef.getAnalyzer().getLocalViews().values();
                     for (View localView : localViews) {
-                        SelectStmt stmt = (SelectStmt) localView.getQueryStmt();
-                        getAllViews(stmt);
+                        addAllViewStmt(localView.getQueryStmt());
                     }
                 } else {
-                    allViewStmtSuffix.append("_").append(inlineViewRef.toSql());
+                    addNestedViewStmt(inlineViewRef);
                 }
             }
         }
+    }
+
+    private void addNestedViewStmt(InlineViewRef nestedViewRef) {
+        List<TableRef> tblRefs = new ArrayList<>();
+        QueryStmt viewStmt = nestedViewRef.getViewStmt();
+        if (viewStmt instanceof SetOperationStmt) {
+            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) viewStmt).getAllOperands()) {
+                tblRefs.addAll(((SelectStmt) operand.getQueryStmt()).getTableRefs());
+            }
+        } else if (viewStmt instanceof SelectStmt) {
+            tblRefs.addAll(((SelectStmt) viewStmt).getTableRefs());
+        }
+
+        for (TableRef tblRef : tblRefs) {
+            if (tblRef instanceof InlineViewRef) {
+                addNestedViewStmt((InlineViewRef) tblRef);
+            }
+        }
+        allViewStmtSet.add(nestedViewRef.getView().getInlineViewDef());
     }
 
     public Cache.HitRange getHitRange() {
