@@ -276,7 +276,8 @@ public class UserProperty implements Writable {
                     throw new DdlException(key + " is not number");
                 }
 
-                if (limit <= 0) {
+                // -1 means unlimited
+                if (limit <= 0 && limit != -1) {
                     throw new DdlException(key + " is not valid");
                 }
 
