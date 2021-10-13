@@ -160,6 +160,8 @@ public class SessionVariable implements Serializable, Writable {
     
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
+    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -378,6 +380,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
+
+    @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
+    public boolean enableLateralView = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -785,6 +790,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableParallelOutfile() {
         return enableParallelOutfile;
+    }
+
+    public boolean isEnableLateralView() {
+        return enableLateralView;
+    }
+
+    public void setEnableLateralView(boolean enableLateralView) {
+        this.enableLateralView = enableLateralView;
     }
 
     // Serialize to thrift object

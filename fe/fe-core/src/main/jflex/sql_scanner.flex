@@ -247,6 +247,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("label", new Integer(SqlParserSymbols.KW_LABEL));
         keywordMap.put("largeint", new Integer(SqlParserSymbols.KW_LARGEINT));
         keywordMap.put("last", new Integer(SqlParserSymbols.KW_LAST));
+        keywordMap.put("lateral", new Integer(SqlParserSymbols.KW_LATERAL));
         keywordMap.put("left", new Integer(SqlParserSymbols.KW_LEFT));
         keywordMap.put("less", new Integer(SqlParserSymbols.KW_LESS));
         keywordMap.put("level", new Integer(SqlParserSymbols.KW_LEVEL));

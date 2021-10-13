@@ -200,6 +200,8 @@ public class DistributedPlanner {
         if (root instanceof ScanNode) {
             result = createScanFragment(root);
             fragments.add(result);
+        } else if (root instanceof TableFunctionNode) {
+            result = createTableFunctionFragment(root, childFragments.get(0));
         } else if (root instanceof HashJoinNode) {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root, childFragments.get(1),
@@ -209,7 +211,7 @@ public class DistributedPlanner {
                     childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
-        }  else if (root instanceof SetOperationNode) {
+        } else if (root instanceof SetOperationNode) {
             result = createSetOperationNodeFragment((SetOperationNode) root, childFragments, fragments);
         } else if (root instanceof MergeNode) {
             result = createMergeNodeFragment((MergeNode) root, childFragments, fragments);
@@ -288,12 +290,19 @@ public class DistributedPlanner {
         }
     }
 
+    private PlanFragment createTableFunctionFragment(PlanNode node, PlanFragment childFragment) {
+        Preconditions.checkState(node instanceof TableFunctionNode);
+        node.setChild(0, childFragment.getPlanRoot());
+        childFragment.addPlanRoot(node);
+        return childFragment;
+    }
+
     /**
      * When broadcastCost and partitionCost are equal, there is no uniform standard for which join implementation is better.
      * Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
      * Therefore, we add a SessionVariable to help users choose a better join implementation.
      */
-    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost)  {
+    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost) {
         String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
         if (joinMethod.equalsIgnoreCase("broadcast")) {
             return broadcastCost <= partitionCost;
