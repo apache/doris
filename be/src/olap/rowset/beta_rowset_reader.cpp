@@ -44,7 +44,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         _parent_tracker = read_context->runtime_state->instance_mem_tracker();
     }
 
-    RETURN_NOT_OK(_rowset->load(true, _parent_tracker));
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
