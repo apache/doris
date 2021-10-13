@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
@@ -77,6 +78,11 @@ public class AlterJobV2Test {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void alterTable(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
     }
 
     @Test
@@ -184,5 +190,31 @@ public class AlterJobV2Test {
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("Nothing is changed"));
         }
+    }
+
+    @Test
+    public void testDupTableSchemaChange() throws Exception {
+
+        createTable("CREATE TABLE test.dup_table (\n" +
+                "  k1 bigint(20) NULL ,\n" +
+                "  k2 bigint(20) NULL ,\n" +
+                "  k3 bigint(20) NULL,\n" +
+                "  v1 bigint(20) NULL ,\n" +
+                "  v2 varchar(1) NULL,\n" +
+                "  v3 varchar(1) NULL \n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(k1, k2, k3)\n" +
+                "PARTITION BY RANGE(k1, v1)\n" +
+                "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n" +
+                "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+
+        alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
+        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
     }
 }
