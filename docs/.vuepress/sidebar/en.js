@@ -338,6 +338,7 @@ module.exports = [
               "get_json_int",
               "get_json_string",
               "group_concat",
+              "hex",
               "instr",
               "lcase",
               "left",
@@ -357,6 +358,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "unhex",
               {
                 title: "fuzzy match",
                 directoryPath: "like/",
