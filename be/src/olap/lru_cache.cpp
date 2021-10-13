@@ -422,7 +422,7 @@ int64_t LRUCache::prune_if(bool (*pred)(const void* value)) {
         }
 
         p = _lru_durable.next;
-        while (_lru_durable.next != &_lru_durable) {
+        while (p != &_lru_durable) {
             LRUHandle* old = _lru_durable.next;
             if (pred(old->value)) {
                 _prune_one(old);
