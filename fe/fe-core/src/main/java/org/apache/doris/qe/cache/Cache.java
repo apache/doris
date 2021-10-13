@@ -43,6 +43,7 @@ public abstract class Cache {
     protected CacheAnalyzer.CacheTable latestTable;
     protected CacheProxy proxy;
     protected HitRange hitRange;
+    protected String allViewStmtSuffix;
 
     protected Cache(TUniqueId queryId, SelectStmt selectStmt) {
         this.queryId = queryId;
