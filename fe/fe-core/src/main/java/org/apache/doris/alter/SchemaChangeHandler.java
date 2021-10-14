@@ -1126,12 +1126,22 @@ public class SchemaChangeHandler extends AlterHandler {
             if (alterSchema.size() != originSchema.size()) {
                 hasColumnChange = true;
             } else {
+                Map<String, Column> originSchemaMap = Maps.newHashMap();
+                for (int i = 0; i < originSchema.size(); i++) {
+                    Column originColumn = originSchema.get(i);
+                    originSchemaMap.put(originColumn.getName(), originColumn);
+                }
                 for (int i = 0; i < alterSchema.size(); i++) {
                     Column alterColumn = alterSchema.get(i);
                     if (!alterColumn.equals(originSchema.get(i))) {
                         needAlterColumns.add(alterColumn);
                         hasColumnChange = true;
                     }
+                }
+                // check whether column changed except order
+                if (originSchemaMap.containsKey(alterColumn.getName())
+                        && !originSchemaMap.get(alterColumn.getName()).equals(alterColumn)) {
+                    needAlterColumns.add(alterColumn);
                 }
             }
 
