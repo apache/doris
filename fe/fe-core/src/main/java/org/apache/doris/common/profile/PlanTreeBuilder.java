@@ -102,7 +102,7 @@ public class PlanTreeBuilder {
     }
 
     private void buildForPlanNode(PlanNode planNode, PlanTreeNode parent) {
-        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.getPlanTreeExplanStr());
+        PlanTreeNode node = new PlanTreeNode(planNode.getId(), planNode.getPlanTreeExplainStr());
 
         if (parent != null) {
             parent.addChild(node);
