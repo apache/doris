@@ -26,6 +26,17 @@ const static std::string KERBEROS_PRINCIPAL = "kerberos_principal";
 const static std::string KERB_TICKET_CACHE_PATH = "kerb_ticket_cache_path";
 const static std::string TOKEN = "token";
 
+Status HDFSWriter::create(std::map<std::string, std::string>& properties,
+            const std::string& path,
+            FileWriter** writer) {
+#if defined(__x86_64__)
+    *writer = new HDFSWriter(properties, path);
+    return Status::OK();
+#else
+    return Status::InternalError("HdfsWriter do not support on non x86 platform");
+#endif
+}
+
 HDFSWriter::HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path)
         : _properties(properties),
           _path(path),

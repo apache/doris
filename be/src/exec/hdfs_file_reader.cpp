@@ -22,7 +22,20 @@
 #include "common/logging.h"
 
 namespace doris {
-HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params, const std::string& path,
+
+Status HdfsFileReader::create(const THdfsParams& hdfs_params,
+            const std::string& path,
+            int64_t start_offset,
+            FileReader** reader) {
+#if defined(__x86_64__)
+    *reader = new HdfsFileReader(hdfs_params, path, start_offset);
+    return Status::OK();
+#else
+    return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
+}
+
+HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path,
                                int64_t start_offset)
         : _hdfs_params(hdfs_params),
           _path(path),

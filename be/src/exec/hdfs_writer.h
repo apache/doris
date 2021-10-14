@@ -28,7 +28,10 @@ namespace doris {
 class HDFSWriter : public FileWriter {
 
 public:
-    HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
+    static Status create(std::map<std::string, std::string>& properties,
+            const std::string& path,
+            FileWriter** writer);
+
     ~HDFSWriter();
     Status open() override;
 
@@ -39,6 +42,8 @@ public:
     Status close() override;
 
 private:
+    HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
+
     Status _connect();
     Status _parse_properties(std::map<std::string, std::string>& prop);
 
