@@ -325,6 +325,9 @@ StringVal MathFunctions::hex_int(FunctionContext* ctx, const BigIntVal& v) {
     }
 
     uint64_t num = v.val;
+    if (num == 0) {
+        return AnyValUtil::from_string_temp(ctx, "0");
+    }
     char hex[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     // uint64_t max value 0xFFFFFFFFFFFFFFFF , 16 'F'
     // need 1 more space for '\0'
