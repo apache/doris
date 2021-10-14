@@ -40,9 +40,7 @@
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
 
-#if defined(__x86_64__)
-#include "exec/hdfs_file_reader.h"
-#endif
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -169,7 +167,7 @@ Status BrokerScanner::open_file_reader() {
     }
     case TFileType::FILE_HDFS: {
         FileReader* hdfs_file_reader;
-        RETURN_IF_ERROR(HdfsFileReader::create(range.hdfs_params, range.path, start_offset, &hdfs_file_reader));
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset, &hdfs_file_reader));
         BufferedReader* file_reader = new BufferedReader(_profile, hdfs_file_reader);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;

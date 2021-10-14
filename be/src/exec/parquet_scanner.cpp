@@ -42,9 +42,7 @@
 #include "exec/decompressor.h"
 #include "exec/parquet_reader.h"
 
-#if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
-#endif
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -132,7 +130,7 @@ Status ParquetScanner::open_next_reader() {
         }
         case TFileType::FILE_HDFS: {
             FileReader* reader;
-            RETURN_IF_ERROR(HdfsFileReader::create(range.hdfs_params, range.path, range.start_offset, &reader));
+            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, range.start_offset, &reader));
             file_reader.reset(reader);
             break;
         }

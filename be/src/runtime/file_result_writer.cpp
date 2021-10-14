@@ -21,7 +21,7 @@
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
 #include "exec/s3_writer.h"
-#include "exec/hdfs_writer.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -139,7 +139,7 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
     } else if (_storage_type == TStorageBackendType::S3) {
         _file_writer = new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */);
     } else if (_storage_type == TStorageBackendType::HDFS) {
-        RETURN_IF_ERROR(HDFSWriter::create(const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties), file_name, &_file_writer)); 
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties), file_name, &_file_writer)); 
     }
     RETURN_IF_ERROR(_file_writer->open());
     switch (_file_opts->file_format) {
