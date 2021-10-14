@@ -23,6 +23,12 @@
 
 namespace doris {
 
+// This class is used to create hdfs readers and writers.
+// Because libhdfs3 does not support the arm64 environment,
+// we use this class to shield the upper layer from the need to deal with the platform environment
+// when creating a raeder or writer.
+//
+// If in the arm64 environment, creating a reader or writer through this class will return an error. 
 class HdfsReaderWriter {
 public:
     static Status create_reader(const THdfsParams& hdfs_params,
