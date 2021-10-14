@@ -446,48 +446,31 @@ public class CacheAnalyzer {
         return table;
     }
 
-    private void addAllViewStmt(QueryStmt queryStmt) {
-        List<TableRef> tblRefs = new ArrayList<>();
-        if (queryStmt instanceof SelectStmt) {
-            tblRefs.addAll(((SelectStmt) queryStmt).getTableRefs());
-        } else if (queryStmt instanceof SetOperationStmt) {
-            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getAllOperands()) {
-                tblRefs.addAll(((SelectStmt) operand.getQueryStmt()).getTableRefs());
-            }
-        }
-
+    private void addAllViewStmt(List<TableRef> tblRefs) {
         for (TableRef tblRef : tblRefs) {
             if (tblRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
                 if (inlineViewRef.isLocalView()) {
-                    Collection<View> localViews = inlineViewRef.getAnalyzer().getLocalViews().values();
-                    for (View localView : localViews) {
-                        addAllViewStmt(localView.getQueryStmt());
+                    Collection<View> views = inlineViewRef.getAnalyzer().getLocalViews().values();
+                    for (View view : views) {
+                        addAllViewStmt(view.getQueryStmt());
                     }
                 } else {
-                    addNestedViewStmt(inlineViewRef);
+                    addAllViewStmt(inlineViewRef.getViewStmt());
+                    allViewStmtSet.add(inlineViewRef.getView().getInlineViewDef());
                 }
             }
         }
     }
 
-    private void addNestedViewStmt(InlineViewRef nestedViewRef) {
-        List<TableRef> tblRefs = new ArrayList<>();
-        QueryStmt viewStmt = nestedViewRef.getViewStmt();
-        if (viewStmt instanceof SetOperationStmt) {
-            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) viewStmt).getAllOperands()) {
-                tblRefs.addAll(((SelectStmt) operand.getQueryStmt()).getTableRefs());
-            }
-        } else if (viewStmt instanceof SelectStmt) {
-            tblRefs.addAll(((SelectStmt) viewStmt).getTableRefs());
-        }
-
-        for (TableRef tblRef : tblRefs) {
-            if (tblRef instanceof InlineViewRef) {
-                addNestedViewStmt((InlineViewRef) tblRef);
+    private void addAllViewStmt(QueryStmt queryStmt) {
+        if (queryStmt instanceof SelectStmt) {
+            addAllViewStmt(((SelectStmt) queryStmt).getTableRefs());
+        } else if (queryStmt instanceof SetOperationStmt) {
+            for (SetOperationStmt.SetOperand operand : ((SetOperationStmt) queryStmt).getOperands()) {
+                addAllViewStmt(((SelectStmt) operand.getQueryStmt()).getTableRefs());
             }
         }
-        allViewStmtSet.add(nestedViewRef.getView().getInlineViewDef());
     }
 
     public Cache.HitRange getHitRange() {
