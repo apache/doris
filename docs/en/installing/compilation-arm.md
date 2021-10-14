@@ -220,4 +220,6 @@ Suppose Doris source code is under `/home/doris/doris-src/`.
 
 ### 4. Compile Doris source code
 
-Just execute sh build.sh.
+Execute `GLIBC_COMPATIBILITY=0 sh build.sh`.
+
+Note that we have turned off the GLIBC_COMPATIBILITY function, because the FastMemcpy function does not support the ARM64 platform. After turning off this function, you need to ensure that the glibc version in the compilation environment is consistent with the glic version in the running environment.
