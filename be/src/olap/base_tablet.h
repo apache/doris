@@ -64,6 +64,12 @@ public:
     // properties encapsulated in TabletSchema
     inline const TabletSchema& tablet_schema() const;
 
+    inline void increase_io_error_times();
+
+    inline int64_t get_io_error_times() const;
+
+    inline bool is_io_error_too_times() const;
+
 protected:
     void _gen_tablet_path();
 
@@ -86,6 +92,7 @@ public:
     IntCounter* query_scan_count;
 
 private:
+    int64_t _io_error_times = 0;
     DISALLOW_COPY_AND_ASSIGN(BaseTablet);
 };
 
@@ -147,6 +154,19 @@ inline bool BaseTablet::equal(int64_t id, int32_t hash) {
 
 inline const TabletSchema& BaseTablet::tablet_schema() const {
     return _schema;
+}
+
+// maybe called by multi threads
+inline void BaseTablet::increase_io_error_times() {
+    ++_io_error_times;
+}
+
+inline int64_t BaseTablet::get_io_error_times() const {
+    return _io_error_times;
+}
+
+inline bool BaseTablet::is_io_error_too_times() const {
+    return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
 }
 
 } /* namespace doris */

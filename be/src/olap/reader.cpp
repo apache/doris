@@ -128,6 +128,10 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", schema_hash:" << read_params.tablet->schema_hash()
                      << ", reader_type:" << read_params.reader_type
                      << ", version:" << read_params.version;
+        if (res == OLAP_ERR_IO_ERROR) {
+            // TODO llj when we reset the io error times???
+            _tablet->increase_io_error_times();
+        }
         return res;
     }
 

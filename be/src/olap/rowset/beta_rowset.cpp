@@ -54,7 +54,11 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> p
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment " << seg_path << " under rowset " << unique_id()
                          << " : " << s.to_string();
-            return OLAP_ERR_ROWSET_LOAD_FAILED;
+            if (s.is_io_error() || s.is_not_found()) {
+                return OLAP_ERR_IO_ERROR;
+            } else {
+                return OLAP_ERR_ROWSET_LOAD_FAILED;
+            }
         }
         _segments.push_back(std::move(segment));
     }

@@ -154,7 +154,11 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
                 return OLAP_ERR_DATA_EOF;
             }
             LOG(WARNING) << "failed to read next block: " << s.to_string();
-            return OLAP_ERR_ROWSET_READ_FAILED;
+            if (s.is_io_error()) {
+                return OLAP_ERR_IO_ERROR;
+            } else {
+                return OLAP_ERR_ROWSET_READ_FAILED;
+            }
         }
     }
 

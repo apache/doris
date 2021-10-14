@@ -1255,7 +1255,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     _max_continuous_version_from_beginning_unlocked(&version, &v_hash);
     auto max_rowset = rowset_with_max_version();
     if (max_rowset != nullptr) {
-        if (max_rowset->version() != version) {
+        if (is_io_error_too_times() && tablet_state() == TABLET_RUNNING) {
+            LOG(INFO) << full_name() << " io error times = " << get_io_error_times() << ", report it as bad";
+            tablet_info->__set_used(false);
+        } else if (max_rowset->version() != version) {
             tablet_info->__set_version_miss(true);
         }
     } else {
