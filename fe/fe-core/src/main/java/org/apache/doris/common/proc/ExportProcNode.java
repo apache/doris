@@ -29,7 +29,7 @@ import java.util.List;
 // TODO(lingbin): think if need a sub node to show unfinished instances
 public class ExportProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("State").add("Progress")
+            .add("JobId").add("Label").add("State").add("Progress")
             .add("TaskInfo").add("Path")
             .add("CreateTime").add("StartTime").add("FinishTime")
             .add("Timeout").add("ErrorMsg")
