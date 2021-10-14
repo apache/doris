@@ -19,7 +19,6 @@ package org.apache.doris.flink.datastream
 
 import java.util.concurrent._
 import java.util.concurrent.atomic.AtomicBoolean
-
 import org.apache.doris.flink.backend.BackendClient
 import org.apache.doris.flink.cfg.ConfigurationOptions._
 import org.apache.doris.flink.cfg.{DorisOptions, DorisReadOptions}
@@ -41,7 +40,7 @@ import scala.util.control.Breaks
  * @param partition Doris RDD partition
  * @param options request configuration
  */
-class ScalaValueReader(partition: PartitionDefinition, options: DorisOptions, readOptions: DorisReadOptions) {
+class ScalaValueReader(partition: PartitionDefinition, options: DorisOptions, readOptions: DorisReadOptions) extends AutoCloseable {
   protected val logger = Logger.getLogger(classOf[ScalaValueReader])
 
   protected val client = new BackendClient(new Routing(partition.getBeAddress), readOptions)
