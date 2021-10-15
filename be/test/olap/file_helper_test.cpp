@@ -26,8 +26,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "olap/olap_define.h"
-#include "util/logging.h"
 #include "test_util/test_util.h"
+#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -44,6 +44,7 @@ class FileHandlerTest : public testing::Test {
 public:
     // create a mock cgroup folder
     virtual void SetUp() {
+        std::filesystem::remove_all(_s_test_data_path);
         ASSERT_FALSE(std::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
         ASSERT_TRUE(std::filesystem::create_directory(_s_test_data_path));
@@ -83,19 +84,19 @@ TEST_F(FileHandlerTest, TestWrite) {
     ASSERT_EQ(10, cur_offset);
 
     // write 12 bytes to disk
-    char* ten_bytes[12];
-    memset(ten_bytes, 0, sizeof(char) * 12);
-    file_handler.write(ten_bytes, 12);
+    char ten_bytes[12];
+    memset(&ten_bytes, 0, sizeof(ten_bytes));
+    file_handler.write(&ten_bytes, sizeof(ten_bytes));
     cur_offset = file_handler.tell();
     ASSERT_EQ(22, cur_offset);
     length = file_handler.length();
     ASSERT_EQ(22, length);
 
-    char* large_bytes2[(1 << 10)];
-    memset(large_bytes2, 0, sizeof(char) * ((1 << 12)));
+    char large_bytes2[(1 << 10)];
+    memset(&large_bytes2, 0, sizeof(large_bytes2));
     int i = 1;
     while (i < LOOP_LESS_OR_MORE(1 << 10, 1 << 17)) {
-        file_handler.write(large_bytes2, ((1 << 12)));
+        file_handler.write(&large_bytes2, sizeof(large_bytes2));
         ++i;
     }
 }
