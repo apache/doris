@@ -1126,22 +1126,12 @@ public class SchemaChangeHandler extends AlterHandler {
             if (alterSchema.size() != originSchema.size()) {
                 hasColumnChange = true;
             } else {
-                Map<String, Column> originSchemaMap = Maps.newHashMap();
-                for (int i = 0; i < originSchema.size(); i++) {
-                    Column originColumn = originSchema.get(i);
-                    originSchemaMap.put(originColumn.getName(), originColumn);
-                }
                 for (int i = 0; i < alterSchema.size(); i++) {
                     Column alterColumn = alterSchema.get(i);
                     if (!alterColumn.equals(originSchema.get(i))) {
                         needAlterColumns.add(alterColumn);
                         hasColumnChange = true;
                     }
-                }
-                // check whether column changed except order
-                if (originSchemaMap.containsKey(alterColumn.getName())
-                        && !originSchemaMap.get(alterColumn.getName()).equals(alterColumn)) {
-                    needAlterColumns.add(alterColumn);
                 }
             }
 
@@ -1231,7 +1221,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(partitionCol.getName(), true)) {
                             // 2.1 partition column cannot be modified
-                            if (needAlterColumns.contains(alterColumn)) {
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
                                 throw new DdlException("Can not modify partition column["
                                         + partitionCol.getName() + "]. index["
                                         + olapTable.getIndexNameById(alterIndexId) + "]");
