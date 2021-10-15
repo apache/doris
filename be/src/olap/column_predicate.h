@@ -35,7 +35,7 @@ class RowBlockV2;
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
-        : _column_id(column_id), _opposite(opposite) {}
+            : _column_id(column_id), _opposite(opposite) {}
 
     virtual ~ColumnPredicate() = default;
 
@@ -44,13 +44,15 @@ public:
 
     // evaluate predicate on ColumnBlock
     virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
-    virtual void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const = 0;
-    virtual void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const = 0;
+    virtual void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                             bool* flags) const = 0;
+    virtual void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                              bool* flags) const = 0;
 
     //evaluate predicate on Bitmap
     virtual Status evaluate(const Schema& schema,
                             const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
-                            Roaring* roaring) const = 0;
+                            roaring::Roaring* roaring) const = 0;
 
     uint32_t column_id() const { return _column_id; }
 
