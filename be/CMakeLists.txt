@@ -234,9 +234,6 @@ set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/
 add_library(arrow STATIC IMPORTED)
 set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
 
-add_library(double-conversion STATIC IMPORTED)
-set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
-
 add_library(parquet STATIC IMPORTED)
 set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
 
@@ -509,7 +506,6 @@ set(COMMON_THIRDPARTY
     bitshuffle
     roaring
     fmt
-    double-conversion
     jemalloc
     brotlicommon
     brotlidec

@@ -59,9 +59,8 @@ arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
     return arrow::Status::OK();
 }
 
-arrow::Status ParquetOutputStream::Tell(int64_t* position) const {
-    *position = _cur_pos;
-    return arrow::Status::OK();
+arrow::Result<int64_t> ParquetOutputStream::Tell() const {
+    return _cur_pos;
 }
 
 arrow::Status ParquetOutputStream::Close() {
