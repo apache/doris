@@ -138,7 +138,7 @@ struct SegmentMetaInfo {
     SegmentMetaInfo() {
         range.first = range.last = 0;
         buffer.length = 0;
-        buffer.data = NULL;
+        buffer.data = nullptr;
     }
 
     const size_t count() const { return range.last - range.first; }

@@ -671,7 +671,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
 }
 */
 Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
-                                     boost::scoped_ptr<RowBatch>* batch, bool* got_rows) {
+                                     std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(
@@ -942,7 +942,7 @@ bool BufferedTupleStream3::DeepCopyInternal(TupleRow* row, uint8_t** data,
                                             const uint8_t* data_end) noexcept {
     uint8_t* pos = *data;
     const uint64_t tuples_per_row = desc_->tuple_descriptors().size();
-    // Copy the not NULL fixed len tuples. For the NULL tuples just update the NULL tuple
+    // Copy the not nullptr fixed len tuples. For the nullptr tuples just update the nullptr tuple
     // indicator.
     if (HAS_NULLABLE_TUPLE) {
         int null_indicator_bytes = NullIndicatorBytesPerRow();
@@ -1063,7 +1063,7 @@ void BufferedTupleStream3::UnflattenTupleRow(uint8_t** data, TupleRow* row) cons
     const int tuples_per_row = desc_->tuple_descriptors().size();
     uint8_t* ptr = *data;
     if (has_nullable_tuple_) {
-        // Stitch together the tuples from the page and the NULL ones.
+        // Stitch together the tuples from the page and the nullptr ones.
         const uint8_t* null_indicators = ptr;
         ptr += NullIndicatorBytesPerRow();
         for (int i = 0; i < tuples_per_row; ++i) {

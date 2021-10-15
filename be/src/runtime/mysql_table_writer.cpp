@@ -54,8 +54,8 @@ Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string&
 
     MYSQL* res = mysql_real_connect(_mysql_conn, conn_info.host.c_str(), conn_info.user.c_str(),
                                     conn_info.passwd.c_str(), conn_info.db.c_str(), conn_info.port,
-                                    NULL, // unix socket
-                                    0);   // flags
+                                    nullptr, // unix socket
+                                    0);      // flags
     if (res == nullptr) {
         std::stringstream ss;
         ss << "mysql_real_connect failed because " << mysql_error(_mysql_conn);
@@ -86,7 +86,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         }
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            ss << "NULL";
+            ss << "nullptr";
             continue;
         }
         switch (_output_expr_ctxs[i]->root()->type().type) {
@@ -122,11 +122,11 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         case TYPE_STRING: {
             const StringValue* string_val = (const StringValue*)(item);
 
-            if (string_val->ptr == NULL) {
+            if (string_val->ptr == nullptr) {
                 if (string_val->len == 0) {
                     ss << "\'\'";
                 } else {
-                    ss << "NULL";
+                    ss << "nullptr";
                 }
             } else {
                 char* buf = new char[2 * string_val->len + 1];

@@ -111,7 +111,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _index_stream_lru_cache(NULL),
+          _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
           _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
                                                             false, MemTrackerLevel::OVERVIEW)),
@@ -638,8 +638,8 @@ void StorageEngine::_start_clean_cache() {
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
-    if(!l.try_lock()) {
+    std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
+    if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
         return res;
     }
@@ -895,7 +895,7 @@ OLAPStatus StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                                             std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
-    if (shard_path == NULL) {
+    if (shard_path == nullptr) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }

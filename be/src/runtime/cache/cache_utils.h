@@ -22,7 +22,6 @@
 #include <sys/time.h>
 
 #include <algorithm>
-#include <boost/thread.hpp>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -31,6 +30,7 @@
 #include <list>
 #include <map>
 #include <shared_mutex>
+#include <thread>
 
 namespace doris {
 
@@ -51,7 +51,7 @@ struct CacheStat {
 
     inline long cache_time_second() {
         struct timeval tv;
-        gettimeofday(&tv, NULL);
+        gettimeofday(&tv, nullptr);
         return tv.tv_sec;
     }
 

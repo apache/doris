@@ -37,7 +37,7 @@ public:
     Status init(const TSortInfo& sort_info, ObjectPool* pool);
 
     // Initialize the ordering and (optionally) materialization expressions from the thrift
-    // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not
+    // TExprs into the specified pool. sort_tuple_slot_exprs is nullptr if the tuple is not
     // materialized.
     Status init(const std::vector<TExpr>& ordering_exprs,
                 const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool);

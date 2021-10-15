@@ -91,7 +91,7 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
                     _TAssertion_VALUES_TO_NAMES.find(assertion);
 
             if (it == _TAggregationOp_VALUES_TO_NAMES.end()) {
-                return "NULL";
+                return "nullptr";
             } else {
                 return it->second;
             }

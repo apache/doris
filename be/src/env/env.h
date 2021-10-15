@@ -47,7 +47,7 @@ public:
 
     // Create a brand new sequentially-readable file with the specified name.
     // On success, stores a pointer to the new file in *result and returns OK.
-    // On failure stores NULL in *result and returns non-OK.  If the file does
+    // On failure stores nullptr in *result and returns non-OK.  If the file does
     // not exist, returns a non-OK status.
     //
     // The returned file will only be accessed by one thread at a time.
@@ -71,7 +71,7 @@ public:
     // Create an object that writes to a new file with the specified
     // name.  Deletes any existing file with the same name and creates a
     // new file.  On success, stores a pointer to the new file in
-    // *result and returns OK.  On failure stores NULL in *result and
+    // *result and returns OK.  On failure stores nullptr in *result and
     // returns non-OK.
     //
     // The returned file will only be accessed by one thread at a time.

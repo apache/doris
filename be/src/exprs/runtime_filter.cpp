@@ -420,7 +420,7 @@ Expr* create_literal(ObjectPool* pool, PrimitiveType type, const void* data) {
     }
     default:
         DCHECK(false);
-        return NULL;
+        return nullptr;
     }
     node.__set_node_type(get_expr_node_type(type));
     node.__set_type(create_type_desc(type));

@@ -96,7 +96,7 @@ Status BloomFilterPredicate::prepare(RuntimeState* state, IBloomFilterFuncBase* 
         return Status::OK();
     }
     _filter.reset(filter);
-    if (NULL == _filter.get()) {
+    if (nullptr == _filter.get()) {
         return Status::InternalError("Unknown column type.");
     }
     _is_prepare = true;
@@ -114,7 +114,7 @@ BooleanVal BloomFilterPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
         return BooleanVal(true);
     }
     const void* lhs_slot = ctx->get_value(_children[0], row);
-    if (lhs_slot == NULL) {
+    if (lhs_slot == nullptr) {
         return BooleanVal::null();
     }
     _scan_rows++;

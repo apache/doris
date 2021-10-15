@@ -43,9 +43,9 @@ Expr* ArithmeticExpr::from_thrift(const TExprNode& node) {
     case TExprOpcode::BITNOT:
         return new BitNotExpr(node);
     default:
-        return NULL;
+        return nullptr;
     }
-    return NULL;
+    return nullptr;
 }
 
 #define BINARY_OP_CHECK_ZERO_FN(TYPE, CLASS, FN, OP)      \

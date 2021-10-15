@@ -74,12 +74,12 @@ Status SetOperationNode::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     // Must reset _probe_batch in close() to release resources
-    _probe_batch.reset(NULL);
+    _probe_batch.reset(nullptr);
 
-    if (_hash_tbl.get() != NULL) {
+    if (_hash_tbl.get() != nullptr) {
         _hash_tbl->close();
     }
-    if (_build_pool.get() != NULL) {
+    if (_build_pool.get() != nullptr) {
         _build_pool->free_all();
     }
 

@@ -100,7 +100,7 @@ std::string RowBlockRow::debug_string() const {
         ColumnId cid = _block->schema()->column_ids()[i];
         auto col_schema = _block->schema()->column(cid);
         if (col_schema->is_nullable() && is_null(cid)) {
-            ss << "NULL";
+            ss << "nullptr";
         } else {
             ss << col_schema->type_info()->to_string(cell_ptr(cid));
         }
@@ -114,7 +114,7 @@ std::string RowBlockV2::debug_string() {
         ss << row(i).debug_string();
         if (i != num_rows() - 1) {
             ss << "\n";
-       }
+        }
     }
     return ss.str();
 }

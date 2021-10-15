@@ -175,8 +175,8 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
         FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);                 \
         CaseExprState* state = reinterpret_cast<CaseExprState*>(                      \
                 fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));           \
-        DCHECK(state->case_val != NULL);                                              \
-        DCHECK(state->when_val != NULL);                                              \
+        DCHECK(state->case_val != nullptr);                                           \
+        DCHECK(state->when_val != nullptr);                                           \
         int num_children = _children.size();                                          \
         if (has_case_expr()) {                                                        \
             /* All case and when exprs return the same type */                        \

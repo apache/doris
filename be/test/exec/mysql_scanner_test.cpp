@@ -55,7 +55,7 @@ TEST_F(MysqlScannerTest, normal_use) {
     bool eos = false;
     char** buf;
     unsigned long* length;
-    status = scanner.get_next_row(NULL, &length, &eos);
+    status = scanner.get_next_row(nullptr, &length, &eos);
     ASSERT_FALSE(status.ok());
 
     while (!eos) {
@@ -71,7 +71,7 @@ TEST_F(MysqlScannerTest, normal_use) {
             if (buf[i]) {
                 LOG(WARNING) << buf[i];
             } else {
-                LOG(WARNING) << "NULL";
+                LOG(WARNING) << "nullptr";
             }
         }
     }

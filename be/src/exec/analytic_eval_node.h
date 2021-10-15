@@ -192,13 +192,13 @@ private:
     const TupleDescriptor* _result_tuple_desc;
 
     // Tuple descriptor of the buffered tuple (identical to the input child tuple, which is
-    // assumed to come from a single SortNode). NULL if both partition_exprs and
+    // assumed to come from a single SortNode). nullptr if both partition_exprs and
     // order_by_exprs are empty.
     TupleDescriptor* _buffered_tuple_desc;
 
     // TupleRow* composed of the first child tuple and the buffered tuple, used by
     // _partition_by_eq_expr_ctx and _order_by_eq_expr_ctx. Set in prepare() if
-    // _buffered_tuple_desc is not NULL, allocated from _mem_pool.
+    // _buffered_tuple_desc is not nullptr, allocated from _mem_pool.
     TupleRow* _child_tuple_cmp_row;
 
     // Expr context for a predicate that checks if child tuple '<' buffered tuple for
@@ -264,8 +264,8 @@ private:
     // MAX_TUPLE_POOL_SIZE bytes. Resources from _prev_tuple_pool are transferred to an
     // output row batch when all result tuples it contains have been returned and all
     // window tuples it contains are no longer needed.
-    boost::scoped_ptr<MemPool> _curr_tuple_pool;
-    boost::scoped_ptr<MemPool> _prev_tuple_pool;
+    std::unique_ptr<MemPool> _curr_tuple_pool;
+    std::unique_ptr<MemPool> _prev_tuple_pool;
 
     // The index of the last row from _input_stream associated with output row containing
     // resources in _prev_tuple_pool. -1 when the pool is empty. Resources from
@@ -303,8 +303,8 @@ private:
     // process_child_batch(). The prev batch is Reset() after calling process_child_batch()
     // and then swapped with the curr batch so the RowBatch owning _prev_input_row is
     // stored in _prev_child_batch for the next call to process_child_batch().
-    boost::scoped_ptr<RowBatch> _prev_child_batch;
-    boost::scoped_ptr<RowBatch> _curr_child_batch;
+    std::unique_ptr<RowBatch> _prev_child_batch;
+    std::unique_ptr<RowBatch> _curr_child_batch;
 
     // Block manager client used by _input_stream. Not owned.
     BufferedBlockMgr2::Client* _block_mgr_client;
@@ -317,10 +317,10 @@ private:
     // buffered data exceeds the available memory in the underlying BufferedBlockMgr,
     // _input_stream is unpinned (i.e., possibly spilled to disk if necessary).
     // TODO: Consider re-pinning unpinned streams when possible.
-    boost::scoped_ptr<BufferedTupleStream2> _input_stream;
+    std::unique_ptr<BufferedTupleStream2> _input_stream;
 
     // Pool used for O(1) allocations that live until close.
-    boost::scoped_ptr<MemPool> _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 
     // True when there are no more input rows to consume from our child.
     bool _input_eos;

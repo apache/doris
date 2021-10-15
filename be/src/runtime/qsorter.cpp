@@ -52,7 +52,7 @@ bool TupleRowLessThan::operator()(TupleRow* const& lhs, TupleRow* const& rhs) co
         void* lhs_value = _lhs_expr_ctxs[i]->get_value(lhs);
         void* rhs_value = _rhs_expr_ctxs[i]->get_value(rhs);
 
-        // NULL's always go at the end regardless of asc/desc
+        // nullptr's always go at the end regardless of asc/desc
         if (lhs_value == nullptr && rhs_value == nullptr) {
             continue;
         }
@@ -93,7 +93,7 @@ Status QSorter::prepare(RuntimeState* state) {
 Status QSorter::insert_tuple_row(TupleRow* input_row) {
     TupleRow* insert_tuple_row =
             input_row->deep_copy(_row_desc.tuple_descriptors(), _tuple_pool.get());
-    if (insert_tuple_row == NULL) {
+    if (insert_tuple_row == nullptr) {
         return Status::InternalError("deep copy failed.");
     }
     _sorted_rows.push_back(insert_tuple_row);

@@ -39,8 +39,8 @@ namespace doris {
  *     init_method,
  *     close_method,
  *     PLUGIN_NOT_DYNAMIC_INSTALL | PLUGIN_NOT_DYNAMIC_UNINSTALL,
- *     NULL,
- *     NULL
+ *     nullptr,
+ *     nullptr
  * } declare_plugin_end
  * 
  */

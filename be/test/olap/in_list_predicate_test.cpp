@@ -87,13 +87,13 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 
 class TestInListPredicate : public testing::Test {
 public:
-    TestInListPredicate() : _vectorized_batch(NULL), _row_block(nullptr) {
+    TestInListPredicate() : _vectorized_batch(nullptr), _row_block(nullptr) {
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
     ~TestInListPredicate() {
-        if (_vectorized_batch != NULL) {
+        if (_vectorized_batch != nullptr) {
             delete _vectorized_batch;
         }
     }

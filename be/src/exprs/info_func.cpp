@@ -56,7 +56,7 @@ void* InfoFunc::compute_fn(Expr* e, TupleRow* row) {
     }
 #endif
 
-    return NULL;
+    return nullptr;
 }
 
 } // namespace doris

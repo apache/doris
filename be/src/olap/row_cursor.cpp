@@ -28,7 +28,8 @@ using std::string;
 using std::vector;
 
 namespace doris {
-RowCursor::RowCursor() : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
+RowCursor::RowCursor()
+        : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
 
 RowCursor::~RowCursor() {
     delete[] _owned_fixed_buf;
@@ -78,7 +79,8 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     return _init(columns);
 }
 
-OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys) {
+OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
+                                     const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
@@ -226,7 +228,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
             slice->data = *(long_text_ptr);
             slice->size = DEFAULT_TEXT_LENGTH;
             ++long_text_ptr;
-        } else if (_variable_len > 0){
+        } else if (_variable_len > 0) {
             variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
         }
     }
@@ -313,7 +315,7 @@ std::string RowCursor::to_string() const {
         result.append(std::to_string(is_null(cid)));
         result.append("&");
         if (is_null(cid)) {
-            result.append("NULL");
+            result.append("nullptr");
         } else {
             char* src = cell_ptr(cid);
             result.append(field->to_string(src));

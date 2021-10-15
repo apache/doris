@@ -135,9 +135,9 @@ set(BOOST_ROOT ${THIRDPARTY_DIR})
 set(Boost_NO_BOOST_CMAKE OFF)
 
 if (NOT APPLE)
-    find_package(Boost 1.73.0 REQUIRED COMPONENTS regex system filesystem thread date_time program_options)
+    find_package(Boost 1.73.0 REQUIRED COMPONENTS system date_time)
 else()
-    find_package(Boost 1.73.0 COMPONENTS thread regex system filesystem date_time program_options)
+    find_package(Boost 1.73.0 COMPONENTS system date_time)
 endif()
 
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
@@ -482,12 +482,7 @@ set(COMMON_THIRDPARTY
     librdkafka
     libs2
     snappy
-    Boost::regex
-    Boost::system
-    Boost::filesystem
-    Boost::thread
     Boost::date_time
-    Boost::program_options
     thrift
     thriftnb
     glog

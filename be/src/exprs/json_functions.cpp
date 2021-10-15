@@ -262,14 +262,14 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
                     root = &((*root)[col.c_str()]);
                 }
             } else {
-                // root is not a nested type, return NULL
+                // root is not a nested type, return nullptr
                 return nullptr;
             }
         }
 
         if (UNLIKELY(index != -1)) {
             // judge the rapidjson:Value, which base the top's result,
-            // if not array return NULL;else get the index value from the array
+            // if not array return nullptr;else get the index value from the array
             if (root->IsArray()) {
                 if (root->IsNull()) {
                     return nullptr;

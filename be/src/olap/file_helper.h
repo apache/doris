@@ -240,7 +240,7 @@ private:
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
 OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(
         FileHandlerType* file_handler) {
-    if (NULL == file_handler) {
+    if (nullptr == file_handler) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -274,7 +274,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
 OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
         FileHandlerType* file_handler) {
-    if (NULL == file_handler) {
+    if (nullptr == file_handler) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -310,7 +310,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
 OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         FileHandlerType* file_handler) {
-    if (NULL == file_handler) {
+    if (nullptr == file_handler) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -347,10 +347,10 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
     }
 
     VLOG_NOTICE << "fix head loaded. file_length=" << _fixed_file_header.file_length
-            << ", checksum=" << _fixed_file_header.checksum
-            << ", protobuf_length=" << _fixed_file_header.protobuf_length
-            << ", magic_number=" << _fixed_file_header.magic_number
-            << ", version=" << _fixed_file_header.version;
+                << ", checksum=" << _fixed_file_header.checksum
+                << ", protobuf_length=" << _fixed_file_header.protobuf_length
+                << ", magic_number=" << _fixed_file_header.magic_number
+                << ", version=" << _fixed_file_header.version;
 
     if (OLAP_SUCCESS != file_handler->pread(&_extra_fixed_header, sizeof(_extra_fixed_header),
                                             _fixed_file_header_size)) {
@@ -362,7 +362,7 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
 
     std::unique_ptr<char[]> buf(new (std::nothrow) char[_fixed_file_header.protobuf_length]);
 
-    if (NULL == buf.get()) {
+    if (nullptr == buf.get()) {
         char errmsg[64];
         LOG(WARNING) << "malloc protobuf buf error. file=" << file_handler->file_name()
                      << ", error=" << strerror_r(errno, errmsg, 64);

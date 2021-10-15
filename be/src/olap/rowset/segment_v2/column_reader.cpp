@@ -479,7 +479,7 @@ Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 
 Status FileColumnIterator::seek_to_page_start() {
     if (_page == nullptr) {
-        return Status::NotSupported("Can not seek to page first when page is NULL");
+        return Status::NotSupported("Can not seek to page first when page is nullptr");
     }
     return seek_to_ordinal(_page->first_ordinal);
 }
@@ -649,9 +649,9 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
     _opts = opts;
     // be consistent with segment v1
     // if _has_default_value, we should create default column iterator for this column, and
-    // "NULL" is a special default value which means the default value is null.
+    // "nullptr" is a special default value which means the default value is null.
     if (_has_default_value) {
-        if (_default_value == "NULL") {
+        if (_default_value == "nullptr") {
             DCHECK(_is_nullable);
             _is_default_value_null = true;
         } else {

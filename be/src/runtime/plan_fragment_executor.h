@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 #define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <condition_variable>
 #include <functional>
 #include <vector>
@@ -111,9 +110,9 @@ public:
     // time when open() returns, and the status-reporting thread will have been stopped.
     Status open();
 
-    // Return results through 'batch'. Sets '*batch' to NULL if no more results.
+    // Return results through 'batch'. Sets '*batch' to nullptr if no more results.
     // '*batch' is owned by PlanFragmentExecutor and must not be deleted.
-    // When *batch == NULL, get_next() should not be called anymore. Also, report_status_cb
+    // When *batch == nullptr, get_next() should not be called anymore. Also, report_status_cb
     // will have been called for the final time and the status-reporting thread
     // will have been stopped.
     Status get_next(RowBatch** batch);
@@ -151,7 +150,7 @@ private:
 
     // profile reporting-related
     report_status_callback _report_status_cb;
-    boost::thread _report_thread;
+    std::thread _report_thread;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
@@ -190,12 +189,12 @@ private:
 
     // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
     // therefore we declare it before `_sink' and `_row_batch'
-    boost::scoped_ptr<RuntimeState> _runtime_state;
+    std::unique_ptr<RuntimeState> _runtime_state;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
-    boost::scoped_ptr<DataSink> _sink;
-    boost::scoped_ptr<RowBatch> _row_batch;
+    std::unique_ptr<DataSink> _sink;
+    std::unique_ptr<RowBatch> _row_batch;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
@@ -235,7 +234,7 @@ private:
     // If this plan fragment has a sink and open_internal() returns without an
     // error condition, all rows will have been sent to the sink, the sink will
     // have been closed, a final report will have been sent and the report thread will
-    // have been stopped. _sink will be set to NULL after successful execution.
+    // have been stopped. _sink will be set to nullptr after successful execution.
     Status open_internal();
 
     // Executes get_next() logic and returns resulting status.

@@ -19,11 +19,11 @@
 #define DORIS_BE_RUNTIME_RESULT_FILE_SINK_H
 
 #include "common/status.h"
-#include "runtime/data_stream_sender.h"
-#include "runtime/descriptors.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/data_stream_sender.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -43,11 +43,11 @@ public:
     // row_desc used for convert RowBatch to TRowBatch
     // buffer_size is the buffer size allocated to each query
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-               const TResultFileSink& sink);
+                   const TResultFileSink& sink);
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-               const TResultFileSink& sink,
-               const std::vector<TPlanFragmentDestination>& destinations,
-               ObjectPool* pool, int sender_id, DescriptorTbl& descs);
+                   const TResultFileSink& sink,
+                   const std::vector<TPlanFragmentDestination>& destinations, ObjectPool* pool,
+                   int sender_id, DescriptorTbl& descs);
     virtual ~ResultFileSink();
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
@@ -72,12 +72,11 @@ private:
     std::vector<ExprContext*> _output_expr_ctxs;
     RowDescriptor _output_row_descriptor;
 
-    boost::shared_ptr<BufferControlBlock> _sender;
-    boost::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<BufferControlBlock> _sender;
+    std::shared_ptr<ResultWriter> _writer;
     RowBatch* _output_batch = nullptr;
-    int _buf_size = 1024;            // Allocated from _pool
+    int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
-
 };
 
 } // namespace doris

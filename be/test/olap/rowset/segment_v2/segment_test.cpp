@@ -660,7 +660,7 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
     // add a column with null default value
     {
         std::vector<TabletColumn> read_columns = columns;
-        read_columns.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "NULL"));
+        read_columns.push_back(create_int_value(5, OLAP_FIELD_AGGREGATION_SUM, true, "nullptr"));
         TabletSchema query_schema = create_schema(read_columns);
 
         std::shared_ptr<Segment> segment;

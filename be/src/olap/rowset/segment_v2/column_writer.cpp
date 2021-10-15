@@ -55,7 +55,7 @@ public:
         _rle_encoder.Put(value, run);
     }
 
-    // Returns whether the building nullmap contains NULL
+    // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
     OwnedSlice finish() {
