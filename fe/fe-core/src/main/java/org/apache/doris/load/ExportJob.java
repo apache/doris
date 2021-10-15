@@ -115,8 +115,8 @@ public class ExportJob implements Writable {
     }
 
     private long id;
+    private String label;
     private long dbId;
-    private String clusterName;
     private long tableId;
     private BrokerDesc brokerDesc;
     private Expr whereExpr;
@@ -204,6 +204,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
+        this.label = this.properties.get(ExportStmt.LABEL);
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -673,9 +674,14 @@ public class ExportJob implements Writable {
                 && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
     }
 
+    public String getLabel() {
+        return label;
+    }
+
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
+                + ", label=" + label
                 + ", dbId=" + dbId
                 + ", tableId=" + tableId
                 + ", state=" + state
@@ -688,6 +694,12 @@ public class ExportJob implements Writable {
                 + ", failMsg=" + failMsg
                 + ", files=(" + StringUtils.join(exportedFiles, ",") + ")"
                 + "]";
+    }
+
+    public static ExportJob read(DataInput in) throws IOException {
+        ExportJob job = new ExportJob();
+        job.readFields(in);
+        return job;
     }
 
     @Override
@@ -742,7 +754,7 @@ public class ExportJob implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         isReplayed = true;
         id = in.readLong();
         dbId = in.readLong();
@@ -758,7 +770,13 @@ public class ExportJob implements Writable {
                 String propertyValue = Text.readString(in);
                 this.properties.put(propertyKey, propertyValue);
             }
+            // Because before 0.15, export does not contain label information.
+            // So for compatibility, a label will be added for historical jobs.
+            // This label must be guaranteed to be a certain value to prevent
+            // the label from being different each time.
+            properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
         }
+        this.label = properties.get(ExportStmt.LABEL);
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
