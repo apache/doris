@@ -220,6 +220,4 @@ make -j && make install
         
 ### 4. 编译Doris源码
 
-执行 `GLIBC_COMPATIBILITY=0 sh build.sh` 即可。
-
-注意这里我们关闭了 GLIBC_COMPATIBILITY 功能，因为其中的 FastMemcpy 函数不支持 ARM64 平台。关闭该功能后，需保证编译环境上的glibc版本和运行环境的glic版本一致。
+执行 `sh build.sh` 即可。
