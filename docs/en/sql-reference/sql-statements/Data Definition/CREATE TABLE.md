@@ -52,6 +52,8 @@ Syntax:
     col_name: Name of column
     col_type: Type of column
     ```
+        BOOLEAN(1 Byte)
+            Range: {0,1}
         TINYINT(1 Byte)
             Range: -2^7 + 1 ~ 2^7 - 1
         SMALLINT(2 Bytes)
@@ -338,13 +340,14 @@ Syntax:
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
