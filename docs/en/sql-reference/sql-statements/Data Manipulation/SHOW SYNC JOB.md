@@ -1,7 +1,7 @@
 ---
 {
-    "title": "PAUSE SYNC JOB",
-    "language": "zh-CN"
+    "title": "SHOW SYNC JOB",
+    "language": "en"
 }
 ---
 
@@ -24,20 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PAUSE SYNC JOB
+# SHOW SYNC JOB
 
 ## description
 
-通过 `job_name` 暂停一个数据库内正在运行的常驻数据同步作业，被暂停的作业将停止同步数据，保持消费的最新位置，直到被用户恢复。
+This command is used to display the resident data synchronization job status in all databases.
 
-语法：
-
-	PAUSE SYNC JOB [db.]job_name
+Syntax:
+	
+	SHOW SYNC JOB [FROM db_name]
 		
 ## example
-1. 暂停名称为 `job_name` 的数据同步作业。
 
-	PAUSE SYNC JOB `job_name`;
+1. Show the status of all SyncJob in the current database.
+
+	SHOW SYNC JOB;
+	
+2. Show status of all SyncJob under databases `test_db`.
+
+	SHOW SYNC JOB FROM `test_db`;
 	
 ## keyword
-	PAUSE,SYNC,JOB,BINLOG
+
+	SHOW,SYNC,JOB,BINLOG

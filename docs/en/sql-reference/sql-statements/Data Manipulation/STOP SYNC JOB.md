@@ -1,7 +1,7 @@
 ---
 {
-    "title": "PAUSE SYNC JOB",
-    "language": "zh-CN"
+    "title": "STOP SYNC JOB",
+    "language": "en"
 }
 ---
 
@@ -24,20 +24,21 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PAUSE SYNC JOB
+# STOP SYNC JOB
 
 ## description
 
-通过 `job_name` 暂停一个数据库内正在运行的常驻数据同步作业，被暂停的作业将停止同步数据，保持消费的最新位置，直到被用户恢复。
+Stops a uncancelled SyncJob in the database. 
 
-语法：
+Syntax:
 
-	PAUSE SYNC JOB [db.]job_name
+	STOP SYNC JOB [db.]job_name
 		
 ## example
-1. 暂停名称为 `job_name` 的数据同步作业。
 
-	PAUSE SYNC JOB `job_name`;
+1. Stop the SyncJob named `job_name`
+
+	STOP SYNC JOB `job_name`;
 	
 ## keyword
-	PAUSE,SYNC,JOB,BINLOG
+	STOP,SYNC,JOB,BINLOG

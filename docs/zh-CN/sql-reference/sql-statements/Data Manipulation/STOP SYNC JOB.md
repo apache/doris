@@ -28,14 +28,17 @@ under the License.
 
 ## description
 
-	通过job_name停止一个数据库内非停止状态的常驻数据同步作业。
-	语法:
-		STOP SYNC JOB [db.]job_name
+通过 `job_name` 停止一个数据库内非停止状态的常驻数据同步作业。
+
+语法:
+
+	STOP SYNC JOB [db.]job_name
 		
 ## example
-1. 停止名称为 job_name 的数据同步作业
 
-	STOP SYNC JOB job_name;
+1. 停止名称为 `job_name` 的数据同步作业
+
+	STOP SYNC JOB `job_name`;
 	
 ## keyword
 	STOP,SYNC,JOB,BINLOG

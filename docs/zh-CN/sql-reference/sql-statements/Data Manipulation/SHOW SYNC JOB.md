@@ -28,18 +28,21 @@ under the License.
 
 ## description
 
-	此命令用于当前显示所有数据库内的常驻数据同步作业状态。
-	语法：
-		SHOW SYNC JOB [FROM db_name]
+此命令用于当前显示所有数据库内的常驻数据同步作业状态。
+
+语法：
+
+	SHOW SYNC JOB [FROM db_name]
 
 ## example
+
 1. 展示当前数据库的所有数据同步作业状态。
 
 	SHOW SYNC JOB;
 	
-2. 展示数据库 test_db 下的所有数据同步作业状态。
+2. 展示数据库 `test_db` 下的所有数据同步作业状态。
 
-	SHOW SYNC JOB FROM test_db;
+	SHOW SYNC JOB FROM `test_db`;
 	
 ## keyword
 
