@@ -1761,8 +1761,7 @@ public class Catalog {
             for (int i = 0; i < size; ++i) {
                 long jobId = dis.readLong();
                 newChecksum ^= jobId;
-                ExportJob job = new ExportJob();
-                job.readFields(dis);
+                ExportJob job = ExportJob.read(dis);
                 if (!job.isExpired(curTime)) {
                     exportMgr.unprotectAddJob(job);
                 }
