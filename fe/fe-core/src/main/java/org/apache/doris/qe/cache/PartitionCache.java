@@ -66,14 +66,14 @@ public class PartitionCache extends Cache {
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
-                             CompoundPredicate partitionPredicate, String allViewStmtSuffix) {
+                             CompoundPredicate partitionPredicate, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
         this.olapTable = latestTable.olapTable;
         this.partitionInfo = partitionInfo;
         this.partColumn = partColumn;
         this.partitionPredicate = partitionPredicate;
         this.newRangeList = Lists.newArrayList();
-        this.allViewStmtSuffix = allViewStmtSuffix;
+        this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -86,7 +86,7 @@ public class PartitionCache extends Cache {
             return null;
         }
 
-        String nokeyStmtWithViewStmt = nokeyStmt.toSql() + allViewStmtSuffix;
+        String nokeyStmtWithViewStmt = nokeyStmt.toSql() + allViewExpandStmtListStr;
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
                 .setSqlKey(CacheProxy.getMd5(nokeyStmtWithViewStmt))
                 .addAllParams(range.getPartitionSingleList().stream().map(

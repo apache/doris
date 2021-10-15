@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.cache;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -92,7 +93,6 @@ public class CacheAnalyzer {
     private Column partColumn;
     private CompoundPredicate partitionPredicate;
     private Cache cache;
-    private StringBuilder allViewStmtSuffix;
     private Set<String> allViewStmtSet;
 
     public Cache getCache() {
@@ -105,7 +105,6 @@ public class CacheAnalyzer {
         this.parsedStmt = parsedStmt;
         scanNodes = planner.getScanNodes();
         latestTable = new CacheTable();
-        allViewStmtSuffix = new StringBuilder();
         allViewStmtSet = new HashSet<>();
         checkCacheConfig();
     }
@@ -115,7 +114,6 @@ public class CacheAnalyzer {
         this.context = context;
         this.parsedStmt = parsedStmt;
         this.scanNodes = scanNodes;
-        allViewStmtSuffix = new StringBuilder();
         allViewStmtSet = new HashSet<>();
         checkCacheConfig();
     }
@@ -221,9 +219,7 @@ public class CacheAnalyzer {
         latestTable.Debug();
 
         addAllViewStmt(selectStmt);
-        for (String stmt : allViewStmtSet) {
-            allViewStmtSuffix.append("_").append(stmt);
-        }
+        String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, ",");
 
         if (now == 0) {
             now = nowtime();
@@ -232,7 +228,7 @@ public class CacheAnalyzer {
                 (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000) {
             LOG.debug("TIME:{},{},{}", now, latestTable.latestTime, Config.cache_last_version_interval_second*1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
-            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewStmtSuffix.toString());
+            ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
             return CacheMode.Sql;
         }
@@ -279,7 +275,7 @@ public class CacheAnalyzer {
         partitionPredicate = compoundPredicates.get(0);
         cache = new PartitionCache(this.queryId, this.selectStmt);
         ((PartitionCache) cache).setCacheInfo(this.latestTable, this.partitionInfo, this.partColumn,
-                this.partitionPredicate, allViewStmtSuffix.toString());
+                this.partitionPredicate, allViewExpandStmtListStr);
         MetricRepo.COUNTER_CACHE_MODE_PARTITION.increase(1L);
         return CacheMode.Partition;
     }
