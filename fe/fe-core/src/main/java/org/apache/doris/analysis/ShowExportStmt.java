@@ -41,8 +41,7 @@ import java.util.List;
 // SHOW EXPORT STATUS statement used to get status of load job.
 //
 // syntax:
-//      SHOW EXPORT [FROM db] [LIKE mask]
-// TODO(lingbin): remove like predicate because export do not have label string
+//      SHOW EXPORT [FROM db] [where ...]
 public class ShowExportStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowExportStmt.class);
 
@@ -52,6 +51,7 @@ public class ShowExportStmt extends ShowStmt {
     private List<OrderByElement> orderByElements;
 
     private long jobId = 0;
+    private String label = null;
     private String stateValue = null;
 
     private JobState jobState;
@@ -89,6 +89,10 @@ public class ShowExportStmt extends ShowStmt {
             return null;
         }
         return jobState;
+    }
+
+    public String getLabel() {
+        return label;
     }
 
     @Override
@@ -131,6 +135,7 @@ public class ShowExportStmt extends ShowStmt {
         boolean valid = true;
         boolean hasJobId = false;
         boolean hasState = false;
+        boolean hasLabel = false;
         
         CHECK: {
             // check predicate type
@@ -155,6 +160,8 @@ public class ShowExportStmt extends ShowStmt {
                 hasJobId = true;
             } else if (leftKey.equalsIgnoreCase("state")) {
                 hasState = true;
+            } else if (leftKey.equalsIgnoreCase("label")) {
+                hasLabel = true;
             } else {
                 valid = false;
                 break CHECK;
@@ -188,13 +195,19 @@ public class ShowExportStmt extends ShowStmt {
                     break CHECK;
                 }
                 jobId = ((IntLiteral) whereExpr.getChild(1)).getLongValue();
+            } else if (hasLabel) {
+                if (!(whereExpr.getChild(1) instanceof StringLiteral)) {
+                    valid = false;
+                    break CHECK;
+                }
+                label = ((StringLiteral) whereExpr.getChild(1)).getStringValue();
             }
         }
-        
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like below: "
-                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\"");
+                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", " +
+                    "or label=\"xxx\"");
         }
     }
 

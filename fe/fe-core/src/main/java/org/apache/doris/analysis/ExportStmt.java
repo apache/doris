@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -45,6 +46,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -57,6 +59,7 @@ public class ExportStmt extends StatementBase {
     private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
 
     public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
+    public static final String LABEL = "label";
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
@@ -264,7 +267,7 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-       this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
+        this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
             try {
@@ -299,6 +302,14 @@ public class ExportStmt extends StatementBase {
         } else {
             // use session variables
             properties.put(TABLET_NUMBER_PER_TASK_PROP, String.valueOf(Config.export_tablet_num_per_task));
+        }
+
+        if (properties.containsKey(LABEL)) {
+            FeNameFormat.checkLabel(properties.get(LABEL));
+        } else {
+            // generate a random label
+            String label = "export_" + UUID.randomUUID().toString();
+            properties.put(LABEL, label);
         }
     }
 
