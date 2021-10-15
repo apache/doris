@@ -51,11 +51,11 @@ In the design of phase one, Binlog Load needs to rely on canal as an intermediat
 +---------------------------------------------+
 |                    Mysql                    |
 +----------------------+----------------------+
-				       | Binlog
+                       | Binlog
 +----------------------v----------------------+
 |                 Canal Server                |
 +-------------------+-----^-------------------+
-			   Get  |     |  Ack
+               Get  |     |  Ack
 +-------------------|-----|-------------------+
 | FE                |     |                   |
 | +-----------------|-----|----------------+  |
@@ -85,7 +85,7 @@ In the design of phase one, Binlog Load needs to rely on canal as an intermediat
      |                 |                  |
 +----v-----------------v------------------v---+
 |                 Coordinator                 |
-|                     BE		              |
+|                     BE                      |
 +----+-----------------+------------------+---+
      |                 |                  |
 +----v---+         +---v----+        +----v---+
@@ -238,7 +238,7 @@ For example, the gtid of the 23rd transaction executed on the same master node i
 
 Canal is a sub project of Alibaba Otter project. Its main purpose is to provide incremental data subscription and consumption based on MySQL database binlog analysis, which is originally used to solve the scenario of cross machine-room synchronization.
 
-Canal version 1.1.5 and above is recommended. [Download canal deployer] (https://github.com/alibaba/canal/releases)
+Canal version 1.1.5 and above is recommended. [download link](https://github.com/alibaba/canal/releases)
 
 After downloading, please follow the steps below to complete the deployment.
 
