@@ -333,7 +333,7 @@ void PInternalServiceImpl<T>::send_data(google::protobuf::RpcController* control
             PDataRow* row = new PDataRow();
             row->CopyFrom(request->data(i));
             pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
-                                   sizeof(row) + row->ByteSize());
+                                   sizeof(row) + row->ByteSizeLong());
         }
         response->mutable_status()->set_status_code(0);
     }

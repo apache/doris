@@ -190,18 +190,12 @@ private:
 };
 
 LZ4F_preferences_t Lz4fBlockCompression::_s_preferences = {
-        {
-                LZ4F_max256KB,
-                LZ4F_blockLinked,
-                LZ4F_noContentChecksum,
-                LZ4F_frame,
-                0,     // unknown content size,
-                {0, 0} // reserved, must be set to 0
-        },
-        0,            // compression level; 0 == default
-        0,            // autoflush
-        {0, 0, 0, 0}, // reserved, must be set to 0
-};
+        {LZ4F_max256KB, LZ4F_blockLinked, LZ4F_noContentChecksum, LZ4F_frame, 0ULL, 0U,
+         LZ4F_noBlockChecksum},
+        0,
+        0u,
+        0u,
+        {0u, 0u, 0u}};
 
 class SnappySlicesSource : public snappy::Source {
 public:

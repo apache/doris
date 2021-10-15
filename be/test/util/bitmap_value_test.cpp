@@ -25,6 +25,7 @@
 #include "util/bitmap_value.h"
 
 namespace doris {
+using roaring::Roaring;
 
 TEST(BitmapValueTest, bitmap_union) {
     BitmapValue empty;
