@@ -34,6 +34,7 @@ under the License.
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
+            [LABEL = your_label]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -56,6 +57,9 @@ under the License.
     
     4. 展示指定db，指定job_id的导出任务
         SHOW EXPORT FROM example_db WHERE ID = job_id;
+
+    5. 展示指定db，指定label的导出任务
+        SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
 
 ## keyword
     SHOW,EXPORT

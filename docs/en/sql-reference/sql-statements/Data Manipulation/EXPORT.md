@@ -57,6 +57,7 @@ under the License.
        [PROPERTIES ("key"="value", ...)]
 
         The following parameters can be specified:
+          label: The identifier of this export job. You can use this identifier to view the job status later.
           column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
           column: Specify the columns to be exported, separated by commas. If you do not fill in this parameter, the default is to export all the columns of the table.
           line_delimiter: Specifies the exported line separator, defaulting to\n. Supports invisible characters, such as'\x07'.
@@ -81,8 +82,8 @@ under the License.
     2. Export partitions P1 and P2 from the testTbl table to HDFS
        EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
-    3. Export all data in the testTbl table to hdfs, using "," as column separator
-       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+    3. Export all data in the testTbl table to hdfs, using "," as column separator, and specify label
+       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     4. Export the row meet condition k1 = 1 in the testTbl table to hdfs.
        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
