@@ -70,7 +70,7 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    TabletSchema _schema;
+    const TabletSchema& _schema;
 
     DataDir* _data_dir;
     std::string _tablet_path;
