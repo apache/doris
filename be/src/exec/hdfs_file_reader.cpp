@@ -22,7 +22,8 @@
 #include "common/logging.h"
 
 namespace doris {
-HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params, const std::string& path,
+
+HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path,
                                int64_t start_offset)
         : _hdfs_params(hdfs_params),
           _path(path),
