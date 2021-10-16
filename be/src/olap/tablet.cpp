@@ -136,9 +136,6 @@ void Tablet::save_meta() {
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
-    // User could directly update tablet schema by _tablet_meta,
-    // So we need to refetch schema again
-    _schema = _tablet_meta->tablet_schema();
 }
 
 OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
@@ -149,8 +146,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
-        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        generate_tablet_meta_copy_unlocked(new_tablet_meta);
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
