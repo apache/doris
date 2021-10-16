@@ -418,6 +418,14 @@ public class InlineViewRef extends TableRef {
         return baseTblSmap;
     }
 
+    public boolean isLocalView() {
+        return view == null || view.isLocalView();
+    }
+
+    public View getView() {
+        return view;
+    }
+
     @Override
     public String tableRefToSql() {
         // Enclose the alias in quotes if Hive cannot parse it without quotes.
