@@ -369,16 +369,19 @@ std::string MemTracker::LogUsage(int max_recursive_depth, const string& prefix,
     if (CheckLimitExceeded(MemLimit::HARD)) ss << " memory limit exceeded.";
     if (limit_ > 0) ss << " Limit=" << PrettyPrinter::print(limit_, TUnit::BYTES);
 
-    ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
-    if (reservation_counters != nullptr) {
-        int64_t reservation = reservation_counters->peak_reservation->current_value();
-        ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
-        if (reservation_counters->reservation_limit != nullptr) {
-            int64_t limit = reservation_counters->reservation_limit->value();
-            ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
-        }
-        ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
-    }
+    // TODO(zxy): ReservationTrackerCounters is not actually used in the current Doris. 
+    // Printing here ReservationTrackerCounters may cause BE crash when high concurrency.
+    // The memory tracker in Doris will be redesigned in the future.
+    // ReservationTrackerCounters* reservation_counters = reservation_counters_.load();
+    // if (reservation_counters != nullptr) {
+    //     int64_t reservation = reservation_counters->peak_reservation->current_value();
+    //     ss << " Reservation=" << PrettyPrinter::print(reservation, TUnit::BYTES);
+    //     if (reservation_counters->reservation_limit != nullptr) {
+    //         int64_t limit = reservation_counters->reservation_limit->value();
+    //         ss << " ReservationLimit=" << PrettyPrinter::print(limit, TUnit::BYTES);
+    //     }
+    //     ss << " OtherMemory=" << PrettyPrinter::print(curr_consumption - reservation, TUnit::BYTES);
+    // }
     ss << " Total=" << PrettyPrinter::print(curr_consumption, TUnit::BYTES);
     // Peak consumption is not accurate if the metric is lazily updated (i.e.
     // this is a non-root tracker that exists only for reporting purposes).
