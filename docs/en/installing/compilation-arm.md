@@ -220,4 +220,5 @@ Suppose Doris source code is under `/home/doris/doris-src/`.
 
 ### 4. Compile Doris source code
 
-Just execute sh build.sh.
+Execute `sh build.sh`.
+
