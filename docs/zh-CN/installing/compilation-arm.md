@@ -220,4 +220,4 @@ make -j && make install
         
 ### 4. 编译Doris源码
 
-执行 sh build.sh 即可。
+执行 `sh build.sh` 即可。
