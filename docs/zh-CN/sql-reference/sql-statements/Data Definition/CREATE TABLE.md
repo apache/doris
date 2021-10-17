@@ -54,6 +54,8 @@ under the License.
     col_type：列类型
 
     ```
+        BOOLEAN（1字节）
+            范围：{0,1}
         TINYINT（1字节）
             范围：-2^7 + 1 ~ 2^7 - 1
         SMALLINT（2字节）
@@ -370,13 +372,14 @@ under the License.
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
