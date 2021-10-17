@@ -141,6 +141,8 @@ private:
     // returns its status in the promise parameter.
     void build_side_thread(RuntimeState* state, boost::promise<Status>* status);
 
+    void probe_side_initial_thread(RuntimeState* state, ExecNode* child, boost::promise<Status>* status);
+
     // We parallelise building the build-side with Open'ing the
     // probe-side. If, for example, the probe-side child is another
     // hash-join node, it can start to build its own build-side at the

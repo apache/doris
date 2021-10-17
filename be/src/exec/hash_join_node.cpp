@@ -183,6 +183,12 @@ void HashJoinNode::build_side_thread(RuntimeState* state, boost::promise<Status>
     status->set_value(construct_hash_table(state));
 }
 
+
+void HashJoinNode::probe_side_initial_thread(RuntimeState* state, ExecNode* child,
+                                             boost::promise<Status>* status) {
+    status->set_value(child->open(state));
+}
+
 Status HashJoinNode::construct_hash_table(RuntimeState* state) {
     // Do a full scan of child(1) and store everything in _hash_tbl
     // The hash join node needs to keep in memory all build tuples, including the tuple
@@ -238,6 +244,12 @@ Status HashJoinNode::open(RuntimeState* state) {
     boost::thread(bind(&HashJoinNode::build_side_thread, this, state, &thread_status));
 
     if (!_runtime_filter_descs.empty()) {
+        // Init left node asynchronously.
+        // Note it is guaranteed by scan node that runtime filter is ready when
+        // scan node consuming it from RuntimeFilterMgr
+        boost::promise<Status> open_status;
+        boost::thread(bind(&HashJoinNode::probe_side_initial_thread, this, state, child(0), &open_status));
+
         RuntimeFilterSlots runtime_filter_slots(_probe_expr_ctxs, _build_expr_ctxs,
                                                 _runtime_filter_descs);
 
@@ -254,8 +266,7 @@ Status HashJoinNode::open(RuntimeState* state) {
             SCOPED_TIMER(_push_down_timer);
             runtime_filter_slots.publish(this);
         }
-        Status open_status = child(0)->open(state);
-        RETURN_IF_ERROR(open_status);
+        RETURN_IF_ERROR(open_status.get_future().get());
     } else {
         // Open the probe-side child so that it may perform any initialisation in parallel.
         // Don't exit even if we see an error, we still need to wait for the build thread
