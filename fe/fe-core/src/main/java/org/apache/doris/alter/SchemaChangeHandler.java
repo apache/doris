@@ -1221,7 +1221,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(partitionCol.getName(), true)) {
                             // 2.1 partition column cannot be modified
-                            if (needAlterColumns.contains(alterColumn)) {
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
                                 throw new DdlException("Can not modify partition column["
                                         + partitionCol.getName() + "]. index["
                                         + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -1250,7 +1250,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(distributionCol.getName(), true)) {
                             // 3.1 distribution column cannot be modified
-                            if (needAlterColumns.contains(alterColumn)) {
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
                                 throw new DdlException("Can not modify distribution column["
                                         + distributionCol.getName() + "]. index["
                                         + olapTable.getIndexNameById(alterIndexId) + "]");
