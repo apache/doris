@@ -264,7 +264,7 @@ Syntax:
             "storage_medium" = "[SSD|HDD]",
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
             ["replication_num" = "3"],
-			["replica_allocation" = "xxx"]
+			["replication_allocation" = "xxx"]
             )
         ```
     
@@ -274,7 +274,7 @@ Syntax:
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
         replication_num:        Replication number of a partition. Default is 3.
-        replica_allocation:     Specify the distribution of replicas according to the resource tag.
+        replication_allocation:     Specify the distribution of replicas according to the resource tag.
 
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
         User can specify different properties for different partition by `ADD PARTITION` or     `MODIFY PARTITION` statements.
@@ -754,7 +754,7 @@ Syntax:
     );
 ```
 
-16. Specify the replica distribution of the table through replica_allocation
+16. Specify the replica distribution of the table through replication_allocation
 
 ```	
     CREATE TABLE example_db.table_hash
@@ -764,7 +764,7 @@ Syntax:
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-		"replica_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
 	);
 
     CREATE TABLE example_db.dynamic_partition
@@ -783,7 +783,7 @@ Syntax:
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32",
-    "dynamic_partition."replica_allocation" = "tag.location.group_a:3"
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
 ```
 
