@@ -2,7 +2,17 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
-## build-env-1.4.0 [2021-10-13]
+## build-env-1.4.1
+
+### Changes
+
+Openssl 1.1.1l introduces the getentropy() method, which requires glibc 2.25 or higher,
+which will cause Doris BE to fail to run in the low-version glibc environment.
+Temporarily roll back the openssl version.
+
+- OpenSSL 1.1.1l -> 1.0.2k
+
+## build-env-1.4.0
 
 ### Changes
 
