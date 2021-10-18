@@ -39,8 +39,7 @@
 namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                         bool need_agg_finalize, const TPaloScanRange& scan_range,
-                         const std::vector<OlapScanRange*>& key_ranges)
+                         bool need_agg_finalize, const TPaloScanRange& scan_range)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -53,7 +52,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _need_agg_finalize(need_agg_finalize),
           _tuple_idx(parent->_tuple_idx),
           _direct_conjunct_size(parent->_direct_conjunct_size),
-          _reader(new Reader()),
+          _reader(new TupleReader),
           _version(-1),
           _mem_tracker(MemTracker::CreateTracker(
                   runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
@@ -165,8 +164,8 @@ Status OlapScanner::_init_params(
             continue;
         }
 
-        _params.range = (key_range->begin_include ? "ge" : "gt");
-        _params.end_range = (key_range->end_include ? "le" : "lt");
+        _params.start_key_include = key_range->begin_include;
+        _params.end_key_include = key_range->end_include;
 
         _params.start_key.push_back(key_range->begin_scan_range);
         _params.end_key.push_back(key_range->end_scan_range);

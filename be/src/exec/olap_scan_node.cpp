@@ -781,7 +781,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
             OlapScanner* scanner = new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                   _need_agg_finalize, *scan_range, scanner_ranges);
+                                                   _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
