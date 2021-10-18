@@ -53,7 +53,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType)
-        : _tablet_uid(0, 0), _preferred_rowset_type(BETA_ROWSET), _schema(new TabletSchema) {
+        : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -151,10 +151,10 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _tablet_type(b._tablet_type),
           _tablet_state(b._tablet_state),
           _schema(b._schema),
-          _in_restore_mode(b._in_restore_mode),
           _rs_metas(b._rs_metas),
           _stale_rs_metas(b._stale_rs_metas),
           _del_pred_array(b._del_pred_array),
+          _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type) {
 }
 
