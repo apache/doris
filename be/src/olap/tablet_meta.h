@@ -199,7 +199,7 @@ private:
 
     DelPredicateArray _del_pred_array;
     bool _in_restore_mode = false;
-    RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
+    RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     RWMutex _meta_lock;
 };
