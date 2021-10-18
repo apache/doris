@@ -91,7 +91,7 @@ Syntax:
 
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION: Only for HLL type
-       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns . **It should be noted here that the default value should be NULL, not a nullable string. If it is an empty string, you should replace it with an empty string**.
+       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns . **It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string**.
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
     Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.

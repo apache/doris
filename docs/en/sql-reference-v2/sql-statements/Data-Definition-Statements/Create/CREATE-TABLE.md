@@ -108,7 +108,7 @@ distribution_info
             MIN: Find the minimum value. Suitable for numeric types.
             MAX: Find the maximum value. Suitable for numeric types.
             REPLACE: Replace. For rows with the same dimension column, the index column will be imported in the order of import, and the last imported will replace the first imported.
-            REPLACE_IF_NOT_NULL: non-null value replacement. The difference with REPLACE is that there is no replacement for null values. It should be noted here that the default value should be NULL, not a nullable string. If it is an empty string, you should replace it with an empty string
+            REPLACE_IF_NOT_NULL: non-null value replacement. The difference with REPLACE is that there is no replacement for null values. It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string
             HLL_UNION: The aggregation method of HLL type columns, aggregated by HyperLogLog algorithm.
             BITMAP_UNION: The aggregation mode of BIMTAP type columns, which performs the union aggregation of bitmaps.
             ```
