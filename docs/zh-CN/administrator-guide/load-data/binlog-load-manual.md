@@ -38,11 +38,11 @@ Binlog Load提供了一种使Doris增量同步用户在Mysql数据库的对数�
 1. Frontend（FE）：Doris 系统的元数据和调度节点。在导入流程中主要负责导入 plan 生成和导入任务的调度工作。
 2. Backend（BE）：Doris 系统的计算和存储节点。在导入流程中主要负责数据的 ETL 和存储。
 3. Canal：阿里巴巴开源的Mysql Binlog日志解析工具。提供增量数据订阅&消费等功能。
-4.  Batch：Canal发送到客户端的一批数据，具有全局唯一自增的ID。
+4. Batch：Canal发送到客户端的一批数据，具有全局唯一自增的ID。
 5. SyncJob：用户提交的一个数据同步作业。
-6.  Receiver: 负责订阅并接收Canal的数据。
-7.  Consumer: 负责分发Receiver接收的数据到各个Channel。
-8.  Channel: 接收Consumer分发的数据的渠道，创建发送数据的子任务，控制单个表事务的开启、提交、终止。
+6. Receiver: 负责订阅并接收Canal的数据。
+7. Consumer: 负责分发Receiver接收的数据到各个Channel。
+8. Channel: 接收Consumer分发的数据的渠道，创建发送数据的子任务，控制单个表事务的开启、提交、终止。
 9. Task：Channel向Be发送数据的子任务。
 
 ## 基本原理
