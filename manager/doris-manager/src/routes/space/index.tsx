@@ -22,6 +22,7 @@ import styles from './index.module.less';
 import Password from 'antd/lib/input/Password';
 type RequiredMark = boolean | 'optional';
 import { SpaceAPI } from './space.api';
+import { useHistory } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 
@@ -30,18 +31,35 @@ const FormLayoutDemo = () => {
     const [form] = Form.useForm();
     const [clusterForm] = Form.useForm();
     const [requiredMark, setRequiredMarkType] = useState<RequiredMark>('optional');
+    const history = useHistory();
 
     const onRequiredTypeChange = ({ requiredMarkValue }: { requiredMarkValue: RequiredMark }) => {
         setRequiredMarkType(requiredMarkValue);
     };
     const handleCreate = () => {
-        form.validateFields().then(value => {
+        form.validateFields().then(values => {
             clusterForm.validateFields().then(cluValues => {
-                 SpaceAPI.spaceCreate({...value, ...cluValues}).then(res => {
+                 SpaceAPI.spaceCreate({
+                        cluster:{
+                            "address": cluValues.address,
+                            "httpPort": cluValues.httpPort,
+                            "passwd": cluValues.passwd || "",
+                            "queryPort": cluValues.queryPort,
+                            "user": cluValues.user 
+                        },
+                        name: values.userName,
+                        describe: values.describe,
+                        user:{
+                            "email": values.email,
+                            "name": values.name,
+                            "password": values.password
+                        }
+                    }).then(res => {
                     const { msg, data, code } = res;
                     if (code === 0) {
                         if (res.data) {
-                            console.log(res.data);
+                            message.success(msg);
+                            history.replace(`/space/list`);
                         }
                     } else {
                         message.error(msg);
@@ -55,7 +73,7 @@ const FormLayoutDemo = () => {
             SpaceAPI.spaceValidate({ 
                     address: values.address, 
                     httpPort: values.httpPort, 
-                    passwd: values.passwd, 
+                    passwd: values.passwd || "", 
                     queryPort: values.queryPort, 
                     user: values.user 
                 }).then(res => {
@@ -162,7 +180,7 @@ const FormLayoutDemo = () => {
             <Form.Item label={t`userName`} name="user" rules={[{required: true,message: t`required`}]}>
                 <Input placeholder={t`userName`} />
             </Form.Item>
-            <Form.Item label={t`userPwd`} name="passwd" rules={[{required: true,message: t`required`}]}>
+            <Form.Item label={t`userPwd`} name="passwd">
                 <Input.Password style={{ width: '400px' }} className={styles['input-password']} />
             </Form.Item>
             <Form.Item>

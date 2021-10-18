@@ -20,33 +20,88 @@ under the License.
 # Apache Doris Manager (incubating)
 [![Join the chat at https://gitter.im/apache-doris/Lobby](https://badges.gitter.im/apache-doris/Lobby.svg)](https://gitter.im/apache-doris/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Apache Doris Manager is used to manage the doris cluster, such as installing the cluster, upgrading the cluster, starting and stopping services, etc.
+Apache Doris Manager is used to manage the doris cluster, such as monitoring cluster, installing the cluster, upgrading the cluster, starting and stopping services, etc.
 
-## 1.Database configuration
-
-*  Modify the database configuration in the manager/dm-server/src/main/resources/application.properties file.
-*  Create a new database, and then execute the table creation statement in the manager/dm-server/src/main/resources/dm-server.sql file
-
-## 2. Compile and install
+## 1. Compile and install
 
 ### Step1: build
 ```
-$ mvn clean package -DskipTests
+$ sh build.sh
 ```
-After compilation, a tar package will be generated in the assembly/output/ directory, For example doris-manager-1.0.0.tar.gz
+Compiles the front and back ends of the project. After compilation, a tar package will be generated in the output/ directory and output.tar.gz package.The content of the compiled output is:
+```
+agent/
+    bin/
+        agent_start.sh, doris manger agent startup script
+        agent_stop.sh, doris manger agent stop script
+        install_be.sh, doris be install script
+        install_fe.sh, doris fe install script
+    lib/
+        dm-agent.jar, executable package of doris manger agent
+conf/
+    manager.conf, doris manger server configuration file
+resources/, doris manger server static resources
+static/, doris manger server front end compilation output
+doris-manager.jar, executable package of doris manger server
+start_manager.sh, doris manger server startup script
+stop_manager.sh, doris manger server stop script
+```
 
 ### Step2: install manager server
-Copy tar package to the the machine where the manager server needs to be installed, Start the manager service after decompression
+#### 1) Unzip the installation package
+Copy output.tar.gz tar package to the the machine where the manager server needs to be installed.
 ```
-$ tar zxf doris-manager-1.0.0.tar.gz
-$ sh bin/startup.sh
+$ tar -zxvf output.tar.gz
+```
+#### 2) Modify profile
+Edit conf/manager.conf
+```$xslt
+Start HTTP port of the service
+STUDIO_PORT=8080
+
+The type of database where back-end data is stored, including MySQL / H2 / PostgreSQL. MySQL is supported by default
+MB_DB_TYPE=mysql
+
+Database connection information
+
+If you are configuring a H2 type database, you do not need to configure this information, and the data will be stored locally as a local file
+
+For MySQL / PostgreSQL, you need to configure the following connection information
+
+Database address
+MB_DB_HOST=
+
+Database port
+MB_DB_PORT=3306
+
+Database access port
+MB_DB_USER=
+
+Database access password
+MB_DB_PASS=123456
+
+Database name of the database
+MB_DB_DBNAME
+```
+
+#### 3) Start manager server
+Start the manager service after decompression and configuration.
+```
+$ sh start_manager.sh
+```
+#### 4) User manager server
+Browser access ${serverIp}:8080, Manger server has a preset super administrator user. The information is as follows:
+```
+user name: Admin
+password: Admin@123
+(Case sensitive)
 ```
 
 ### Step3: install agent service
 After decompressing the tar package in the second step, there will be a directory called agent. copy the agent directory to the
 machine where the agent service is installed,
 ```
-$ sh bin/agent_start.sh --agent ${agentIp} --server ${serverIp}:9601
+$ sh bin/agent_start.sh --agent ${agentIp} --server ${serverIp}:8080
 ```
 ${agentIp} is the IP of the machine where the agent is located, ${serverIp} is the IP of the machine where the manager server is located
 

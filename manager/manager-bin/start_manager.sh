@@ -22,9 +22,9 @@ curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
 export MANAGER_HOME=`cd "$curdir"; pwd`
-echo "MANAGER_HOME"
+echo "$MANAGER_HOME"
 
-export LOG_DIR="MANAGER_HOME/logs"
+export LOG_DIR="$MANAGER_HOME/logs"
 
 echo "Make log dir"
 # make log path
@@ -41,7 +41,7 @@ while read line; do
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < MANAGER_HOME/conf/manager.conf
+done < $MANAGER_HOME/conf/manager.conf
 
 echo "config end"
 
@@ -96,5 +96,5 @@ then
 fi
 
 #start manager
-nohup $JAVA -jar MANAGER_HOME/doris-manager.jar > $LOG_DIR/manager.out 2>&1 </dev/null &
+nohup $JAVA -jar $MANAGER_HOME/doris-manager.jar > $LOG_DIR/manager.out 2>&1 </dev/null &
 echo "Doris Manager start done"
