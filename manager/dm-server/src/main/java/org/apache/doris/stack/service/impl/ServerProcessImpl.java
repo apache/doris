@@ -23,6 +23,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
+import org.apache.doris.stack.constant.EnvironmentDefine;
 import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
@@ -33,7 +34,6 @@ import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.shell.SCP;
 import org.apache.doris.stack.shell.SSH;
 import org.apache.doris.stack.util.Preconditions;
-import org.apache.doris.stack.util.PropertiesUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.system.ApplicationHome;
 import org.springframework.stereotype.Service;
@@ -57,8 +57,7 @@ import java.util.Set;
 @Slf4j
 public class ServerProcessImpl implements ServerProcess {
 
-    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_INSTALL_DIR);
-    private static final String AGENT_START_SCRIPT = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_START_SCRIPT);
+    private static final String AGENT_START_SCRIPT = Constants.KEY_DORIS_AGENT_START_SCRIPT;
 
     @Autowired
     private AgentComponent agentComponent;
@@ -78,12 +77,12 @@ public class ServerProcessImpl implements ServerProcess {
         Preconditions.checkNotNull(sshInfo.getHosts(), "hosts is empty");
         File sshKeyFile = buildSshKeyFile();
         writeSshKeyFile(sshInfo.getSshKey(), sshKeyFile);
-        scpFile(sshInfo, agentHome, AGENT_INSTALL_DIR);
+        scpFile(sshInfo, agentHome, sshInfo.getInstallDir());
     }
 
     @Override
     public void startAgent(SshInfo sshInfo) {
-        String command = "sh " + AGENT_INSTALL_DIR + File.separator + AGENT_START_SCRIPT + " --server " + getServerAddr() + " --agent %s";
+        String command = "sh " + sshInfo.getInstallDir() + File.separator + AGENT_START_SCRIPT + " --server " + getServerAddr() + " --agent %s";
         List<String> hosts = sshInfo.getHosts();
         for (String host : hosts) {
             File sshKeyFile = buildSshKeyFile();
@@ -197,7 +196,7 @@ public class ServerProcessImpl implements ServerProcess {
         } catch (UnknownHostException e) {
             throw new ServerException("get server ip fail");
         }
-        String port = PropertiesUtil.getPropValue(Constants.KEY_SERVER_PORT);
+        String port = System.getenv(EnvironmentDefine.STUDIO_PORT_ENV);
         return host + ":" + port;
     }
 

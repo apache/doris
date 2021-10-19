@@ -19,14 +19,11 @@ package org.apache.doris.stack.controller;
 
 import io.swagger.annotations.Api;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.req.AgentCommon;
 import org.apache.doris.stack.req.AgentRegister;
 import org.apache.doris.stack.req.SshInfo;
 import org.apache.doris.stack.service.ServerProcess;
-import org.apache.doris.stack.util.PropertiesUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,8 +37,6 @@ import org.springframework.web.bind.annotation.RestController;
 @Slf4j
 public class ServerController {
 
-    private static final String AGENT_INSTALL_DIR = PropertiesUtil.getPropValue(Constants.KEY_DORIS_AGENT_INSTALL_DIR);
-
     @Autowired
     private ServerProcess serverProcess;
 
@@ -50,9 +45,6 @@ public class ServerController {
      */
     @RequestMapping(value = "/installAgent", method = RequestMethod.POST)
     public RResult installAgent(@RequestBody SshInfo sshInfo) {
-        if (StringUtils.isBlank(sshInfo.getInstallDir())) {
-            sshInfo.setInstallDir(AGENT_INSTALL_DIR);
-        }
         serverProcess.initAgent(sshInfo);
         serverProcess.startAgent(sshInfo);
         return RResult.success();
