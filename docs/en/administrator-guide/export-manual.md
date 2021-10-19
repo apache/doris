@@ -108,13 +108,14 @@ PROPERTIES
 (
     "label"="mylabel",
     "column_separator"=",",
+    "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
     "timeout" = "3600"
 )
 WITH BROKER "hdfs"
 (
 	"username" = "user",
-	"password" = "passwd",
+	"password" = "passwd"
 );
 ```
 
