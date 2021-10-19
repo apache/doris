@@ -326,5 +326,4 @@ public class BitmapValue {
                 return false;
         }
     }
-
 }
