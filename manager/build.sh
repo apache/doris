@@ -33,6 +33,7 @@ echo "copy doris manager web resources to server end"
 echo "build doris manager server start"
 set -e
 rm -rf output
+rm -rf output.tar.gz
 mkdir -p output
 mvn clean install
 mv manager-server/target/manager-server-1.0.0.jar output/doris-manager.jar
@@ -41,5 +42,6 @@ cp -r manager-bin/* output/
 mkdir -p output/agent/lib
 mv dm-agent/target/dm-agent-1.0.0.jar output/agent/lib/dm-agent.jar
 cp -r manager-server/src/main/resources/static output/
+
+cp -r manager-server/src/main/resources output/
 tar -zcvf output.tar.gz output/
-rm -rf output/

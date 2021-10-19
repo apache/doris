@@ -183,6 +183,11 @@ public class SettingService extends BaseService {
         settingComponent.addNewSetting(ConfigConstant.DEPLOY_TYPE,
                 environment.getProperty(PropertyDefine.DEPLOY_TYPE_PROPERTY), configCache);
 
+        // TODO:The front-end is not implemented. First, the user system is specified as
+        //  the application's own system by default
+        settingComponent.addNewSetting(ConfigConstant.AUTH_TYPE_KEY,
+                InitStudioReq.AuthType.studio.name(), configCache);
+
         ConfigCache.writeConfigs(configCache);
         log.debug("init config end.");
     }
