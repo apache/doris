@@ -22,6 +22,10 @@
             <groupId>org.apache.doris</groupId>
             <artifactId>dm-common</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>general</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>commons-io</groupId>
