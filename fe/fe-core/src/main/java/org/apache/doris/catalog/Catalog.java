@@ -4020,7 +4020,7 @@ public class Catalog {
         HiveMetaStoreClient hiveMetaStoreClient =
                 HiveMetaStoreClientHelper.getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient, hiveTable.getHiveDb(), hiveTable.getHiveTable())) {
-            throw new DdlException("Table is not exists in hive: " + tableName);
+            throw new DdlException("Table is not exists in hive: " + hiveTable.getHiveDbTable());
         }
         // check hive table if exists in doris database
         if (!db.createTableWithLock(hiveTable, false, stmt.isSetIfNotExists()).first) {

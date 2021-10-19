@@ -18,13 +18,16 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HiveTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
@@ -37,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -110,6 +114,21 @@ public class HiveScanNode extends BrokerScanNode{
         super.init(analyzer);
     }
 
+    @Override
+    protected void initFileGroup() throws UserException {
+        HiveTable hiveTable = (HiveTable) desc.getTable();
+        fileGroups = Lists.newArrayList(
+                new BrokerFileGroup(hiveTable,
+                        getColumnSeparator(),
+                        getLineDelimiter(),
+                        getPath(),
+                        getFileFormat(),
+                        getPartitionKeys(),
+                        getParsedColumnExprList()));
+        brokerDesc = new BrokerDesc("HiveTableDesc", StorageBackend.StorageType.HDFS, hiveTable.getHiveProperties());
+        targetTable = hiveTable;
+    }
+
     private void initHiveTblProperties() throws DdlException {
         this.remoteHiveTable = HiveMetaStoreClientHelper.getTable(hiveTable);
         this.fileFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(remoteHiveTable.getSd().getInputFormat());
@@ -156,11 +175,16 @@ public class HiveScanNode extends BrokerScanNode{
         }
     }
 
-    public List<TBrokerFileStatus> getFileStatusByHivePartitionPredicate() throws DdlException {
-        List<TBrokerFileStatus> tBrokerFileStatuses = new ArrayList<>();
+    @Override
+    protected void getFileStatus() throws UserException {
+        List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,
-                tBrokerFileStatuses, remoteHiveTable);
-        return tBrokerFileStatuses;
+                fileStatuses, remoteHiveTable);
+        fileStatusesList.add(fileStatuses);
+        filesAdded += fileStatuses.size();
+        for (TBrokerFileStatus fstatus : fileStatuses) {
+            LOG.info("Add file status is {}", fstatus);
+        }
     }
 
     @Override

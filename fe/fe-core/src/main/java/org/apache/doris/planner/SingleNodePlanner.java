@@ -1695,6 +1695,7 @@ public class SingleNodePlanner {
             case HIVE:
                 scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
                         null, -1);
+                break;
             default:
                 break;
         }
