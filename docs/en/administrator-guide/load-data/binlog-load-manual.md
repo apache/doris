@@ -104,7 +104,7 @@ A Send task is a request from Channel to Be, which contains the data of the same
 
 Channel controls the begin, commit and abort of transaction of single table. In a transaction, the consumer may distribute multiple Batches of data to a channel, so multiple send tasks may be generated. These tasks will not actually take effect until the transaction is committed successfully.
 
-When certain conditions are met (for example, a certain period of time was passed, an empty batch is received), the Consumer will block and notify each channel to try commit the transaction.
+When certain conditions are met (for example, a certain period of time was passed, reach the maximun data size of commit), the Consumer will block and notify each channel to try commit the transaction.
 
 If and only if all channels are committed successfully, Canal Server will be notified by the ACK request and Canal Client continue to get and consume data.
 
