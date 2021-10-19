@@ -294,13 +294,13 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minzip STATIC IMPORTED)
 set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(gsasl STATIC IMPORTED)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
 if (ARCH_AMD64)
     # libhdfs3 only support x86 or amd64
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
-
-    add_library(gsasl STATIC IMPORTED)
-    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
 
     add_library(xml2 STATIC IMPORTED)
     set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
@@ -494,6 +494,7 @@ set(COMMON_THIRDPARTY
     lz4
     libevent
     libevent_pthreads
+    gsasl
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -531,7 +532,6 @@ endif()
 set(X86_DEPENDENCIES
     ${COMMON_THIRDPARTY}   
     hdfs3
-    gsasl
     xml2
     lzma
 )
