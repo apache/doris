@@ -17,12 +17,12 @@
 
 package org.apache.doris.manager.agent.task;
 
-import javafx.util.Pair;
+import org.apache.commons.lang3.tuple.ImmutablePair;
 
 import java.util.List;
 
 public interface ITaskLog {
-    Pair<Integer, List<String>> stdLog(int offset, int size);
+    ImmutablePair<Integer, List<String>> stdLog(int offset, int size);
 
     List<String> errLog(int offset, int size);
 

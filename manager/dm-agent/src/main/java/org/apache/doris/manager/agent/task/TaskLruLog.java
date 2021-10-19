@@ -17,7 +17,7 @@
 
 package org.apache.doris.manager.agent.task;
 
-import javafx.util.Pair;
+import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.doris.manager.agent.common.AgentConstants;
 
 import java.util.ArrayList;
@@ -40,12 +40,12 @@ public class TaskLruLog implements ITaskLog {
     }
 
     @Override
-    public Pair<Integer, List<String>> stdLog(int offset, int size) {
+    public ImmutablePair<Integer, List<String>> stdLog(int offset, int size) {
         int count = 0;
         ArrayList<String> list = new ArrayList<>();
         String temp = null;
         if (offset > stdlogs.size()) {
-            return new Pair(stdlogs.size() - 1 > 0 ? stdlogs.size() - 1 : 0, list);
+            return new ImmutablePair(stdlogs.size() - 1 > 0 ? stdlogs.size() - 1 : 0, list);
         }
 
         while (count < size && offset + count < stdlogs.size()) {
@@ -54,7 +54,7 @@ public class TaskLruLog implements ITaskLog {
             }
             count++;
         }
-        Pair<Integer, List<String>> pair = new Pair(offset + count, list);
+        ImmutablePair<Integer, List<String>> pair = new ImmutablePair(offset + count, list);
         return pair;
     }
 
