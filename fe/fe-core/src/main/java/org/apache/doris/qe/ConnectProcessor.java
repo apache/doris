@@ -125,10 +125,14 @@ public class ConnectProcessor {
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
-                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                // err query
-                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+                ctx.getAuditEventBuilder().setErrMsg(ctx.getState().getErrorMessage());
+                ctx.getAuditEventBuilder().setErrType(ctx.getState().getErrType().name());
+                //not analysis error
+                if (ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+                    // err query
+                    MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                }
             } else {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);

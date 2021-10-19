@@ -81,6 +81,10 @@ public class AuditEvent {
     public long cpuTimeMs = -1;
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
+    @AuditField(value = "ErrMsg")
+    public String errMsg = null;
+    @AuditField(value = "ErrType")
+    public String errType = null;
 
     public static class AuditEventBuilder {
 
@@ -175,6 +179,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setSqlHash(String sqlHash) {
             auditEvent.sqlHash = sqlHash;
+            return this;
+        }
+
+        public AuditEventBuilder setErrMsg(String errMsg) {
+            auditEvent.errMsg = errMsg;
+            return this;
+        }
+
+        public AuditEventBuilder setErrType(String errType) {
+            auditEvent.errType = errType;
             return this;
         }
 
