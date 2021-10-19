@@ -37,6 +37,7 @@ namespace doris {
 static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
+static const char* FIELD_FIELDS = "fields";
 static const char* FIELD_SOURCE = "_source";
 static const char* FIELD_ID = "_id";
 
@@ -252,11 +253,15 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
     }
 
     const rapidjson::Value& obj = _inner_hits_node[_line_index++];
+    const rapidjson::Value* line = nullptr;
     bool pure_doc_value = false;
-    if (obj.HasMember("fields")) {
+    if (obj.HasMember(FIELD_FIELDS)) {
         pure_doc_value = true;
+        line = &obj[FIELD_FIELDS];
     }
-    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
+    else if (obj.HasMember(FIELD_SOURCE)) {
+        line = &obj[FIELD_SOURCE];
+    }
 
     tuple->init(tuple_desc->byte_size());
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
@@ -265,6 +270,12 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         if (!slot_desc->is_materialized()) {
             continue;
         }
+
+        if (nullptr == line) {
+            tuple->set_null(slot_desc->null_indicator_offset());
+            continue;
+        }
+
         // _id field must exists in every document, this is guaranteed by ES
         // if _id was found in tuple, we would get `_id` value from inner-hit node
         // json-format response would like below:
@@ -308,14 +319,14 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
                                               : slot_desc->col_name().c_str();
 
-        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
-        if (itr == line.MemberEnd()) {
+        rapidjson::Value::ConstMemberIterator itr = line->FindMember(col_name);
+        if (itr == line->MemberEnd()) {
             tuple->set_null(slot_desc->null_indicator_offset());
             continue;
         }
 
         tuple->set_not_null(slot_desc->null_indicator_offset());
-        const rapidjson::Value& col = line[col_name];
+        const rapidjson::Value& col = (*line)[col_name];
 
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         PrimitiveType type = slot_desc->type().type;
