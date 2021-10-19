@@ -18,18 +18,18 @@
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.exception.AgentException;
-import org.apache.doris.manager.agent.register.AgentContext;
-import org.apache.doris.manager.common.domain.CommandType;
-import org.apache.doris.manager.common.domain.Role;
+import org.apache.doris.manager.agent.service.Service;
+import org.apache.doris.manager.agent.service.ServiceContext;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
 import java.util.Objects;
 
-public abstract class FeCommand extends ListenerCommand {
+public abstract class FeCommand extends ExpandCommand {
     @Override
-    public void beforeExecute(CommandType commandType) {
-        if (Objects.isNull(AgentContext.getServiceInstallDir()) || Objects.isNull(AgentContext.getRole())
-                || AgentContext.getRole() != Role.FE) {
-            throw new AgentException("service fe not installed");
+    public void beforeSetup() {
+        Service service = ServiceContext.getServiceMap().get(ServiceRole.FE);
+        if (Objects.isNull(service)) {
+            throw new AgentException("service fe not installed or register");
         }
     }
 }

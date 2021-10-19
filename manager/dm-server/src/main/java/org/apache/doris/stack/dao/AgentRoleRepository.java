@@ -19,6 +19,10 @@ package org.apache.doris.stack.dao;
 
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
 
 /**
  * Copyright (C) 2020 Baidu, Inc. All Rights Reserved.
@@ -28,5 +32,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
  * @Date: 2021/8/18
  */
 public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, String> {
+
+    @Query("select f from AgentRoleEntity f where f.role = :role")
+    List<AgentRoleEntity> queryAgentByRole(@Param("role") String role);
+
+    @Query("select f from AgentRoleEntity f where f.host = :host")
+    List<AgentRoleEntity> queryAgentByHost(@Param("host") String host);
 
 }

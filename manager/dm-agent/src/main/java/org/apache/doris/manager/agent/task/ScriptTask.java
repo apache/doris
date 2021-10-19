@@ -18,6 +18,7 @@
 package org.apache.doris.manager.agent.task;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 
 public class ScriptTask extends Task<ScriptTaskDesc> {
@@ -31,27 +32,22 @@ public class ScriptTask extends Task<ScriptTaskDesc> {
     }
 
     @Override
-    protected int execute() {
-        try {
-            Runtime rt = Runtime.getRuntime();
-            Process proc = rt.exec(taskDesc.getScriptCmd());
-            BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
-            BufferedReader stdError = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
+    protected int execute() throws IOException, InterruptedException {
+        Runtime rt = Runtime.getRuntime();
+        Process proc = rt.exec(taskDesc.getScriptCmd());
+        BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+        BufferedReader stdError = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
 
-            String s = null;
-            while ((s = stdInput.readLine()) != null) {
-                getTasklog().appendStdLog(s);
-            }
-
-            while ((s = stdError.readLine()) != null) {
-                getTasklog().appendErrLog(s);
-            }
-
-            int exitVal = proc.waitFor();
-            return exitVal;
-        } catch (Throwable t) {
-            t.printStackTrace();
+        String s = null;
+        while ((s = stdInput.readLine()) != null) {
+            getTasklog().appendStdLog(s);
         }
-        return -1;
+
+        while ((s = stdError.readLine()) != null) {
+            getTasklog().appendErrLog(s);
+        }
+
+        int exitVal = proc.waitFor();
+        return exitVal;
     }
 }

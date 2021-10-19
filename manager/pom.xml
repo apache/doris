@@ -61,7 +61,6 @@
         <module>dm-common</module>
         <module>dm-agent</module>
         <module>dm-server</module>
-        <module>assembly</module>
         <module>general</module>
         <module>manager</module>
         <module>manager-server</module>

@@ -20,17 +20,17 @@ package org.apache.doris.manager.agent.task;
 import org.apache.doris.manager.agent.common.AgentConstants;
 
 public class TaskContext {
-    private static final LRU<String, Task> TAST_LRU = new LRU<>(AgentConstants.COMMAND_HISTORY_SAVE_MAX_COUNT);
+    private static final LRU<String, Task> TASK_LRU = new LRU<>(AgentConstants.COMMAND_HISTORY_SAVE_MAX_COUNT);
 
     public static synchronized void register(Task task) {
-        TAST_LRU.put(task.getTaskId(), task);
+        TASK_LRU.put(task.getTaskId(), task);
     }
 
     public static synchronized void unregister(Task task) {
-        TAST_LRU.remove(task.getTaskId());
+        TASK_LRU.remove(task.getTaskId());
     }
 
     public static synchronized Task getTaskByTaskId(String taskId) {
-        return TAST_LRU.get(taskId);
+        return TASK_LRU.get(taskId);
     }
 }

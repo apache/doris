@@ -17,8 +17,9 @@
 
 package org.apache.doris.stack.service;
 
-import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.entity.AgentEntity;
+import org.apache.doris.stack.entity.AgentRoleEntity;
+import org.apache.doris.stack.req.AgentRegister;
 import org.apache.doris.stack.req.SshInfo;
 
 import java.util.List;
@@ -40,9 +41,9 @@ public interface ServerProcess {
      */
     List<AgentEntity> agentList();
 
-    String agentRole(String host);
+    List<AgentRoleEntity> agentRole(String host);
 
     void heartbeat(String host, Integer port);
 
-    RResult register(String host, Integer port);
+    boolean register(AgentRegister agent);
 }

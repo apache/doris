@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.register;
+package org.apache.doris.manager.common.domain;
 
-import org.apache.doris.manager.common.domain.Role;
+public class WriteFeConfCommandRequestBody {
+    private String content;
+    private boolean createMetaDir;
 
-import java.util.Objects;
+    public String getContent() {
+        return content;
+    }
 
-public class StateService {
+    public void setContent(String content) {
+        this.content = content;
+    }
 
-    public static boolean isHealth() {
-        Role role = AgentContext.getRole();
-        if (Objects.isNull(role)) {
-            throw new RuntimeException("the service is not installed");
-        }
-        switch (role) {
-            case FE:
-                return FeState.isHealth();
-            case BE:
-                return BeState.isHealth();
-            default:
-                throw new RuntimeException("unkonw role:" + role);
-        }
+    public boolean isCreateMetaDir() {
+        return createMetaDir;
+    }
+
+    public void setCreateMetaDir(boolean createMetaDir) {
+        this.createMetaDir = createMetaDir;
     }
 }

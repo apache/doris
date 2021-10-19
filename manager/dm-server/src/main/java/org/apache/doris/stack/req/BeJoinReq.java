@@ -15,18 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.command;
+package org.apache.doris.stack.req;
 
-import org.apache.doris.manager.agent.task.ScriptTaskDesc;
+import java.util.List;
 
-public class FeInstallTaskDesc extends ScriptTaskDesc {
-    private String installDir;
+/**
+ * be join cluster req
+ **/
+public class BeJoinReq {
 
-    public String getInstallDir() {
-        return installDir;
+    private List<AgentCommon> list;
+
+    public List<AgentCommon> getList() {
+        return list;
     }
 
-    public void setInstallDir(String installDir) {
-        this.installDir = installDir;
+    public void setList(List<AgentCommon> list) {
+        this.list = list;
     }
 }

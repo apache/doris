@@ -15,27 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.register;
+package org.apache.doris.stack.exceptions;
 
-import org.apache.doris.manager.common.domain.RResult;
+public class JdbcException extends ServerException {
+    private static final long SERIAL_VERSION_UID = -1L;
 
-import java.util.HashMap;
-import java.util.Map;
+    private static final Integer DEAFULT_EXCEPTION_STATUS = 500;
 
-/**
- * query agent role
- **/
-public class AgentRole extends BaseRequest {
+    private int status;
 
-    public static String queryRole() {
-        String requestUrl = "http://" + AgentContext.getAgentServer() + "/server/agentRole";
-        Map<String, Object> map = new HashMap<>();
-        map.put("host", AgentContext.getAgentIp());
-
-        RResult resultResp = sendRequest(requestUrl, map);
-        if (resultResp == null) {
-            return null;
-        }
-        return String.valueOf(resultResp.getData());
+    public JdbcException(String message) {
+        this(message, DEAFULT_EXCEPTION_STATUS);
     }
+
+    public JdbcException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public JdbcException(String message, int status) {
+        super(message);
+        this.status = status;
+    }
+
+    public int getStatus() {
+        return status;
+    }
+
 }

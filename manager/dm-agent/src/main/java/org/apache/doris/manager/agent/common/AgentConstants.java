@@ -27,4 +27,18 @@ public class AgentConstants {
     public static final int COMMAND_HISTORY_SAVE_MAX_COUNT = 100;
     public static final int TASK_LOG_ROW_MAX_COUNT = 1000;
 
+    public static final String BASH_BIN = "/bin/sh ";
+
+    public static final String FE_CONFIG_KEY_META_DIR = "meta_dir";
+    public static final String BE_CONFIG_KEY_STORAGE_DIR = "storage_root_path";
+    public static final String FE_CONFIG_KEY_HTTP_PORT = "http_port";
+    public static final String BE_CONFIG_KEY_HTTP_PORT = "webserver_port";
+
+    public static final String FE_DEFAULT_META_DIR_RELATIVE_PATH = "/doris-meta";
+    public static final String BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH = "/storage";
+    public static final String FE_CONFIG_FILE_RELATIVE_PATH = "/conf/fe.conf";
+    public static final String BE_CONFIG_FILE_RELATIVE_PATH = "/conf/be.conf";
+
+    public static final int TASK_ERROR_CODE_DEFAULT = -501;
+    public static final int TASK_ERROR_CODE_EXCEPTION = -502;
 }

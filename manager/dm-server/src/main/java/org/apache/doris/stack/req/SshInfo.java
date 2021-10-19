@@ -29,6 +29,8 @@ public class SshInfo {
 
     private String sshKey;
 
+    private String installDir;
+
     public List<String> getHosts() {
         return hosts;
     }
@@ -59,5 +61,13 @@ public class SshInfo {
 
     public void setSshKey(String sshKey) {
         this.sshKey = sshKey;
+    }
+
+    public String getInstallDir() {
+        return installDir;
+    }
+
+    public void setInstallDir(String installDir) {
+        this.installDir = installDir;
     }
 }

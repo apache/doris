@@ -20,8 +20,8 @@ package org.apache.doris.stack.component;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
-import org.apache.doris.stack.dao.AgentRoleRepository;
 import org.apache.doris.stack.entity.AgentEntity;
+import org.apache.doris.stack.req.AgentRegister;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -35,9 +35,6 @@ public class AgentComponent {
     @Autowired
     private AgentRepository agentRepository;
 
-    @Autowired
-    private AgentRoleRepository agentRoleRepository;
-
     public List<AgentEntity> queryAgentNodes(List<String> hosts) {
         if (hosts == null || hosts.isEmpty()) {
             return agentRepository.findAll();
@@ -45,8 +42,8 @@ public class AgentComponent {
         return agentRepository.queryAgentNodes(hosts);
     }
 
-    public AgentEntity agentInfo(String host, Integer port) {
-        List<AgentEntity> agentEntities = agentRepository.agentInfo(host, port);
+    public AgentEntity agentInfo(String host) {
+        List<AgentEntity> agentEntities = agentRepository.agentInfo(host);
         if (agentEntities != null && !agentEntities.isEmpty()) {
             return agentEntities.get(0);
         } else {
@@ -55,7 +52,7 @@ public class AgentComponent {
     }
 
     public int refreshAgentStatus(String host, Integer port) {
-        AgentEntity agentInfo = agentInfo(host, port);
+        AgentEntity agentInfo = agentInfo(host);
         if (agentInfo == null) {
             return 0;
         }
@@ -65,9 +62,8 @@ public class AgentComponent {
         return 1;
     }
 
-    public AgentEntity registerAgent(String host, Integer port) {
-        AgentEntity agentEntity = new AgentEntity(host, port, AgentStatus.RUNNING.name());
+    public AgentEntity registerAgent(AgentRegister agent) {
+        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING.name());
         return agentRepository.save(agentEntity);
     }
-
 }

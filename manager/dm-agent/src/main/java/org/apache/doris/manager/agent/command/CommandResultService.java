@@ -18,12 +18,12 @@
 package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
-import org.apache.doris.manager.agent.register.BeState;
-import org.apache.doris.manager.agent.register.FeState;
+import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskContext;
 import org.apache.doris.manager.agent.task.TaskResult;
 import org.apache.doris.manager.common.domain.CommandType;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
 import java.util.Objects;
 
@@ -41,6 +41,8 @@ public class CommandResultService {
         switch (CommandType.valueOf(task.getTaskDesc().getTaskName())) {
             case INSTALL_FE:
             case INSTALL_BE:
+            case WRITE_BE_CONF:
+            case WRITE_FE_CONF:
                 return commandResult;
             case START_FE:
                 return feStateResult(task, false);
@@ -64,7 +66,7 @@ public class CommandResultService {
 
         // todo: save final status
         TaskResult tmpTaskResult = new TaskResult(task.getTaskResult());
-        boolean health = FeState.isHealth();
+        boolean health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
         if (isStop) {
             tmpTaskResult.setRetCode(!health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
         } else {
@@ -85,14 +87,14 @@ public class CommandResultService {
 
         // todo: save final status
         TaskResult tmpTaskResult = new TaskResult(task.getTaskResult());
-        boolean health = BeState.isHealth();
+        boolean health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
         if (isStop) {
             tmpTaskResult.setRetCode(!health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
         } else {
             tmpTaskResult.setRetCode(health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
         }
 
-        return new CommandResult(task.getTaskResult(),
+        return new CommandResult(tmpTaskResult,
                 task.getTasklog().allStdLog(),
                 task.getTasklog().allErrLog());
     }

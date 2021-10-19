@@ -17,16 +17,46 @@
 
 package org.apache.doris.manager.common.domain;
 
-public enum Role {
-    FE,
-    BE;
+/**
+ * agent role resgiter entity
+ **/
+public class AgentRoleRegister {
+    private String host;
 
-    public static Role findByName(String name) {
-        for (Role type : Role.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
+    private String role;
+
+    private String installDir;
+
+    public AgentRoleRegister() {
+    }
+
+    public AgentRoleRegister(String host, String role, String installDir) {
+        this.host = host;
+        this.role = role;
+        this.installDir = installDir;
+    }
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getInstallDir() {
+        return installDir;
+    }
+
+    public void setInstallDir(String installDir) {
+        this.installDir = installDir;
     }
 }

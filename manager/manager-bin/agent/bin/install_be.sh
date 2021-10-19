@@ -24,19 +24,16 @@ OPTS=$(getopt \
   -o '' \
   -l 'url:' \
   -l 'installDir:' \
-  -l 'mkFeMetadir' \
   -- "$@")
 
 eval set -- "$OPTS"
 
 URL=
 DORIS_HOME=
-MKDIR_FE_META_DIR=0
 while true; do
     case "$1" in
         --url) URL=$2 ; shift 2;;
         --installDir) DORIS_HOME=$2 ; shift 2;;
-        --mkFeMetadir) MKDIR_FE_META_DIR=1 ; shift ;;
         --) shift ;  break ;;
         *) echo "Internal error" ; exit 1 ;;
     esac
@@ -56,13 +53,8 @@ if [ ! -d $DORIS_HOME ]; then
     mkdir -p $DORIS_HOME
 fi
 
-wget  $URL -O doris-fe.tar.gz --quiet
+wget  $URL -O doris-be.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-tar -zxvf doris-fe.tar.gz  -C $DORIS_HOME
-if [ $? -ne 0 ] ;then exit 1;fi
-
-if [[ ${MKDIR_FE_META_DIR} -eq 1 ]] && [[ ! -d "$DORIS_HOME/doris-meta" ]]; then
-  mkdir $DORIS_HOME/doris-meta
-fi
+tar -zxvf doris-be.tar.gz -C $DORIS_HOME
 if [ $? -ne 0 ] ;then exit 1;fi

@@ -15,31 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.register;
+package org.apache.doris.manager.common.domain;
 
-import org.apache.doris.manager.common.domain.RResult;
+public enum ServiceRole {
+    FE,
+    BE;
 
-import java.util.HashMap;
-import java.util.Map;
-
-public class AgentRegister extends BaseRequest {
-
-    public static boolean register() {
-
-        String requestUrl = "http://" + AgentContext.getAgentServer() + "/server/register";
-        Map<String, Object> map = new HashMap<>();
-        map.put("host", AgentContext.getAgentIp());
-        map.put("port", AgentContext.getAgentPort());
-
-        RResult res = null;
-        try {
-            res = sendRequest(requestUrl, map);
-        } catch (Exception ex) {
-            return false;
+    public static ServiceRole findByName(String name) {
+        for (ServiceRole type : ServiceRole.values()) {
+            if (type.name().equals(name)) {
+                return type;
+            }
         }
-        if (res.getCode() == 0) {
-            return true;
-        }
-        return false;
+        return null;
     }
 }

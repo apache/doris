@@ -17,7 +17,7 @@
 
 package org.apache.doris.manager.agent.task;
 
-public abstract class TaskDesc {
+public class TaskDesc {
     private String taskName;
 
     public String getTaskName() {

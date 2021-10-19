@@ -15,15 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack;
+package org.apache.doris.manager.common.domain;
 
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
+public class WriteBeConfCommandRequestBody {
+    private String content;
+    private boolean createStorageDir;
 
-@SpringBootApplication
-public class DmServerApplication {
+    public boolean isCreateStorageDir() {
+        return createStorageDir;
+    }
 
-    public static void main(String[] args) {
-        SpringApplication.run(DmServerApplication.class, args);
+    public void setCreateStorageDir(boolean createStorageDir) {
+        this.createStorageDir = createStorageDir;
+    }
+
+    public String getContent() {
+        return content;
+    }
+
+    public void setContent(String content) {
+        this.content = content;
     }
 }

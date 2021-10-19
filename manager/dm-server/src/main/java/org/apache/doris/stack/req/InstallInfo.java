@@ -33,6 +33,9 @@ public class InstallInfo {
 
     private String installDir;
 
+    //fe.conf be.conf
+    private String conf;
+
     public String getHost() {
         return host;
     }
@@ -79,5 +82,13 @@ public class InstallInfo {
 
     public void setMkBeStorageDir(boolean mkBeStorageDir) {
         this.mkBeStorageDir = mkBeStorageDir;
+    }
+
+    public String getConf() {
+        return conf;
+    }
+
+    public void setConf(String conf) {
+        this.conf = conf;
     }
 }

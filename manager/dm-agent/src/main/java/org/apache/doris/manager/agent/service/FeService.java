@@ -15,10 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.register;
+package org.apache.doris.manager.agent.service;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.agent.exception.AgentException;
+import org.apache.doris.manager.agent.register.AgentContext;
+import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -26,21 +31,39 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
+import java.io.File;
 import java.io.IOException;
+import java.util.Objects;
 
-public class FeState {
-    public static boolean isHealth() {
+@Slf4j
+public class FeService extends Service {
+
+    public FeService(String installDir) {
+        super(ServiceRole.FE, installDir, installDir + AgentConstants.FE_CONFIG_FILE_RELATIVE_PATH);
+        doLoad();
+    }
+
+    @Override
+    public void doLoad() {
+        String httpPortStr = getConfig().getProperty(AgentConstants.FE_CONFIG_KEY_HTTP_PORT);
+        if (Objects.isNull(httpPortStr)) {
+            throw new AgentException("get config failed, key:" + AgentConstants.FE_CONFIG_KEY_HTTP_PORT + ", configFile:" + getConfigFilePath());
+        }
+        httpPort = Integer.valueOf(httpPortStr);
+    }
+
+    @Override
+    public boolean isHealth() {
         CloseableHttpClient httpclient = HttpClients.createDefault();
 
-        String requestUrl = "http://" + AgentContext.getAgentIp() + ":" + AgentContext.getHealthCheckPort() + "/api/bootstrap";
+        String requestUrl = "http://" + AgentContext.getAgentIp() + ":" + httpPort + "/api/bootstrap";
 
         HttpGet httpget = new HttpGet(requestUrl);
 
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectTimeout(5000)
                 .setConnectionRequestTimeout(5000)
-                .setSocketTimeout(5000)
-                .build();
+                .setSocketTimeout(5000).build();
         httpget.setConfig(requestConfig);
 
         CloseableHttpResponse response = null;
@@ -67,5 +90,29 @@ public class FeState {
             return true;
         }
         return false;
+    }
+
+    public void createMetaDir(boolean createDefaultMetaDir) {
+        String dir = null;
+        String metaDir = getConfig().getProperty(AgentConstants.FE_CONFIG_KEY_META_DIR);
+        if (Objects.nonNull(metaDir) && metaDir.contains("${DORIS_HOME}/")) {
+            String subDir = metaDir.substring(metaDir.indexOf("}/") + 1);
+            if (subDir.length() <= 1) {
+                return;
+            }
+            dir = installDir + subDir;
+        } else if (Objects.nonNull(metaDir) && metaDir.startsWith("/")) {
+            dir = metaDir;
+        } else if (createDefaultMetaDir) {
+            dir = installDir + AgentConstants.FE_DEFAULT_META_DIR_RELATIVE_PATH;
+        }
+
+        if (Objects.nonNull(dir)) {
+            File file = new File(dir);
+            if (!file.exists()) {
+                boolean r = file.mkdirs();
+                log.info("create meta path:{},ret:{}", dir, r);
+            }
+        }
     }
 }

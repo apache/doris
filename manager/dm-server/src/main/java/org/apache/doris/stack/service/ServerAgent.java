@@ -17,6 +17,7 @@
 
 package org.apache.doris.stack.service;
 
+import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.req.DorisExecReq;
 import org.apache.doris.stack.req.DorisInstallReq;
@@ -51,4 +52,8 @@ public interface ServerAgent {
     RResult taskStdlog(TaskLogReq taskInfo);
 
     RResult taskErrlog(TaskLogReq taskInfo);
+
+    void joinBe(List<String> hosts);
+
+    boolean register(AgentRoleRegister agentReg);
 }

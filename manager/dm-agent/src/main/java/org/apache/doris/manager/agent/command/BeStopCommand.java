@@ -17,7 +17,8 @@
 
 package org.apache.doris.manager.agent.command;
 
-import org.apache.doris.manager.agent.register.AgentContext;
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
 import org.apache.doris.manager.agent.task.ScriptTask;
@@ -25,14 +26,15 @@ import org.apache.doris.manager.agent.task.ScriptTaskDesc;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.common.domain.CommandType;
+import org.apache.doris.manager.common.domain.ServiceRole;
 
 public class BeStopCommand extends BeCommand {
     @Override
     public Task setupTask() {
         ScriptTaskDesc taskDesc = new ScriptTaskDesc();
 
-        String scriptCmd = AgentContext.getBashBin();
-        scriptCmd += AgentContext.getServiceInstallDir() + "/bin/stop_be.sh ";
+        String scriptCmd = AgentConstants.BASH_BIN;
+        scriptCmd += ServiceContext.getServiceMap().get(ServiceRole.BE).getInstallDir() + "/bin/stop_be.sh ";
         taskDesc.setScriptCmd(scriptCmd);
         return new ScriptTask(taskDesc);
     }

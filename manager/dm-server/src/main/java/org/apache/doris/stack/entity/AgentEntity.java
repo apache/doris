@@ -47,6 +47,9 @@ public class AgentEntity {
 
     private Integer port;
 
+    @Column(name = "install_dir")
+    private String installDir;
+
     private String status;
 
     @Column(name = "register_time")
@@ -55,9 +58,10 @@ public class AgentEntity {
     @Column(name = "last_reported_time")
     private Date lastReportedTime;
 
-    public AgentEntity(String host, Integer port, String status) {
+    public AgentEntity(String host, Integer port, String installDir, String status) {
         this.host = host;
         this.port = port;
+        this.installDir = installDir;
         this.status = status;
         this.registerTime = new Date();
     }

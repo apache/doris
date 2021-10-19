@@ -17,118 +17,71 @@
 
 package org.apache.doris.manager.agent.register;
 
-import org.apache.doris.manager.common.domain.Role;
-import org.apache.logging.log4j.util.Strings;
+import com.alibaba.fastjson.JSON;
+import org.apache.doris.manager.agent.util.Request;
+import org.apache.doris.manager.common.domain.RResult;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 public class AgentContext {
-    private static Role role = null;
-    private static String serviceInstallDir = null;
-    private static Integer healthCheckPort = null;
     private static String agentIp = null;
     private static Integer agentPort = null;
     private static String agentServer = null;
     private static String agentInstallDir = null;
-    private static String bashBin = "/bin/sh ";
 
-    public static void init(String role, String agentIp, Integer agentPort, String agentServer, String dorisHomeDir, String agentInstallDir) {
-        if (Strings.isNotBlank(role) && Objects.nonNull(Role.findByName(role))) {
-            AgentContext.setRole(Role.findByName(role));
+    public static boolean register(String agentIp, Integer agentPort, String agentServer, String agentInstallDir) {
+        boolean registerSuccess = registerToServer(agentIp, agentPort, agentServer, agentInstallDir);
+        if (!registerSuccess) {
+            return false;
         }
 
-        if (Strings.isNotBlank(agentIp)) {
-            AgentContext.setAgentIp(agentIp);
-        }
-
-        if (Objects.nonNull(agentPort)) {
-            AgentContext.setAgentPort(agentPort);
-        }
-
-        if (Strings.isNotBlank(agentServer)) {
-            AgentContext.setAgentServer(agentServer);
-        }
-
-        if (Strings.isNotBlank(dorisHomeDir)) {
-            AgentContext.setServiceInstallDir(dorisHomeDir);
-        }
-
-        if (Strings.isNotBlank(agentInstallDir)) {
-            AgentContext.setAgentInstallDir(agentInstallDir);
-        }
-    }
-
-    public static String getBashBin() {
-        return bashBin;
-    }
-
-    public static void setBashBin(String bashBin) {
-        AgentContext.bashBin = bashBin;
-    }
-
-    public static String getAgentInstallDir() {
-        return agentInstallDir;
-    }
-
-    public static void setAgentInstallDir(String agentInstallDir) {
-        AgentContext.agentInstallDir = agentInstallDir;
-    }
-
-    public static Integer getAgentPort() {
-        return agentPort;
-    }
-
-    public static void setAgentPort(Integer agentPort) {
+        AgentContext.agentIp = agentIp;
         AgentContext.agentPort = agentPort;
+        AgentContext.agentServer = agentServer;
+        AgentContext.agentInstallDir = agentInstallDir;
+
+        return true;
     }
 
-    public static void setRole(Role r) {
-        AgentContext.role = r;
-    }
+    private static boolean registerToServer(String agentIp, Integer agentPort, String agentServer, String agentInstallDir) {
+        String requestUrl = "http://" + agentServer + "/server/register";
+        Map<String, Object> map = new HashMap<>();
+        map.put("host", agentIp);
+        map.put("port", agentPort);
+        map.put("installDir", agentInstallDir);
 
-    public static Role getRole() {
-        return AgentContext.role;
-    }
-
-    public static void setServiceInstallDir(String dir) {
-        AgentContext.serviceInstallDir = dir;
-    }
-
-    public static String getServiceInstallDir() {
-        return AgentContext.serviceInstallDir;
-    }
-
-    public static Integer getHealthCheckPort() {
-        return AgentContext.healthCheckPort;
-    }
-
-    public static void setHealthCheckPort(Integer healthCheckPort) {
-        AgentContext.healthCheckPort = healthCheckPort;
+        RResult res = null;
+        try {
+            String result = Request.sendPostRequest(requestUrl, map);
+            res = JSON.parseObject(result, RResult.class);
+        } catch (Exception ex) {
+            return false;
+        }
+        if (res != null && new Boolean(true).equals(res.getData())) {
+            return true;
+        }
+        return false;
     }
 
     public static String getAgentIp() {
         return agentIp;
     }
 
-    public static void setAgentIp(String agentIp) {
-        AgentContext.agentIp = agentIp;
+    public static Integer getAgentPort() {
+        return agentPort;
     }
 
     public static String getAgentServer() {
         return agentServer;
     }
 
-    public static void setAgentServer(String agentServer) {
-        AgentContext.agentServer = agentServer;
+    public static String getAgentInstallDir() {
+        return agentInstallDir;
     }
 
     public static Map<String, Object> getContext() {
         HashMap<String, Object> context = new HashMap<>();
-        context.put("role", AgentContext.role);
-        context.put("serviceInstallDir", AgentContext.serviceInstallDir);
-        context.put("healthCheckPort", AgentContext.healthCheckPort);
         context.put("agentIp", AgentContext.agentIp);
         context.put("agentPort", AgentContext.agentPort);
         context.put("agentServer", AgentContext.agentServer);

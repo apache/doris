@@ -17,14 +17,24 @@
 
 package org.apache.doris.manager.agent.command;
 
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.agent.register.AgentContext;
+import org.apache.doris.manager.agent.service.BeService;
+import org.apache.doris.manager.agent.service.Service;
+import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.ITaskHandlerFactory;
 import org.apache.doris.manager.agent.task.QueuedTaskHandlerFactory;
 import org.apache.doris.manager.agent.task.ScriptTask;
+import org.apache.doris.manager.agent.task.ScriptTaskDesc;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
+import org.apache.doris.manager.agent.task.TaskHook;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandType;
+import org.apache.doris.manager.common.domain.ServiceRole;
+
+import java.util.Objects;
 
 public class BeInstallCommand extends Command {
     private BeInstallCommandRequestBody requestBody;
@@ -35,17 +45,21 @@ public class BeInstallCommand extends Command {
 
     @Override
     public Task setupTask() {
+        validCommand();
+
+        if (requestBody.getInstallDir().endsWith("/")) {
+            requestBody.setInstallDir(requestBody.getInstallDir().substring(0, requestBody.getInstallDir().length() - 1));
+        }
+
         BeInstallTaskDesc taskDesc = new BeInstallTaskDesc();
 
-        String scriptCmd = AgentContext.getBashBin();
+        String scriptCmd = AgentConstants.BASH_BIN;
         scriptCmd += AgentContext.getAgentInstallDir() + "/bin/install_be.sh ";
         scriptCmd += " --installDir " + requestBody.getInstallDir();
         scriptCmd += " --url " + requestBody.getPackageUrl();
-        if (requestBody.isMkBeStorageDir()) {
-            scriptCmd += " --mkBeStorageDir";
-        }
         taskDesc.setScriptCmd(scriptCmd);
         taskDesc.setInstallDir(requestBody.getInstallDir());
+        taskDesc.setCreateBeStorageDir(requestBody.isMkBeStorageDir());
         return new ScriptTask(taskDesc, new BeInstallTaskHook());
     }
 
@@ -57,5 +71,53 @@ public class BeInstallCommand extends Command {
     @Override
     public CommandType setupCommandType() {
         return CommandType.INSTALL_BE;
+    }
+
+    private void validCommand() {
+        Service service = ServiceContext.getServiceMap().get(ServiceRole.BE);
+        if (Objects.nonNull(service)) {
+            throw new AgentException("service be has installed");
+        }
+
+        if (Objects.isNull(requestBody.getInstallDir()) || Objects.isNull(requestBody.getPackageUrl())) {
+            throw new AgentException("required parameters are missing in body param");
+        }
+
+        if (!requestBody.getInstallDir().startsWith("/")) {
+            throw new AgentException("the installation path must use an absolute path");
+        }
+    }
+
+    private static class BeInstallTaskDesc extends ScriptTaskDesc {
+        private String installDir;
+        private boolean createBeStorageDir;
+
+        public String getInstallDir() {
+            return installDir;
+        }
+
+        public void setInstallDir(String installDir) {
+            this.installDir = installDir;
+        }
+
+        public boolean isCreateBeStorageDir() {
+            return createBeStorageDir;
+        }
+
+        public void setCreateBeStorageDir(boolean createBeStorageDir) {
+            this.createBeStorageDir = createBeStorageDir;
+        }
+    }
+
+    private static class BeInstallTaskHook extends TaskHook<BeInstallTaskDesc> {
+        @Override
+        public void onSuccess(BeInstallTaskDesc taskDesc) {
+            BeService beService = new BeService(taskDesc.getInstallDir());
+            if (taskDesc.isCreateBeStorageDir()) {
+                beService.createStrorageDir(false);
+            }
+
+            ServiceContext.register(beService);
+        }
     }
 }

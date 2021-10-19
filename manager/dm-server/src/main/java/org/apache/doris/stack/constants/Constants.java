@@ -22,4 +22,10 @@ public class Constants {
     public static final String KEY_SERVER_PORT = "server.port";
     public static final String KEY_DORIS_AGENT_INSTALL_DIR = "doris.manager.agent.install.dir";
     public static final String KEY_DORIS_AGENT_START_SCRIPT = "doris.manager.agent.start-script";
+    public static final String KEY_FE_QUERY_PORT = "query_port";
+    public static final String KEY_BE_HEARTBEAT_PORT = "heartbeat_service_port";
+
+    public static final String DORIS_DEFAULT_QUERY_USER = "root";
+    public static final String DORIS_DEFAULT_QUERY_PASSWORD = "";
+    public static final Integer DORIS_DEFAULT_FE_QUERY_PORT = 9030;
 }

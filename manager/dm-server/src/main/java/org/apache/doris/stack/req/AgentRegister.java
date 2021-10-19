@@ -15,12 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.command;
+package org.apache.doris.stack.req;
 
-import org.apache.doris.manager.agent.task.ScriptTaskDesc;
+public class AgentRegister {
 
-public class BeInstallTaskDesc extends ScriptTaskDesc {
+    private String host;
+
+    private Integer port;
+
     private String installDir;
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public Integer getPort() {
+        return port;
+    }
+
+    public void setPort(Integer port) {
+        this.port = port;
+    }
 
     public String getInstallDir() {
         return installDir;

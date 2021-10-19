@@ -17,12 +17,12 @@
 
 package org.apache.doris.manager.agent.command;
 
-import org.apache.doris.manager.agent.task.Task;
-
-public abstract class ListenerCommand extends Command implements CommandListener {
+public abstract class ExpandCommand extends Command {
     @Override
-    public Task execute() {
-        beforeExecute(commandType);
-        return super.execute();
+    public Command setup() {
+        beforeSetup();
+        return super.setup();
     }
+
+    abstract void beforeSetup();
 }

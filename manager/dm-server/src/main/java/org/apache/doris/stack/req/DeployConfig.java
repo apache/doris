@@ -15,10 +15,42 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.command;
+package org.apache.doris.stack.req;
 
-import org.apache.doris.manager.common.domain.CommandType;
+/**
+ * deploy Config req
+ **/
+public class DeployConfig {
+    private String host;
+    private String role;
+    private String conf;
 
-public interface CommandListener {
-    void beforeExecute(CommandType commandType);
+    public DeployConfig(String host, String conf) {
+        this.host = host;
+        this.conf = conf;
+    }
+
+    public String getHost() {
+        return host;
+    }
+
+    public void setHost(String host) {
+        this.host = host;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getConf() {
+        return conf;
+    }
+
+    public void setConf(String conf) {
+        this.conf = conf;
+    }
 }
