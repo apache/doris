@@ -347,6 +347,58 @@ TEST_F(BitmapFunctionsTest, bitmap_and) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_and_count) {
+    BitmapValue bitmap1({0, 1, 2});
+    BitmapValue bitmap2;
+    StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    BigIntVal result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(0), result);
+
+    result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, StringVal::null());
+    ASSERT_EQ(BigIntVal(0), result);
+
+    bitmap1 = BitmapValue({0, 1, 2,std::numeric_limits<uint64_t>::min()});
+    bitmap2 = BitmapValue({0, 1, 2,std::numeric_limits<uint64_t>::max()});
+    bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(3), result);   
+
+    bitmap1 = BitmapValue({1, 2, 3});
+    bitmap2 = BitmapValue({3, 4, 5});
+    bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(1), result);      
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_or_count) {
+    BitmapValue bitmap1({0, 1, 2});
+    BitmapValue bitmap2;
+    StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    BigIntVal result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(3), result);
+
+    result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, StringVal::null());
+    ASSERT_EQ(BigIntVal(0), result);
+
+    bitmap1 = BitmapValue({0, 1, 2, std::numeric_limits<uint64_t>::min()});
+    bitmap2 = BitmapValue({0, 1, 2, std::numeric_limits<uint64_t>::max()});
+    bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(4), result);   
+
+    bitmap1 = BitmapValue({1, 2, 3});
+    bitmap2 = BitmapValue({3, 4, 5});
+    bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+    bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, bitmap_src2);
+    ASSERT_EQ(BigIntVal(5), result);      
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_not) {
     // result is bitmap
     BitmapValue bitmap1({1024, 1, 2019});

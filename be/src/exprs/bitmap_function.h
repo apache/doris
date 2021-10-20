@@ -59,6 +59,9 @@ public:
                                           const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhstr, const StringVal& rhstr);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhstr, const StringVal& rhstr);
+
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
