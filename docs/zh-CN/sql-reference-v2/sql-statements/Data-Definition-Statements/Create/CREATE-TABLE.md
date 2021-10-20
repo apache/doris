@@ -238,11 +238,11 @@ distribution_info
 
         副本数。默认副本数为3。如果 BE 节点数量小于3，则需指定副本数小于等于 BE 节点数量。
 
-        在 0.15 版本后，该属性将自动转换成 `replica_allocation` 属性，如：
+        在 0.15 版本后，该属性将自动转换成 `replication_allocation` 属性，如：
 
-        `"replication_num" = "3"` 会自动转换成 `"replica_allocation" = "tag.location.default:3"`
+        `"replication_num" = "3"` 会自动转换成 `"replication_allocation" = "tag.location.default:3"`
 
-    * `replica_allocation`
+    * `replication_allocation`
 
         根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
 
@@ -487,7 +487,7 @@ distribution_info
     PROPERTIES("replication_num" = "3");
     ```
 
-10. 通过 `replica_allocation` 属性设置表的副本。
+10. 通过 `replication_allocation` 属性设置表的副本。
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -497,7 +497,7 @@ distribution_info
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "replica_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
     );
 
 
@@ -517,7 +517,7 @@ distribution_info
         "dynamic_partition.end" = "3",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32",
-        "dynamic_partition."replica_allocation" = "tag.location.group_a:3"
+        "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
     ```
 

@@ -93,7 +93,7 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     // Check the following properties' legality before modifying partition.
-    // 1. replication_num or replica_allocation
+    // 1. replication_num or replication_allocation
     // 2. storage_medium && storage_cooldown_time
     // 3. in_memory
     // 4. tablet type

@@ -72,7 +72,7 @@ FE 不参与用户数据的处理计算等工作，因此是一个资源消耗�
     (k1 int, k2 int)
     distributed by hash(k1) buckets 1
     properties(
-        "replica_allocation"
+        "replication_allocation"
         =
         "tag.location.group_a:1, tag.location.group_b:1, tag.location.group_c:1"
     )
@@ -201,7 +201,7 @@ Tag 划分和 CPU 限制是 0.15 版本中的新功能。为了保证可以从�
     
     ```
     alter system modify backend "host1:9050, 1212:9050" set ("tag.location" = "group_a");
-    alter table my_table modify partition p1 set ("replica_allocation" = "tag.location.group_a:2");
+    alter table my_table modify partition p1 set ("replication_allocation" = "tag.location.group_a:2");
     ```
 
 3. 开启数据修复与均衡逻辑
