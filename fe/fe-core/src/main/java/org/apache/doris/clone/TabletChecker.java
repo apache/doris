@@ -145,7 +145,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             };
             gauge.addLabel(new MetricLabel("type", status));
-            MetricRepo.addMetric(gauge);
+            MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
     }
 

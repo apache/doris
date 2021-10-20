@@ -105,14 +105,14 @@ public class ReportHandler extends Daemon {
     }
 
     public ReportHandler() {
-        GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
+        GaugeMetric<Long> gauge = new GaugeMetric<Long>(
                 "report_queue_size", MetricUnit.NOUNIT, "report queue size") {
             @Override
             public Long getValue() {
                 return (long) reportQueue.size();
             }
         };
-        MetricRepo.addMetric(gaugeQueueSize);
+        MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
     }
 
     public TMasterResult handleReport(TReportRequest request) throws TException {
