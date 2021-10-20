@@ -238,11 +238,11 @@ distribution_info
 
         Number of copies. The default number of copies is 3. If the number of BE nodes is less than 3, you need to specify that the number of copies is less than or equal to the number of BE nodes.
         
-        After version 0.15, this attribute will be automatically converted to the `replica_allocation` attribute, such as:
+        After version 0.15, this attribute will be automatically converted to the `replication_allocation` attribute, such as:
 
-        `"replication_num" = "3"` will be automatically converted to `"replica_allocation" = "tag.location.default:3"`
+        `"replication_num" = "3"` will be automatically converted to `"replication_allocation" = "tag.location.default:3"`
 
-    * `replica_allocation`
+    * `replication_allocation`
 
          Set the copy distribution according to Tag. This attribute can completely cover the function of the `replication_num` attribute.
 
@@ -487,7 +487,7 @@ distribution_info
     PROPERTIES("replication_num" = "3");
     ```
 
-10. Set the replica of the table through the `replica_allocation` property.
+10. Set the replica of the table through the `replication_allocation` property.
 
     ```sql
     CREATE TABLE example_db.table_hash
@@ -497,7 +497,7 @@ distribution_info
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-        "replica_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
     );
 
     CREATE TABLE example_db.dynamic_partition
@@ -516,7 +516,7 @@ distribution_info
         "dynamic_partition.end" = "3",
         "dynamic_partition.prefix" = "p",
         "dynamic_partition.buckets" = "32",
-        "dynamic_partition."replica_allocation" = "tag.location.group_a:3"
+        "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
     ```
 ### Keywords

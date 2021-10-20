@@ -72,7 +72,7 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     (k1 int, k2 int)
     distributed by hash(k1) buckets 1
     properties(
-        "replica_allocation"
+        "replication_allocation"
         =
         "tag.location.group_a:1, tag.location.group_b:1, tag.location.group_c:1"
     )
@@ -201,7 +201,7 @@ Here we give an example of the steps to start using the resource division functi
     
     ```
     alter system modify backend "host1:9050, 1212:9050" set ("tag.location" = "group_a");
-    alter table my_table modify partition p1 set ("replica_allocation" = "tag.location.group_a:2");
+    alter table my_table modify partition p1 set ("replication_allocation" = "tag.location.group_a:2");
     ```
 
 3. Turn on data repair and balance logic
