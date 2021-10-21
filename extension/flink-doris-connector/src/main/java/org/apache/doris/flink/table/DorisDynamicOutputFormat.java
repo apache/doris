@@ -148,7 +148,6 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
         }
     }
 
-    // 添加json字符串 本地测试
     private void addBatch(T row) {
         if (row instanceof RowData) {
             RowData rowData = (RowData) row;
@@ -167,9 +166,10 @@ public class DorisDynamicOutputFormat<T> extends RichOutputFormat<T> {
             Object data = jsonFormat ? valueMap : value.toString();
             batch.add(data);
 
-        }
-        if (row instanceof String) {
+        } else if (row instanceof String) {
             batch.add(row);
+        } else {
+            throw new RuntimeException("The type of element should be 'RowData' or 'String' only.");
         }
     }
 

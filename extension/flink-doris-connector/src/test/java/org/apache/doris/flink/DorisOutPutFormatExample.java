@@ -23,7 +23,6 @@ import org.apache.doris.flink.table.DorisDynamicOutputFormat;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.operators.MapOperator;
-import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.data.StringData;
@@ -32,7 +31,6 @@ import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.VarCharType;
 
 import java.io.IOException;
-import java.util.Properties;
 
 /**
  * example using {@link DorisDynamicOutputFormat} for batching.
@@ -61,16 +59,11 @@ public class DorisOutPutFormatExample {
                 .setTableIdentifier("db.table")
                 .setUsername("root")
                 .setPassword("").build();
-        DorisReadOptions readOptions = DorisReadOptions.builder()
-                .setReadFields("").build();
-        DorisExecutionOptions executionOptions = DorisExecutionOptions.builder()
-                .setBatchSize(1)
-                .setBatchIntervalMs(0l)
-                .setMaxRetries(1)
-                .setStreamLoadProp(new Properties()).build();
+        DorisReadOptions readOptions = DorisReadOptions.defaults();
+        DorisExecutionOptions executionOptions = DorisExecutionOptions.defaults();
 
         LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
-        String[] fiels = {"grid_no", "longitude", "latitude"};
+        String[] fiels = {"city", "longitude", "latitude"};
 
         DorisDynamicOutputFormat outputFormat =
                 new DorisDynamicOutputFormat(dorisOptions, readOptions, executionOptions, types, fiels);

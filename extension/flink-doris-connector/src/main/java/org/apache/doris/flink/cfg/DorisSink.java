@@ -2,7 +2,6 @@ package org.apache.doris.flink.cfg;
 
 import org.apache.doris.flink.table.DorisDynamicOutputFormat;
 import org.apache.flink.streaming.api.functions.sink.SinkFunction;
-import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.types.logical.LogicalType;
 
 /** Facade to create Doris {@link SinkFunction sinks}. */
