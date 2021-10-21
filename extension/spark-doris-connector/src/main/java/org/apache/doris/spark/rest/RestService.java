@@ -65,7 +65,6 @@ import org.apache.doris.spark.rest.models.BackendRow;
 import org.apache.doris.spark.rest.models.QueryPlan;
 import org.apache.doris.spark.rest.models.Schema;
 import org.apache.doris.spark.rest.models.Tablet;
-import org.apache.doris.spark.sql.DorisWriterOption;
 import org.apache.http.HttpStatus;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
@@ -476,17 +475,13 @@ public class RestService implements Serializable {
 
     /**
      * choice a Doris BE node to request.
-     * @param options configuration of request
      * @param logger slf4j logger
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
      */
     @VisibleForTesting
-    public static String randomBackend(SparkSettings sparkSettings , DorisWriterOption options , Logger logger) throws DorisException, IOException {
-        // set user auth
-        sparkSettings.setProperty(DORIS_REQUEST_AUTH_USER,options.user());
-        sparkSettings.setProperty(DORIS_REQUEST_AUTH_PASSWORD,options.password());
-        String feNodes = options.feHostPort();
+    public static String randomBackend(SparkSettings sparkSettings , Logger logger) throws DorisException, IOException {
+        String feNodes = sparkSettings.getProperty(DORIS_FENODES);
         String feNode = randomEndpoint(feNodes, logger);
         String beUrl =   String.format("http://%s" + BACKENDS,feNode);
         HttpGet httpGet = new HttpGet(beUrl);

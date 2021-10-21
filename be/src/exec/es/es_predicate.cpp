@@ -363,7 +363,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         }
 
         std::vector<ExtLiteral> in_pred_values;
-        const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
+        const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
         const Expr* expr = Expr::expr_without_cast(pred->get_child(0));
         if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return Status::InternalError("build disjuncts failed: node type is not slot ref");

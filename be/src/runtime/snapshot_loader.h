@@ -103,8 +103,8 @@ private:
     ExecEnv* _env;
     int64_t _job_id;
     int64_t _task_id;
-    const TNetworkAddress& _broker_addr;
-    const std::map<std::string, std::string>& _prop;
+    const TNetworkAddress _broker_addr;
+    const std::map<std::string, std::string> _prop;
     std::unique_ptr<StorageBackend> _storage_backend;
 };
 

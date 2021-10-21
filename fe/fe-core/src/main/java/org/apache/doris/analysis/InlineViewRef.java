@@ -266,8 +266,9 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(),
-                    selectItemExpr.isNullable()));
+            columnList.add(new Column(colAlias, selectItemExpr.getType(),
+                    false, null, selectItemExpr.isNullable(),
+                    null, ""));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 
@@ -417,29 +418,31 @@ public class InlineViewRef extends TableRef {
         return baseTblSmap;
     }
 
+    public boolean isLocalView() {
+        return view == null || view.isLocalView();
+    }
+
+    public View getView() {
+        return view;
+    }
+
     @Override
     public String tableRefToSql() {
         // Enclose the alias in quotes if Hive cannot parse it without quotes.
         // This is needed for view compatibility between Impala and Hive.
         String aliasSql = null;
         String alias = getExplicitAlias();
-        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
-
-        StringBuilder sb = new StringBuilder();
-        if (view != null) {
-            // When it is a local view, it does not need to be expanded into a statement,
-            // because toSql function already contains `with` statement
-            if (view.isLocalView()) {
-                return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
-            }
-
-            sb.append("(")
-                    .append(view.getInlineViewDef())
-                    .append(")")
-                    .append(aliasSql == null ? "" : " " + aliasSql);
-            return sb.toString();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
         }
 
+        if (view != null) {
+            // FIXME: this may result in a sql cache problem
+            // See pr #6736 and issue #6735
+            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+        }
+
+        StringBuilder sb = new StringBuilder();
         sb.append("(")
                 .append(queryStmt.toSql())
                 .append(") ")

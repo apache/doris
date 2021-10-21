@@ -287,6 +287,13 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     delete context;
 }
 
+TEST_F(StringFunctionsTest, left) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string(ctx, std::string("")),
+              StringFunctions::left(context, StringVal(""), 10));
+}
+
 TEST_F(StringFunctionsTest, substring) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 

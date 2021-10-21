@@ -799,7 +799,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    public String getPlanTreeExplanStr() {
+    public String getPlanTreeExplainStr() {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(getId().asInt()).append(": ").append(getPlanNodeName()).append("]");
         sb.append("\n[Fragment: ").append(getFragmentId().asInt()).append("]");

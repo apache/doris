@@ -26,9 +26,10 @@ under the License.
 
 # Spark Doris Connector
 
-Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据。
+Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据，也支持通过Spark写入数据到Doris。
 
-- 当前版本只支持从`Doris`中读取数据。
+- 支持从`Doris`中读取数据
+- 支持`Spark DataFrame`批量/流式 写入`Doris`
 - 可以将`Doris`表映射为`DataFrame`或者`RDD`，推荐使用`DataFrame`。
 - 支持在`Doris`端完成数据过滤，减少数据传输量。
 
@@ -57,8 +58,9 @@ sh build.sh 2  ## soark 2.x版本，默认是2.3.4
 编译成功后，会在 `output/` 目录下生成文件 `doris-spark-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
 
 ## 使用示例
+### 读取
 
-### SQL
+#### SQL
 
 ```sql
 CREATE TEMPORARY VIEW spark_doris
@@ -73,7 +75,7 @@ OPTIONS(
 SELECT * FROM spark_doris;
 ```
 
-### DataFrame
+#### DataFrame
 
 ```scala
 val dorisSparkDF = spark.read.format("doris")
@@ -86,7 +88,7 @@ val dorisSparkDF = spark.read.format("doris")
 dorisSparkDF.show(5)
 ```
 
-### RDD
+#### RDD
 
 ```scala
 import org.apache.doris.spark._
@@ -101,6 +103,64 @@ val dorisSparkRDD = sc.dorisRDD(
 
 dorisSparkRDD.collect()
 ```
+
+### 写入
+
+#### SQL
+
+```sql
+CREATE TEMPORARY VIEW spark_doris
+USING doris
+OPTIONS(
+  "table.identifier"="$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME",
+  "fenodes"="$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT",
+  "user"="$YOUR_DORIS_USERNAME",
+  "password"="$YOUR_DORIS_PASSWORD"
+);
+
+INSERT INTO spark_doris VALUES ("VALUE1","VALUE2",...);
+# or
+INSERT INTO spark_doris SELECT * FROM YOUR_TABLE
+```
+
+#### DataFrame(batch/stream)
+
+```scala
+## batch sink
+val mockDataDF = List(
+  (3, "440403001005", "21.cn"),
+  (1, "4404030013005", "22.cn"),
+  (33, null, "23.cn")
+).toDF("id", "mi_code", "mi_name")
+mockDataDF.show(5)
+
+mockDataDF.write.format("doris")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  .save()
+
+## stream sink(StructuredStreaming)
+val kafkaSource = spark.readStream
+  .option("kafka.bootstrap.servers", "$YOUR_KAFKA_SERVERS")
+  .option("startingOffsets", "latest")
+  .option("subscribe", "$YOUR_KAFKA_TOPICS")
+  .format("kafka")
+  .load()
+kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
+  .writeStream
+  .format("doris")
+  .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  .start()
+  .awaitTermination()
+```
+
+
 
 ## 配置
 

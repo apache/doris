@@ -54,6 +54,7 @@ module.exports = [
         children: [
           "load-manual",
           "batch-delete-manual",
+          "binlog-load-manual",
           "broker-load-manual",
           "routine-load-manual",
           "sequence-column-manual",
@@ -209,6 +210,7 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
+      "multi-tenant",
     ],
     sidebarDepth: 1,
   },
@@ -218,7 +220,8 @@ module.exports = [
     children: [
       "fe-load-balance",
       "systemd",
-      "samples"
+      "samples",
+      "datax-doris-writer"
     ],
   },
   {
@@ -340,6 +343,7 @@ module.exports = [
               "get_json_int",
               "get_json_string",
               "group_concat",
+              "hex",
               "instr",
               "lcase",
               "left",
@@ -359,6 +363,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "unhex",
               {
                 title: "模糊匹配",
                 directoryPath: "like/",
@@ -534,6 +539,7 @@ module.exports = [
             children: [
               "BROKER LOAD",
               "CANCEL LOAD",
+              "CREATE SYNC JOB",
               "DELETE",
               "EXPORT",
               "GROUP BY",
@@ -541,7 +547,9 @@ module.exports = [
               "MINI LOAD",
               "MULTI LOAD",
               "PAUSE ROUTINE LOAD",
+              "PAUSE SYNC JOB",
               "RESUME ROUTINE LOAD",
+              "RESUME SYNC JOB",
               "ROUTINE LOAD",
               "SHOW ALTER",
               "SHOW BACKUP",
@@ -560,11 +568,13 @@ module.exports = [
               "SHOW ROUTINE LOAD TASK",
               "SHOW ROUTINE LOAD",
               "SHOW SNAPSHOT",
+              "SHOW SYNC JOB",
               "SHOW TABLES",
               "SHOW TABLET",
               "SHOW TRANSACTION",
               "SPARK LOAD",
               "STOP ROUTINE LOAD",
+              "STOP SYNC JOB",
               "STREAM LOAD",
               "alter-routine-load",
               "insert",

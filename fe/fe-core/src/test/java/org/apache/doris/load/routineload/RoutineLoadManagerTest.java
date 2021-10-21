@@ -417,7 +417,7 @@ public class RoutineLoadManagerTest {
         };
 
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-
+        routineLoadManager.updateBeIdToMaxConcurrentTasks();
         Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
                 routineLoadManager.getClusterIdleSlotNum());
     }

@@ -287,6 +287,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+
 import javax.annotation.Nullable;
 
 public class Catalog {
@@ -1456,7 +1457,9 @@ public class Catalog {
 
         Frontend fe = checkFeExist(selfNode.first, selfNode.second);
         if (fe == null) {
-            LOG.error("current node is not added to the cluster, will exit");
+            LOG.error("current node {}:{} is not added to the cluster, will exit." +
+                            " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
+                    selfNode.first, selfNode.second);
             System.exit(-1);
         } else if (fe.getRole() != role) {
             LOG.error("current node role is {} not match with frontend recorded role {}. will exit", role,
@@ -1758,8 +1761,7 @@ public class Catalog {
             for (int i = 0; i < size; ++i) {
                 long jobId = dis.readLong();
                 newChecksum ^= jobId;
-                ExportJob job = new ExportJob();
-                job.readFields(dis);
+                ExportJob job = ExportJob.read(dis);
                 if (!job.isExpired(curTime)) {
                     exportMgr.unprotectAddJob(job);
                 }
@@ -3014,7 +3016,7 @@ public class Catalog {
         String tableName = stmt.getTableName();
 
         // check if db exists
-        Database db = this.getDbOrDdlException(stmt.getDbName());
+        Database db = this.getDbOrDdlException(dbName);
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -3079,6 +3081,8 @@ public class Catalog {
                             }
                         }
                     }
+                } else if (!CollectionUtils.isEmpty(stmt.getRollupNames()) || stmt.isWithAllRollup()) {
+                    throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
                 Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false);
@@ -4109,39 +4113,26 @@ public class Catalog {
 
                 ArrayList<String> rollupNames = stmt.getRollupNames();
                 boolean withAllRollup = stmt.isWithAllRollup();
+                List<Long> addIndexIdList = Lists.newArrayList();
 
-                Map<Long,MaterializedIndexMeta> addMVs = Maps.newHashMap();
-                Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
-
-                boolean needAddRollup = false;
                 if (!CollectionUtils.isEmpty(rollupNames)) {
                     for (String rollupName : rollupNames) {
-                        addMVs.put(indexNameToId.get(rollupName),olapTable.getIndexMetaByIndexId(indexNameToId.get(rollupName)));
+                        addIndexIdList.add(olapTable.getIndexIdByName(rollupName));
                     }
-                    needAddRollup = true;
+                } else if (withAllRollup) {
+                    addIndexIdList = olapTable.getIndexIdListExceptBaseIndex();
                 }
 
-                if (withAllRollup && rollupNames == null) {
-                    for (Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
-                        if (entry.getKey() == olapTable.getBaseIndexId()) {
-                            continue;
-                        }
-                        addMVs.put(entry.getKey(), entry.getValue());
-                    }
-                    needAddRollup = true;
-                }
-
-                if (needAddRollup){
+                if (!addIndexIdList.isEmpty()){
                     sb.append("\n").append("rollup (");
                 }
 
-                int size = addMVs.size();
+                int size = addIndexIdList.size();
                 int index = 1;
-                for (Map.Entry<Long, MaterializedIndexMeta> entry : addMVs.entrySet()) {
-                    MaterializedIndexMeta materializedIndexMeta = entry.getValue();
-                    String indexName = olapTable.getIndexNameById(entry.getKey());
+                for (long indexId : addIndexIdList) {
+                    String indexName = olapTable.getIndexNameById(indexId);
                     sb.append("\n").append(indexName).append("(");
-                    List<Column> indexSchema = materializedIndexMeta.getSchema();
+                    List<Column> indexSchema = olapTable.getSchemaByIndexId(indexId, false);
                     for (int i = 0; i < indexSchema.size(); i++) {
                         Column column = indexSchema.get(i);
                         sb.append(column.getName());
@@ -5894,6 +5885,10 @@ public class Catalog {
 
     public List<Function> getBuiltinFunctions() {
         return functionSet.getBulitinFunctions();
+    }
+
+    public Function getTableFunction(Function desc, Function.CompareMode mode) {
+        return  functionSet.getFunction(desc, mode, true);
     }
 
     public boolean isNullResultWithOneNullParamFunction(String funcName) {

@@ -238,6 +238,14 @@ distribution_info
 
         副本数。默认副本数为3。如果 BE 节点数量小于3，则需指定副本数小于等于 BE 节点数量。
 
+        在 0.15 版本后，该属性将自动转换成 `replication_allocation` 属性，如：
+
+        `"replication_num" = "3"` 会自动转换成 `"replication_allocation" = "tag.location.default:3"`
+
+    * `replication_allocation`
+
+        根据 Tag 设置副本分布情况。该属性可以完全覆盖 `replication_num` 属性的功能。
+
     * `storage_medium/storage_cooldown_time`
 
         数据存储介质。`storage_medium` 用于声明表数据的初始存储介质，而 `storage_cooldown_time` 用于设定到期时间。示例：
@@ -287,6 +295,7 @@ distribution_info
         * `dynamic_partition.buckets`: 用于指定自动创建的分区分桶数量。
         * `dynamic_partition.create_history_partition`: 是否创建历史分区。
         * `dynamic_partition.history_partition_num`: 指定创建历史分区的数量。
+        * `dynamic_partition.reserved_history_periods`: 用于指定保留的历史分区的时间段。
 
 ### Example
 
@@ -476,6 +485,40 @@ distribution_info
         r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
+    ```
+
+10. 通过 `replication_allocation` 属性设置表的副本。
+
+    ```sql
+    CREATE TABLE example_db.table_hash
+    (
+        k1 TINYINT,
+        k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+    );
+
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+        k1 DATE,
+        k2 INT,
+        k3 SMALLINT,
+        v1 VARCHAR(2048),
+        v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+        "dynamic_partition.time_unit" = "DAY",
+        "dynamic_partition.start" = "-3",
+        "dynamic_partition.end" = "3",
+        "dynamic_partition.prefix" = "p",
+        "dynamic_partition.buckets" = "32",
+        "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
     ```
 
 ### Keywords

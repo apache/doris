@@ -44,6 +44,7 @@ under the License.
         cpu_resource_limit: 限制查询的cpu资源。详见会话变量 `cpu_resource_limit` 的介绍。
         resource.cpu_share: cpu资源分配。（已废弃）
         load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
+        resource_tags：指定用户的资源标签权限。
 
     普通用户权限：
         quota.normal: normal级别的资源分配。
@@ -88,6 +89,9 @@ under the License.
 
     10. 修改用户jack的 cpu 使用限制
     SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
+
+    11. 修改用户的资源标签权限
+    SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
 
 ## keyword
     SET, PROPERTY

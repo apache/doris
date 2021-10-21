@@ -49,7 +49,7 @@ under the License.
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <grpc.version>1.30.0</grpc.version>
-        <protobuf.version>3.5.1</protobuf.version>
+        <protobuf.version>3.14.0</protobuf.version>
         <skip.plugin>false</skip.plugin>
     </properties>
 
@@ -295,19 +295,11 @@ under the License.
                 <scope>test</scope>
             </dependency>
 
-            <!-- https://mvnrepository.com/artifact/org.apache.thrift/libfb303 -->
-            <dependency>
-                <groupId>org.apache.thrift</groupId>
-                <artifactId>libfb303</artifactId>
-                <version>0.9.3</version>
-                <type>pom</type>
-            </dependency>
-
             <!-- https://mvnrepository.com/artifact/org.apache.thrift/libthrift -->
             <dependency>
                 <groupId>org.apache.thrift</groupId>
                 <artifactId>libthrift</artifactId>
-                <version>0.9.3</version>
+                <version>0.13.0</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->

@@ -220,7 +220,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);
@@ -342,7 +342,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);
@@ -404,7 +404,7 @@ public class TestRowBatch {
         arrowStreamWriter.close();
 
         TStatus status = new TStatus();
-        status.setStatus_code(TStatusCode.OK);
+        status.setStatusCode(TStatusCode.OK);
         TScanBatchResult scanBatchResult = new TScanBatchResult();
         scanBatchResult.setStatus(status);
         scanBatchResult.setEos(false);

@@ -28,12 +28,12 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.jdbc.JdbcDialects
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.{Row, SQLContext}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 
 
 private[sql] class DorisRelation(
     val sqlContext: SQLContext, parameters: Map[String, String])
-    extends BaseRelation with TableScan with PrunedScan with PrunedFilteredScan {
+    extends BaseRelation with TableScan with PrunedScan with PrunedFilteredScan with InsertableRelation{
 
   private lazy val cfg = {
     val conf = new SparkSettings(sqlContext.sparkContext.getConf)
@@ -85,5 +85,20 @@ private[sql] class DorisRelation(
     }
 
     new ScalaDorisRowRDD(sqlContext.sparkContext, paramWithScan.toMap, lazySchema)
+  }
+
+  // Insert Table
+  override def insert(data: DataFrame, overwrite: Boolean): Unit = {
+    //replace 'doris.request.auth.user' with 'user' and 'doris.request.auth.password' with 'password'
+    val insertCfg = cfg.copy().asProperties().asScala.map {
+      case (ConfigurationOptions.DORIS_REQUEST_AUTH_USER, v) =>
+        ("user", v)
+      case (ConfigurationOptions.DORIS_REQUEST_AUTH_PASSWORD, v) =>
+        ("password", v)
+      case (k, v) => (k, v)
+    }
+    data.write.format(DorisSourceProvider.SHORT_NAME)
+      .options(insertCfg)
+      .save()
   }
 }

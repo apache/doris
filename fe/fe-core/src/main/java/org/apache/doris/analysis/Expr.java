@@ -1575,6 +1575,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return f;
     }
 
+    protected Function getTableFunction(String name, Type[] argTypes,
+                                        Function.CompareMode mode) {
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
+        Function f = Catalog.getCurrentCatalog().getTableFunction(searchDesc, mode);
+        return f;
+    }
+
     /**
      * Pushes negation to the individual operands of a predicate
      * tree rooted at 'root'.
@@ -1665,7 +1674,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         MAX_LITERAL(10),
         BINARY_PREDICATE(11),
         FUNCTION_CALL(12),
-        ARRAY_LITERAL(13);
+        ARRAY_LITERAL(13),
+        CAST_EXPR(14);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1715,7 +1725,9 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
         } else if (expr instanceof ArrayLiteral) {
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
-        } else {
+        } else if (expr instanceof CastExpr){
+            output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        }else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
         expr.write(output);
@@ -1758,6 +1770,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return FunctionCallExpr.read(in);
             case ARRAY_LITERAL:
                 return ArrayLiteral.read(in);
+            case CAST_EXPR:
+                return CastExpr.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }

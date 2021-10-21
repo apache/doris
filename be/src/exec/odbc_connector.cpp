@@ -22,6 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <codecvt>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "runtime/primitive_type.h"
@@ -100,6 +101,10 @@ Status ODBCConnector::open() {
                  "set env attr");
     // Allocate a connection handle
     ODBC_DISPOSE(_env, SQL_HANDLE_ENV, SQLAllocHandle(SQL_HANDLE_DBC, _env, &_dbc), "alloc dbc");
+    // Set connect timeout
+    int64_t timeout = config::external_table_connect_timeout_sec;
+    SQLSetConnectAttr(_dbc, SQL_LOGIN_TIMEOUT, (SQLPOINTER)timeout, 0);
+    SQLSetConnectAttr(_dbc, SQL_ATTR_CONNECTION_TIMEOUT, (SQLPOINTER)timeout, 0);
     // Connect to the Database
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
                  SQLDriverConnect(_dbc, NULL, (SQLCHAR*)_connect_string.c_str(), SQL_NTS, NULL, 0,
@@ -147,7 +152,8 @@ Status ODBCConnector::query() {
         DataBinding* column_data = new DataBinding;
         column_data->target_type = SQL_C_CHAR;
         auto type = _tuple_desc->slots()[i]->type().type;
-        column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING)
+        column_data->buffer_length = (type == TYPE_HLL || type == TYPE_CHAR ||
+                                      type == TYPE_VARCHAR || type == TYPE_STRING)
                                              ? BIG_COLUMN_SIZE_BUFFER
                                              : SMALL_COLUMN_SIZE_BUFFER;
         column_data->target_value_ptr = malloc(sizeof(char) * column_data->buffer_length);
@@ -281,7 +287,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                 }
                 case TYPE_LARGEINT: {
                     fmt::format_to(_insert_stmt_buffer, "{}",
-                            reinterpret_cast<const PackedInt128*>(item)->value);
+                                   reinterpret_cast<const PackedInt128*>(item)->value);
                     break;
                 }
                 default: {

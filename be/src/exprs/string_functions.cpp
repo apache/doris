@@ -120,6 +120,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
 //    string left(string input, int len)
 // This behaves identically to the mysql implementation.
 StringVal StringFunctions::left(FunctionContext* context, const StringVal& str, const IntVal& len) {
+    if (len.val >= str.len)  return str;
     return substring(context, str, 1, len);
 }
 

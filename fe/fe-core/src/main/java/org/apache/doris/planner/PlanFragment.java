@@ -134,6 +134,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // The runtime filter id that is expected to be used
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
+    // has colocate plan node
+    private boolean hasColocatePlanNode = false;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -204,6 +207,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setTargetRuntimeFilterIds(RuntimeFilterId rid) {
         this.targetRuntimeFilterIds.add(rid);
+    }
+
+    public void setHasColocatePlanNode(boolean hasColocatePlanNode) {
+        this.hasColocatePlanNode = hasColocatePlanNode;
+    }
+
+    public boolean hasColocatePlanNode() {
+        return hasColocatePlanNode;
     }
 
     /**

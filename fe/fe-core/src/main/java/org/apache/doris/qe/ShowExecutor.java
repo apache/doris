@@ -784,9 +784,6 @@ public class ShowExecutor {
             }
 
             if (table instanceof View) {
-                View view = (View) table;
-                StringBuilder sb = new StringBuilder();
-                sb.append("CREATE VIEW `").append(table.getName()).append("` AS ").append(view.getInlineViewDef());
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8", "utf8_general_ci"));
                 resultSet = new ShowResultSet(ShowCreateTableStmt.getViewMetaData(), rows);
             } else {
@@ -1613,7 +1610,8 @@ public class ShowExecutor {
             states = Sets.newHashSet(state);
         }
         List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(), states, showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
+                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(), states,
+                showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
@@ -1820,6 +1818,7 @@ public class ShowExecutor {
                     if (replicaAlloc.isNotSet()) {
                         replicaAlloc = olapTable.getDefaultReplicaAllocation();
                     }
+                    String unsortedReservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
                     rows.add(Lists.newArrayList(
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
@@ -1835,7 +1834,10 @@ public class ShowExecutor {
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
                             dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG),
+                            dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods, dynamicPartitionProperty.getTimeUnit().toUpperCase())));
+                } catch (DdlException e) {
+                    e.printStackTrace();
                 } finally {
                     olapTable.readUnlock();
                 }

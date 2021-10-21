@@ -294,8 +294,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_EXPORT_CREATE:
-                data = new ExportJob();
-                ((ExportJob) data).readFields(in);
+                data = ExportJob.read(in);
                 isRead = true;
                 break;
             case OperationType.OP_EXPORT_UPDATE_STATE:
@@ -318,6 +317,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
+            case OperationType.OP_MODIFY_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
                 data = Backend.read(in);
                 isRead = true;

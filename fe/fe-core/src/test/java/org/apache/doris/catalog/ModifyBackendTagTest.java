@@ -150,7 +150,7 @@ public class ModifyBackendTagTest {
         Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, defaultAlloc);
         TableProperty tableProperty = tbl.getTableProperty();
         Map<String, String> tblProperties = tableProperty.getProperties();
-        // if replication_num or replica_allocation is not set, it will be set to the default one
+        // if replication_num or replication_allocation is not set, it will be set to the default one
         Assert.assertTrue(tblProperties.containsKey("default.replication_allocation"));
         Assert.assertEquals("tag.location.default: 3", tblProperties.get("default.replication_allocation"));
 

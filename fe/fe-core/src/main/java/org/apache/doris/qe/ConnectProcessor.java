@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -80,8 +79,6 @@ public class ConnectProcessor {
     public ConnectProcessor(ConnectContext context) {
         this.ctx = context;
     }
-
-
 
     // COM_INIT_DB: change current database of this session.
     private void handleInitDb() {
@@ -164,8 +161,8 @@ public class ConnectProcessor {
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
-    // process COM_QUERY statement,
-    // 只有在与请求客户端交互出现问题时候才抛出异常
+    // Process COM_QUERY statement,
+    // only throw an exception when there is a problem interacting with the requesting client
     private void handleQuery() {
         MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         // convert statement to Java string
@@ -291,10 +288,8 @@ public class ConnectProcessor {
     private void handleFieldList() throws IOException {
         // Already get command code.
         String tableName = null;
-        String pattern = null;
         try {
             tableName = new String(MysqlProto.readNulTerminateString(packetBuf), "UTF-8");
-            pattern = new String(MysqlProto.readEofString(packetBuf), "UTF-8");
         } catch (UnsupportedEncodingException e) {
             // Impossible!!!
             LOG.error("Unknown UTF-8 character set.");
@@ -373,9 +368,9 @@ public class ConnectProcessor {
     private ByteBuffer getResultPacket() {
         MysqlPacket packet = ctx.getState().toResponsePacket();
         if (packet == null) {
-            // 当出现此种情况可能有两种可能
-            // 1. 处理函数已经发送请求
-            // 2. 这个协议不需要发送任何响应包
+            // possible two cases:
+            // 1. handler has send request
+            // 2. this command need not to send response
             return null;
         }
 
@@ -385,8 +380,8 @@ public class ConnectProcessor {
         return serializer.toByteBuffer();
     }
 
-    // 当任何一个请求完成后，一般都会需要发送一个响应包给客户端
-    // 这个函数用于发送响应包给客户端
+    // When any request is completed, it will generally need to send a response packet to the client
+    // This method is used to send a response packet to the client
     private void finalizeCommand() throws IOException {
         ByteBuffer packet = null;
         if (executor != null && executor.isForwardToMaster()
@@ -533,7 +528,7 @@ public class ConnectProcessor {
         return result;
     }
 
-    // 处理一个MySQL请求，接收，处理，返回
+    // Process a MySQL request
     public void processOnce() throws IOException {
         // set status of query to OK.
         ctx.getState().reset();

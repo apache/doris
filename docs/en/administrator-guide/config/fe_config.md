@@ -222,7 +222,7 @@ Maximum percentage of data that can be filtered (due to reasons such as data is 
 
 ### default_db_data_quota_bytes
 
-Default：1TB
+Default：1PB
 
 IsMutable：true
 

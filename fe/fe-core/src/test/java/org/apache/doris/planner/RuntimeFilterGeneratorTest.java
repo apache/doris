@@ -17,6 +17,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
@@ -43,7 +44,7 @@ public class RuntimeFilterGeneratorTest {
     private ConnectContext connectContext;
 
     @Before
-    public void setUp() throws AnalysisException {
+    public void setUp() throws UserException {
         Catalog catalog = Deencapsulation.newInstance(Catalog.class);
         analyzer = new Analyzer(catalog, connectContext);
         new Expectations() {

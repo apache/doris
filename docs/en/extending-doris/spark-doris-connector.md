@@ -26,9 +26,10 @@ under the License.
 
 # Spark Doris Connector
 
-Spark Doris Connector can support reading data stored in Doris through Spark.
+Spark Doris Connector can support reading data stored in Doris and writing data to Doris through Spark.
 
-- The current version only supports reading data from `Doris`.
+- Support reading data from `Doris`.
+- Support `Spark DataFrame` batch/stream writing data to `Doris`
 - You can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.
 - Support the completion of data filtering on the `Doris` side to reduce the amount of data transmission.
 
@@ -57,8 +58,9 @@ sh build.sh 2 ## soark 2.x version, the default is 2.3.4
 After successful compilation, the file `doris-spark-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 ## Example
+### Read
 
-### SQL
+#### SQL
 
 ```sql
 CREATE TEMPORARY VIEW spark_doris
@@ -73,7 +75,7 @@ OPTIONS(
 SELECT * FROM spark_doris;
 ```
 
-### DataFrame
+#### DataFrame
 
 ```scala
 val dorisSparkDF = spark.read.format("doris")
@@ -86,7 +88,7 @@ val dorisSparkDF = spark.read.format("doris")
 dorisSparkDF.show(5)
 ```
 
-### RDD
+#### RDD
 
 ```scala
 import org.apache.doris.spark._
@@ -100,6 +102,60 @@ val dorisSparkRDD = sc.dorisRDD(
 )
 
 dorisSparkRDD.collect()
+```
+### Write
+
+#### SQL
+
+```sql
+CREATE TEMPORARY VIEW spark_doris
+USING doris
+OPTIONS(
+  "table.identifier"="$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME",
+  "fenodes"="$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT",
+  "user"="$YOUR_DORIS_USERNAME",
+  "password"="$YOUR_DORIS_PASSWORD"
+);
+
+INSERT INTO spark_doris VALUES ("VALUE1","VALUE2",...);
+# or
+INSERT INTO spark_doris SELECT * FROM YOUR_TABLE
+```
+
+#### DataFrame(batch/stream)
+```scala
+## batch sink
+val mockDataDF = List(
+  (3, "440403001005", "21.cn"),
+  (1, "4404030013005", "22.cn"),
+  (33, null, "23.cn")
+).toDF("id", "mi_code", "mi_name")
+mockDataDF.show(5)
+
+mockDataDF.write.format("doris")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  .save()
+
+## stream sink(StructuredStreaming)
+val kafkaSource = spark.readStream
+  .option("kafka.bootstrap.servers", "$YOUR_KAFKA_SERVERS")
+  .option("startingOffsets", "latest")
+  .option("subscribe", "$YOUR_KAFKA_TOPICS")
+  .format("kafka")
+  .load()
+kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
+  .writeStream
+  .format("doris")
+  .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  .start()
+  .awaitTermination()
 ```
 
 ## Configuration

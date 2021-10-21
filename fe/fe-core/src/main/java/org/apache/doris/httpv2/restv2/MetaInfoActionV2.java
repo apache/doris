@@ -17,9 +17,6 @@
 
 package org.apache.doris.httpv2.restv2;
 
-import lombok.Getter;
-import lombok.Setter;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -38,20 +35,24 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+import lombok.Getter;
+import lombok.Setter;
 
 /**
  * And meta info like databases, tables and schema
@@ -137,7 +138,6 @@ public class MetaInfoActionV2 extends RestBaseController {
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
-
 
         String fullDbName = getFullDbName(dbName);
         Database db;

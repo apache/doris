@@ -32,7 +32,7 @@ Use CREATE TABLE ... LIKE to create an empty table based on the definition of an
 Syntax:
 
 ```
-    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name [WITH ROLLUP r1,r2,r3,...|ALL] 
+    CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name LIKE [database.]table_name [WITH ROLLUP (r2,r2,r3,...)] 
 ```
 
 Explain:
@@ -52,19 +52,19 @@ Explain:
 
     3. Under the test1 Database, create an empty table with the same table structure as table1, named table2. copy r1 and r2 rollup of table1 simultaneously
 
-        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP (r1,r2)
 
     4. Under the test1 Database, create an empty table with the same table structure as table1, named table2. copy all rollup of table1 simultaneously
 
-        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP ALL
+        CREATE TABLE test1.table2 LIKE test1.table1 WITH ROLLUP
 
     5. Under the test2 Database, create an empty table with the same table structure as table1, named table2. copy r1 and r2 rollup of table1 simultaneously
 
-        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP r1,r2
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP (r1,r2)
 
     6. Under the test2 Database, create an empty table with the same table structure as table1, named table2. copy all rollup of table1 simultaneously
 
-        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP ALL
+        CREATE TABLE test2.table2 LIKE test1.table1 WITH ROLLUP
     
     7. Under the test1 Database, create an empty table with the same table structure as MySQL's external table1, called table2
 

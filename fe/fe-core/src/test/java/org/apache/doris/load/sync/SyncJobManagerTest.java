@@ -29,6 +29,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob.JobState;
 import org.apache.doris.load.sync.SyncJob.SyncJobUpdateStateInfo;
+import org.apache.doris.load.sync.canal.CanalDestination;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.load.sync.canal.SyncCanalClient;
 import org.apache.doris.persist.EditLog;
@@ -118,6 +119,39 @@ public class SyncJobManagerTest {
         Assert.assertEquals(1, syncJobs.size());
         SyncJob syncJob2 = syncJobs.get(0);
         Assert.assertEquals(syncJob1, syncJob2);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testCreateDuplicateRemote(@Injectable CreateDataSyncJobStmt stmt,
+                                          @Mocked SyncJob syncJob) throws DdlException {
+        // create two canal jobs
+        CanalSyncJob canalSyncJob1 = new CanalSyncJob(jobId, jobName + "_1", dbId);
+        CanalSyncJob canalSyncJob2 = new CanalSyncJob(jobId + 1, jobName + "_2", dbId);
+        new Expectations() {
+            {
+                SyncJob.fromStmt(anyLong, (CreateDataSyncJobStmt) any);
+                returns(canalSyncJob1, canalSyncJob2);
+            }
+        };
+
+        // set same remote destination to two jobs
+        CanalDestination duplicateDes1 = new CanalDestination("dupIp", 1, "dupDestination");
+        CanalDestination duplicateDes2 = new CanalDestination("dupIp", 1, "dupDestination");
+        Deencapsulation.setField(canalSyncJob1, "remote", duplicateDes1);
+        Deencapsulation.setField(canalSyncJob2, "remote", duplicateDes2);
+
+        SyncJobManager manager = new SyncJobManager();
+        manager.addDataSyncJob(stmt);
+
+        Map<Long, SyncJob> idToSyncJobs = Deencapsulation.getField(manager, "idToSyncJob");
+        Assert.assertEquals(1, idToSyncJobs.size());
+        SyncJob syncJob1 = idToSyncJobs.values().iterator().next();
+        Assert.assertEquals(DataSyncJobType.CANAL, syncJob1.getJobType());
+        Assert.assertEquals(duplicateDes1, ((CanalSyncJob) syncJob1).getRemote());
+
+        // should throw exception
+        manager.addDataSyncJob(stmt);
+        Assert.fail();
     }
 
     @Test

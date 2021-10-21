@@ -31,9 +31,13 @@
     <properties>
         <scala.version>2.12</scala.version>
         <spark.version>3.1.2</spark.version>
-        <libthrift.version>0.9.3</libthrift.version>
-        <arrow.version>1.0.1</arrow.version>
+        <libthrift.version>0.13.0</libthrift.version>
+        <arrow.version>5.0.0</arrow.version>
+        <maven-compiler-plugin.version>3.8.1</maven-compiler-plugin.version>
+        <maven-javadoc-plugin.version>3.3.0</maven-javadoc-plugin.version>
+        <maven-source-plugin.version>3.2.1</maven-source-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
     </properties>
 
     <profiles>
@@ -103,7 +107,13 @@
             <artifactId>arrow-vector</artifactId>
             <version>${arrow.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+            <version>${arrow.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <!--Test-->
         <dependency>
             <groupId>org.hamcrest</groupId>
             <artifactId>hamcrest-core</artifactId>
@@ -154,12 +164,36 @@
 
     </dependencies>
 
-    <build> 
+    <build>
         <plugins>
+            <!-- add gensrc java build src dir -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.2.0</version>
+                <executions>
+                    <execution>
+                        <id>add-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <!-- add arbitrary num of src dirs here -->
+                                <source>${project.build.directory}/generated-sources/thrift/</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.thrift.tools</groupId>
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
+                <configuration>
+                    <generator>java:fullcamel</generator>
+                </configuration>
                 <executions>
                     <execution>
                         <id>thrift-sources</id>
@@ -277,14 +311,47 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>${maven-compiler-plugin.version}</version>
                 <configuration>
                     <source>8</source>
                     <target>8</target>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>${maven-javadoc-plugin.version}</version>
+                <configuration>
+                    <source>8</source>
+                    <failOnError>false</failOnError>
+                    <aggregate>true</aggregate>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>${maven-source-plugin.version}</version>
+                <configuration>
+                    <attach>true</attach>
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
 </project>
-

@@ -1119,6 +1119,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Long alterIndexId : indexSchemaMap.keySet()) {
             List<Column> originSchema = olapTable.getSchemaByIndexId(alterIndexId);
             List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
+            Set<Column> needAlterColumns = Sets.newHashSet();
 
             // 0. check if unchanged
             boolean hasColumnChange = false;
@@ -1128,8 +1129,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (int i = 0; i < alterSchema.size(); i++) {
                     Column alterColumn = alterSchema.get(i);
                     if (!alterColumn.equals(originSchema.get(i))) {
+                        needAlterColumns.add(alterColumn);
                         hasColumnChange = true;
-                        break;
                     }
                 }
             }
@@ -1220,7 +1221,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(partitionCol.getName(), true)) {
                             // 2.1 partition column cannot be modified
-                            if (!alterColumn.equals(partitionCol)) {
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
                                 throw new DdlException("Can not modify partition column["
                                         + partitionCol.getName() + "]. index["
                                         + olapTable.getIndexNameById(alterIndexId) + "]");
@@ -1249,7 +1250,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     for (Column alterColumn : alterSchema) {
                         if (alterColumn.nameEquals(distributionCol.getName(), true)) {
                             // 3.1 distribution column cannot be modified
-                            if (!alterColumn.equals(distributionCol)) {
+                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
                                 throw new DdlException("Can not modify distribution column["
                                         + distributionCol.getName() + "]. index["
                                         + olapTable.getIndexNameById(alterIndexId) + "]");
