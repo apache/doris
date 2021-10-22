@@ -137,8 +137,8 @@ public:
 
 private:
     brpc::CallId cid;
-    std::atomic<bool> _packet_in_flight{false};
-    std::atomic<bool> _is_last_rpc{false};
+    std::atomic<bool> _packet_in_flight {false};
+    std::atomic<bool> _is_last_rpc {false};
     std::function<void()> failed_handler;
     std::function<void(const T&, bool)> success_handler;
 };
@@ -227,19 +227,19 @@ private:
     MonotonicStopWatch _timeout_watch;
 
     // user cancel or get some errors
-    std::atomic<bool> _cancelled{false};
+    std::atomic<bool> _cancelled {false};
     SpinLock _cancel_msg_lock;
     std::string _cancel_msg = "";
 
     // send finished means the consumer thread which send the rpc can exit
-    std::atomic<bool> _send_finished{false};
+    std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished{false};
+    std::atomic<bool> _add_batches_finished {false};
 
-    std::atomic<bool> _last_patch_processed_finished{true};
+    std::atomic<bool> _last_patch_processed_finished {true};
 
-    bool _eos_is_produced{false}; // only for restricting producer behaviors
+    bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
     int _batch_size = 0;
@@ -249,9 +249,9 @@ private:
     std::mutex _pending_batches_lock;
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
     std::queue<AddBatchReq> _pending_batches;
-    std::atomic<int> _pending_batches_num{0};
+    std::atomic<int> _pending_batches_num {0};
 
-    PBackendService_Stub* _stub = nullptr;
+    std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
     ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
@@ -259,10 +259,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    std::atomic<int64_t> _serialize_batch_ns{0};
-    std::atomic<int64_t> _mem_exceeded_block_ns{0};
-    std::atomic<int64_t> _queue_push_lock_ns{0};
-    std::atomic<int64_t> _actual_consume_ns{0};
+    std::atomic<int64_t> _serialize_batch_ns {0};
+    std::atomic<int64_t> _mem_exceeded_block_ns {0};
+    std::atomic<int64_t> _queue_push_lock_ns {0};
+    std::atomic<int64_t> _actual_consume_ns {0};
 };
 
 class IndexChannel {

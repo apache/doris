@@ -17,28 +17,42 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <memory>
 #include <mutex>
 
+#include "common/config.h"
 #include "gen_cpp/Types_types.h" // TNetworkAddress
 #include "gen_cpp/internal_service.pb.h"
 #include "service/brpc.h"
 #include "util/doris_metrics.h"
-#include "util/spinlock.h"
 
+namespace std {
+template <>
+struct hash<butil::EndPoint> {
+    std::size_t operator()(butil::EndPoint const& p) const {
+        return phmap::HashState().combine(0, butil::ip2int(p.ip), p.port);
+    }
+};
+} // namespace std
+using SubMap = phmap::parallel_flat_hash_map<
+        butil::EndPoint, std::shared_ptr<doris::PBackendService_Stub>, std::hash<butil::EndPoint>,
+        std::equal_to<butil::EndPoint>,
+        std::allocator<
+                std::pair<const butil::EndPoint, std::shared_ptr<doris::PBackendService_Stub>>>,
+        8, std::mutex>;
 namespace doris {
 
-// map used
 class BrpcStubCache {
 public:
     BrpcStubCache();
-    virtual ~BrpcStubCache();
+    ~BrpcStubCache();
 
-    virtual PBackendService_Stub* get_stub(const butil::EndPoint& endpoint) {
-        std::lock_guard<SpinLock> l(_lock);
-        auto stub_ptr = _stub_map.seek(endpoint);
-        if (stub_ptr != nullptr) {
-            return *stub_ptr;
+    inline std::shared_ptr<PBackendService_Stub> get_stub(const butil::EndPoint& endpoint) {
+        auto stub_ptr = _stub_map.find(endpoint);
+        if (LIKELY(stub_ptr != _stub_map.end())) {
+            return stub_ptr->second;
         }
         // new one stub and insert into map
         brpc::ChannelOptions options;
@@ -46,33 +60,100 @@ public:
         if (channel->Init(endpoint, &options)) {
             return nullptr;
         }
-        auto stub = new PBackendService_Stub(channel.release(),
-                                             google::protobuf::Service::STUB_OWNS_CHANNEL);
-        _stub_map.insert(endpoint, stub);
+        auto stub = std::make_shared<PBackendService_Stub>(
+                channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
+        _stub_map[endpoint] = stub;
         return stub;
     }
 
-    virtual PBackendService_Stub* get_stub(const TNetworkAddress& taddr) {
+    inline std::shared_ptr<PBackendService_Stub> get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
-            LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname;
+            LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname
+                         << ", port=" << taddr.port;
             return nullptr;
         }
         return get_stub(endpoint);
     }
 
-    virtual PBackendService_Stub* get_stub(const std::string& host, int port) {
+    inline std::shared_ptr<PBackendService_Stub> get_stub(const std::string& host, int port) {
+        butil::EndPoint endpoint;
+        if (str2endpoint(host.c_str(), port, &endpoint)) {
+            LOG(WARNING) << "unknown endpoint, hostname=" << host << ", port=" << port;
+            return nullptr;
+        }
+        return get_stub(endpoint);
+    }
+
+    inline size_t size() { return _stub_map.size(); }
+
+    inline void clear() { _stub_map.clear(); }
+
+    inline size_t erase(const std::string& host_port) {
+        butil::EndPoint endpoint;
+        if (str2endpoint(host_port.c_str(), &endpoint)) {
+            LOG(WARNING) << "unknown endpoint: " << host_port;
+            return 0;
+        }
+        return erase(endpoint);
+    }
+
+    size_t erase(const std::string& host, int port) {
+        butil::EndPoint endpoint;
+        if (str2endpoint(host.c_str(), port, &endpoint)) {
+            LOG(WARNING) << "unknown endpoint, hostname=" << host << ", port=" << port;
+            return 0;
+        }
+        return erase(endpoint);
+    }
+
+    inline size_t erase(const butil::EndPoint& endpoint) { return _stub_map.erase(endpoint); }
+
+    inline bool exist(const std::string& host_port) {
+        butil::EndPoint endpoint;
+        if (str2endpoint(host_port.c_str(), &endpoint)) {
+            LOG(WARNING) << "unknown endpoint: " << host_port;
+            return false;
+        }
+        return _stub_map.find(endpoint) != _stub_map.end();
+    }
+
+    inline void get_all(std::vector<std::string>* endpoints) {
+        for (SubMap::const_iterator it = _stub_map.begin(); it != _stub_map.end(); ++it) {
+            endpoints->emplace_back(endpoint2str(it->first).c_str());
+        }
+    }
+
+    inline bool available(std::shared_ptr<PBackendService_Stub> stub,
+                          const butil::EndPoint& endpoint) {
+        if (!stub) {
+            return false;
+        }
+        PHandShakeRequest request;
+        PHandShakeResponse response;
+        brpc::Controller cntl;
+        stub->hand_shake(&cntl, &request, &response, nullptr);
+        if (!cntl.Failed()) {
+            return true;
+        } else {
+            LOG(WARNING) << "open brpc connection to  " << endpoint2str(endpoint).c_str()
+                         << " failed: " << cntl.ErrorText();
+            return false;
+        }
+    }
+
+    inline bool available(std::shared_ptr<PBackendService_Stub> stub, const std::string& host,
+                          int port) {
         butil::EndPoint endpoint;
         if (str2endpoint(host.c_str(), port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << host;
-            return nullptr;
+            return false;
         }
-        return get_stub(endpoint);
+        return available(stub, endpoint);
     }
 
 private:
-    SpinLock _lock;
-    butil::FlatMap<butil::EndPoint, PBackendService_Stub*> _stub_map;
+    SubMap _stub_map;
 };
 
 } // namespace doris

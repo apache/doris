@@ -229,12 +229,13 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             request_fragment_id->set_hi(targets[i].target_fragment_instance_id.hi);
             request_fragment_id->set_lo(targets[i].target_fragment_instance_id.lo);
 
-            PBackendService_Stub* stub = ExecEnv::GetInstance()->brpc_stub_cache()->get_stub(
-                    targets[i].target_fragment_instance_addr);
+            std::shared_ptr<PBackendService_Stub> stub(
+                    ExecEnv::GetInstance()->brpc_stub_cache()->get_stub(
+                            targets[i].target_fragment_instance_addr));
             VLOG_NOTICE << "send filter " << rpc_contexts[i]->request.filter_id()
-                      << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
-                      << targets[i].target_fragment_instance_addr.port
-                      << rpc_contexts[i]->request.ShortDebugString();
+                        << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
+                        << targets[i].target_fragment_instance_addr.port
+                        << rpc_contexts[i]->request.ShortDebugString();
             if (stub == nullptr) {
                 rpc_contexts.pop_back();
                 continue;
