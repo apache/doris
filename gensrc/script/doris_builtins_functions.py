@@ -1211,6 +1211,9 @@ visible_functions = [
     [['bitmap_max'], 'BIGINT', ['BITMAP'],
         '_ZN5doris15BitmapFunctions10bitmap_maxEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', '', ''],
+    [['bitmap_subset_in_range'], 'BITMAP', ['BITMAP', 'INT', 'INT'],
+        '_ZN5doris15BitmapFunctions22bitmap_subset_in_rangeEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_6IntValES9_',
+        '', '', 'vec', ''],
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],

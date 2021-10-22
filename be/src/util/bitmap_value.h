@@ -1451,6 +1451,29 @@ public:
         }
     }
 
+    /**
+     * Return new set with specified range (not include the range_end)
+     */
+    int32_t sub_range(const int32_t& range_start, const int32_t& range_end, BitmapValue& ret_bitmap) {
+        int32_t count = 0; 
+        if (range_start >= range_end) {
+            return count;
+        }
+        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+            if (*it < range_start) {
+                continue;
+            }
+            if (*it < range_end) {
+                ret_bitmap.add(*it);
+                ++count;
+            } else {
+                break;
+            }
+        }
+        return count;
+    }
+
+
 private:
     void _convert_to_smaller_type() {
         if (_type == BITMAP) {
