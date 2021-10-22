@@ -75,6 +75,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_PLAN = "disable_colocate_plan";
+    public static final String ENABLE_PUSHDOWN_AGG_TO_ES = "enable_pushdown_agg_to_es";
     public static final String ENABLE_BUCKET_SHUFFLE_JOIN = "enable_bucket_shuffle_join";
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     public static final String ENABLE_INSERT_STRICT = "enable_insert_strict";
@@ -281,6 +282,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
     public boolean disableColocatePlan = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PUSHDOWN_AGG_TO_ES)
+    public boolean enablePushdownAggToES = false;
 
     @VariableMgr.VarAttr(name = ENABLE_BUCKET_SHUFFLE_JOIN)
     public boolean enableBucketShuffleJoin = true;
@@ -532,6 +536,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableColocatePlan() {
         return disableColocatePlan;
+    }
+
+    public boolean isEnablePushDownAggToES() {
+        return enablePushdownAggToES;
     }
 
     public boolean isEnableBucketShuffleJoin() {

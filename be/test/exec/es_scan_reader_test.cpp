@@ -227,8 +227,13 @@ TEST_F(MockESServerTest, workflow) {
     std::vector<EsPredicate*> predicates;
     std::map<std::string, std::string> docvalue_context;
     bool doc_value_mode = false;
-    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates,
-                                                                 docvalue_context, &doc_value_mode);
+    bool is_agg = false;
+    std::vector<std::string> group_by_fields;
+    std::vector<std::string> aggregate_fields;
+    std::vector<std::string> aggregate_functions;
+    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates, docvalue_context,
+                                                                 &doc_value_mode, is_agg, group_by_fields,
+                                                                 aggregate_fields, aggregate_functions);
     ESScanReader reader(target, props, doc_value_mode);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());

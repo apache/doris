@@ -52,6 +52,64 @@ public:
     virtual Status close(RuntimeState* state) override;
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
+    Status add_aggregation_op(string agg_name) {
+        if (agg_name == "count") {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::COUNT);
+        } else if (agg_name == "min") {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::MIN);
+        } else if (agg_name == "max") {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::MAX);
+        } else if (agg_name == "sum") {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::SUM);
+        } else if (agg_name == "avg") {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::AVG);
+        } else {
+            _aggregate_ops.push_back(ScrollParser::EsAggregationOp::OTHER);
+            return Status::RuntimeError("the aggregate function is not supported, function name is:" + agg_name);
+        }
+        return Status::OK();
+    }
+
+    Status add_aggregation_for_es(std::string& col_name, ScrollParser::EsAggregationOp agg_op) {
+        switch (agg_op) {
+            case ScrollParser::EsAggregationOp::COUNT: {
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("value_count");
+                return Status::OK();
+            }
+            case ScrollParser::EsAggregationOp::MIN: {
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("min");
+                return Status::OK();
+            }
+            case ScrollParser::EsAggregationOp::MAX: {
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("max");
+                return Status::OK();
+            }
+            case ScrollParser::EsAggregationOp::SUM: {
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("sum");
+                return Status::OK();
+            }
+            case ScrollParser::EsAggregationOp::AVG: {
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("sum");
+                _aggregate_column_names.push_back(col_name);
+                _aggregate_function_names.push_back("value_count");
+                return Status::OK();
+            }
+            case ScrollParser::EsAggregationOp::COUNT_ONE_OR_STAR: {
+                // wouldn't happen
+                return Status::OK();
+            }
+            default: {
+                // wouldn't happen
+                return Status::RuntimeError("the aggregate function is not supported");
+            }
+        }
+    }
+
 protected:
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
@@ -80,7 +138,7 @@ private:
     Status scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
                         const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter);
 
-    Status build_conjuncts_list();
+    Status build_conjuncts_list(const std::vector<ExprContext*>& conjunct_ctxs);
 
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
@@ -110,6 +168,20 @@ private:
     std::vector<EsPredicate*> _predicates;
 
     std::vector<int> _predicate_to_conjunct;
+
+    // for push down es aggregate
+    bool _is_aggregated = false;
+
+    std::vector<std::string> _aggregate_column_names;
+    std::vector<std::string> _aggregate_function_names;
+    std::vector<std::string> _group_by_column_names;
+    std::vector<ScrollParser::EsAggregationOp> _aggregate_ops;
+
+    TupleId _intermediate_tuple_id;
+    TupleDescriptor* _intermediate_tuple_desc;
+
+    std::unique_ptr<RowDescriptor> _scan_row_desc;
+    std::vector<ExprContext*> _es_scan_conjunct_ctxs_when_aggregate;
 };
 
 } // namespace doris

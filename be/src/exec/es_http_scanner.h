@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <optional>
 
 #include "common/global_types.h"
 #include "common/status.h"
@@ -55,10 +56,15 @@ struct EsScanCounter {
 
 class EsHttpScanner {
 public:
+    struct aggregate_parameters {
+        const int group_by_size;
+        const std::vector<ScrollParser::EsAggregationOp>& _aggregate_functions;
+    };
+
     EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
                   const std::map<std::string, std::string>& properties,
                   const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
-                  bool doc_value_mode);
+                  bool doc_value_mode, std::optional<aggregate_parameters> agg_info);
     ~EsHttpScanner();
 
     Status open();
@@ -86,11 +92,15 @@ private:
     MemPool _mem_pool;
 
     const TupleDescriptor* _tuple_desc;
+
     EsScanCounter* _counter;
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;
 
     bool _doc_value_mode;
+    bool _is_aggregated;
+    int _group_by_size;
+    std::vector<ScrollParser::EsAggregationOp> _aggregate_functions;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

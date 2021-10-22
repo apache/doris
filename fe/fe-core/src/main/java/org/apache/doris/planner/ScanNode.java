@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -204,4 +205,8 @@ abstract public class ScanNode extends PlanNode {
                 desc.getTable().getName()).add("keyRanges", "").addValue(
                 super.debugString()).toString();
     }
+
+    boolean supportAggregationPushDown(AggregationNode aggregationNode) {return false;}
+
+    void pushDownAggregationNode(AggregateInfo aggregateInfo) {return ;}
 }

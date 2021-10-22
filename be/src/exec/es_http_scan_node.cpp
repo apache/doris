@@ -61,6 +61,34 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.es_scan_node.__isset.fields_context) {
         _fields_context = tnode.es_scan_node.fields_context;
     }
+
+    if (tnode.es_scan_node.__isset.is_aggregated && tnode.es_scan_node.is_aggregated == true) {
+        _is_aggregated = true;
+        _intermediate_tuple_id = tnode.es_scan_node.intermediate_tuple_id;
+
+        for (int i = 0; i < tnode.es_scan_node.group_by_column_names.size(); ++i) {
+            _group_by_column_names.push_back(tnode.es_scan_node.group_by_column_names[i]);
+        }
+
+        DCHECK(tnode.es_scan_node.aggregate_functions.size() == tnode.es_scan_node.aggregate_column_names.size());
+
+        for (int i = 0; i < tnode.es_scan_node.aggregate_column_names.size(); ++i) {
+            string col_name = tnode.es_scan_node.aggregate_column_names[i];
+            RETURN_IF_ERROR(add_aggregation_op(tnode.es_scan_node.aggregate_functions[i]));
+            if (_aggregate_ops.back() == ScrollParser::EsAggregationOp::COUNT) {
+                if (col_name.empty()) {
+                    _aggregate_ops.back() = ScrollParser::EsAggregationOp::COUNT_ONE_OR_STAR;
+                    continue;
+                }
+            }
+            RETURN_IF_ERROR(add_aggregation_for_es(col_name, _aggregate_ops.back()));
+        }
+
+        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.es_scan_node.es_scan_conjuncts_when_aggregate, &_es_scan_conjunct_ctxs_when_aggregate));
+
+        vector<TTupleId> scan_tuple_ids {tnode.es_scan_node.tuple_id};
+        _scan_row_desc.reset(new RowDescriptor(state->desc_tbl(), scan_tuple_ids, tnode.nullable_tuples));
+    }
     return Status::OK();
 }
 
@@ -68,12 +96,25 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     VLOG_QUERY << "EsHttpScanNode prepare";
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
+    if (_is_aggregated) {
+        RETURN_IF_ERROR(Expr::prepare(_es_scan_conjunct_ctxs_when_aggregate, state, *_scan_row_desc, expr_mem_tracker()));
+    }
+
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "Failed to get tuple descriptor, _tuple_id=" << _tuple_id;
         return Status::InternalError(ss.str());
+    }
+
+    if (_is_aggregated) {
+        _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
+        if (_intermediate_tuple_desc == NULL) {
+            std::stringstream ss;
+            ss << "Failed to get tuple descriptor, _tuple_id=" << _intermediate_tuple_id;
+            return Status::InternalError(ss.str());
+        }
     }
 
     // set up column name vector for ESScrollQueryBuilder
@@ -90,10 +131,10 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
 }
 
 // build predicate
-Status EsHttpScanNode::build_conjuncts_list() {
+Status EsHttpScanNode::build_conjuncts_list(const std::vector<ExprContext*>& conjunct_ctxs) {
     Status status = Status::OK();
-    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        EsPredicate* predicate = _pool->add(new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
+    for (int i = 0; i < conjunct_ctxs.size(); ++i) {
+        EsPredicate* predicate = _pool->add(new EsPredicate(conjunct_ctxs[i], _tuple_desc, _pool));
         predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
@@ -108,7 +149,6 @@ Status EsHttpScanNode::build_conjuncts_list() {
             }
         }
     }
-
     return Status::OK();
 }
 
@@ -118,17 +158,23 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
 
+    if (_is_aggregated) {
+        Expr::open(_es_scan_conjunct_ctxs_when_aggregate, state);
+    }
+
+    std::vector<ExprContext*>& conjunct_ctxs_reference = _is_aggregated ? _es_scan_conjunct_ctxs_when_aggregate : _conjunct_ctxs;
+
     // if conjunct is constant, compute direct and set eos = true
-    for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
-        if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
-            void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
-            if (value == NULL || *reinterpret_cast<bool*>(value) == false) {
+    for (int conj_idx = 0; conj_idx < conjunct_ctxs_reference.size(); ++conj_idx) {
+        if (conjunct_ctxs_reference[conj_idx]->root()->is_constant()) {
+            void* value = conjunct_ctxs_reference[conj_idx]->get_value(NULL);
+            if (value == NULL || *reinterpret_cast<bool *>(value) == false) {
                 _eos = true;
             }
         }
     }
 
-    RETURN_IF_ERROR(build_conjuncts_list());
+    RETURN_IF_ERROR(build_conjuncts_list(conjunct_ctxs_reference));
 
     // remove those predicates which ES cannot support
     std::vector<bool> list;
@@ -142,10 +188,15 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     }
 
     // filter the conjuncts and ES will process them later
+
     for (int i = _predicate_to_conjunct.size() - 1; i >= 0; i--) {
         int conjunct_index = _predicate_to_conjunct[i];
-        _conjunct_ctxs[conjunct_index]->close(_runtime_state);
-        _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
+        conjunct_ctxs_reference[conjunct_index]->close(_runtime_state);
+        conjunct_ctxs_reference.erase(conjunct_ctxs_reference.begin() + conjunct_index);
+    }
+
+    if (_is_aggregated && !_es_scan_conjunct_ctxs_when_aggregate.empty()) {
+        return Status::RuntimeError("es aggregate hasn't pushed down all conjuncts");
     }
 
     RETURN_IF_ERROR(start_scanners());
@@ -257,7 +308,7 @@ Status EsHttpScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
         for (int i = 0; i < row_batch->num_rows(); ++i) {
             TupleRow* row = row_batch->get_row(i);
             VLOG_ROW << "EsHttpScanNode output row: "
-                     << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
+                     << Tuple::to_string(row->get_tuple(0), _is_aggregated ? *_intermediate_tuple_desc : *_tuple_desc);
         }
     }
 
@@ -284,6 +335,7 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     update_status(collect_scanners_status());
 
     //close exec node
+    Expr::close(_es_scan_conjunct_ctxs_when_aggregate, state);
     update_status(ExecNode::close(state));
 
     return _process_status;
@@ -312,7 +364,12 @@ Status EsHttpScanNode::scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
-        int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
+        int tuple_buffer_size;
+        if (_is_aggregated) {
+            tuple_buffer_size = row_batch->capacity() * _intermediate_tuple_desc->byte_size();
+        } else {
+            tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
+        }
         void* tuple_buffer = tuple_pool->allocate(tuple_buffer_size);
         if (tuple_buffer == nullptr) {
             return Status::InternalError("Allocate memory for row batch failed.");
@@ -335,19 +392,24 @@ Status EsHttpScanNode::scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
             TupleRow* row = row_batch->get_row(row_idx);
             // scan node is the first tuple of tuple row
             row->set_tuple(0, tuple);
-            memset(tuple, 0, _tuple_desc->num_null_bytes());
-
+            if (_is_aggregated) {
+                memset(tuple, 0, _intermediate_tuple_desc->num_null_bytes());
+            } else {
+                memset(tuple, 0, _tuple_desc->num_null_bytes());
+            }
             // Get from scanner
             RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, _docvalue_context));
+
             if (scanner_eof) {
                 continue;
             }
 
             // eval conjuncts of this row.
-            if (eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row)) {
+            bool check_conjunct_pass_ok = _is_aggregated ? true : eval_conjuncts(&conjunct_ctxs[0], conjunct_ctxs.size(), row);
+            if (check_conjunct_pass_ok) {
                 row_batch->commit_last_row();
                 char* new_tuple = reinterpret_cast<char*>(tuple);
-                new_tuple += _tuple_desc->byte_size();
+                new_tuple += _is_aggregated ? _intermediate_tuple_desc->byte_size() : _tuple_desc->byte_size();
                 tuple = reinterpret_cast<Tuple*>(new_tuple);
                 counter->num_rows_returned++;
             } else {
@@ -409,7 +471,8 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);
-    auto status = Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);
+    auto status = _is_aggregated ? Expr::clone_if_not_exists(_es_scan_conjunct_ctxs_when_aggregate, _runtime_state, &scanner_expr_ctxs) :
+            Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);
     if (!status.ok()) {
         LOG(WARNING) << "Clone conjuncts failed.";
     }
@@ -426,20 +489,42 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
     properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
     properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
+    if (_is_aggregated) {
+        properties[ESScanReader::KEY_AGG] = ESScanReader::KEY_AGG;
+        if (_group_by_column_names.size() != 0) {
+            properties[ESScanReader::KEY_HAS_GROUP_BY] = ESScanReader::KEY_HAS_GROUP_BY;
+        }
+    }
     // push down limit to Elasticsearch
     // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-    if (limit() != -1 && limit() <= _runtime_state->batch_size() && _conjunct_ctxs.empty()) {
-        properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
+    if (_is_aggregated) {
+        if (limit() != -1) {
+            // FE ensure limit must be -1 if es aggregate can push down
+            status = Status::RuntimeError("ES aggregation node don't allow limit != -1, "
+                                        "the first phase aggregation should return all tuple");
+            if (!status.ok()) {
+                LOG(WARNING) << status.get_error_msg();
+            }
+        }
+    } else {
+        if (limit() != -1 && limit() <= _runtime_state->batch_size() && _conjunct_ctxs.empty()) {
+            properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
+        }
     }
 
     bool doc_value_mode = false;
     properties[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(
-            properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
+            properties, _column_names, _predicates, _docvalue_context, &doc_value_mode, _is_aggregated,
+            _group_by_column_names, _aggregate_column_names, _aggregate_function_names);
 
+    EsHttpScanner::aggregate_parameters agg_parameter_values{int(_group_by_column_names.size()), _aggregate_ops};
+    std::optional<EsHttpScanner::aggregate_parameters> agg_info =
+            _is_aggregated ? std::make_optional(agg_parameter_values) : std::nullopt;
     // start scanner to scan
     std::unique_ptr<EsHttpScanner> scanner(
-            new EsHttpScanner(_runtime_state, runtime_profile(), _tuple_id, properties,
-                              scanner_expr_ctxs, &counter, doc_value_mode));
+            new EsHttpScanner(_runtime_state, runtime_profile(), _is_aggregated ? _intermediate_tuple_id : _tuple_id,
+                              properties, scanner_expr_ctxs, &counter, doc_value_mode, agg_info));
+
     status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx

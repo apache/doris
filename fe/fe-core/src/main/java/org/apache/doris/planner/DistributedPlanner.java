@@ -929,7 +929,12 @@ public class DistributedPlanner {
         }
 
         // check size
-        if (childFragment.getPlanRoot().getNumInstances() <= 1) {
+        if (childFragment.getPlanRoot().getNumInstances() <= 1
+                && !(node.getChildren().size() == 1
+                && node.getChild(0) instanceof EsScanNode
+                && ConnectContext.get().getSessionVariable().isEnablePushDownAggToES())) {
+            // the aggregation node should be split into two phases when doing es aggregation
+            // because aggregation node need to push down the first phase to ES if can
             childFragment.addPlanRoot(node);
             return childFragment;
         }
@@ -1119,6 +1124,14 @@ public class DistributedPlanner {
         mergeAggNode.computeStats(ctx_.getRootAnalyzer());
         // Set new plan root after updating stats.
         mergeFragment.addPlanRoot(mergeAggNode);
+
+        if (node.getChildren().size() == 1 && node.getChild(0) instanceof ScanNode) {
+            ScanNode scanNode = (ScanNode) node.getChild(0);
+            if (scanNode.supportAggregationPushDown(node)) {
+                scanNode.pushDownAggregationNode(node.getAggInfo());
+                childFragment.setPlanRoot(scanNode);
+            }
+        }
 
         return mergeFragment;
     }

@@ -41,6 +41,9 @@ public:
     static constexpr const char* KEY_TERMINATE_AFTER = "limit";
     static constexpr const char* KEY_DOC_VALUES_MODE = "doc_values_mode";
     static constexpr const char* KEY_HTTP_SSL_ENABLED = "http_ssl_enabled";
+    static constexpr const char* KEY_AGG = "agg";
+    static constexpr const char* KEY_HAS_GROUP_BY = "has_group_by";
+
     ESScanReader(const std::string& target, const std::map<std::string, std::string>& props,
                  bool doc_value_mode);
     ~ESScanReader();
@@ -57,6 +60,7 @@ private:
     std::string _user_name;
     std::string _passwd;
     std::string _scroll_id;
+    std::string _after_key;
     HttpClient _network_client;
     std::string _index;
     std::string _type;
@@ -88,6 +92,12 @@ private:
     // _search_url would go into effect when `limit` specified:
     // select * from es_table limit 10 -> /es_table/doc/_search?terminate_after=10
     std::string _search_url;
+
+    // _get_agg_url used to execute pushdown avg,sum,count,min,max
+    std::string _get_agg_url;
+    bool _is_agg = false;
+    bool _has_group_by = false;
+
     bool _eos;
     int _batch_size;
 

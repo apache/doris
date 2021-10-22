@@ -38,6 +38,15 @@ public:
                              const std::vector<std::string>& fields,
                              std::vector<EsPredicate*>& predicates,
                              const std::map<std::string, std::string>& docvalue_context,
-                             bool* doc_value_mode);
+                             bool* doc_value_mode, bool is_agg, const std::vector<std::string>& group_by_fields,
+                             const std::vector<std::string>& aggregate_fields,
+                             const std::vector<std::string>& aggregate_functions);
+
+    // build the query DSL for composite aggregation paging read
+    // composite aggregation result will return <after_key>, collect its value
+    // when read the next page, just add the value at the base of query DSL.
+    // eg. {composite:{size:1024, after:<after_key>, ...}}
+    static Status build_composite_page_body(const std::string& es_first_composite_query, const std::string& after_key, std::string& result);
+
 };
 } // namespace doris

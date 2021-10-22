@@ -435,6 +435,13 @@ public class EsTable extends Table {
         return majorVersion;
     }
 
+    public EsMajorVersion syncEsVersion() {
+        if (majorVersion == null) {
+            return esMetaStateTracker.searchContext().version();
+        }
+        return majorVersion;
+    }
+
     public Throwable getLastMetaDataSyncException() {
         return lastMetaDataSyncException;
     }

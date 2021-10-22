@@ -34,7 +34,7 @@ namespace doris {
 EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
                              const std::map<std::string, std::string>& properties,
                              const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter,
-                             bool doc_value_mode)
+                             bool doc_value_mode, std::optional<aggregate_parameters> agg_info)
         : _state(state),
           _profile(profile),
           _tuple_id(tuple_id),
@@ -59,6 +59,13 @@ EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, Tuple
           _rows_read_counter(nullptr),
           _read_timer(nullptr),
           _materialize_timer(nullptr) {
+    if (agg_info.has_value()) {
+        _is_aggregated = true;
+        _group_by_size = agg_info.value().group_by_size;
+        _aggregate_functions = agg_info.value()._aggregate_functions;
+    } else {
+        _is_aggregated = false;
+    }
 }
 
 EsHttpScanner::~EsHttpScanner() {
@@ -107,8 +114,14 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof,
-                                                      docvalue_context));
+
+        if (_is_aggregated) {
+            RETURN_IF_ERROR(_es_scroll_parser->fill_agg_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof,
+                                                              docvalue_context, _group_by_size, _aggregate_functions));
+        } else {
+            RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof, docvalue_context));
+        }
+
         if (!_line_eof) {
             break;
         }
