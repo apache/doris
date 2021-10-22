@@ -71,7 +71,7 @@ DataStreamSender::Channel::Channel(DataStreamSender* parent, const RowDescriptor
     std::string localhost = BackendOptions::get_localhost();
     _is_local = _brpc_dest_addr.hostname == localhost && _brpc_dest_addr.port == config::brpc_port;
     if (_is_local) {
-        LOG(INFO) << "will use local exechange, dest_node_id:" << _dest_node_id;
+        VLOG_NOTICE << "will use local exechange, dest_node_id:" << _dest_node_id;
     }
 }
 
