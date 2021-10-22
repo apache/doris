@@ -1,7 +1,7 @@
 ---
 {
     "title": "bitmap_and_not",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -30,7 +30,7 @@ under the License.
 
 `BITMAP BITMAP_AND_NOT(BITMAP lhs, BITMAP rhs)`
 
-计算lhs减去两个输入bitmap的交集，返回新的bitmap.
+Calculate the set after lhs minus intersection of two input bitmaps, return the new bitmap.
 
 ## example
 
