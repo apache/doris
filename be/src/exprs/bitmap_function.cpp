@@ -530,6 +530,16 @@ StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_and_not(FunctionContext* ctx, const StringVal& lhs,
+                                          const StringVal& rhs) {
+    return bitmap_xor(ctx, lhs, bitmap_and(ctx, lhs, rhs));
+}
+
+BigIntVal BitmapFunctions::bitmap_and_not_count(FunctionContext* ctx, const StringVal& lhs,
+                                          const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_and_not(ctx, lhs, rhs));
+}
+
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
         return StringVal::null();
