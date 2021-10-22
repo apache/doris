@@ -504,6 +504,29 @@ TEST_F(BitmapFunctionsTest, bitmap_has_any) {
     ASSERT_EQ(expected2, result1);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_has_all) {
+    BitmapValue bitmap1({1, 4, 5});
+    BitmapValue bitmap2({4, 5});
+    BitmapValue bitmap3;
+    StringVal string_val1 = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal string_val2 = convert_bitmap_to_string(ctx, bitmap2);
+    StringVal string_val3 = convert_bitmap_to_string(ctx, bitmap3);
+
+    BooleanVal result1 = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
+    BooleanVal expected_true(true);
+    ASSERT_EQ(expected_true, result1);
+
+    BooleanVal result2 = BitmapFunctions::bitmap_has_all(ctx, string_val2, string_val1);
+    BooleanVal expected_false(false);
+    ASSERT_EQ(expected_false, result2);
+
+    BooleanVal result3 = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val3);
+    ASSERT_EQ(expected_true, result3);
+
+    BooleanVal result4 = BitmapFunctions::bitmap_has_all(ctx, string_val3, string_val2);
+    ASSERT_EQ(expected_false, result4);
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_from_string) {
     FunctionUtils utils;
     {

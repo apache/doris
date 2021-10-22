@@ -607,6 +607,24 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     return {bitmap.cardinality() != 0};
 }
 
+BooleanVal BitmapFunctions::bitmap_has_all(FunctionContext *ctx, const StringVal &lhs,
+                                           const StringVal &rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BooleanVal::null();
+    }
+
+    if (lhs.len != 0 && rhs.len != 0) {
+        BitmapValue bitmap = BitmapValue((char *) lhs.ptr);
+        int64_t lhs_cardinality = bitmap.cardinality();
+        bitmap |= BitmapValue((char *) rhs.ptr);
+        return {bitmap.cardinality() == lhs_cardinality};
+    } else if (rhs.len != 0) {
+        return {false};
+    } else {
+        return {true};
+    }
+}
+
 BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return BigIntVal::null();
