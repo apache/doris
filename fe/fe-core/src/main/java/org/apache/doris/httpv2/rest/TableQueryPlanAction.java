@@ -104,7 +104,7 @@ public class TableQueryPlanAction extends RestBaseController {
                 return ResponseEntityBuilder.badRequest("malformed json: " + e.getMessage());
             }
 
-            sql = String.valueOf(jsonObject.opt("sql"));
+            sql = jsonObject.optString("sql");
             if (Strings.isNullOrEmpty(sql)) {
                 return ResponseEntityBuilder.badRequest("POST body must contains [sql] root object");
             }
