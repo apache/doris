@@ -113,6 +113,7 @@ public final class MetricRepo {
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1, "Metric-Timer-Pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
+    // init() should only be called after catalog is contructed.
     public static synchronized void init() {
         if (isInit) {
             return;
@@ -184,8 +185,8 @@ public final class MetricRepo {
                 }
             };
             gauge.addLabel(new MetricLabel("job", "alter"))
-                .addLabel(new MetricLabel("type", jobType.name()))
-                .addLabel(new MetricLabel("state", "running"));
+                    .addLabel(new MetricLabel("type", jobType.name()))
+                    .addLabel(new MetricLabel("state", "running"));
             PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
 
@@ -265,17 +266,17 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_MODE_SQL);
         COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit_sql", MetricUnit.REQUESTS, "total hits query by sql model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_HIT_SQL);
-        COUNTER_CACHE_MODE_PARTITION = new LongCounterMetric("query_mode_partition", MetricUnit.REQUESTS, 
-            "total query of partition mode");
+        COUNTER_CACHE_MODE_PARTITION = new LongCounterMetric("query_mode_partition", MetricUnit.REQUESTS,
+                "total query of partition mode");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_MODE_PARTITION);
-        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit_partition", MetricUnit.REQUESTS, 
-            "total hits query by partition model");
+        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit_partition", MetricUnit.REQUESTS,
+                "total hits query by partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_HIT_PARTITION);
-        COUNTER_CACHE_PARTITION_ALL = new LongCounterMetric("partition_all", MetricUnit.REQUESTS, 
-            "scan partition of cache partition model");
+        COUNTER_CACHE_PARTITION_ALL = new LongCounterMetric("partition_all", MetricUnit.REQUESTS,
+                "scan partition of cache partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION_ALL);
-        COUNTER_CACHE_PARTITION_HIT = new LongCounterMetric("partition_hit", MetricUnit.REQUESTS, 
-            "hit partition of cache partition model");
+        COUNTER_CACHE_PARTITION_HIT = new LongCounterMetric("partition_hit", MetricUnit.REQUESTS,
+                "hit partition of cache partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION_HIT);
 
         COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.REQUESTS, "total load finished");
@@ -553,11 +554,6 @@ public final class MetricRepo {
 
     public static synchronized List<Metric> getMetricsByName(String name) {
         return PALO_METRIC_REGISTER.getPaloMetricsByName(name);
-    }
-
-    public static void addMetric(Metric<?> metric) {
-        init();
-        PALO_METRIC_REGISTER.addPaloMetrics(metric);
     }
 }
 
