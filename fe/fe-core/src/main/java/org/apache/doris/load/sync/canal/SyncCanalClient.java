@@ -34,13 +34,12 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SyncCanalClient {
     protected static Logger logger = LogManager.getLogger(SyncCanalClient.class);
 
-    private CanalConnector connector;
-
-    private CanalSyncDataReceiver receiver;
-    private CanalSyncDataConsumer consumer;
+    private final CanalConnector connector;
+    private final CanalSyncDataReceiver receiver;
+    private final CanalSyncDataConsumer consumer;
 
     // channel id -> channel
-    private Map<Long, CanalSyncChannel> idToChannels;
+    private final Map<Long, CanalSyncChannel> idToChannels;
 
     protected ReentrantLock lock = new ReentrantLock(true);
     protected ReentrantLock getLock = new ReentrantLock();
@@ -53,11 +52,13 @@ public class SyncCanalClient {
         lock.unlock();
     }
 
-    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector, int batchSize, boolean debug) {
+    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector,
+                           int batchSize, boolean debug) {
         this(syncJob, destination, connector, batchSize, debug, ".*\\..*");
     }
 
-    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector, int batchSize, boolean debug, String filter) {
+    public SyncCanalClient(CanalSyncJob syncJob, String destination, CanalConnector connector,
+                           int batchSize, boolean debug, String filter) {
         this.connector = connector;
         this.consumer = new CanalSyncDataConsumer(syncJob, connector, getLock, debug);
         this.receiver = new CanalSyncDataReceiver(syncJob, connector, destination, filter, consumer, batchSize, getLock);

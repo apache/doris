@@ -646,6 +646,40 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int max_sync_task_threads_num = 10;
 
+
+    /**
+     * Min event size that a sync job will commit.
+     * When receiving events less than it, SyncJob will continue
+     * to wait for the next batch of data until the time exceeds
+     * `sync_commit_interval_second`.
+     * The default value is 10000 (canal default event buffer size is 16384).
+     * You should set it smaller than canal buffer size.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long min_sync_commit_size = 10000;
+
+    /**
+     * Min bytes that a sync job will commit.
+     * When receiving bytes less than it, SyncJob will continue
+     * to wait for the next batch of data until the time exceeds
+     * `sync_commit_interval_second`.
+     * The default value is 15 MB (canal default memory is 16 MB).
+     * You should set it slightly smaller than canal memory.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long min_bytes_sync_commit = 15 * 1024 * 1024; // 15 MB
+
+    /**
+     * Max bytes that a sync job will commit.
+     * When receiving bytes less than it, SyncJob will commit
+     * all data immediately.
+     * The default value is 64 MB (canal default memory is 16 MB).
+     * You should set it larger than canal memory and
+     * `min_bytes_sync_commit`.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long max_bytes_sync_commit = 64 * 1024 * 1024; // 64 MB
+
     /**
      * Default number of waiting jobs for routine load and version 2 of load
      * This is a desired number.
