@@ -231,7 +231,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
 
             PBackendService_Stub* stub = ExecEnv::GetInstance()->brpc_stub_cache()->get_stub(
                     targets[i].target_fragment_instance_addr);
-            LOG(INFO) << "send filter " << rpc_contexts[i]->request.filter_id()
+            VLOG_NOTICE << "send filter " << rpc_contexts[i]->request.filter_id()
                       << " to:" << targets[i].target_fragment_instance_addr.hostname << ":"
                       << targets[i].target_fragment_instance_addr.port
                       << rpc_contexts[i]->request.ShortDebugString();
