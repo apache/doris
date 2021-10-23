@@ -104,7 +104,7 @@ A Send task is a request from Channel to Be, which contains the data of the same
 
 Channel controls the begin, commit and abort of transaction of single table. In a transaction, the consumer may distribute multiple Batches of data to a channel, so multiple send tasks may be generated. These tasks will not actually take effect until the transaction is committed successfully.
 
-When certain conditions are met (for example, a certain period of time was passed, an empty batch is received), the Consumer will block and notify each channel to try commit the transaction.
+When certain conditions are met (for example, a certain period of time was passed, reach the maximun data size of commit), the Consumer will block and notify each channel to try commit the transaction.
 
 If and only if all channels are committed successfully, Canal Server will be notified by the ACK request and Canal Client continue to get and consume data.
 
@@ -456,6 +456,25 @@ You can use `HELP STOP SYNC JOB;`, `HELP PAUSE SYNC JOB`; And `HELP RESUME SYNC 
 
 ## Related Parameters
 
+### Canal configuration
+
+* `canal.ip`
+
+	canal server's ip address
+	
+* `canal.port`
+
+	canal server's port
+	
+* `canal.instance.memory.buffer.size`
+
+	The queue length of the store ring queue, must be set to the power of 2, the default length is 16384. This value is equal to the maximum number of events that can be cached on the canal side and directly determines the maximum number of events that can be accommodated in a transaction on the Doris side. It is recommended to make it large enough to prevent the upper limit of the amount of data that can be accommodated in a transaction on the Doris side from being too small, resulting in too frequent transaction submission and data version accumulation.
+
+* `canal.instance.memory.buffer.memunit`
+
+	The default space occupied by an event at the canal end, default value is 1024 bytes. This value multiplied by `canal.instance.memory.buffer.size` is equal to the maximum space of the store. For example, if the queue length of the store is 16384, the space of the store is 16MB. However, the actual size of an event is not actually equal to this value, but is determined by the number of rows of data in the event and the length of each row of data. For example, the insert event of a table with only two columns is only 30 bytes, but the delete event may reach thousands of bytes. This is because the number of rows of delete event is usually more than that of insert event.
+
+ 
 ### Fe configuration
 
 The following configuration belongs to the system level configuration of SyncJob. The configuration value can be modified in configuration file fe.conf.
@@ -467,6 +486,18 @@ The following configuration belongs to the system level configuration of SyncJob
 * `sync_commit_interval_second`
 
 	Maximum interval time between commit transactions. If there is still data in the channel that has not been committed after this time, the consumer will notify the channel to commit the transaction.
+	
+* `min_sync_commit_size`
+
+	The minimum number of events required to commit a transaction. If the number of events received by Fe is less than it, Fe will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 10000 events. If you want to modify this configuration, please ensure that this value is less than the `canal.instance.memory.buffer.size` configuration on the canal side (16384 by default). Otherwise, Fe will try to get more events than the length of the store queue without ack, causing the store queue to block until timeout.
+	
+* `min_bytes_sync_commit`
+
+	The minimum data size required to commit a transaction. If the data size received by Fe is smaller than it, it will continue to wait for the next batch of data until the time exceeds `sync_commit_interval_second`. The default value is 15MB. If you want to modify this configuration, please ensure that this value is less than the product `canal.instance.memory.buffer.size` and `canal.instance.memory.buffer.memunit` on the canal side (16MB by default). Otherwise, Fe will try to get data from canal larger than the store space without ack, causing the store queue to block until timeout.
+	
+* `max_bytes_sync_commit`
+
+	The maximum size of the data when the transaction is committed. If the data size received by Fe is larger than it, it will immediately commit the transaction and send the accumulated data. The default value is 64MB. If you want to modify this configuration, please ensure that this value is greater than the product of `canal.instance.memory.buffer.size` and `canal.instance.memory.buffer.mmemunit` on the canal side (16MB by default) and `min_bytes_sync_commit`。
 	
 * `max_sync_task_threads_num`
 

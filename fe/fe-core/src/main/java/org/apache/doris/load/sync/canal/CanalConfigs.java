@@ -24,7 +24,4 @@ public class CanalConfigs {
 
     // Maximal waiting time for consumer to poll one batch
     public static long pollWaitingTimeoutMs = 80L;
-
-    // Maximal waiting time for channel to poll one batch
-    public static long channelWaitingTimeoutMs = 1000L;
 }
