@@ -20,7 +20,6 @@ package org.apache.doris.flink.cfg;
 import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
-import java.time.Duration;
 import java.util.Properties;
 
 /**
@@ -28,6 +27,10 @@ import java.util.Properties;
  */
 public class DorisExecutionOptions implements Serializable {
     private static final long serialVersionUID = 1L;
+
+    public static final Integer DEFAULT_BATCH_SIZE = 1000;
+    public static final Integer DEFAULT_MAX_RETRY_TIMES = 3;
+    private static final Long DEFAULT_INTERVAL_MILLIS = 10000L;
 
     private final Integer batchSize;
     private final Integer maxRetries;
@@ -66,14 +69,21 @@ public class DorisExecutionOptions implements Serializable {
         return new Builder();
     }
 
+    public static DorisExecutionOptions defaults() {
+        Properties pro = new Properties();
+        pro.setProperty("format", "json");
+        pro.setProperty("strip_outer_array", "true");
+        return new Builder().setStreamLoadProp(pro).build();
+    }
+
     /**
      * Builder of {@link DorisExecutionOptions}.
      */
     public static class Builder {
-        private Integer batchSize;
-        private Integer maxRetries;
-        private Long batchIntervalMs;
-        private Properties streamLoadProp;
+        private Integer batchSize = DEFAULT_BATCH_SIZE;
+        private Integer maxRetries = DEFAULT_MAX_RETRY_TIMES;
+        private Long batchIntervalMs = DEFAULT_INTERVAL_MILLIS;
+        private Properties streamLoadProp = new Properties();
 
         public Builder setBatchSize(Integer batchSize) {
             this.batchSize = batchSize;
