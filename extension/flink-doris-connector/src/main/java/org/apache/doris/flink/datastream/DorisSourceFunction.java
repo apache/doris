@@ -43,8 +43,8 @@ public class DorisSourceFunction extends RichSourceFunction<List<?>> implements 
     private final DorisDeserializationSchema<List<?>> deserializer;
     private final DorisOptions options;
     private final DorisReadOptions readOptions;
+    private transient volatile boolean isRunning;
     private List<PartitionDefinition> dorisPartitions;
-    private ScalaValueReader scalaValueReader;
 
     public DorisSourceFunction(DorisStreamOptions streamOptions, DorisDeserializationSchema<List<?>> deserializer) {
         this.deserializer = deserializer;
@@ -55,25 +55,32 @@ public class DorisSourceFunction extends RichSourceFunction<List<?>> implements 
     @Override
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
+        this.isRunning = true;
         this.dorisPartitions = RestService.findPartitions(options, readOptions, logger);
     }
 
     @Override
     public void run(SourceContext<List<?>> sourceContext) {
         for (PartitionDefinition partitions : dorisPartitions) {
-            scalaValueReader = new ScalaValueReader(partitions, options, readOptions);
-            while (scalaValueReader.hasNext()) {
-                List<?> next = scalaValueReader.next();
-                sourceContext.collect(next);
+            try (ScalaValueReader scalaValueReader = new ScalaValueReader(partitions, options, readOptions)) {
+                while (isRunning && scalaValueReader.hasNext()) {
+                    List<?> next = scalaValueReader.next();
+                    sourceContext.collect(next);
+                }
             }
         }
     }
 
     @Override
     public void cancel() {
-        scalaValueReader.close();
+        isRunning = false;
     }
 
+    @Override
+    public void close() throws Exception {
+        super.close();
+        isRunning = false;
+    }
 
     @Override
     public TypeInformation<List<?>> getProducedType() {
