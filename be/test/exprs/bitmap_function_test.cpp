@@ -505,26 +505,38 @@ TEST_F(BitmapFunctionsTest, bitmap_has_any) {
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_has_all) {
-    BitmapValue bitmap1({1, 4, 5});
-    BitmapValue bitmap2({4, 5});
-    BitmapValue bitmap3;
+    BitmapValue bitmap1({1, 4, 5, std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::min()});
+    BitmapValue bitmap2({4, std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::min()});
     StringVal string_val1 = convert_bitmap_to_string(ctx, bitmap1);
     StringVal string_val2 = convert_bitmap_to_string(ctx, bitmap2);
-    StringVal string_val3 = convert_bitmap_to_string(ctx, bitmap3);
+    BooleanVal result = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
+    ASSERT_EQ(BooleanVal{true}, result);
 
-    BooleanVal result1 = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
-    BooleanVal expected_true(true);
-    ASSERT_EQ(expected_true, result1);
+    bitmap1 = BitmapValue({0, 1, 2});
+    bitmap2 = BitmapValue({0, 1, 2, std::numeric_limits<uint64_t>::max()});
+    string_val1 = convert_bitmap_to_string(ctx, bitmap1);
+    string_val2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
+    ASSERT_EQ(BooleanVal{false}, result);
 
-    BooleanVal result2 = BitmapFunctions::bitmap_has_all(ctx, string_val2, string_val1);
-    BooleanVal expected_false(false);
-    ASSERT_EQ(expected_false, result2);
+    bitmap1 = BitmapValue();
+    bitmap2 = BitmapValue({0, 1, 2});
+    string_val1 = convert_bitmap_to_string(ctx, bitmap1);
+    string_val2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
+    ASSERT_EQ(BooleanVal{false}, result);
 
-    BooleanVal result3 = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val3);
-    ASSERT_EQ(expected_true, result3);
+    bitmap1 = BitmapValue();
+    bitmap2 = BitmapValue();
+    string_val1 = convert_bitmap_to_string(ctx, bitmap1);
+    string_val2 = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_has_all(ctx, string_val1, string_val2);
+    ASSERT_EQ(BooleanVal{true}, result);
 
-    BooleanVal result4 = BitmapFunctions::bitmap_has_all(ctx, string_val3, string_val2);
-    ASSERT_EQ(expected_false, result4);
+    bitmap1 = BitmapValue();
+    string_val1 = convert_bitmap_to_string(ctx, bitmap1);
+    result = BitmapFunctions::bitmap_has_all(ctx, string_val1, StringVal::null());
+    ASSERT_TRUE(result.is_null);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_from_string) {
