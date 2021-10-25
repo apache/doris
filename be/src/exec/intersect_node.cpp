@@ -50,11 +50,11 @@ Status IntersectNode::open(RuntimeState* state) {
         return Status::OK();
     }
     bool eos = false;
-    _valid_element_in_hash_tbl = 0;
 
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) { refresh_hash_table<true>(i); }
 
+        _valid_element_in_hash_tbl = 0;
         // probe
         _probe_batch.reset(
                 new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));

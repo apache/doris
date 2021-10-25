@@ -142,7 +142,7 @@ public:
 
     // Check the hash table should be shrink
     bool should_be_shrink(int64_t valid_row) {
-        return valid_row < load_factor() * (_buckets.size() / 2.0);
+        return valid_row < MAX_BUCKET_OCCUPANCY_FRACTION * (_buckets.size() / 2.0);
     }
 
     // true if any of the MemTrackers was exceeded
