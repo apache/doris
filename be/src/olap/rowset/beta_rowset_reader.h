@@ -24,6 +24,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/segment_loader.h"
 
 namespace doris {
 
@@ -69,6 +70,10 @@ private:
     std::unique_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
+
+    // make sure this handle is initialized and valid before
+    // reading data.
+    SegmentCacheHandle _segment_cache_handle;
 };
 
 } // namespace doris

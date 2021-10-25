@@ -241,7 +241,7 @@ OLAPStatus SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
         LOG(WARNING) << "failed to build rowset when rename rowset id";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    RETURN_NOT_OK(new_rowset->load());
+    RETURN_NOT_OK(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
     org_rowset->remove();
     return OLAP_SUCCESS;

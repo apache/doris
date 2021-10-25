@@ -127,7 +127,7 @@ void StorageEngine::_fd_cache_clean_callback() {
 #endif
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
-        interval = config::file_descriptor_cache_clean_interval;
+        interval = config::cache_clean_interval;
         if (interval <= 0) {
             OLAP_LOG_WARNING(
                     "config of file descriptor clean interval is illegal: [%d], "
@@ -136,7 +136,7 @@ void StorageEngine::_fd_cache_clean_callback() {
             interval = 3600;
         }
 
-        _start_clean_fd_cache();
+        _start_clean_cache();
     }
 }
 
