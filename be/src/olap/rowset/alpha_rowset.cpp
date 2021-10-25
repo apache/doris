@@ -166,7 +166,9 @@ OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor&
                                     std::vector<OlapTuple>* ranges) {
     if (key_num > _schema->num_short_key_columns()) {
         // should not happen
-        LOG(WARNING) << "key num " << key_num << " should less than or equal to short key column number: "
+        // But since aloha rowset is deprecated in future and it will not fail the query,
+        // just use VLOG to avoid too many warning logs.
+        VLOG_NOTICE << "key num " << key_num << " should less than or equal to short key column number: "
                 << _schema->num_short_key_columns();
         return OLAP_ERR_INVALID_SCHEMA;
     }
