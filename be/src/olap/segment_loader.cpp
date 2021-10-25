@@ -56,23 +56,27 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
 }
 
 OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                       SegmentCacheHandle* cache_handle) {
-    SegmentCacheHandle handle;
+                                        SegmentCacheHandle* cache_handle,
+                                        bool use_cache) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
-    if (_lookup(cache_key, &handle)) {
-        *cache_handle = std::move(handle);
+    if (_lookup(cache_key, cache_handle)) {
+        cache_handle->owned = false;
         return OLAP_SUCCESS;
     }
+    cache_handle->owned = !use_cache;
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_NOT_OK(rowset->load_segments(&segments));
 
-    // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
-    SegmentLoader::CacheValue* cache_value = new SegmentLoader::CacheValue();
-    cache_value->segments = std::move(segments);
-    _insert(cache_key, *cache_value, &handle);
-    *cache_handle = std::move(handle);
-    
+    if (use_cache) {
+        // memory of SegmentLoader::CacheValue will be handled by SegmentLoader
+        SegmentLoader::CacheValue* cache_value = new SegmentLoader::CacheValue();
+        cache_value->segments = std::move(segments);
+        _insert(cache_key, *cache_value, cache_handle);
+    } else {
+        cache_handle->segments = std::move(segments);
+    }
+
     return OLAP_SUCCESS;
 }
 
