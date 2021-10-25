@@ -1278,34 +1278,37 @@ public class OlapTable extends Table {
         return table instanceof OlapTable;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied, OlapTable.class, FeConstants.meta_version)) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
-        
-        if (resetState) {
-            // remove shadow index from copied table
-            List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+
+        // remove shadow index from copied table
+        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+        for (MaterializedIndex deleteIndex : shadowIndex) {
+            LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+            copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+        }
+        copied.setState(OlapTableState.NORMAL);
+        for (Partition partition : copied.getPartitions()) {
+            // remove shadow index from partition
             for (MaterializedIndex deleteIndex : shadowIndex) {
-                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
-                copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+                partition.deleteRollupIndex(deleteIndex.getId());
             }
-            copied.setState(OlapTableState.NORMAL);
-            for (Partition partition : copied.getPartitions()) {
-                // remove shadow index from partition
-                for (MaterializedIndex deleteIndex : shadowIndex) {
-                    partition.deleteRollupIndex(deleteIndex.getId());
-                }
-                partition.setState(PartitionState.NORMAL);
+            partition.setState(PartitionState.NORMAL);
+            if (isForBackup) {
+                // set storage medium to HDD for backup job, because we want that the backuped table
+                // can be able to restored to another Doris cluster without SSD disk.
+                // But for other operation such as truncate table, keep the origin storage medium.
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
-                for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
-                    idx.setState(IndexState.NORMAL);
-                    for (Tablet tablet : idx.getTablets()) {
-                        for (Replica replica : tablet.getReplicas()) {
-                            replica.setState(ReplicaState.NORMAL);
-                        }
+            }
+            for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
+                idx.setState(IndexState.NORMAL);
+                for (Tablet tablet : idx.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.setState(ReplicaState.NORMAL);
                     }
                 }
             }
@@ -1315,10 +1318,10 @@ public class OlapTable extends Table {
             // reserve all
             return copied;
         }
-        
+
         Set<String> partNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         partNames.addAll(copied.getPartitionNames());
-        
+
         for (String partName : partNames) {
             if (!reservedPartitions.contains(partName)) {
                 copied.dropPartitionAndReserveTablet(partName);

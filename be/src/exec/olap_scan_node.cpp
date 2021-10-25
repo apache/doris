@@ -689,7 +689,6 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
         res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
                                  block_row_count, &range);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -700,7 +699,6 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
         std::vector<OlapTuple> range;
         auto res = table->split_range({}, {}, block_row_count, &range);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
