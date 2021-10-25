@@ -57,6 +57,9 @@ public:
     explicit RowBlockSorter(RowBlockAllocator* allocator);
     virtual ~RowBlockSorter();
 
+    size_t num_rows() { 
+        return _swap_row_block->capacity(); 
+    }
     bool sort(RowBlock** row_block);
 
 private:
@@ -755,6 +758,14 @@ RowBlockAllocator::~RowBlockAllocator() {
     }
 }
 
+bool RowBlockAllocator::is_memory_enough_to_alloc(size_t num_rows, size_t allocated_rows){
+    if (num_rows <= allocated_rows) {
+        return true;
+    }
+    size_t row_block_size = _row_len * (num_rows - allocated_rows);
+    return _memory_allocated + row_block_size < _memory_limitation;
+}
+
 OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bool null_supported) {
     size_t row_block_size = _row_len * num_rows;
 
@@ -1121,6 +1132,17 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
+    }else{
+         else {
+            // do memory check for sorting, in case schema change task fail at row block sorting because of 
+            // not doing internal sorting first
+            if (!_row_block_allocator->is_memory_enough_for_sorting(ref_row_block->row_block_info().row_num,
+                                                                row_block_sorter.num_rows())) {
+                if (new_row_block != nullptr) {
+                    _row_block_allocator->release(new_row_block);
+                    new_row_block = nullptr;
+                }
+            }
     }
 
     bool need_create_empty_version = false;
