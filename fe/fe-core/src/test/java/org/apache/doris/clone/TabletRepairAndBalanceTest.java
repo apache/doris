@@ -27,11 +27,13 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
@@ -456,6 +458,62 @@ public class TabletRepairAndBalanceTest {
 
         // test colocate table index persist
         ExceptionChecker.expectThrowsNoException(() -> testColocateTableIndexSerialization(colocateTableIndex));
+
+        // test colocate tablet repair
+        String createStr6 = "create table test.col_tbl3\n" +
+                "(k1 date, k2 int)\n" +
+                "distributed by hash(k2) buckets 1\n" +
+                "properties\n" +
+                "(\n" +
+                "    \"replication_num\" = \"3\",\n" +
+                "    \"colocate_with\" = \"g3\"\n" +
+                ")";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createStr6));
+
+        OlapTable tbl3 = db.getOlapTableOrDdlException("col_tbl3");
+        updateReplicaPathHash();
+        // Set one replica's state as DECOMMISSION, see if it can be changed to NORMAL
+        Tablet oneTablet = null;
+        Replica oneReplica = null;
+        for (Partition partition : tbl3.getPartitions()) {
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+                for (Tablet tablet : mIndex.getTablets()) {
+                    oneTablet = tablet;
+                    for (Replica replica : tablet.getReplicas()) {
+                        oneReplica = replica;
+                        oneReplica.setState(Replica.ReplicaState.DECOMMISSION);
+                        break;
+                    }
+                }
+            }
+        }
+        Assert.assertTrue(checkReplicaState(oneReplica));
+
+        // set one replica to bad, see if it can be repaired
+        oneReplica.setBad(true);
+        Assert.assertTrue(checkReplicaBad(oneTablet, oneReplica));
+    }
+
+    private static boolean checkReplicaState(Replica replica) throws Exception {
+        for (int i = 0; i < 10; i++) {
+            Thread.sleep(1000);
+            if (replica.getState() != Replica.ReplicaState.NORMAL) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean checkReplicaBad(Tablet tablet, Replica replica) throws Exception {
+        for (int i = 0; i < 10; i++) {
+            Thread.sleep(1000);
+            if (tablet.getReplicaById(replica.getId()) != null) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     private void testColocateTableIndexSerialization(ColocateTableIndex colocateTableIndex) throws IOException {
