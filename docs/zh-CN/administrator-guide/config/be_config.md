@@ -580,11 +580,12 @@ ETL线程池的大小
 
 文件句柄缓存的容量，默认缓存32768个文件句柄
 
-### `file_descriptor_cache_clean_interval`
+### `cache_clean_interval`
 
-默认值：3600 (s)
+默认值：1800 (s)
 
-文件句柄缓存清理的间隔，用于清理长期不用的文件句柄
+文件句柄缓存清理的间隔，用于清理长期不用的文件句柄。
+同时也是Segment Cache的清理间隔时间。
 
 ### `flush_thread_num_per_store`
 
@@ -1468,3 +1469,11 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: 和外部表建立连接的超时时间。
 * 默认值: 5秒
+
+### `segment_cache_capacity`
+
+* 类型: int32
+* 描述: Segment Cache 缓存的 Segment 最大数量
+* 默认值: 1000000
+
+默认值目前只是一个经验值，可能需要根据实际场景修改。增大该值可以缓存更多的segment从而避免一些IO。减少该值则会降低内存使用。

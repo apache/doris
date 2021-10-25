@@ -31,7 +31,7 @@ AlphaRowsetReader::AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetShar
                   std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
           _segment_groups(_rowset->_segment_groups),
           _key_range_size(0) {
-    _rowset->aquire();
+    _rowset->acquire();
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {
