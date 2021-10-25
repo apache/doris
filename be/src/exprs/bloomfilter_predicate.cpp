@@ -73,7 +73,7 @@ BloomFilterPredicate::BloomFilterPredicate(const TExprNode& node)
           _scan_rows(0) {}
 
 BloomFilterPredicate::~BloomFilterPredicate() {
-    LOG(INFO) << "bloom filter rows:" << _filtered_rows << ",scan_rows:" << _scan_rows
+    VLOG_NOTICE << "bloom filter rows:" << _filtered_rows << ",scan_rows:" << _scan_rows
               << ",rate:" << (double)_filtered_rows / _scan_rows;
 }
 
