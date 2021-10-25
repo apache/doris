@@ -814,14 +814,14 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
     {
         std::unique_lock<std::mutex> lock(_lock);
         if (!_fragment_map.count(tfragment_instance_id)) {
-            LOG(INFO) << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
+            VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
             _cv.wait_for(lock, std::chrono::milliseconds(1000),
                          [&] { return _fragment_map.count(tfragment_instance_id); });
         }
-        
+
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
-            LOG(WARNING) << "unknown.... fragment-id:" << fragment_instance_id;
+            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
             return Status::InvalidArgument("fragment-id");
         }
         fragment_state = iter->second;
