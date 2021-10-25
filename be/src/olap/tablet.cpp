@@ -560,13 +560,19 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
         if (missed_versions.empty()) {
-            LOG(WARNING) << "tablet:" << full_name()
-                         << ", version already has been merged. spec_version: " << spec_version;
+            // if version_path is null, it may be a compaction check logic.
+            // so to avoid print too many logs.
+            if (version_path != nullptr) {
+                LOG(WARNING) << "tablet:" << full_name()
+                    << ", version already has been merged. spec_version: " << spec_version;
+            }
             status = OLAP_ERR_VERSION_ALREADY_MERGED;
         } else {
-            LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
-                         << ", missed version for version:" << spec_version;
-            _print_missed_versions(missed_versions);
+            if (version_path != nullptr) {
+                LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                    << ", missed version for version:" << spec_version;
+                _print_missed_versions(missed_versions);
+            }
         }
     }
     return status;

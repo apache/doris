@@ -58,8 +58,8 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
 
     Status serialize_status = serialize(&_rpc_context->request, &data, &len);
     if (serialize_status.ok()) {
-        LOG(INFO) << "Producer:" << _rpc_context->request.ShortDebugString() << addr->hostname
-                  << ":" << addr->port;
+        VLOG_NOTICE << "Producer:" << _rpc_context->request.ShortDebugString() << addr->hostname
+                    << ":" << addr->port;
         if (len > 0) {
             DCHECK(data != nullptr);
             _rpc_context->cntl.request_attachment().append(data, len);
