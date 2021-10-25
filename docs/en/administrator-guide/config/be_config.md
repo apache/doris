@@ -582,11 +582,12 @@ Default：32768
 
 File handle cache capacity, 32768 file handles are cached by default.
 
-### `file_descriptor_cache_clean_interval`
+### `cache_clean_interval`
 
-Default：3600（s）
+Default：1800(s)
 
 File handle cache cleaning interval, used to clean up file handles that have not been used for a long time.
+Also the clean interval of Segment Cache.
 
 ### `flush_thread_num_per_store`
 
@@ -1447,3 +1448,11 @@ Increasing this value can reduce the number of calls to read remote data, but it
 * Type: int32
 * Description: The timeout when establishing connection with external table such as ODBC table.
 * Default value: 5 seconds
+
+### `segment_cache_capacity`
+
+* Type: int32
+* Description: The maximum number of Segments cached by Segment Cache.
+* Default value: 1000000
+
+The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.

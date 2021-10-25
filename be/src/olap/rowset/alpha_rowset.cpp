@@ -30,7 +30,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema, std::string rowset_path,
                          RowsetMetaSharedPtr rowset_meta)
         : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
 
-OLAPStatus AlphaRowset::do_load(bool use_cache, std::shared_ptr<MemTracker>) {
+OLAPStatus AlphaRowset::do_load(bool use_cache) {
     for (auto& segment_group : _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -405,36 +405,6 @@ std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
         }
     }
     return largest_segment_group;
-}
-
-OLAPStatus AlphaRowset::reset_sizeinfo() {
-    RETURN_NOT_OK(load());
-    std::vector<SegmentGroupPB> segment_group_metas;
-    AlphaRowsetMetaSharedPtr alpha_rowset_meta =
-            std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
-    alpha_rowset_meta->get_segment_groups(&segment_group_metas);
-    int32_t segment_group_idx = 0;
-    int64_t data_disk_size = 0;
-    int64_t index_disk_size = 0;
-    int64_t num_rows = 0;
-    for (auto segment_group : _segment_groups) {
-        segment_group_metas.at(segment_group_idx).set_data_size(segment_group->data_size());
-        segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
-        segment_group_metas.at(segment_group_idx).set_num_rows(segment_group->num_rows());
-        data_disk_size += segment_group->data_size();
-        index_disk_size += segment_group->index_size();
-        num_rows += segment_group->num_rows();
-        ++segment_group_idx;
-    }
-    alpha_rowset_meta->clear_segment_group();
-    alpha_rowset_meta->set_num_rows(num_rows);
-    alpha_rowset_meta->set_data_disk_size(data_disk_size);
-    alpha_rowset_meta->set_index_disk_size(index_disk_size);
-    alpha_rowset_meta->set_total_disk_size(data_disk_size + index_disk_size);
-    for (auto& segment_group_meta : segment_group_metas) {
-        alpha_rowset_meta->add_segment_group(segment_group_meta);
-    }
-    return OLAP_SUCCESS;
 }
 
 } // namespace doris
