@@ -151,7 +151,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
                     new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR, "failed to allocate task: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
-                    "allocate task encounter exception: " + e.getMessage()).build());
+                    "allocate task encounter exception: " + e.getMessage()).build(), e);
             throw e;
         }
 
@@ -170,9 +170,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
                     new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
-                            "failed to allocate task for txn: " + e.getMessage()), false);
+                            "failed to begin txn: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
-                    "begin task txn encounter exception: " + e.getMessage()).build());
+                    "begin task txn encounter exception: " + e.getMessage()).build(), e);
             throw e;
         }
 
