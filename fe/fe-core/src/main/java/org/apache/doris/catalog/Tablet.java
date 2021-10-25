@@ -562,6 +562,8 @@ public class Tablet extends MetaObject implements Writable {
         // in ColocateTableCheckerAndBalancer.
         Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
         // 1. check if replicas' backends are mismatch
+        //    There is no REPLICA_MISSING status for colocate table's tablet.
+        //    Because if the following check doesn't pass, the COLOCATE_MISMATCH will return.
         Set<Long> replicaBackendIds = getBackendIds();
         if (!replicaBackendIds.containsAll(backendsSet)) {
             return TabletStatus.COLOCATE_MISMATCH;
@@ -574,6 +576,19 @@ public class Tablet extends MetaObject implements Writable {
                 // eg:  replicaBackendIds=(1,2,3,4); backendsSet=(1,2,3), then replica 4 should be skipped here and then goto ```COLOCATE_REDUNDANT``` in step 3
                 continue;
             }
+
+            if (!replica.isAlive()) {
+                if (replica.isBad()) {
+                    // If this replica is bad but located on one of backendsSet,
+                    // we have drop it first, or we can find any other BE for new replica.
+                    return TabletStatus.COLOCATE_REDUNDANT;
+                } else {
+                    // maybe in replica's DECOMMISSION state
+                    // Here we return VERSION_INCOMPLETE, and the tablet scheduler will finally set it's state to NORMAL.
+                    return TabletStatus.VERSION_INCOMPLETE;
+                }
+            }
+
             if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
