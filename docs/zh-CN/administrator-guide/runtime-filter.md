@@ -251,7 +251,7 @@ EXPLAIN SELECT t1 FROM test JOIN test2 where test.t1 = test2.t2;
 SELECT t1 FROM test JOIN test2 where test.t1 = test2.t2; 
 -- 返回2行结果[3, 4];
 
--- 通过query的profile（set is_report_success=true;）可以查看查询内部工作的详细信息，
+-- 通过query的profile（set enable_profile=true;）可以查看查询内部工作的详细信息，
 -- 包括每个Runtime Filter是否下推、等待耗时、以及OLAP_SCAN_NODE从prepare到接收到Runtime Filter的总时长。
 RuntimeFilter:in:
     -  HasPushDownToEngine:  true

@@ -96,7 +96,11 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 void OlapScanNode::init_scan_profile() {
-    _scanner_profile.reset(new RuntimeProfile("OlapScanner"));
+    std::string scanner_profile_name = "OlapScanner";
+    if (_olap_scan_node.__isset.table_name) {
+        scanner_profile_name = fmt::format("OlapScanner({0})", _olap_scan_node.table_name);
+    }
+    _scanner_profile.reset(new RuntimeProfile(scanner_profile_name));
     runtime_profile()->add_child(_scanner_profile.get(), true, NULL);
 
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
