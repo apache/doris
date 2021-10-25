@@ -30,19 +30,19 @@ under the License.
 
 ### Syntax
 
-`BITMAP BITMAP_SUBSET_IN_RANGE(BITMAP src, INT range_start, INT range_end)`
+`BITMAP BITMAP_SUBSET_IN_RANGE(BITMAP src, BIGINT range_start, BIGINT range_end)`
 
 Return subset in specified range (not include the range_end).
 
 ## example
 
 ```
-mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 1, 4)) value;
-+-------+
-| value |
-+-------+
-| 1,2,3 |
-+-------+
+mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 0, 9)) value;
++-----------+
+| value     |
++-----------+
+| 1,2,3,4,5 |
++-----------+
 
 mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 2, 3)) value;
 +-------+

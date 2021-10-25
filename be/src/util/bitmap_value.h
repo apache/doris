@@ -1454,8 +1454,8 @@ public:
     /**
      * Return new set with specified range (not include the range_end)
      */
-    int32_t sub_range(const int32_t& range_start, const int32_t& range_end, BitmapValue& ret_bitmap) {
-        int32_t count = 0; 
+    int64_t sub_range(const int64_t& range_start, const int64_t& range_end, BitmapValue& ret_bitmap) {
+        int64_t count = 0; 
         if (range_start >= range_end) {
             return count;
         }

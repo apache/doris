@@ -621,11 +621,11 @@ BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src
 }
 
 StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
-                                                const IntVal& range_start, const IntVal& range_end) {
-    if (src.is_null) {
+                                                const BigIntVal& range_start, const BigIntVal& range_end) {
+    if (src.is_null || range_start.is_null || range_end.is_null) {
         return StringVal::null();
     }
-    if (range_start.val >= range_end.val) {
+    if (range_start.val >= range_end.val || range_start.val < 0 || range_end.val < 0) {
         return StringVal::null();
     }
     BitmapValue ret_bitmap;
