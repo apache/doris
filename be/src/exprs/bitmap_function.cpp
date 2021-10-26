@@ -489,14 +489,14 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     }
     return serialize(ctx, &bitmap);
 }
-BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhstr,
-                                            const StringVal& rhstr) {
-    return bitmap_count(ctx, bitmap_and(ctx, lhstr, rhstr));
+BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
+                                            const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_and(ctx, lhs, rhs));
 }
 
-BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal& lhstr,
-                                           const StringVal& rhstr) {
-    return bitmap_count(ctx, bitmap_or(ctx, lhstr, rhstr));
+BigIntVal BitmapFunctions::bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
+                                           const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_or(ctx, lhs, rhs));
 }
 
 StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
