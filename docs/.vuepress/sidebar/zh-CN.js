@@ -221,7 +221,8 @@ module.exports = [
       "fe-load-balance",
       "systemd",
       "samples",
-      "datax-doris-writer"
+      "datax-doris-writer",
+      "flink-cdc-to-doris"
     ],
   },
   {
