@@ -40,13 +40,14 @@ public:
         reset();
     }
 
-    bool is_page_full() override { return _buffer.size() > _options.data_page_size; }
+    bool is_page_full() override { return _buffer.size() + SIZE_OF_TYPE > _options.data_page_size; }
 
     Status add(const uint8_t* vals, size_t* count) override {
-        if (is_page_full()) {
-            *count = 0;
-            return Status::OK();
-        }
+        size_t page_remaining_capacity = _options.data_page_size - _buffer.size();
+        *count = (page_remaining_capacity / SIZE_OF_TYPE) < *count
+                         ? page_remaining_capacity / SIZE_OF_TYPE
+                         : *count;
+
         size_t old_size = _buffer.size();
         _buffer.resize(old_size + *count * SIZE_OF_TYPE);
         memcpy(&_buffer[old_size], vals, *count * SIZE_OF_TYPE);
