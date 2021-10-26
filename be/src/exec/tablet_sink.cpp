@@ -163,7 +163,7 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        _cancel_with_msg(fmt::format("{}, err: {}", print_channel_info(), _add_batch_closure->cntl.ErrorText()));
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), _add_batch_closure->cntl.ErrorText()));
     });
 
     _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
@@ -180,7 +180,7 @@ Status NodeChannel::open_wait() {
                 _add_batches_finished = true;
             }
         } else {
-            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}", print_channel_info(), status.get_error_msg()));
+            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}", channel_info(), status.get_error_msg()));
         }
 
         if (result.has_execution_time_us()) {
@@ -374,7 +374,7 @@ void NodeChannel::try_send_batch() {
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
-            cancel(fmt::format("{}, err: timeout", print_channel_info()));
+            cancel(fmt::format("{}, err: timeout", channel_info()));
         } else {
             remain_ms = _min_rpc_timeout_ms;
         }
@@ -662,7 +662,7 @@ Status OlapTableSink::open(RuntimeState* state) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 std::stringstream err;
-                err << ch->print_channel_info() << ", tablet open failed, err: " << st.get_error_msg();
+                err << ch->channel_info() << ", tablet open failed, err: " << st.get_error_msg();
                 LOG(WARNING) << err.str();
                 ss << err.str() << "; ";
                 index_channel->mark_as_failed(ch);
@@ -774,7 +774,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                             if (!s.ok()) {
                                 // 'status' will store the last non-ok status of all channels
                                 status = s;
-                                LOG(WARNING) << ch->print_channel_info() << ", close channel failed, err: " << s.get_error_msg();
+                                LOG(WARNING) << ch->channel_info() << ", close channel failed, err: " << s.get_error_msg();
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                             &mem_exceeded_block_ns, &queue_push_lock_ns,

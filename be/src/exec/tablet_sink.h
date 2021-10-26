@@ -199,7 +199,7 @@ public:
     // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
 
-    std::string print_channel_info() const {
+    std::string channel_info() const {
         // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
         //             But I don't know why. so here I print node_info->id instead of node_info->host
         //             to avoid BE crash. It needs further observation.

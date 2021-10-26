@@ -121,7 +121,7 @@ The following test report is based on Doris [branch-0.15](https://github.com/apa
     * 1 FE + 1-3 BE mixed
     * CPU: 96core, Intel(R) Xeon(R) Gold 6271C CPU @ 2.60GHz
     * Memory: 384GB
-    * Hard disk: 1 mechanical hard disk
+    * Hard disk: 1 HDD
     * Network card: 10 Gigabit network card
 
 2. Data set
