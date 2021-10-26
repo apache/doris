@@ -808,7 +808,7 @@ bool RowBlockAllocator::is_memory_enough_for_sorting(size_t num_rows, size_t all
         return true;
     }
     size_t row_block_size = _row_len * (num_rows - allocated_rows);
-    return _memory_allocated + row_block_size < _memory_limitation;
+    return _mem_tracker->consumption() + row_block_size < _memory_limitation;
 }
 
 
@@ -1196,7 +1196,7 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
                                                            true)) {
             LOG(WARNING) << "failed to allocate RowBlock.";
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
-        }else {
+        } else {
             // do memory check for sorting, in case schema change task fail at row block sorting because of 
             // not doing internal sorting first
             if (!_row_block_allocator->is_memory_enough_for_sorting(ref_row_block->row_block_info().row_num,
