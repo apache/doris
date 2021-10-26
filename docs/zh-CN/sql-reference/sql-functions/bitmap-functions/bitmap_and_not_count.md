@@ -30,7 +30,7 @@ under the License.
 
 `BITMAP BITMAP_AND_NOT_COUNT(BITMAP lhs, BITMAP rhs)`
 
-计算lhs减去两个输入bitmap的交集，返回新的bitmap的大小.
+将两个bitmap进行与非操作并返回计算返回的大小.
 
 ## example
 
