@@ -633,7 +633,7 @@ StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const St
         ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
         BitmapValue bitmap = BitmapValue((char*)src.ptr);
-        bitmap.sub_range(range_start.val, range_end.val, ret_bitmap);
+        bitmap.sub_range(range_start.val, range_end.val, &ret_bitmap);
     }
 
     return serialize(ctx, &ret_bitmap);

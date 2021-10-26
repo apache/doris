@@ -1454,17 +1454,14 @@ public:
     /**
      * Return new set with specified range (not include the range_end)
      */
-    int64_t sub_range(const int64_t& range_start, const int64_t& range_end, BitmapValue& ret_bitmap) {
+    int64_t sub_range(const int64_t& range_start, const int64_t& range_end, BitmapValue* ret_bitmap) {
         int64_t count = 0; 
-        if (range_start >= range_end) {
-            return count;
-        }
         for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
             if (*it < range_start) {
                 continue;
             }
             if (*it < range_end) {
-                ret_bitmap.add(*it);
+                ret_bitmap->add(*it);
                 ++count;
             } else {
                 break;
