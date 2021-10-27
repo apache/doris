@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+：<?xml version="1.0" encoding="UTF-8"?>
 
 <!--
     Licensed to the Apache Software Foundation (ASF) under one
@@ -150,6 +150,8 @@
             <version>${spark.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.10.0</version>
