@@ -430,7 +430,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         if (dropped_tablet != nullptr) {
             if (dropped_tablet->clone_mode()) {
                 LOG(WARNING) << "drop table cancelled as tablet is in clone mode! signature: " << agent_task_req.signature;
-                error_msgs.push_back("drop table cancelled!");
+                error_msgs.push_back("drop table cancelled as tablet is in clone mode! signature: " + agent_task_req.signature);
                 status_code = TStatusCode::CANCELLED;
             }
             

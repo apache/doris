@@ -178,7 +178,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
             } else {
                 OLAPStatus load_header_status;
                 if (old_version_tablet != nullptr) {
-                    // drop old version tablet first, then and new tablet
+                    // drop old version tablet first, then add new tablet
                     load_header_status = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
                                 store, _clone_req.tablet_id, _clone_req.schema_hash,
                                 schema_hash_path_stream.str(), true);

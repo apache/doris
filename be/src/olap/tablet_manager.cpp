@@ -486,7 +486,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId 
         return OLAP_SUCCESS;
     }
 
-    return _drop_tablet_directly_unlocked(tablet_id, schema_hash, keep_files);
+    return _drop_tablet_directly_unlocked(tablet_id, replica_id, schema_hash, keep_files);
 }
 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
