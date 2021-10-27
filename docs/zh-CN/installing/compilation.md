@@ -106,6 +106,14 @@ under the License.
     $ sh build.sh
     ```
     
+    >**注意:**
+    >
+    >如果你使用的是 `build-env-1.4.1` 这个环境，第一次编译的时候要使用如下命名：
+    >
+    >`sh build.sh --clean --be --fe --ui ` 这种方式
+    >
+    >这是因为旧版thrift生成的代码带boost依赖文件部分文件，在新版的thrift里没有锁依赖的文件，需要清理掉重新生成依赖，需要加上--clean参数
+    
     编译完成后，产出文件在 `output/` 目录中。
 ### 自行编译开发环境镜像
 
