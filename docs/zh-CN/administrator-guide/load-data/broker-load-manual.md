@@ -472,7 +472,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ### 性能分析
 
-可以在提交 LOAD 作业前，先执行 `set is_report_success=true` 打开会话变量。然后提交导入作业。待导入作业完成后，可以在 FE 的 web 页面的 `Queris` 标签中查看到导入作业的 Profile。
+可以在提交 LOAD 作业前，先执行 `set enable_profile=true` 打开会话变量。然后提交导入作业。待导入作业完成后，可以在 FE 的 web 页面的 `Queris` 标签中查看到导入作业的 Profile。
 
 这个 Profile 可以帮助分析导入作业的运行状态。
 

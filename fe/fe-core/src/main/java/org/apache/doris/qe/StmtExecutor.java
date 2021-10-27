@@ -465,7 +465,7 @@ public class StmtExecutor implements ProfileWriter {
 
     @Override
     public void writeProfile(boolean isLastWriteProfile) {
-        if (!context.getSessionVariable().isReportSucc()) {
+        if (!context.getSessionVariable().enableProfile()) {
             return;
         }
         synchronized (writeProfileLock) {

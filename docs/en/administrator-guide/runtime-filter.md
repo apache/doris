@@ -251,7 +251,7 @@ EXPLAIN SELECT t1 FROM test JOIN test2 where test.t1 = test2.t2;
 SELECT t1 FROM test JOIN test2 where test.t1 = test2.t2; 
 -- Return 2 rows of results [3, 4];
 
--- Through the query profile (set is_report_success=true;) you can view the detailed information of the internal work of the query,
+-- Through the query profile (set enable_profile=true;) you can view the detailed information of the internal work of the query,
 -- Including whether each Runtime Filter is pushed down, waiting time, 
 -- and the total time from prepare to receiving Runtime Filter for OLAP_SCAN_NODE.
 RuntimeFilter:in:

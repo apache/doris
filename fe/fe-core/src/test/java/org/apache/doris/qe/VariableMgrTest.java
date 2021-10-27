@@ -85,7 +85,7 @@ public class VariableMgrTest {
         SessionVariable var = VariableMgr.newSessionVariable();
         Assert.assertEquals(2147483648L, var.getMaxExecMemByte());
         Assert.assertEquals(300, var.getQueryTimeoutS());
-        Assert.assertEquals(false, var.isReportSucc());
+        Assert.assertEquals(false, var.enableProfile());
         Assert.assertEquals(0L, var.getSqlMode());
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);

@@ -67,7 +67,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 * `time_zone`
 * `wait_timeout`
 * `sql_mode`
-* `is_report_success`
+* `enable_profile`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -226,7 +226,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     用于兼容 MySQL 客户端。无实际作用。
     
-* `is_report_success`
+* `enable_profile`
 
     用于设置是否需要查看查询的 profile。默认为 false，即不需要 profile。
     
@@ -235,7 +235,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     
     `fe_host:fe_http_port/query`
     
-    其中会显示最近100条，开启 `is_report_success` 的查询的 profile。
+    其中会显示最近100条，开启 `enable_profile` 的查询的 profile。
     
 * `language`
 

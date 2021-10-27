@@ -1065,8 +1065,14 @@ public class Load {
             for (SlotRef slot : slots) {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
+                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
+                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
+                    } else {
+                        throw new UserException("unknown reference column, column=" + entry.getKey()
+                                + ", reference=" + slot.getColumnName());
+                    }
                 }
                 smap.getLhs().add(slot);
                 smap.getRhs().add(new SlotRef(slotDesc));
@@ -1099,8 +1105,14 @@ public class Load {
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
                             exprsByName.get(slot.getColumnName())));
                 } else {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
+                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
+                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
+                    } else {
+                        throw new UserException("unknown reference column, column=" + entry.getKey()
+                                + ", reference=" + slot.getColumnName());
+                    }
                 }
             }
             Expr expr = entry.getValue().clone(smap);

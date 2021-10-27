@@ -810,7 +810,13 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         if (found) {
-            throw new DdlException("Can not add column which already exists in base table: " +  newColName);
+            if (newColName.equalsIgnoreCase(Column.DELETE_SIGN)) {
+                throw new DdlException("Can not enable batch delete support, already supported batch delete.");
+            } else if (newColName.equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                throw new DdlException("Can not enable sequence column support, already supported sequence column.");
+            } else {
+                throw new DdlException("Can not add column which already exists in base table: " +  newColName);
+            }
         }
         
         /*
