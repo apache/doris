@@ -31,6 +31,9 @@ public:
         return pool->add(new TupleIsNullPredicate(*this));
     }
 
+    bool is_constant() const override {
+        return false;
+    }
 protected:
     friend class Expr;
 
