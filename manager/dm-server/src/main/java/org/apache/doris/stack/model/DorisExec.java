@@ -15,37 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class DorisExec {
 
     private String host;
-    //FE、BE
+    /**
+     * BE/FE
+     */
     private String role;
 
-    private boolean master;
-
-    public String getHost() {
-        return host;
-    }
-
-    public void setHost(String host) {
-        this.host = host;
-    }
-
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
-
-    public boolean isMaster() {
-        return master;
-    }
-
-    public void setMaster(boolean master) {
-        this.master = master;
-    }
 }

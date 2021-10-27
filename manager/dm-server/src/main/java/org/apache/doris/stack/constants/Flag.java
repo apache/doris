@@ -17,8 +17,29 @@
 
 package org.apache.doris.stack.constants;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+
+public enum Flag {
+    /**
+     * 0 no
+     * 1 yes
+     */
+    NO(0, "no"),
+    YES(1, "yes");
+
+
+    private final int code;
+    private final String desc;
+
+    Flag(int code, String desc) {
+        this.code = code;
+        this.desc = desc;
+    }
+
+    public int getCode() {
+        return code;
+    }
+
+    public String getDesc() {
+        return desc;
+    }
 }

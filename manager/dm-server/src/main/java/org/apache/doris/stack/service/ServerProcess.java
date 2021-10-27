@@ -17,11 +17,14 @@
 
 package org.apache.doris.stack.service;
 
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.req.AgentRegister;
-import org.apache.doris.stack.req.SshInfo;
+import org.apache.doris.stack.model.request.AgentInstallReq;
+import org.apache.doris.stack.model.request.AgentRegister;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 
 /**
@@ -29,12 +32,26 @@ import java.util.List;
  */
 public interface ServerProcess {
 
-    void initAgent(SshInfo sshInfo);
+    /**
+     * query user history installation progress
+     * -1 means that the installation has not been carried out
+     * otherwise it is the current installation progress {@link ProcessTypeEnum}
+     */
+    int historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception;
+
+    void processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
+
+    /**
+     * Refresh the task status on the agent side again
+     */
+    void refreshAgentTaskStatus(int processId);
+
+    void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 
     /**
      * install agent
      */
-    void startAgent(SshInfo sshInfo);
+    void installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
 
     /**
      * agent list
@@ -46,4 +63,5 @@ public interface ServerProcess {
     void heartbeat(String host, Integer port);
 
     boolean register(AgentRegister agent);
+
 }

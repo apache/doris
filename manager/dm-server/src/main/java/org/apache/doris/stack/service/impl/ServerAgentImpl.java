@@ -18,6 +18,10 @@
 package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
@@ -34,36 +38,48 @@ import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
+import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.constants.CmdTypeEnum;
 import org.apache.doris.stack.constants.Constants;
+import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.Flag;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
+import org.apache.doris.stack.constants.TaskTypeEnum;
+import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.exceptions.JdbcException;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
-import org.apache.doris.stack.req.DeployConfig;
-import org.apache.doris.stack.req.DorisExec;
-import org.apache.doris.stack.req.DorisExecReq;
-import org.apache.doris.stack.req.DorisInstallReq;
-import org.apache.doris.stack.req.InstallInfo;
-import org.apache.doris.stack.req.TaskInfoReq;
-import org.apache.doris.stack.req.TaskLogReq;
+import org.apache.doris.stack.model.BeJoin;
+import org.apache.doris.stack.model.DeployConfig;
+import org.apache.doris.stack.model.DorisExec;
+import org.apache.doris.stack.model.InstallInfo;
+import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.DeployConfigReq;
+import org.apache.doris.stack.model.request.DorisExecReq;
+import org.apache.doris.stack.model.request.DorisInstallReq;
+import org.apache.doris.stack.runner.TaskContext;
+import org.apache.doris.stack.runner.TaskExecCallback;
+import org.apache.doris.stack.runner.TaskExecuteThread;
 import org.apache.doris.stack.service.ServerAgent;
+import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.util.JdbcUtil;
 import org.apache.doris.stack.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -72,6 +88,11 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class ServerAgentImpl implements ServerAgent {
+
+    /**
+     * thread executor service
+     */
+    private final ListeningExecutorService taskExecService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
 
     @Autowired
     private AgentRest agentRest;
@@ -85,46 +106,43 @@ public class ServerAgentImpl implements ServerAgent {
     @Autowired
     private AgentComponent agentComponent;
 
+    @Autowired
+    private ProcessInstanceComponent processInstanceComponent;
+
+    @Autowired
+    private TaskInstanceRepository taskInstanceRepository;
+
+    @Autowired
+    private AuthenticationService authenticationService;
+
     @Override
     @Transactional
-    public List<Object> install(DorisInstallReq installReq) {
+    public void installService(HttpServletRequest request, HttpServletResponse response,
+                               DorisInstallReq installReq) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE));
+        //Installed host and service
         List<String> agentRoleList = agentRoleComponent.queryAgentRoles().stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
                 .collect(Collectors.toList());
-        List<Object> results = new ArrayList<>();
         List<InstallInfo> installInfos = installReq.getInstallInfos();
+        if (installInfos == null) {
+            throw new ServerException("Please specify the host configuration to be installed");
+        }
         for (InstallInfo install : installInfos) {
             String key = install.getHost() + "-" + install.getRole();
             if (agentRoleList.contains(key)) {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
                 continue;
             }
-            RResult result = installDoris(install);
-            agentRoleComponent.registerAgentRole(new AgentRoleRegister(install.getHost(), install.getRole(), install.getInstallDir()));
-            results.add(result.getData());
+            installDoris(processId, install);
+            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getInstallDir(), Flag.NO));
         }
-        return results;
     }
 
-    private RResult deployConf(DeployConfig deployConf) {
+    private RResult installDoris(int processId, InstallInfo install) {
         CommandRequest creq = new CommandRequest();
-        if (ServiceRole.FE.name().equals(deployConf.getRole())) {
-            WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
-            feConf.setContent(deployConf.getConf());
-            creq.setBody(JSON.toJSONString(feConf));
-            creq.setCommandType(CommandType.WRITE_FE_CONF.name());
-        } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
-            WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
-            beConf.setContent(deployConf.getConf());
-            creq.setBody(JSON.toJSONString(beConf));
-            creq.setCommandType(CommandType.WRITE_BE_CONF.name());
-        }
-        RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
-        return result;
-    }
-
-    private RResult installDoris(InstallInfo install) {
-        CommandRequest creq = new CommandRequest();
+        TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost());
         if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(install.isMkFeMetadir());
@@ -132,6 +150,7 @@ public class ServerAgentImpl implements ServerAgent {
             feBody.setInstallDir(install.getInstallDir());
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
+            installService.setTaskType(TaskTypeEnum.INSTALL_FE);
         } else if (ServiceRole.BE.name().equals(install.getRole())) {
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(install.isMkBeStorageDir());
@@ -139,30 +158,88 @@ public class ServerAgentImpl implements ServerAgent {
             beBody.setPackageUrl(install.getPackageUrl());
             creq.setCommandType(CommandType.INSTALL_BE.name());
             creq.setBody(JSON.toJSONString(beBody));
+            installService.setTaskType(TaskTypeEnum.INSTALL_BE);
+        } else {
+            throw new ServerException("The service installation is not currently supported");
         }
         RResult result = agentRest.commandExec(install.getHost(), agentPort(install.getHost()), creq);
+        if (result != null && result.isSuccess()) {
+            installService.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+        } else {
+            installService.setStatus(ExecutionStatus.FAILURE);
+        }
+        taskInstanceRepository.save(installService);
         return result;
     }
 
     @Override
-    public List<Object> execute(DorisExecReq dorisExec) {
-        List<Object> results = new ArrayList<>();
+    public void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(deployConfigReq.getClusterId(), userId, ProcessTypeEnum.DEPLOY_CONFIG));
+        List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
+        for (DeployConfig config : deployConfigs) {
+            deployConf(processId, config);
+        }
+    }
+
+    private RResult deployConf(int processId, DeployConfig deployConf) {
+        CommandRequest creq = new CommandRequest();
+        TaskInstanceEntity deployTask = new TaskInstanceEntity(processId, deployConf.getHost());
+        if (ServiceRole.FE.name().equals(deployConf.getRole())) {
+            WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
+            feConf.setContent(deployConf.getConf());
+            creq.setBody(JSON.toJSONString(feConf));
+            creq.setCommandType(CommandType.WRITE_FE_CONF.name());
+            deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
+        } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
+            WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
+            beConf.setContent(deployConf.getConf());
+            creq.setBody(JSON.toJSONString(beConf));
+            creq.setCommandType(CommandType.WRITE_BE_CONF.name());
+            deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
+        }
+        RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
+        if (result != null && result.isSuccess()) {
+            deployTask.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+        } else {
+            deployTask.setStatus(ExecutionStatus.FAILURE);
+        }
+        taskInstanceRepository.save(deployTask);
+        return result;
+    }
+
+    @Override
+    public void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE));
         CmdTypeEnum cmdType = CmdTypeEnum.findByName(dorisExec.getCommand());
+
+        String leaderFe = getLeaderFeHostPort();
         List<DorisExec> dorisExecs = dorisExec.getDorisExecs();
         for (DorisExec exec : dorisExecs) {
             CommandType commandType = transAgentCmd(cmdType, ServiceRole.findByName(exec.getRole()));
             CommandRequest creq = new CommandRequest();
-            if (CommandType.START_FE.equals(commandType) && !exec.isMaster()) {
+            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, exec.getHost());
+            if (CommandType.START_FE.equals(commandType)) {
                 FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
-                feBody.setHelpHostPort(getLeaderFeHostPort());
+                if (StringUtils.isNotBlank(leaderFe)) {
+                    feBody.setHelpHostPort(leaderFe);
+                }
                 creq.setBody(JSON.toJSONString(feBody));
+                execTask.setTaskType(TaskTypeEnum.START_FE);
+            } else if (CommandType.START_BE.equals(commandType)) {
+                execTask.setTaskType(TaskTypeEnum.START_BE);
             }
             creq.setCommandType(commandType.name());
             RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
-            Object data = result.getData();
-            results.add(data);
+
+            if (result != null && result.isSuccess()) {
+                execTask.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+            } else {
+                execTask.setStatus(ExecutionStatus.FAILURE);
+            }
+            taskInstanceRepository.save(execTask);
         }
-        return results;
     }
 
     /**
@@ -187,7 +264,7 @@ public class ServerAgentImpl implements ServerAgent {
         AgentEntity aliveAgent = null;
         for (AgentRoleEntity agentRole : agentRoleEntities) {
             aliveAgent = agentCache.agentInfo(agentRole.getHost());
-            if (AgentStatus.RUNNING.name().equals(aliveAgent.getStatus())) {
+            if (AgentStatus.RUNNING.equals(aliveAgent.getStatus())) {
                 break;
             }
         }
@@ -226,7 +303,9 @@ public class ServerAgentImpl implements ServerAgent {
             JdbcUtil.closeStmt(stmt);
             JdbcUtil.closeRs(rs);
         }
-        Preconditions.checkArgument(StringUtils.isNotBlank(leaderFe), "can not get leader fe info");
+        if (StringUtils.isBlank(leaderFe)) {
+            log.error("can not get leader fe info");
+        }
         return leaderFe;
     }
 
@@ -240,33 +319,7 @@ public class ServerAgentImpl implements ServerAgent {
         return CommandType.findByName(cmd);
     }
 
-    @Override
-    public RResult taskInfo(TaskInfoReq taskInfo) {
-        Map<String, Object> param = new HashMap<>();
-        param.put("taskId", taskInfo.getTaskId());
-        RResult result = agentRest.taskInfo(taskInfo.getHost(), agentPort(taskInfo.getHost()), param);
-        return result;
-    }
-
-    @Override
-    public RResult taskStdlog(TaskLogReq taskInfo) {
-        Map<String, Object> param = new HashMap<>();
-        param.put("taskId", taskInfo.getTaskId());
-        param.put("offset", taskInfo.getOffset());
-        RResult result = agentRest.taskStdLog(taskInfo.getHost(), agentPort(taskInfo.getHost()), param);
-        return result;
-    }
-
-    @Override
-    public RResult taskErrlog(TaskLogReq taskInfo) {
-        Map<String, Object> param = new HashMap<>();
-        param.put("taskId", taskInfo.getTaskId());
-        param.put("offset", taskInfo.getOffset());
-        RResult result = agentRest.taskErrLog(taskInfo.getHost(), agentPort(taskInfo.getHost()), param);
-        return result;
-    }
-
-    private Integer agentPort(String host) {
+    private int agentPort(String host) {
         AgentEntity agent = agentCache.agentInfo(host);
         if (agent == null) {
             throw new ServerException("query agent port fail");
@@ -275,30 +328,24 @@ public class ServerAgentImpl implements ServerAgent {
     }
 
     @Override
-    public void joinBe(List<String> hosts) {
+    public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER));
+        for (String be : beJoinReq.getHosts()) {
+            addBeToCluster(processId, be);
+        }
+    }
+
+    private void addBeToCluster(int processId, String be) {
+        int agentPort = agentPort(be);
         AgentEntity aliveAgent = getAliveAgent();
         Integer jdbcPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
-        Connection conn = null;
-        try {
-            conn = JdbcUtil.getConnection(aliveAgent.getHost(), jdbcPort);
-        } catch (SQLException e) {
-            throw new JdbcException("Failed to get fe's jdbc connection");
-        }
-        List<Boolean> result = new ArrayList<>();
-        for (String be : hosts) {
-            //query be's doris port
-            Properties beConf = agentRest.roleConfig(be, agentPort(be), ServiceRole.BE.name());
-            String port = beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT);
-            String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND %s:%s";
-            String beSql = String.format(addBeSqlFormat, be, port);
-            boolean flag = JdbcUtil.execute(conn, beSql);
-            if (!flag) {
-                log.error("add be node fail:{}", beSql);
-            }
-            result.add(flag);
-        }
-        JdbcUtil.closeConn(conn);
-        RResult.success(result);
+
+        TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, be, TaskTypeEnum.JOIN_BE, ExecutionStatus.RUNNING_EXECUTION);
+        taskInstanceRepository.save(installAgent);
+        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, installAgent, new BeJoin(aliveAgent.getHost(), jdbcPort, be, agentPort));
+        ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
+        Futures.addCallback(submit, new TaskExecCallback(taskContext));
     }
 
     @Override

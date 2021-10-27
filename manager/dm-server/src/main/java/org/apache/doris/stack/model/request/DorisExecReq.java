@@ -15,37 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model.request;
 
-public class AgentRegister {
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.DorisExec;
 
-    private String host;
+import java.util.List;
 
-    private Integer port;
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DorisExecReq {
 
-    private String installDir;
+    private int clusterId;
 
-    public String getHost() {
-        return host;
-    }
+    //START STOP
+    private String command;
 
-    public void setHost(String host) {
-        this.host = host;
-    }
-
-    public Integer getPort() {
-        return port;
-    }
-
-    public void setPort(Integer port) {
-        this.port = port;
-    }
-
-    public String getInstallDir() {
-        return installDir;
-    }
-
-    public void setInstallDir(String installDir) {
-        this.installDir = installDir;
-    }
+    private List<DorisExec> dorisExecs;
 }

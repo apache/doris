@@ -24,7 +24,7 @@ public class SSH extends BaseCommand {
 
     private String user;
 
-    private Integer sshPort;
+    private int sshPort;
 
     private String sshKeyFile;
 
@@ -32,7 +32,7 @@ public class SSH extends BaseCommand {
 
     private String command;
 
-    public SSH(String user, Integer sshPort, String sshKeyFile, String host, String command) {
+    public SSH(String user, int sshPort, String sshKeyFile, String host, String command) {
         this.user = user;
         this.sshPort = sshPort;
         this.sshKeyFile = sshKeyFile;
@@ -47,7 +47,7 @@ public class SSH extends BaseCommand {
                 "-o", "BatchMode=yes",
                 "-tt",
                 "-i", this.sshKeyFile,
-                "-p", this.sshPort.toString(),
+                "-p", String.valueOf(this.sshPort),
                 this.user + "@" + this.host, this.command
         };
         this.resultCommand = command;

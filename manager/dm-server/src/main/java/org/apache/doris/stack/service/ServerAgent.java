@@ -18,13 +18,13 @@
 package org.apache.doris.stack.service;
 
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
-import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.req.DorisExecReq;
-import org.apache.doris.stack.req.DorisInstallReq;
-import org.apache.doris.stack.req.TaskInfoReq;
-import org.apache.doris.stack.req.TaskLogReq;
+import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.DeployConfigReq;
+import org.apache.doris.stack.model.request.DorisExecReq;
+import org.apache.doris.stack.model.request.DorisInstallReq;
 
-import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * server agent
@@ -34,26 +34,20 @@ public interface ServerAgent {
     /**
      * install doris
      */
-    List<Object> install(DorisInstallReq installReq);
+    void installService(HttpServletRequest request, HttpServletResponse response, DorisInstallReq installReq) throws Exception;
+
+    /**
+     * deploy config
+     */
+    void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception;
 
     /**
      * request agent rest api
      */
-    List<Object> execute(DorisExecReq dorisExec);
+    void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception;
 
-    /**
-     * fetch task info
-     */
-    RResult taskInfo(TaskInfoReq taskInfo);
-
-    /**
-     * fetch log
-     */
-    RResult taskStdlog(TaskLogReq taskInfo);
-
-    RResult taskErrlog(TaskLogReq taskInfo);
-
-    void joinBe(List<String> hosts);
+    void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception;
 
     boolean register(AgentRoleRegister agentReg);
+
 }

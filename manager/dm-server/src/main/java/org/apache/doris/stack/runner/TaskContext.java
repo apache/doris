@@ -15,10 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.runner;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.constants.TaskTypeEnum;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
+
+/**
+ * task context
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class TaskContext {
+
+    private TaskTypeEnum taskType;
+
+    private TaskInstanceEntity taskInstance;
+
+    private Object requestParams;
 }

@@ -15,10 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.model.request;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class AgentInstallReq {
+
+    private List<String> hosts;
+
+    private String user;
+
+    private int sshPort;
+
+    private String sshKey;
+
+    private String installDir;
+
+    private int clusterId;
 }

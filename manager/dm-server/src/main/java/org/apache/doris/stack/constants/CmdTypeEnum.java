@@ -19,8 +19,7 @@ package org.apache.doris.stack.constants;
 
 public enum CmdTypeEnum {
     START,
-    STOP,
-    RESTART;
+    STOP;
 
     public static CmdTypeEnum findByName(String name) {
         for (CmdTypeEnum type : CmdTypeEnum.values()) {

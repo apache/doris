@@ -18,70 +18,51 @@
 package org.apache.doris.stack.agent;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.doris.stack.constants.AgentStatus;
-import org.apache.doris.stack.dao.AgentRepository;
-import org.apache.doris.stack.entity.AgentEntity;
+import org.apache.doris.stack.dao.ProcessInstanceRepository;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.service.ServerProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * agent status check
+ * agent task status check
  **/
 @Component
 @Slf4j
-public class AgentHeatbeatRunner implements ApplicationRunner {
+public class AgentTaskStatusRunner implements ApplicationRunner {
 
-    private static final long HEALTH_TIME = 60 * 1000L;
+    private static final long REFRESH_TIME = 60 * 1000L;
     private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
     private ServerProcess serverProcess;
 
     @Autowired
-    private AgentRepository agentRepository;
-
-    @Autowired
-    private AgentCache agentCache;
+    private ProcessInstanceRepository processInstanceRepository;
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
         this.scheduler.scheduleWithFixedDelay(() -> {
             try {
-                heartbeatCheck();
+                refreshTaskStatus();
             } catch (Exception ex) {
-                log.error("heartbeat check fail:", ex);
+                log.error("refresh agent task fail:", ex);
                 ex.printStackTrace();
             }
-        }, 0, HEALTH_TIME, TimeUnit.MILLISECONDS);
+        }, 0, REFRESH_TIME, TimeUnit.MILLISECONDS);
     }
 
-    /**
-     * The last heartbeat time exceeds the HEALTH_TIME and is recognized as unhealthy
-     */
-    private void heartbeatCheck() {
-        long currTime = System.currentTimeMillis();
-        List<AgentEntity> agents = serverProcess.agentList();
-        for (AgentEntity agent : agents) {
-            Date lastReportedTime = agent.getLastReportedTime();
-            long diff = HEALTH_TIME + 1;
-            if (lastReportedTime != null) {
-                diff = currTime - lastReportedTime.getTime();
-            }
-            if (diff > HEALTH_TIME) {
-                agent.setStatus(AgentStatus.STOP);
-                agentRepository.save(agent);
-                agentCache.putAgent(agent);
-                log.warn("agent {} is unhealthly", agent.getHost());
-            }
+    private void refreshTaskStatus() {
+        List<ProcessInstanceEntity> processEntities = processInstanceRepository.queryProcessList();
+        for (ProcessInstanceEntity process : processEntities) {
+            serverProcess.refreshAgentTaskStatus(process.getId());
         }
     }
 }

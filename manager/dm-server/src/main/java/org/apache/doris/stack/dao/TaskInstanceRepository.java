@@ -15,10 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.dao;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+
+public interface TaskInstanceRepository extends JpaRepository<TaskInstanceEntity, Integer> {
+
+    @Query("select f from TaskInstanceEntity f where f.processId = :processId")
+    List<TaskInstanceEntity> queryTasksByProcessId(@Param("processId") int processId);
 }

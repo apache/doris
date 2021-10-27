@@ -24,13 +24,6 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-/**
- * Copyright (C) 2020 Baidu, Inc. All Rights Reserved.
- *
- * @Author: songchuanyuan@baidu.com
- * @Description：
- * @Date: 2021/8/18
- */
 public interface AgentRepository extends JpaRepository<AgentEntity, Integer> {
 
     @Query("select f from AgentEntity f where f.host in (:hosts)")

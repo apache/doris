@@ -15,19 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
-import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-public class DorisInstallReq {
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class InstallInfo {
+    private String host;
+    /**
+     * be / fe
+     */
+    private String role;
+    /**
+     * be/fe package url
+     */
+    private String packageUrl;
 
-    private List<InstallInfo> installInfos;
+    private boolean mkFeMetadir;
 
-    public List<InstallInfo> getInstallInfos() {
-        return installInfos;
-    }
+    private boolean mkBeStorageDir;
 
-    public void setInstallInfos(List<InstallInfo> installInfos) {
-        this.installInfos = installInfos;
-    }
+    private String installDir;
 }

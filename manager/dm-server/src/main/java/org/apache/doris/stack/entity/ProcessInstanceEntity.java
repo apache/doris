@@ -20,7 +20,8 @@ package org.apache.doris.stack.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.constants.AgentStatus;
+import org.apache.doris.stack.constants.Flag;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -33,52 +34,45 @@ import javax.persistence.Table;
 import java.util.Date;
 
 /**
- * agent entity
+ * process instance entity
  **/
 @Entity
-@Table(name = "agent")
+@Table(name = "process_instance")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentEntity {
+public class ProcessInstanceEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
-    @Column(name = "host")
-    private String host;
-
-    @Column(name = "port")
-    private int port;
-
-    @Column(name = "cluster_id")
+    @Column(name = "cluster_id", nullable = false)
     private int clusterId;
 
-    @Column(name = "install_dir")
-    private String installDir;
+    @Column(name = "user_id", nullable = false)
+    private int userId;
 
     @Enumerated(EnumType.STRING)
-    private AgentStatus status;
+    @Column(name = "process_type", nullable = false)
+    private ProcessTypeEnum processType;
 
-    @Column(name = "register_time")
-    private Date registerTime;
+    @Column(name = "create_time", nullable = false)
+    private Date createTime;
 
-    @Column(name = "last_reported_time")
-    private Date lastReportedTime;
+    @Column(name = "update_time", nullable = false)
+    private Date updateTime;
 
-    public AgentEntity(String host, int port, String installDir, AgentStatus status) {
-        this.host = host;
-        this.port = port;
-        this.installDir = installDir;
-        this.status = status;
-        this.registerTime = new Date();
-    }
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "status", nullable = false)
+    private Flag status;
 
-    public AgentEntity(String host, String installDir, AgentStatus status, int clusterId) {
-        this.host = host;
-        this.installDir = installDir;
-        this.status = status;
+    public ProcessInstanceEntity(int clusterId, int userId, ProcessTypeEnum processType) {
         this.clusterId = clusterId;
+        this.userId = userId;
+        this.processType = processType;
+        this.createTime = new Date();
+        this.updateTime = new Date();
+        this.status = Flag.YES;
     }
 }

@@ -24,14 +24,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-/**
- * Copyright (C) 2020 Baidu, Inc. All Rights Reserved.
- *
- * @Author: songchuanyuan@baidu.com
- * @Description：
- * @Date: 2021/8/18
- */
-public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, String> {
+public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, Integer> {
 
     @Query("select f from AgentRoleEntity f where f.role = :role")
     List<AgentRoleEntity> queryAgentByRole(@Param("role") String role);

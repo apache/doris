@@ -21,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.req.AgentRegister;
+import org.apache.doris.stack.model.request.AgentRegister;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -56,14 +56,18 @@ public class AgentComponent {
         if (agentInfo == null) {
             return 0;
         }
-        agentInfo.setStatus(AgentStatus.RUNNING.name());
+        agentInfo.setStatus(AgentStatus.RUNNING);
         agentInfo.setLastReportedTime(new Date());
         agentRepository.save(agentInfo);
         return 1;
     }
 
     public AgentEntity registerAgent(AgentRegister agent) {
-        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING.name());
+        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING);
         return agentRepository.save(agentEntity);
+    }
+
+    public AgentEntity saveAgent(AgentEntity agent) {
+        return agentRepository.save(agent);
     }
 }

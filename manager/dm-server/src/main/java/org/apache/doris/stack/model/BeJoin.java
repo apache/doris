@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
-public class AgentCommon {
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-    private String host;
+/**
+ * be join cluster req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BeJoin {
 
-    private Integer port;
+    private String feHost;
 
-    public String getHost() {
-        return host;
-    }
+    private int fePort;
 
-    public void setHost(String host) {
-        this.host = host;
-    }
+    private String beHost;
 
-    public Integer getPort() {
-        return port;
-    }
-
-    public void setPort(Integer port) {
-        this.port = port;
-    }
+    private int agentPort;
 }

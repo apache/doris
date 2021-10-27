@@ -18,12 +18,13 @@
 package org.apache.doris.stack.controller;
 
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.req.DorisExecReq;
-import org.apache.doris.stack.req.DorisInstallReq;
-import org.apache.doris.stack.req.TaskInfoReq;
-import org.apache.doris.stack.req.TaskLogReq;
+import org.apache.doris.stack.model.request.BeJoinReq;
+import org.apache.doris.stack.model.request.DeployConfigReq;
+import org.apache.doris.stack.model.request.DorisExecReq;
+import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.service.ServerAgent;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,11 +32,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @Api(tags = "Agent API")
 @RestController
-@RequestMapping("/agent")
+@RequestMapping("/api/agent")
 public class AgentController {
 
     @Autowired
@@ -44,49 +46,43 @@ public class AgentController {
     /**
      * install doris
      */
+    @ApiOperation(value = "install doris")
     @RequestMapping(value = "/installDoris", method = RequestMethod.POST)
-    public RResult install(@RequestBody DorisInstallReq installReq) {
-        return RResult.success(serverAgent.install(installReq));
+    public RResult install(HttpServletRequest request, HttpServletResponse response,
+                           @RequestBody DorisInstallReq installReq) throws Exception {
+        serverAgent.installService(request, response, installReq);
+        return RResult.success();
+    }
+
+    /**
+     * deploy config
+     */
+    @ApiOperation(value = "deploy doris config")
+    @RequestMapping(value = "/deployConfig", method = RequestMethod.POST)
+    public RResult deployConfig(HttpServletRequest request, HttpServletResponse response,
+                                @RequestBody DeployConfigReq deployConfigReq) throws Exception {
+        serverAgent.deployConfig(request, response, deployConfigReq);
+        return RResult.success();
     }
 
     /**
      * request agent:start stop fe/be
      */
+    @ApiOperation(value = "start or stop service")
     @RequestMapping(value = "/execute", method = RequestMethod.POST)
-    public RResult execute(@RequestBody DorisExecReq dorisExec) {
-        return RResult.success(serverAgent.execute(dorisExec));
-    }
-
-    /**
-     * request task detail
-     */
-    @RequestMapping(value = "/task", method = RequestMethod.POST)
-    public RResult taskInfo(@RequestBody TaskInfoReq taskInfo) {
-        return serverAgent.taskInfo(taskInfo);
-    }
-
-    /**
-     * request task stdout log
-     */
-    @RequestMapping(value = "/stdlog", method = RequestMethod.POST)
-    public RResult taskStdlog(@RequestBody TaskLogReq taskInfo) {
-        return serverAgent.taskStdlog(taskInfo);
-    }
-
-    /**
-     * request task error log
-     */
-    @RequestMapping(value = "/errlog", method = RequestMethod.POST)
-    public RResult taskErrlog(@RequestBody TaskLogReq taskInfo) {
-        return serverAgent.taskErrlog(taskInfo);
+    public RResult execute(HttpServletRequest request, HttpServletResponse response,
+                           @RequestBody DorisExecReq dorisExec) throws Exception {
+        serverAgent.execute(request, response, dorisExec);
+        return RResult.success();
     }
 
     /**
      * join be to cluster
      */
     @RequestMapping(value = "/joinBe", method = RequestMethod.POST)
-    public RResult joinBe(@RequestBody List<String> hosts) {
-        serverAgent.joinBe(hosts);
+    public RResult joinBe(HttpServletRequest request, HttpServletResponse response,
+                          @RequestBody BeJoinReq beJoinReq) throws Exception {
+        serverAgent.joinBe(request, response, beJoinReq);
         return RResult.success();
     }
 

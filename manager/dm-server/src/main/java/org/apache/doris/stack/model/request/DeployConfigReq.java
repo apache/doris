@@ -15,10 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.model.request;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.DeployConfig;
+
+import java.util.List;
+
+/**
+ * deploy config req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DeployConfigReq {
+
+    List<DeployConfig> deployConfigs;
+
+    private int clusterId;
 }

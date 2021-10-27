@@ -18,37 +18,44 @@
 package org.apache.doris.stack.service.impl;
 
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FileUtils;
+import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
-import org.apache.doris.stack.constant.EnvironmentDefine;
-import org.apache.doris.stack.constants.Constants;
+import org.apache.doris.stack.component.ProcessInstanceComponent;
+import org.apache.doris.stack.constants.AgentStatus;
+import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.Flag;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
+import org.apache.doris.stack.constants.TaskTypeEnum;
+import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
-import org.apache.doris.stack.req.AgentRegister;
-import org.apache.doris.stack.req.SshInfo;
+import org.apache.doris.stack.model.AgentInstall;
+import org.apache.doris.stack.model.request.AgentInstallReq;
+import org.apache.doris.stack.model.request.AgentRegister;
+import org.apache.doris.stack.model.request.TaskInfoReq;
+import org.apache.doris.stack.runner.TaskContext;
+import org.apache.doris.stack.runner.TaskExecCallback;
+import org.apache.doris.stack.runner.TaskExecuteThread;
+import org.apache.doris.stack.service.AgentTask;
 import org.apache.doris.stack.service.ServerProcess;
-import org.apache.doris.stack.shell.SCP;
-import org.apache.doris.stack.shell.SSH;
-import org.apache.doris.stack.util.Preconditions;
+import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.system.ApplicationHome;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.HashSet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
-import java.util.Set;
+import java.util.concurrent.Executors;
 
 /**
  * server
@@ -57,7 +64,13 @@ import java.util.Set;
 @Slf4j
 public class ServerProcessImpl implements ServerProcess {
 
-    private static final String AGENT_START_SCRIPT = Constants.KEY_DORIS_AGENT_START_SCRIPT;
+    /**
+     * thread executor service
+     */
+    private final ListeningExecutorService taskExecService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
+
+    @Autowired
+    private AgentTask agentTask;
 
     @Autowired
     private AgentComponent agentComponent;
@@ -66,35 +79,75 @@ public class ServerProcessImpl implements ServerProcess {
     private AgentRoleComponent agentRoleComponent;
 
     @Autowired
+    private ProcessInstanceComponent processInstanceComponent;
+
+    @Autowired
+    private TaskInstanceRepository taskInstanceRepository;
+
+    @Autowired
     private AgentCache agentCache;
 
+    @Autowired
+    private AuthenticationService authenticationService;
+
     @Override
-    public void initAgent(SshInfo sshInfo) {
-        ApplicationHome applicationHome = new ApplicationHome(ServerProcessImpl.class);
-        String dorisManagerHome = applicationHome.getSource().getParentFile().getParentFile().toString();
-        log.info("doris manager home : {}", dorisManagerHome);
-        String agentHome = dorisManagerHome + File.separator + "agent";
-        Preconditions.checkNotNull(sshInfo.getHosts(), "hosts is empty");
-        File sshKeyFile = buildSshKeyFile();
-        writeSshKeyFile(sshInfo.getSshKey(), sshKeyFile);
-        scpFile(sshInfo, agentHome, sshInfo.getInstallDir());
+    public int historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessByuserId(userId);
+        if (processEntity != null) {
+            return processEntity.getProcessType().getCode();
+        } else {
+            return -1;
+        }
     }
 
     @Override
-    public void startAgent(SshInfo sshInfo) {
-        String command = "sh " + sshInfo.getInstallDir() + File.separator + AGENT_START_SCRIPT + " --server " + getServerAddr() + " --agent %s";
-        List<String> hosts = sshInfo.getHosts();
-        for (String host : hosts) {
-            File sshKeyFile = buildSshKeyFile();
-            String cmd = String.format(command, host);
-            SSH ssh = new SSH(sshInfo.getUser(), sshInfo.getSshPort(),
-                    sshKeyFile.getAbsolutePath(), host, cmd);
-            Integer run = ssh.run();
-            if (run != 0) {
-                throw new ServerException("agent start failed");
-            } else {
-                log.info("agent start success");
+    public void processProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
+        ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
+        if (processInstance == null) {
+            log.error("The process {} does not exist", processId);
+            throw new ServerException("The process does not exist");
+        }
+        refreshAgentTaskStatus(processId);
+    }
+
+    @Override
+    public void refreshAgentTaskStatus(int processId) {
+        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
+        for (TaskInstanceEntity task : taskEntities) {
+            if (task.getTaskType().agentTask()
+                    && task.getStatus().typeIsRunning()) {
+                RResult rResult = agentTask.taskInfo(new TaskInfoReq(task.getHost(), task.getExecutorId()));
+                //update task status
             }
+        }
+    }
+
+    @Override
+    public void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception {
+        ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
+        if (processInstance != null) {
+            processInstance.setStatus(Flag.NO);
+            processInstanceComponent.updateProcess(processInstance);
+        }
+    }
+
+    @Override
+    public void installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
+        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT);
+        int processId = processInstanceComponent.saveProcessInstance(processInstance);
+        //install agent for per host
+        for (String host : installReq.getHosts()) {
+            TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, host, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED_SUCCESS);
+            taskInstanceRepository.save(installAgent);
+
+            TaskContext taskContext = new TaskContext(TaskTypeEnum.INSTALL_AGENT, installAgent, new AgentInstall(host, installReq));
+            ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
+            Futures.addCallback(submit, new TaskExecCallback(taskContext));
+
+            //save agent
+            agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
         }
     }
 
@@ -108,7 +161,6 @@ public class ServerProcessImpl implements ServerProcess {
     public List<AgentRoleEntity> agentRole(String host) {
         List<AgentRoleEntity> agentRoles = agentRoleComponent.queryAgentByHost(host);
         return agentRoles;
-
     }
 
     @Override
@@ -128,76 +180,4 @@ public class ServerProcessImpl implements ServerProcess {
         log.info("agent register success");
         return true;
     }
-
-    /**
-     * scp agent package
-     */
-    private void scpFile(SshInfo sshDesc, String localPath, String remotePath) {
-        List<String> hosts = sshDesc.getHosts();
-        String checkFileExistCmd = "if test -e " + remotePath + "; then echo ok; else mkdir -p " + remotePath + " ;fi";
-        File sshKeyFile = buildSshKeyFile();
-        for (String host : hosts) {
-            //check remote dir exist
-            SSH ssh = new SSH(sshDesc.getUser(), sshDesc.getSshPort(),
-                    sshKeyFile.getAbsolutePath(), host, checkFileExistCmd);
-            if (ssh.run() != 0) {
-                throw new ServerException("scp create remote dir failed");
-            }
-            SCP scp = new SCP(sshDesc.getUser(), sshDesc.getSshPort(),
-                    sshKeyFile.getAbsolutePath(), host, localPath, remotePath);
-            Integer run = scp.run();
-            if (run != 0) {
-                log.error("scp agent package failed:{} to {}", localPath, remotePath);
-                throw new ServerException("scp agent package failed");
-            }
-        }
-    }
-
-    /**
-     * sshkey trans to file
-     */
-    private void writeSshKeyFile(String sshKey, File sshKeyFile) {
-        try {
-            if (sshKeyFile.exists()) {
-                sshKeyFile.delete();
-            }
-            FileUtils.writeStringToFile(sshKeyFile, sshKey, Charset.defaultCharset());
-        } catch (IOException e) {
-            log.error("build sshKey file failed:", e);
-            throw new ServerException("build sshKey file failed");
-        }
-    }
-
-    /**
-     * build sshkeyfile per request
-     */
-    private File buildSshKeyFile() {
-        File sshKeyFile = new File("conf", "sshkey");
-
-        // chmod ssh key file permission to 600
-        try {
-            Set<PosixFilePermission> permission = new HashSet<>();
-            permission.add(PosixFilePermission.OWNER_READ);
-            permission.add(PosixFilePermission.OWNER_WRITE);
-            Files.setPosixFilePermissions(Paths.get(sshKeyFile.getAbsolutePath()), permission);
-        } catch (IOException e) {
-            log.error("set ssh key file permission fail");
-        }
-        return sshKeyFile;
-    }
-
-    /**
-     * get server address
-     */
-    private String getServerAddr() {
-        String host = null;
-        try {
-            host = InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            throw new ServerException("get server ip fail");
-        }
-        String port = System.getenv(EnvironmentDefine.STUDIO_PORT_ENV);
-        return host + ":" + port;
-    }
-
 }

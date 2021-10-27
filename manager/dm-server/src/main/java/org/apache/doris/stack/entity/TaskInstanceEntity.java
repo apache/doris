@@ -20,7 +20,8 @@ package org.apache.doris.stack.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.constants.AgentStatus;
+import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.TaskTypeEnum;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
@@ -33,52 +34,56 @@ import javax.persistence.Table;
 import java.util.Date;
 
 /**
- * agent entity
+ * task instance entity
  **/
 @Entity
-@Table(name = "agent")
+@Table(name = "task_instance")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentEntity {
+public class TaskInstanceEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
-    @Column(name = "host")
+    @Column(name = "process_id", nullable = false)
+    private int processId;
+
+    @Column(name = "host", nullable = false)
     private String host;
 
-    @Column(name = "port")
-    private int port;
-
-    @Column(name = "cluster_id")
-    private int clusterId;
-
-    @Column(name = "install_dir")
-    private String installDir;
-
     @Enumerated(EnumType.STRING)
-    private AgentStatus status;
+    @Column(name = "task_type", nullable = false)
+    private TaskTypeEnum taskType;
 
-    @Column(name = "register_time")
-    private Date registerTime;
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "status", nullable = false)
+    private ExecutionStatus status;
 
-    @Column(name = "last_reported_time")
-    private Date lastReportedTime;
+    @Column(name = "start_time", nullable = false)
+    private Date startTime;
 
-    public AgentEntity(String host, int port, String installDir, AgentStatus status) {
+    @Column(name = "end_time")
+    private Date endTime;
+
+    @Column(name = "executor_id")
+    private String executorId;
+
+    @Column(name = "result")
+    private String result;
+
+    public TaskInstanceEntity(int processId, String host, TaskTypeEnum taskType, ExecutionStatus status) {
+        this.processId = processId;
         this.host = host;
-        this.port = port;
-        this.installDir = installDir;
+        this.taskType = taskType;
         this.status = status;
-        this.registerTime = new Date();
+        this.startTime = new Date();
     }
 
-    public AgentEntity(String host, String installDir, AgentStatus status, int clusterId) {
+    public TaskInstanceEntity(int processId, String host) {
+        this.processId = processId;
         this.host = host;
-        this.installDir = installDir;
-        this.status = status;
-        this.clusterId = clusterId;
+        this.startTime = new Date();
     }
 }

@@ -15,10 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.task;
 
-public enum AgentStatus {
-    INIT,
-    RUNNING,
-    STOP;
+import org.apache.doris.stack.runner.TaskContext;
+
+public abstract class AbstractTask {
+
+    protected TaskContext taskContext;
+
+    public AbstractTask(TaskContext taskContext) {
+        this.taskContext = taskContext;
+    }
+
+    /**
+     * init task
+     */
+    public void init() {
+    }
+
+    /**
+     * task handle
+     */
+    public abstract void handle();
+
 }

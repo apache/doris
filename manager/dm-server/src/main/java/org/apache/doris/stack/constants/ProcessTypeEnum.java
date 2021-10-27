@@ -15,30 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.constants;
 
-import java.util.List;
+/**
+ * process step type
+ **/
+public enum ProcessTypeEnum {
+    INSTALL_AGENT(0, "INSTALL_AGENT"),
+    INSTALL_SERVICE(1, "INSTALL_SERVICE"),
+    DEPLOY_CONFIG(2, "DEPLOY_CONFIG"),
+    START_SERVICE(3, "START_SERVICE"),
+    BUILD_CLUSTER(4, "BUILD_CLUSTER");
 
-public class DorisExecReq {
+    private int code;
+    private String desc;
 
-    //START STOP RESTART
-    private String command;
-
-    private List<DorisExec> dorisExecs;
-
-    public String getCommand() {
-        return command;
+    ProcessTypeEnum(int code, String desc) {
+        this.code = code;
+        this.desc = desc;
     }
 
-    public void setCommand(String command) {
-        this.command = command;
+    public int getCode() {
+        return code;
     }
 
-    public List<DorisExec> getDorisExecs() {
-        return dorisExecs;
-    }
-
-    public void setDorisExecs(List<DorisExec> dorisExecs) {
-        this.dorisExecs = dorisExecs;
+    public String getDesc() {
+        return desc;
     }
 }

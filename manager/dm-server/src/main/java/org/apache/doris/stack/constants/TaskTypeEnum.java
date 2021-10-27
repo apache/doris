@@ -15,22 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
-
-import java.util.List;
+package org.apache.doris.stack.constants;
 
 /**
- * be join cluster req
+ * task type
  **/
-public class BeJoinReq {
+public enum TaskTypeEnum {
+    INSTALL_AGENT,
+    INSTALL_FE,
+    INSTALL_BE,
+    DEPLOY_FE_CONFIG,
+    DEPLOY_BE_CONFIG,
+    START_FE,
+    START_BE,
+    JOIN_BE;
 
-    private List<AgentCommon> list;
-
-    public List<AgentCommon> getList() {
-        return list;
+    /**
+     * agent side task
+     */
+    public boolean agentTask() {
+        return this != INSTALL_AGENT && this != JOIN_BE;
     }
 
-    public void setList(List<AgentCommon> list) {
-        this.list = list;
-    }
 }

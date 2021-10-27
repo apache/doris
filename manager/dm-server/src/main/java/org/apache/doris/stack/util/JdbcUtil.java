@@ -60,8 +60,8 @@ public class JdbcUtil {
         } catch (SQLException e) {
             log.error("sql execute error:{}", sql, e);
         } finally {
-            closeConn(conn);
             closeStmt(stmt);
+            closeConn(conn);
         }
         return flag;
     }

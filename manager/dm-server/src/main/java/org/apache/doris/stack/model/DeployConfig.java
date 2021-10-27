@@ -15,16 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
-public class TaskLogReq extends TaskInfoReq {
-    private int offset;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-    public int getOffset() {
-        return offset;
-    }
+/**
+ * deploy Config
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DeployConfig {
 
-    public void setOffset(int offset) {
-        this.offset = offset;
-    }
+    private String host;
+
+    private String role;
+
+    private String conf;
 }

@@ -23,13 +23,13 @@ package org.apache.doris.stack.shell;
 public class SCP extends BaseCommand {
 
     private String user;
-    private Integer sshPort;
+    private int sshPort;
     private String sshKeyFile;
     private String host;
     private String localPath;
     private String remotePath;
 
-    public SCP(String user, Integer sshPort, String sshKeyFile, String host, String localPath, String remotePath) {
+    public SCP(String user, int sshPort, String sshKeyFile, String host, String localPath, String remotePath) {
         this.user = user;
         this.sshPort = sshPort;
         this.sshKeyFile = sshKeyFile;
@@ -45,7 +45,7 @@ public class SCP extends BaseCommand {
                 "-o", "ConnectTimeOut=60",
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "BatchMode=yes",
-                "-P", this.sshPort.toString(),
+                "-P", String.valueOf(this.sshPort),
                 "-i", this.sshKeyFile,
                 this.localPath,
                 this.user + "@" + this.host + ":" + this.remotePath
