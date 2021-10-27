@@ -163,10 +163,7 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        std::stringstream ss;
-        ss << name() << " add batch req rpc failed, " << print_load_info()
-           << ", node=" << node_info()->id << ":" << node_info()->brpc_port;
-        _cancel_with_msg(ss.str());
+        _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), _add_batch_closure->cntl.ErrorText()));
     });
 
     _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
@@ -183,14 +180,7 @@ Status NodeChannel::open_wait() {
                 _add_batches_finished = true;
             }
         } else {
-            std::stringstream ss;
-            // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-            //             But I don't know why. so here I print node_info()->id instead of node_info()->host
-            //             to avoid BE crash. It needs further observation.
-            ss << name() << " add batch req success but status isn't ok, " << print_load_info()
-               << ", backend id=" << node_info()->id << ":" << node_info()->brpc_port
-               << ", errmsg=" << status.get_error_msg();
-            _cancel_with_msg(ss.str());
+            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}", channel_info(), status.get_error_msg()));
         }
 
         if (result.has_execution_time_us()) {
@@ -317,10 +307,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     return Status::InternalError(ss.str());
 }
 
-void NodeChannel::cancel() {
+void NodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
-    _cancelled = true;
+    _cancel_with_msg(cancel_msg);
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
@@ -384,7 +374,7 @@ void NodeChannel::try_send_batch() {
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
-            cancel();
+            cancel(fmt::format("{}, err: timeout", channel_info()));
         } else {
             remain_ms = _min_rpc_timeout_ms;
         }
@@ -672,12 +662,10 @@ Status OlapTableSink::open(RuntimeState* state) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 std::stringstream err;
-                err << ch->name() << ": tablet open failed, " << ch->print_load_info()
-                    << ", node=" << ch->node_info()->host << ":" << ch->node_info()->brpc_port
-                    << ", errmsg=" << st.get_error_msg();
+                err << ch->channel_info() << ", tablet open failed, err: " << st.get_error_msg();
                 LOG(WARNING) << err.str();
-                index_channel->mark_as_failed(ch);
                 ss << err.str() << "; ";
+                index_channel->mark_as_failed(ch);
             }
         });
 
@@ -786,9 +774,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                             if (!s.ok()) {
                                 // 'status' will store the last non-ok status of all channels
                                 status = s;
-                                LOG(WARNING) << ch->name() << ": close channel failed, "
-                                             << ch->print_load_info()
-                                             << ". error_msg=" << s.get_error_msg();
+                                LOG(WARNING) << ch->channel_info() << ", close channel failed, err: " << s.get_error_msg();
                             }
                             ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                             &mem_exceeded_block_ns, &queue_push_lock_ns,
@@ -837,7 +823,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         LOG(INFO) << ss.str();
     } else {
         for (auto channel : _channels) {
-            channel->for_each_node_channel([](NodeChannel* ch) { ch->cancel(); });
+            channel->for_each_node_channel([&status](NodeChannel* ch) { ch->cancel(status.get_error_msg()); });
         }
     }
 

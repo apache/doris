@@ -215,9 +215,10 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "最佳实践",
+    title: "性能测试和最佳实践",
     directoryPath: "best-practices/",
     children: [
+      "star-schema-benchmark",
       "fe-load-balance",
       "systemd",
       "samples",
