@@ -17,7 +17,6 @@
 
 package org.apache.doris.stack.constants;
 
-
 public enum Flag {
     /**
      * 0 no
@@ -25,7 +24,6 @@ public enum Flag {
      */
     NO(0, "no"),
     YES(1, "yes");
-
 
     private final int code;
     private final String desc;

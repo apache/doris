@@ -37,7 +37,6 @@ import java.util.Properties;
 @Slf4j
 public class JoinBeTask extends AbstractTask {
 
-
     private AgentRest agentRest;
 
     public JoinBeTask(TaskContext taskContext) {
