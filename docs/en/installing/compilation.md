@@ -109,7 +109,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
 
     > ** Note: **
      >
-     > If you are using `build-env-1.4.1` This environment, use the following name to be named when compiled:
+     > If you are using `build-env-1.4.1` This environment, use the following command when compiling:
      >
      > `sh build.sh --clean --be --fe --ui` this way
      >
