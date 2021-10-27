@@ -45,7 +45,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
-    public static final String IS_REPORT_SUCCESS = "is_report_success";
+    public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
     public static final String RESOURCE_VARIABLE = "resource_group";
     public static final String AUTO_COMMIT = "autocommit";
@@ -186,8 +186,8 @@ public class SessionVariable implements Serializable, Writable {
     public int queryTimeoutS = 300;
 
     // if true, need report to coordinator when plan fragment execute successfully.
-    @VariableMgr.VarAttr(name = IS_REPORT_SUCCESS, needForward = true)
-    public boolean isReportSucc = false;
+    @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
+    public boolean enableProfile = false;
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
@@ -396,8 +396,8 @@ public class SessionVariable implements Serializable, Writable {
         return queryTimeoutS;
     }
 
-    public boolean isReportSucc() {
-        return isReportSucc;
+    public boolean enableProfile() {
+        return enableProfile;
     }
 
     public int getWaitTimeoutS() {
@@ -813,7 +813,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBufferPoolLimit(maxExecMemByte);
 
         tResult.setQueryTimeout(queryTimeoutS);
-        tResult.setIsReportSuccess(isReportSucc);
+        tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
 
@@ -913,7 +913,7 @@ public class SessionVariable implements Serializable, Writable {
             Text.readString(in);
             sqlMode = 0L;
         }
-        isReportSucc = in.readBoolean();
+        enableProfile = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
