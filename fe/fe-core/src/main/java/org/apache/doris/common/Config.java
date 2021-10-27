@@ -1370,7 +1370,7 @@ public class Config extends ConfigBase {
      * Whether to add a delete sign column when create unique table
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_batch_delete_by_default = false;
+    public static boolean enable_batch_delete_by_default = true;
 
     /**
      * Used to set default db data quota bytes.
