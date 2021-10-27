@@ -215,13 +215,16 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     int counter = 0;
     int64_t  sum = 0;
     for (auto writer : writers) {
+        if (writer->mem_consumption() <= 0) {
+            break;
+        }
         ++counter;
         sum += writer->mem_consumption();
         if (sum > mem_to_flushed) {
             break;
         }
     }
-    VLOG_CRITICAL << "flush " << counter << " writers to reduce memory: " << sum;
+    VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
     for (int i = 0; i < counter; i++) {
         writers[i]->flush_memtable_and_wait(false);
     }
