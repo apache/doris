@@ -1433,7 +1433,7 @@ The size of the buffer before flashing
 
 * Type: int32
 * Description: Used to limit the number of segments in the newly generated rowset when importing. If the threshold is exceeded, the import will fail with error -238. Too many segments will cause compaction to take up a lot of memory and cause OOM errors.
-* Default value: 100
+* Default value: 200
 
 ### `remote_storage_read_buffer_mb`
 

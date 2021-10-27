@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/format.h>
 #include <memory>
 #include <queue>
 #include <set>
@@ -164,7 +165,7 @@ public:
     Status mark_close();
     Status close_wait(RuntimeState* state);
 
-    void cancel();
+    void cancel(const std::string& cancel_msg);
 
     // return:
     // 0: stopped, send finished(eos request has been sent), or any internal error;
@@ -191,14 +192,19 @@ public:
     }
 
     int64_t node_id() const { return _node_id; }
-    const NodeInfo* node_info() const { return _node_info; }
-    std::string print_load_info() const { return _load_info; }
     std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
 
     // TODO(HW): remove after mem tracker shared
     void clear_all_batches();
+
+    std::string channel_info() const {
+        // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
+        //             But I don't know why. so here I print node_info->id instead of node_info->host
+        //             to avoid BE crash. It needs further observation.
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info->id, _node_info->brpc_port);
+    } 
 
 private:
     void _cancel_with_msg(const std::string& msg);

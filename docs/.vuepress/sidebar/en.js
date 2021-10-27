@@ -214,9 +214,10 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "Bast Practices",
+    title: "Benchmark & Bast Practices",
     directoryPath: "best-practices/",
     children: [
+      "star-schema-benchmark",
       "fe-load-balance",
       "systemd",
       "samples",
