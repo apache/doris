@@ -104,5 +104,16 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         httpPort = in.readInt();
         brpcPort = in.readInt();
     }
+	
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(super.toString());
+        sb.append(", beId: ").append(beId);
+        sb.append(", bePort: ").append(bePort);
+        sb.append(", httpPort: ").append(httpPort);
+        sb.append(", brpcPort: ").append(brpcPort);
+        return sb.toString();
+    }
 
 }
