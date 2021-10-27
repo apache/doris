@@ -78,7 +78,7 @@ public:
     // eg. flush the largest memtable immediately.
     // return Status::OK if mem is reduced.
     // no-op when this channel has been closed or cancelled
-    Status reduce_mem_usage();
+    Status reduce_mem_usage(int64_t mem_limit);
 
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
