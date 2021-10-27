@@ -205,7 +205,11 @@ int main(int argc, char** argv) {
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
-
+    // Limit total size of the process heap to the specified number of MiB.
+    // When we approach the limit the memory is released to the system more
+    // aggressively (more minor page faults).
+    MallocExtension::instance()->SetNumericProperty(
+            "tcmalloc.heap_limit_mb", exec_env->process_mem_tracker()->limit() / (2 << 20));
     // start all backgroud threads of storage engine.
     // SHOULD be called after exec env is initialized.
     EXIT_IF_ERROR(engine->start_bg_threads());
