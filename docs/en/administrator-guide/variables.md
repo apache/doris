@@ -67,7 +67,7 @@ Variables that support both session-level and global-level setting include:
 * `time_zone`
 * `wait_timeout`
 * `sql_mode`
-* `is_report_success`
+* `enable_profile`
 * `query_timeout`
 * `exec_mem_limit`
 * `batch_size`
@@ -229,7 +229,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
     Used for compatibility with MySQL clients. No practical effect.
     
-* `is_report_success`
+* `enable_profile`
 
     Used to set whether you need to view the profile of the query. The default is false, which means no profile is required.
     
@@ -239,7 +239,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
     `fe_host:fe_http:port/query`
     
-    It will display the most recent 100 queries which `is_report_success` is set to true.
+    It will display the most recent 100 queries which `enable_profile` is set to true.
     
 * `language`
 
