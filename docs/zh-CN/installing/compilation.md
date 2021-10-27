@@ -110,7 +110,7 @@ under the License.
     >
     >如果你使用的是 `build-env-1.4.1` 这个环境，第一次编译的时候要使用如下命令：
     >
-    >`sh build.sh --clean --be --fe --ui ` 这种方式
+    > `sh build.sh --clean --be --fe --ui`
     >
     > 这是因为1.4.1 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。
     
