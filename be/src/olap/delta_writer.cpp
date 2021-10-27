@@ -180,6 +180,9 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 }
 
 OLAPStatus DeltaWriter::_flush_memtable_async() {
+    if (++_segment_counter > config::max_segment_num_per_rowset) {
+        return OLAP_ERR_TOO_MANY_SEGMENTS;
+    }
     return _flush_token->submit(_mem_table);
 }
 
