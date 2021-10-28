@@ -130,10 +130,16 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-
+    // optimize for single rowset reading without do aggregation when reading all columns, 
+    // and otherwise should use _agg_key_next_row for AGG_KEYS
     if (_optimize_for_single_rowset(rs_readers)) {
-        _next_row_func = _tablet->keys_type() == AGG_KEYS ? &Reader::_direct_agg_key_next_row
-                                                          : &Reader::_direct_next_row;
+        if(_tablet->keys_type() == AGG_KEYS && _return_columns.size() == _tablet->tablet_schema().num_columns()) {
+            _next_row_func = &Reader::_direct_agg_key_next_row;
+        } else if (_tablet->keys_type() == AGG_KEYS) {
+            _next_row_func = &Reader::_agg_key_next_row;
+        } else {
+            _next_row_func = &Reader::_direct_next_row;
+        }
         return OLAP_SUCCESS;
     }
 
