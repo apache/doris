@@ -71,9 +71,19 @@ public class S3Storage extends BlobStorage {
     public static final String S3_SK = "AWS_SECRET_KEY";
     public static final String S3_ENDPOINT = "AWS_ENDPOINT";
     public static final String S3_REGION = "AWS_REGION";
+    public static final String USE_PATH_STYLE = "use_path_style";
+
     private static final Logger LOG = LogManager.getLogger(S3Storage.class);
     private final CaseInsensitiveMap caseInsensitiveProperties;
     private S3Client client;
+    // false: the s3 client will automatically convert endpoint to virtual-hosted style, eg:
+    //          endpoint:           http://s3.us-east-2.amazonaws.com
+    //          bucket/path:        my_bucket/file.txt
+    //          auto convert:       http://my_bucket.s3.us-east-2.amazonaws.com/file.txt
+    // true: the s3 client will NOT automatically convert endpoint to virtual-hosted style, we need to do some tricks:
+    //          endpoint:           http://cos.ap-beijing.myqcloud.com
+    //          bucket/path:        my_bucket/file.txt
+    //          convert manually:   See S3URI()
     private boolean forceHostedStyle = false;
 
     public S3Storage(Map<String, String> properties) {
@@ -89,21 +99,31 @@ public class S3Storage extends BlobStorage {
         super.setProperties(properties);
         caseInsensitiveProperties.putAll(properties);
         // Virtual hosted-sytle is recommended in the s3 protocol.
-        // The path-style has been abandoned, but for some unexplainable reasons.
-        // The s3 client will determine whether the endpiont starts with `s3`
+        // The path-style has been abandoned, but for some unexplainable reasons,
+        // the s3 client will determine whether the endpiont starts with `s3`
         // when generating a virtual hosted-sytle request.
         // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
         // but the endpoints of many cloud service providers for object storage do not start with s3,
         // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-sytle,
-        // so we need to do some additional conversion.
-
+        // Some of them, such as aliyun's oss, only support virtual hosted-sytle, and some of them(ceph) may only support
+        // path-style, so we need to do some additional conversion.
+        //
+        //          use_path_style          |     !use_path_style
+        //   S3     forceHostedStyle=false  |     forceHostedStyle=false
+        //  !S3     forceHostedStyle=false  |     forceHostedStyle=true
+        //
+        // That is, for S3 endpoint, ignore the `use_path_style` property, and the s3 client will automatically use
+        // virtual hosted-sytle.
+        // And for other endpoint, if `use_path_style` is true, use path style. Otherwise, use virtual hosted-sytle.
         if (!caseInsensitiveProperties.get(S3_ENDPOINT).toString().toLowerCase().startsWith("s3")) {
-            forceHostedStyle = true;
+            if (caseInsensitiveProperties.getOrDefault(USE_PATH_STYLE, "false").toString().equalsIgnoreCase("true")) {
+                forceHostedStyle = false;
+            } else {
+                forceHostedStyle = true;
+            }
         } else {
             forceHostedStyle = false;
         }
-
     }
 
     public static void checkS3(CaseInsensitiveMap caseInsensitiveProperties) throws UserException {
@@ -319,6 +339,9 @@ public class S3Storage extends BlobStorage {
             conf.set("fs.s3a.endpoint", s3Endpoint);
             conf.set("fs.s3a.impl.disable.cache", "true");
             conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+            // introducing in hadoop aws 2.8.0
+            conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
+            conf.set("fs.s3a.attempts.maximum", "2");
             FileSystem s3AFileSystem = FileSystem.get(new URI(remotePath), conf);
             org.apache.hadoop.fs.Path pathPattern = new org.apache.hadoop.fs.Path(remotePath);
             FileStatus[] files = s3AFileSystem.globStatus(pathPattern);
@@ -373,11 +396,11 @@ public class S3Storage extends BlobStorage {
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
                 return new Status(Status.ErrCode.NOT_FOUND, "remote path does not exist: " + remotePath);
             } else {
-                LOG.error("headObject failed:", e);
+                LOG.warn("headObject failed:", e);
                 return new Status(Status.ErrCode.COMMON_ERROR, "headObject failed: " + e.getMessage());
             }
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }

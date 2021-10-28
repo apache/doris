@@ -44,7 +44,7 @@ public class S3URI {
     private final String virtualBucket;
     private final String bucket;
     private final String key;
-    private boolean forceHosted;
+    private boolean forceVirtualHosted;
 
     /**
      * Creates a new S3URI based on the bucket and key parsed from the location as defined in:
@@ -59,10 +59,10 @@ public class S3URI {
         this(location, false);
     }
 
-    public S3URI(String location, boolean forceHosted) {
+    public S3URI(String location, boolean forceVirtualHosted) {
         Preconditions.checkNotNull(location, "Location cannot be null.");
         this.location = location;
-        this.forceHosted = forceHosted;
+        this.forceVirtualHosted = forceVirtualHosted;
         String[] schemeSplit = location.split(SCHEME_DELIM);
         Preconditions.checkState(schemeSplit.length == 2, "Invalid S3 URI: %s", location);
 
@@ -75,7 +75,14 @@ public class S3URI {
         String path = authoritySplit[1];
         path = path.split(QUERY_DELIM)[0];
         path = path.split(FRAGMENT_DELIM)[0];
-        if (forceHosted) {
+        if (this.forceVirtualHosted) {
+            // If forceVirtualHosted is true, the s3 client will NOT automatically convert to virtual-hosted style.
+            // So we do some convert manually. Eg:
+            //          endpoint:           http://cos.ap-beijing.myqcloud.com
+            //          bucket/path:        my_bucket/file.txt
+            // `virtualBucket` will be "my_bucket"
+            // `bucket` will be `file.txt`
+            // So that when assembling the real endpoint will be: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt
             this.virtualBucket = authoritySplit[0];
             String[] paths = path.split("/", 2);
             this.bucket = paths[0];
@@ -85,6 +92,9 @@ public class S3URI {
                 key = "";
             }
         } else {
+            // If forceVirtualHosted is false, let the s3 client to determine how to covert endpoint, eg:
+            // For s3 endpoint(start with "s3."), it will convert to virtual-hosted style.
+            // For others, keep as it is (maybe path-style, maybe virtual-hosted style.)
             this.virtualBucket = "";
             this.bucket = authoritySplit[0];
             key = path;
