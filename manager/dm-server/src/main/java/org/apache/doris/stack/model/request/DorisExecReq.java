@@ -29,6 +29,8 @@ import java.util.List;
 @NoArgsConstructor
 public class DorisExecReq {
 
+    private int processId;
+
     private int clusterId;
 
     //START STOP

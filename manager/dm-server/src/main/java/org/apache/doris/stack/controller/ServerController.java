@@ -21,6 +21,8 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.model.request.AgentCommon;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
@@ -35,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 @Api(tags = "Server API")
 @RestController
@@ -51,8 +54,8 @@ public class ServerController {
     @ApiOperation(value = "query user history installation progress")
     @RequestMapping(value = "/historyProgress", method = RequestMethod.POST)
     public RResult historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        int step = serverProcess.historyProgress(request, response);
-        return RResult.success(step);
+        ProcessInstanceEntity process = serverProcess.historyProgress(request, response);
+        return RResult.success(process);
     }
 
     /**
@@ -62,8 +65,8 @@ public class ServerController {
     @RequestMapping(value = "/progress/{processId}", method = RequestMethod.GET)
     public RResult processProgress(HttpServletRequest request, HttpServletResponse response,
                                    @PathVariable(value = "processId") int processId) throws Exception {
-        serverProcess.processProgress(request, response, processId);
-        return RResult.success();
+        List<TaskInstanceEntity> tasks =  serverProcess.processProgress(request, response, processId);
+        return RResult.success(tasks);
     }
 
     /**
@@ -109,6 +112,7 @@ public class ServerController {
     /**
      * heatbeat report api
      */
+    @ApiOperation(value = "agent heartbeat report")
     @RequestMapping(value = "/heartbeat", method = RequestMethod.POST)
     public RResult heartbeat(@RequestBody AgentCommon agent) {
         log.info("{} heartbeat.", agent.getHost());
@@ -119,6 +123,7 @@ public class ServerController {
     /**
      * register agent
      */
+    @ApiOperation(value = "agent register")
     @RequestMapping(value = "/register", method = RequestMethod.POST)
     public RResult register(@RequestBody AgentRegister agent) {
         log.info("{} register.", agent.getHost());

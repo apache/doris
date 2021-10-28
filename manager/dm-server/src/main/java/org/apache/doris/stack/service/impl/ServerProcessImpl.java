@@ -56,6 +56,7 @@ import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executors;
 
@@ -93,24 +94,22 @@ public class ServerProcessImpl implements ServerProcess {
     private AuthenticationService authenticationService;
 
     @Override
-    public int historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
+    public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessByuserId(userId);
-        if (processEntity != null) {
-            return processEntity.getProcessType().getCode();
-        } else {
-            return -1;
-        }
+        return processEntity;
     }
 
     @Override
-    public void processProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
+    public List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
         ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
         if (processInstance == null) {
             log.error("The process {} does not exist", processId);
             throw new ServerException("The process does not exist");
         }
         refreshAgentTaskStatus(processId);
+        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
+        return taskEntities;
     }
 
     @Override
@@ -129,7 +128,7 @@ public class ServerProcessImpl implements ServerProcess {
     public void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception {
         ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
         if (processInstance != null) {
-            processInstance.setStatus(Flag.NO);
+            processInstance.setFinish(Flag.YES);
             processInstanceComponent.updateProcess(processInstance);
         }
     }
@@ -139,7 +138,7 @@ public class ServerProcessImpl implements ServerProcess {
         Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT);
-        int processId = processInstanceComponent.saveProcessInstance(processInstance);
+        int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {
             TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, host, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED);
@@ -151,6 +150,7 @@ public class ServerProcessImpl implements ServerProcess {
 
             //save agent
             agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
+            log.info("host {} installing agent.",host);
         }
         return processId;
     }
@@ -175,12 +175,18 @@ public class ServerProcessImpl implements ServerProcess {
     @Override
     public boolean register(AgentRegister agent) {
         AgentEntity agentEntity = agentComponent.agentInfo(agent.getHost());
-        if (agentEntity != null) {
+        if (agentEntity == null) {
+            agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.REGISTER);
+        } else if (AgentStatus.INIT.equals(agentEntity.getStatus())) {
+            agentEntity.setStatus(AgentStatus.REGISTER);
+            agentEntity.setPort(agent.getPort());
+            agentEntity.setInstallDir(agent.getInstallDir());
+            agentEntity.setRegisterTime(new Date());
+        } else {
             log.warn("agent already register");
             return true;
         }
-        AgentEntity newAgentEntity = agentComponent.registerAgent(agent);
-        agentCache.putAgent(newAgentEntity);
+        agentCache.putAgent(agentComponent.saveAgent(agentEntity));
         log.info("agent register success");
         return true;
     }

@@ -26,7 +26,7 @@ import java.util.List;
 
 public interface ProcessInstanceRepository extends JpaRepository<ProcessInstanceEntity, Integer> {
 
-    @Query("select f from ProcessInstanceEntity f where f.userId = :userId and status = 1")
+    @Query("select f from ProcessInstanceEntity f where f.userId = :userId and finish = 0")
     ProcessInstanceEntity queryProcessByuserId(@Param("userId") int userId);
 
     @Query("select f from ProcessInstanceEntity f where  status = 1")

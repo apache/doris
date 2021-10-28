@@ -50,7 +50,6 @@ import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.BeJoin;
@@ -73,10 +72,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Executors;
@@ -120,7 +121,7 @@ public class ServerAgentImpl implements ServerAgent {
     public void installService(HttpServletRequest request, HttpServletResponse response,
                                DorisInstallReq installReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE));
+        int processId = processInstanceComponent.refreshProcess(installReq.getProcessId(), installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE);
         //Installed host and service
         List<String> agentRoleList = agentRoleComponent.queryAgentRoles().stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
@@ -137,6 +138,7 @@ public class ServerAgentImpl implements ServerAgent {
             }
             installDoris(processId, install);
             agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getInstallDir(), Flag.NO));
+            log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
     }
 
@@ -175,14 +177,24 @@ public class ServerAgentImpl implements ServerAgent {
     @Override
     public void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(deployConfigReq.getClusterId(), userId, ProcessTypeEnum.DEPLOY_CONFIG));
+        int processId = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), deployConfigReq.getClusterId(), userId, ProcessTypeEnum.DEPLOY_CONFIG);
         List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
         for (DeployConfig config : deployConfigs) {
             deployConf(processId, config);
+            log.info("agent {} deploy {} conf", config.getHost(), config.getRole());
         }
     }
 
-    private RResult deployConf(int processId, DeployConfig deployConf) {
+    private void deployConf(int processId, DeployConfig deployConf) {
+        if (StringUtils.isBlank(deployConf.getConf())) {
+            return;
+        }
+        Base64.Encoder encoder = Base64.getEncoder();
+        try {
+            deployConf.setConf(new String(encoder.encode(deployConf.getConf().getBytes()), "UTF-8"));
+        } catch (UnsupportedEncodingException e) {
+            log.error("conf {} can not encoding:", deployConf.getConf(), e);
+        }
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity deployTask = new TaskInstanceEntity(processId, deployConf.getHost());
         if (ServiceRole.FE.name().equals(deployConf.getRole())) {
@@ -205,30 +217,45 @@ public class ServerAgentImpl implements ServerAgent {
             deployTask.setStatus(ExecutionStatus.FAILURE);
         }
         taskInstanceRepository.save(deployTask);
-        return result;
     }
 
     @Override
     public void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE));
+        int processId = processInstanceComponent.refreshProcess(dorisExec.getProcessId(), dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
         CmdTypeEnum cmdType = CmdTypeEnum.findByName(dorisExec.getCommand());
 
         String leaderFe = getLeaderFeHostPort();
         List<DorisExec> dorisExecs = dorisExec.getDorisExecs();
         for (DorisExec exec : dorisExecs) {
             CommandType commandType = transAgentCmd(cmdType, ServiceRole.findByName(exec.getRole()));
+            if (commandType == null) {
+                log.error("not support command {} {}", cmdType, exec.getRole());
+                continue;
+            }
             CommandRequest creq = new CommandRequest();
             TaskInstanceEntity execTask = new TaskInstanceEntity(processId, exec.getHost());
-            if (CommandType.START_FE.equals(commandType)) {
-                FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
-                if (StringUtils.isNotBlank(leaderFe)) {
-                    feBody.setHelpHostPort(leaderFe);
-                }
-                creq.setBody(JSON.toJSONString(feBody));
-                execTask.setTaskType(TaskTypeEnum.START_FE);
-            } else if (CommandType.START_BE.equals(commandType)) {
-                execTask.setTaskType(TaskTypeEnum.START_BE);
+            switch (commandType) {
+                case START_FE:
+                    FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
+                    if (StringUtils.isNotBlank(leaderFe)) {
+                        feBody.setHelpHostPort(leaderFe);
+                    }
+                    creq.setBody(JSON.toJSONString(feBody));
+                    execTask.setTaskType(TaskTypeEnum.START_FE);
+                    break;
+                case START_BE:
+                    execTask.setTaskType(TaskTypeEnum.START_BE);
+                    break;
+                case STOP_FE:
+                    execTask.setTaskType(TaskTypeEnum.STOP_FE);
+                    break;
+                case STOP_BE:
+                    execTask.setTaskType(TaskTypeEnum.STOP_BE);
+                    break;
+                default:
+                    log.error("not support command: {}", commandType.name());
+                    break;
             }
             creq.setCommandType(commandType.name());
             RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
@@ -239,6 +266,7 @@ public class ServerAgentImpl implements ServerAgent {
                 execTask.setStatus(ExecutionStatus.FAILURE);
             }
             taskInstanceRepository.save(execTask);
+            log.info("agent {} execute {} {} ", exec.getHost(), dorisExec.getCommand(), exec.getRole());
         }
     }
 
@@ -330,7 +358,7 @@ public class ServerAgentImpl implements ServerAgent {
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        int processId = processInstanceComponent.saveProcessInstance(new ProcessInstanceEntity(beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER));
+        int processId = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER);
         for (String be : beJoinReq.getHosts()) {
             addBeToCluster(processId, be);
         }

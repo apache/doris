@@ -28,6 +28,8 @@ public enum TaskTypeEnum {
     DEPLOY_BE_CONFIG,
     START_FE,
     START_BE,
+    STOP_FE,
+    STOP_BE,
     JOIN_BE;
 
     /**

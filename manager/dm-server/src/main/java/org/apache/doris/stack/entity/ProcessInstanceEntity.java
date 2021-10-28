@@ -64,8 +64,8 @@ public class ProcessInstanceEntity {
     private Date updateTime;
 
     @Enumerated(EnumType.ORDINAL)
-    @Column(name = "status", nullable = false)
-    private Flag status;
+    @Column(name = "finish", nullable = false)
+    private Flag finish;
 
     public ProcessInstanceEntity(int clusterId, int userId, ProcessTypeEnum processType) {
         this.clusterId = clusterId;
@@ -73,6 +73,6 @@ public class ProcessInstanceEntity {
         this.processType = processType;
         this.createTime = new Date();
         this.updateTime = new Date();
-        this.status = Flag.NO;
+        this.finish = Flag.NO;
     }
 }

@@ -29,6 +29,8 @@ import java.util.List;
 @NoArgsConstructor
 public class DorisInstallReq {
 
+    private int processId;
+
     private int clusterId;
 
     private List<InstallInfo> installInfos;

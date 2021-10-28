@@ -31,6 +31,8 @@ import java.util.List;
 @NoArgsConstructor
 public class BeJoinReq {
 
+    private int processId;
+
     private int clusterId;
 
     private List<String> hosts;

@@ -44,11 +44,11 @@ public class AgentController {
     private ServerAgent serverAgent;
 
     /**
-     * install doris
+     * install doris service
      */
-    @ApiOperation(value = "install doris")
-    @RequestMapping(value = "/installDoris", method = RequestMethod.POST)
-    public RResult install(HttpServletRequest request, HttpServletResponse response,
+    @ApiOperation(value = "install doris service")
+    @RequestMapping(value = "/installService", method = RequestMethod.POST)
+    public RResult installService(HttpServletRequest request, HttpServletResponse response,
                            @RequestBody DorisInstallReq installReq) throws Exception {
         serverAgent.installService(request, response, installReq);
         return RResult.success();
@@ -79,6 +79,7 @@ public class AgentController {
     /**
      * join be to cluster
      */
+    @ApiOperation(value = "join be to cluster")
     @RequestMapping(value = "/joinBe", method = RequestMethod.POST)
     public RResult joinBe(HttpServletRequest request, HttpServletResponse response,
                           @RequestBody BeJoinReq beJoinReq) throws Exception {
@@ -89,6 +90,7 @@ public class AgentController {
     /**
      * register role service (be/fe)
      */
+    @ApiOperation(value = "register role service (be/fe)")
     @RequestMapping(value = "/register", method = RequestMethod.POST)
     public RResult register(@RequestBody AgentRoleRegister agentReg) {
         boolean register = serverAgent.register(agentReg);

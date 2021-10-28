@@ -51,20 +51,15 @@ public class AgentComponent {
         }
     }
 
-    public int refreshAgentStatus(String host, Integer port) {
+    public boolean refreshAgentStatus(String host, Integer port) {
         AgentEntity agentInfo = agentInfo(host);
         if (agentInfo == null) {
-            return 0;
+            return false;
         }
         agentInfo.setStatus(AgentStatus.RUNNING);
         agentInfo.setLastReportedTime(new Date());
         agentRepository.save(agentInfo);
-        return 1;
-    }
-
-    public AgentEntity registerAgent(AgentRegister agent) {
-        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING);
-        return agentRepository.save(agentEntity);
+        return true;
     }
 
     public AgentEntity saveAgent(AgentEntity agent) {

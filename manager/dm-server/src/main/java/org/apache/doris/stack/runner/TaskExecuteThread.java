@@ -66,7 +66,7 @@ public class TaskExecuteThread implements Callable<Object> {
         switch (taskType) {
             case INSTALL_AGENT:
                 return new InstallAgentTask(taskContext);
-            case INSTALL_FE:
+            case JOIN_BE:
                 return new JoinBeTask(taskContext);
             default:
                 log.error("not support task type: {}", taskType.name());

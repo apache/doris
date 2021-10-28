@@ -20,6 +20,8 @@ package org.apache.doris.stack.service;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
+import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
 
@@ -34,12 +36,11 @@ public interface ServerProcess {
 
     /**
      * query user history installation progress
-     * -1 means that the installation has not been carried out
-     * otherwise it is the current installation progress {@link ProcessTypeEnum}
+     * null means that nothing currently being installed
      */
-    int historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception;
+    ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception;
 
-    void processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
+    List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
     /**
      * Refresh the task status on the agent side again
