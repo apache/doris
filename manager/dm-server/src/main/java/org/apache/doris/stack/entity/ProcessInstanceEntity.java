@@ -73,6 +73,6 @@ public class ProcessInstanceEntity {
         this.processType = processType;
         this.createTime = new Date();
         this.updateTime = new Date();
-        this.status = Flag.YES;
+        this.status = Flag.NO;
     }
 }

@@ -17,12 +17,14 @@
 
 package org.apache.doris.stack.service.impl;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
@@ -133,13 +135,14 @@ public class ServerProcessImpl implements ServerProcess {
     }
 
     @Override
-    public void installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
+    public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
+        Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT);
         int processId = processInstanceComponent.saveProcessInstance(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {
-            TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, host, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED_SUCCESS);
+            TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, host, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED);
             taskInstanceRepository.save(installAgent);
 
             TaskContext taskContext = new TaskContext(TaskTypeEnum.INSTALL_AGENT, installAgent, new AgentInstall(host, installReq));
@@ -149,6 +152,7 @@ public class ServerProcessImpl implements ServerProcess {
             //save agent
             agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
         }
+        return processId;
     }
 
     @Override

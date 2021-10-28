@@ -57,7 +57,7 @@ public class TaskExecuteThread implements Callable<Object> {
 
     private void updateStatus() {
         TaskInstanceEntity taskInstance = taskContext.getTaskInstance();
-        taskInstance.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+        taskInstance.setStatus(ExecutionStatus.RUNNING);
         taskInstanceRepository.save(taskInstance);
     }
 

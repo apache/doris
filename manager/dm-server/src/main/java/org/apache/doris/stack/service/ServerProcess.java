@@ -51,7 +51,7 @@ public interface ServerProcess {
     /**
      * install agent
      */
-    void installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
+    int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
 
     /**
      * agent list

@@ -17,6 +17,7 @@
 
 package org.apache.doris.stack.task;
 
+import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.doris.stack.constant.EnvironmentDefine;
@@ -27,7 +28,6 @@ import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.service.impl.ServerProcessImpl;
 import org.apache.doris.stack.shell.SCP;
 import org.apache.doris.stack.shell.SSH;
-import org.apache.doris.stack.util.Preconditions;
 import org.springframework.boot.system.ApplicationHome;
 
 import java.io.File;
@@ -65,7 +65,7 @@ public class InstallAgentTask extends AbstractTask {
      */
     private void distAgentPackage(AgentInstall agentInstall) {
         ApplicationHome applicationHome = new ApplicationHome(ServerProcessImpl.class);
-        String dorisManagerHome = applicationHome.getSource().getParentFile().getParentFile().toString();
+        String dorisManagerHome = applicationHome.getSource().getParentFile().getParentFile().getParentFile().toString();
         log.info("doris manager home : {}", dorisManagerHome);
         String agentHome = dorisManagerHome + File.separator + "agent";
         Preconditions.checkNotNull(agentInstall.getHost(), "host is empty");

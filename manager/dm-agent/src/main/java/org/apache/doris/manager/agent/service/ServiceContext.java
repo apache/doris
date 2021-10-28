@@ -76,7 +76,7 @@ public class ServiceContext {
     }
 
     private static boolean registerToServer(String serverIpPort, String agentIp, ServiceRole role, String serviceInstallDir) {
-        String requestUrl = "http://" + serverIpPort + "/agent/register";
+        String requestUrl = "http://" + serverIpPort + "/api/agent/register";
         Map<String, Object> map = new HashMap<>();
         map.put("host", agentIp);
         map.put("role", role.name());
@@ -96,7 +96,7 @@ public class ServiceContext {
     }
 
     private static List<AgentRoleRegister> queryServiceList(String serverIpPort, String agentIp) {
-        String requestUrl = "http://" + serverIpPort + "/server/agentRole";
+        String requestUrl = "http://" + serverIpPort + "/api/server/agentRole";
         Map<String, Object> map = new HashMap<>();
         map.put("host", agentIp);
 

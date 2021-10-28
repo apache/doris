@@ -40,7 +40,7 @@ public class ProcessInstanceComponent {
      */
     public ProcessInstanceEntity queryProcessById(int processId) {
         Optional<ProcessInstanceEntity> optional = processInstanceRepository.findById(processId);
-        if (!optional.isPresent()) {
+        if (optional.isPresent()) {
             return optional.get();
         }
         return null;

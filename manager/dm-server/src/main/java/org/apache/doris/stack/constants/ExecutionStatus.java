@@ -29,8 +29,8 @@ public enum ExecutionStatus {
      * 2 failure
      * 3 success
      */
-    SUBMITTED_SUCCESS(0, "submit success"),
-    RUNNING_EXECUTION(1, "running"),
+    SUBMITTED(0, "submit success"),
+    RUNNING(1, "running"),
     FAILURE(2, "failure"),
     SUCCESS(3, "success");
 
@@ -75,7 +75,7 @@ public enum ExecutionStatus {
      * @return status
      */
     public boolean typeIsRunning() {
-        return this == RUNNING_EXECUTION;
+        return this == RUNNING;
     }
 
     public int getCode() {

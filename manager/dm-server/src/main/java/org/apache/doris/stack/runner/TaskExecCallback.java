@@ -54,8 +54,9 @@ public class TaskExecCallback implements FutureCallback<Object> {
     @Override
     public void onFailure(Throwable throwable) {
         TaskInstanceEntity taskInstance = taskContext.getTaskInstance();
-        log.error("task {} in host {} execute error {}", taskInstance.getTaskType().name(), taskInstance.getHost(), throwable);
+        log.error("task {} in host {} execute error:", taskInstance.getTaskType().name(), taskInstance.getHost(), throwable);
         taskInstance.setEndTime(new Date());
+        taskInstance.setResult(throwable.getMessage());
         taskInstance.setStatus(ExecutionStatus.FAILURE);
         taskInstanceRepository.save(taskInstance);
     }

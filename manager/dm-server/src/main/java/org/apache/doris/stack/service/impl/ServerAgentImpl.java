@@ -18,6 +18,7 @@
 package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
+import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -66,7 +67,6 @@ import org.apache.doris.stack.runner.TaskExecuteThread;
 import org.apache.doris.stack.service.ServerAgent;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.util.JdbcUtil;
-import org.apache.doris.stack.util.Preconditions;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -164,7 +164,7 @@ public class ServerAgentImpl implements ServerAgent {
         }
         RResult result = agentRest.commandExec(install.getHost(), agentPort(install.getHost()), creq);
         if (result != null && result.isSuccess()) {
-            installService.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+            installService.setStatus(ExecutionStatus.RUNNING);
         } else {
             installService.setStatus(ExecutionStatus.FAILURE);
         }
@@ -200,7 +200,7 @@ public class ServerAgentImpl implements ServerAgent {
         }
         RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
         if (result != null && result.isSuccess()) {
-            deployTask.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+            deployTask.setStatus(ExecutionStatus.RUNNING);
         } else {
             deployTask.setStatus(ExecutionStatus.FAILURE);
         }
@@ -234,7 +234,7 @@ public class ServerAgentImpl implements ServerAgent {
             RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
 
             if (result != null && result.isSuccess()) {
-                execTask.setStatus(ExecutionStatus.RUNNING_EXECUTION);
+                execTask.setStatus(ExecutionStatus.RUNNING);
             } else {
                 execTask.setStatus(ExecutionStatus.FAILURE);
             }
@@ -341,7 +341,7 @@ public class ServerAgentImpl implements ServerAgent {
         AgentEntity aliveAgent = getAliveAgent();
         Integer jdbcPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
 
-        TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, be, TaskTypeEnum.JOIN_BE, ExecutionStatus.RUNNING_EXECUTION);
+        TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, be, TaskTypeEnum.JOIN_BE, ExecutionStatus.RUNNING);
         taskInstanceRepository.save(installAgent);
         TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, installAgent, new BeJoin(aliveAgent.getHost(), jdbcPort, be, agentPort));
         ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));

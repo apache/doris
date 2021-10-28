@@ -57,7 +57,7 @@ public class TaskInstanceEntity {
     @Column(name = "task_type", nullable = false)
     private TaskTypeEnum taskType;
 
-    @Enumerated(EnumType.ORDINAL)
+    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private ExecutionStatus status;
 
