@@ -29,7 +29,7 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * server agent
  **/
-public interface ServerAgent {
+public interface AgentProcess {
 
     /**
      * install doris

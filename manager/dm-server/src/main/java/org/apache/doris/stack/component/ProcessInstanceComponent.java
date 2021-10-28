@@ -20,7 +20,7 @@ public class ProcessInstanceComponent {
     /**
      * save process and return id
      */
-    public int saveProcessInstance(ProcessInstanceEntity processInstance) {
+    public int saveProcess(ProcessInstanceEntity processInstance) {
         //query whether there is a process currently being installed
         ProcessInstanceEntity processEntity = processInstanceRepository.queryProcessByuserId(processInstance.getUserId());
         if (processEntity != null && processEntity.getId() != processInstance.getId()) {

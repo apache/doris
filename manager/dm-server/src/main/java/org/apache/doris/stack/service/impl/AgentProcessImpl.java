@@ -63,7 +63,7 @@ import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.runner.TaskExecCallback;
 import org.apache.doris.stack.runner.TaskExecuteThread;
-import org.apache.doris.stack.service.ServerAgent;
+import org.apache.doris.stack.service.AgentProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.util.JdbcUtil;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,7 +88,7 @@ import java.util.stream.Collectors;
  **/
 @Service
 @Slf4j
-public class ServerAgentImpl implements ServerAgent {
+public class AgentProcessImpl implements AgentProcess {
 
     /**
      * thread executor service

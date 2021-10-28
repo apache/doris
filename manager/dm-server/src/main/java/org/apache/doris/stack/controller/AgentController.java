@@ -25,7 +25,7 @@ import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
-import org.apache.doris.stack.service.ServerAgent;
+import org.apache.doris.stack.service.AgentProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,7 +41,7 @@ import javax.servlet.http.HttpServletResponse;
 public class AgentController {
 
     @Autowired
-    private ServerAgent serverAgent;
+    private AgentProcess agentProcess;
 
     /**
      * install doris service
@@ -50,7 +50,7 @@ public class AgentController {
     @RequestMapping(value = "/installService", method = RequestMethod.POST)
     public RResult installService(HttpServletRequest request, HttpServletResponse response,
                                   @RequestBody DorisInstallReq installReq) throws Exception {
-        serverAgent.installService(request, response, installReq);
+        agentProcess.installService(request, response, installReq);
         return RResult.success();
     }
 
@@ -61,7 +61,7 @@ public class AgentController {
     @RequestMapping(value = "/deployConfig", method = RequestMethod.POST)
     public RResult deployConfig(HttpServletRequest request, HttpServletResponse response,
                                 @RequestBody DeployConfigReq deployConfigReq) throws Exception {
-        serverAgent.deployConfig(request, response, deployConfigReq);
+        agentProcess.deployConfig(request, response, deployConfigReq);
         return RResult.success();
     }
 
@@ -72,7 +72,7 @@ public class AgentController {
     @RequestMapping(value = "/execute", method = RequestMethod.POST)
     public RResult execute(HttpServletRequest request, HttpServletResponse response,
                            @RequestBody DorisExecReq dorisExec) throws Exception {
-        serverAgent.execute(request, response, dorisExec);
+        agentProcess.execute(request, response, dorisExec);
         return RResult.success();
     }
 
@@ -83,7 +83,7 @@ public class AgentController {
     @RequestMapping(value = "/joinBe", method = RequestMethod.POST)
     public RResult joinBe(HttpServletRequest request, HttpServletResponse response,
                           @RequestBody BeJoinReq beJoinReq) throws Exception {
-        serverAgent.joinBe(request, response, beJoinReq);
+        agentProcess.joinBe(request, response, beJoinReq);
         return RResult.success();
     }
 
@@ -93,7 +93,7 @@ public class AgentController {
     @ApiOperation(value = "register role service (be/fe)")
     @RequestMapping(value = "/register", method = RequestMethod.POST)
     public RResult register(@RequestBody AgentRoleRegister agentReg) {
-        boolean register = serverAgent.register(agentReg);
+        boolean register = agentProcess.register(agentReg);
         return RResult.success(register);
     }
 }
