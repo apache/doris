@@ -416,6 +416,33 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             break;
         }
 
+        case TYPE_DECIMALV2: {
+            DecimalV2Value data;
+
+            if (col.IsDouble()) {
+                data.assign_from_double(col.GetDouble());
+            } else {
+                std::string val;
+                if (pure_doc_value) {
+                    if (!col[0].IsString()) {
+                        val = json_value_to_string(col[0]);
+                    } else {
+                        val = col[0].GetString();
+                    }
+                } else {
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    if (!col.IsString()) {
+                        val = json_value_to_string(col);
+                    } else {
+                        val = col.GetString();
+                    }
+                }
+                data.parse_from_str(val.data(), val.length());
+            }
+            reinterpret_cast<DecimalV2Value*>(slot)->set_value(data.value());
+            break;
+        }
+
         case TYPE_BOOLEAN: {
             if (col.IsBool()) {
                 *reinterpret_cast<int8_t*>(slot) = col.GetBool();
