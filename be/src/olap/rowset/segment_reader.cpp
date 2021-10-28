@@ -49,7 +49,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _delete_status(delete_status),
           _eof(false),
           _end_block(-1),
-          // 确保第一次调用_move_to_next_row，会执行seek_to_block
+          // Make sure that the first call to _move_to_next_row will execute seek_to_block
           _block_count(0),
           _num_rows_in_block(0),
           _null_supported(false),
@@ -141,7 +141,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
         return res;
     }
 
-    // 如果需要mmap，则进行映射
+    // If mmap is needed, then map
     if (_is_using_mmap) {
         _mmap_buffer = StorageByteBuffer::mmap(&_file_handler, 0, PROT_READ, MAP_PRIVATE);
 
@@ -202,7 +202,7 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
         OLAP_LOG_WARNING("fail to load segment file. ");
         return res;
     }
-    // 文件头
+    // File header
     res = _set_segment_info();
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to set segment info. ");
@@ -344,12 +344,12 @@ void SegmentReader::_set_column_map() {
     size_t segment_column_size = _header_message().column_size();
     for (ColumnId segment_column_id = 0; segment_column_id < segment_column_size;
          ++segment_column_id) {
-        // 如果找得到，建立映射表
+        // If you can find it, create a mapping table
         ColumnId unique_column_id = _header_message().column(segment_column_id).unique_id();
         if (_unique_id_to_tablet_id_map.find(unique_column_id) !=
             _unique_id_to_tablet_id_map.end()) {
             _unique_id_to_segment_id_map[unique_column_id] = segment_column_id;
-            // encoding 应该和segment schema序一致。
+            // The encoding should be in the same order as the segment schema.
             _encodings_map[unique_column_id] = _header_message().column_encoding(segment_column_id);
         }
     }
@@ -595,9 +595,9 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
                                       _header_message().num_rows_per_block()));
     for (int64_t stream_index = 0; stream_index < _header_message().stream_info_size();
          ++stream_index, stream_offset += stream_length) {
-        // 查找需要的index, 虽然有的index不需要读
-        // 取，但为了获取offset，还是要计算一遍
-        // 否则无法拿到正确的streamoffset
+        // Find the required index, although some indexes do not need to be read
+        // Take, but in order to get the offset, it is still necessary to calculate it again
+        // Otherwise, the correct streamoffset cannot be obtained
         const StreamInfoMessage& message = _header_message().stream_info(stream_index);
         stream_length = message.length();
         ColumnId unique_column_id = message.column_unique_id();
@@ -624,12 +624,12 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         _cache_handle[cache_handle_index] = _lru_cache->lookup(key);
 
         if (NULL != _cache_handle[cache_handle_index]) {
-            // 1. 如果在lru中，取出buffer，并用来初始化index reader
+            // 1. If you are in lru, take out the buffer and use it to initialize the index reader
             is_using_cache = true;
             stream_buffer =
                     reinterpret_cast<char*>(_lru_cache->value(_cache_handle[cache_handle_index]));
         } else {
-            // 2. 如果不在lru中，需要创建index stream。
+            // 2. If it is not in lru, you need to create an index stream.
             stream_buffer = new (std::nothrow) char[stream_length];
             if (NULL == stream_buffer) {
                 OLAP_LOG_WARNING(
@@ -648,11 +648,11 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             }
 
             if (is_using_cache) {
-                // 将读出的索引放入lru中。
+                // Put the read index into lru.
                 _cache_handle[cache_handle_index] = _lru_cache->insert(
                         key, stream_buffer, stream_length, &_delete_cached_index_stream);
                 if (NULL == _cache_handle[cache_handle_index]) {
-                    // 这里可能是cache insert中的malloc失败了, 先返回成功
+                    // It may be that malloc in cache insert failed, first return success
                     LOG(FATAL) << "fail to insert lru cache.";
                 }
             }
@@ -675,7 +675,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
 
             _indices[unique_column_id] = index_message;
 
-            // 每个index的entry数量应该一致, 也就是block的数量
+            // The number of entries for each index should be the same, that is, the number of blocks
             _block_count = index_message->entry_count();
         } else {
             BloomFilterIndexReader* bf_message = new (std::nothrow) BloomFilterIndexReader;
@@ -695,7 +695,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
 
             _bloom_filters[unique_column_id] = bf_message;
 
-            // 每个index的entry数量应该一致, 也就是block的数量
+            // The number of entries for each index should be the same, that is, the number of blocks
             _block_count = bf_message->entry_count();
         }
 
@@ -721,7 +721,7 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
     int64_t stream_offset = _header_length;
     uint64_t stream_length = 0;
 
-    // 每条流就一块整的
+    // Each stream is one piece
     for (int64_t stream_index = 0; stream_index < _header_message().stream_info_size();
          ++stream_index, stream_offset += stream_length) {
         const StreamInfoMessage& message = _header_message().stream_info(stream_index);
@@ -769,7 +769,7 @@ OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
     _column_indices.resize(_segment_group->get_tablet_schema().num_columns(), nullptr);
     for (auto table_column_id : _used_columns) {
         ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
-        // 当前是不会出现table和segment的schema不一致的情况的
+        // Currently, there will be no inconsistencies in the schema of the table and the segment.
         std::unique_ptr<ColumnReader> reader(ColumnReader::create(
                 table_column_id, _segment_group->get_tablet_schema(), _unique_id_to_tablet_id_map,
                 _unique_id_to_segment_id_map, _encodings_map));

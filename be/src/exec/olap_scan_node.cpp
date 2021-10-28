@@ -1337,14 +1337,14 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     ThreadPoolToken* thread_token = state->get_query_fragments_ctx()->get_token();
 
     /*********************************
-     * 优先级调度基本策略:
-     * 1. 通过查询拆分的Range个数来确定初始nice值
-     *    Range个数越多，越倾向于认定为大查询，nice值越小
-     * 2. 通过查询累计读取的数据量来调整nice值
-     *    读取的数据越多，越倾向于认定为大查询，nice值越小
-     * 3. 通过nice值来判断查询的优先级
-     *    nice值越大的，越优先获得的查询资源
-     * 4. 定期提高队列内残留任务的优先级，避免大查询完全饿死
+     * The basic strategy of priority scheduling:
+     * 1. Determine the initial nice value by querying the number of split ranges
+     *    The more the number of Ranges, the more likely it is to be recognized as a large query, and the smaller the nice value
+     * 2. Adjust the nice value by querying the accumulated data volume
+     *    The more data read, the more likely it is to be regarded as a large query, and the smaller the nice value
+     * 3. Judge the priority of the query by the nice value
+     *    The larger the nice value, the more preferentially obtained query resources
+     * 4. Regularly increase the priority of the remaining tasks in the queue to avoid starvation for large queries
      *********************************/
     PriorityThreadPool* thread_pool = state->exec_env()->scan_thread_pool();
     _total_assign_num = 0;
