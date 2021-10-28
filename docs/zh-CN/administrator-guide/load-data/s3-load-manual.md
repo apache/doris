@@ -48,13 +48,13 @@ under the License.
 ## 开始导入
 导入方式和Broker Load 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 ```
-	WITH S3
-	(
+    WITH S3
+    (
         "AWS_ENDPOINT" = "AWS_ENDPOINT",
         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
         "AWS_REGION" = "AWS_REGION"
-	)
+    )
 ```
 
 完整示例如下
@@ -89,6 +89,6 @@ S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可
         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
         "AWS_REGION" = "AWS_REGION",
-		"use_path_style" = "true"
+        "use_path_style" = "true"
   )
 ```

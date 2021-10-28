@@ -48,12 +48,12 @@ Other cloud storage systems can find relevant information compatible with S3 in 
 Like Broker Load just replace `WITH BROKER broker_name ()` with
 ```
     WITH S3
-	(
+    (
         "AWS_ENDPOINT" = "AWS_ENDPOINT",
         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
         "AWS_REGION" = "AWS_REGION"
-	)
+    )
 ```
 
 example:
@@ -88,6 +88,6 @@ S3 SDK uses virtual-hosted style by default. However, some object storage system
          "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
          "AWS_SECRET_KEY"="AWS_SECRET_KEY",
          "AWS_REGION" = "AWS_REGION",
-"use_path_style" = "true"
+         "use_path_style" = "true"
    )
 ```
