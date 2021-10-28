@@ -283,6 +283,9 @@ Status Expr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNo
     Expr* expr = NULL;
     RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
     DCHECK(expr != NULL);
+    if (expr == NULL) {
+        return Status::InternalError("Parse TExpr to Expr failed because of expr == NULL.");
+    }
     if (parent != NULL) {
         parent->add_child(expr);
     } else {
