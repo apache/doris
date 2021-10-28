@@ -83,22 +83,22 @@ public class S3URI {
         }
 
         this.forceVirtualHosted = forceVirtualHosted;
-        String[] schemeSplit = location.split(SCHEME_DELIM);
+        String[] schemeSplit = this.location.split(SCHEME_DELIM);
         if (schemeSplit.length != 2) {
-            throw new UserException("Invalid s3 uri: " + location);
+            throw new UserException("Invalid s3 uri: " + this.location);
         }
 
         this.scheme = schemeSplit[0];
         if (!VALID_SCHEMES.contains(scheme.toLowerCase())) {
-            throw new UserException("Invalid scheme: " + scheme);
+            throw new UserException("Invalid scheme: " + this.location);
         }
 
         String[] authoritySplit = schemeSplit[1].split(PATH_DELIM, 2);
         if (authoritySplit.length != 2) {
-            throw new UserException("Invalid s3 uri: " + location);
+            throw new UserException("Invalid s3 uri: " + this.location);
         }
         if (authoritySplit[1].trim().isEmpty()) {
-            throw new UserException("Invalid s3 key: " + location);
+            throw new UserException("Invalid s3 key: " + this.location);
         }
 
         // Strip query and fragment if they exist
