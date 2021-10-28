@@ -111,7 +111,7 @@ Note: For different versions of Doris, you need to download the corresponding mi
      >
      > If you are using `build-env-1.4.1` This environment, use the following command when compiling:
      >
-     > `sh build.sh --clean --be --fe --ui` this way
+     > `sh build.sh --clean --be --fe --ui`
      >
      > This is because the version 1.4.1 image has upgraded thrift (0.9 -> 0.13), you need to use the --clean command to force the use of the new version of thrift to generate code files, otherwise incompatible code will appear.
     
