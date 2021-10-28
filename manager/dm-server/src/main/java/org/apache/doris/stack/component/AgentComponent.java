@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.model.request.AgentRegister;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 

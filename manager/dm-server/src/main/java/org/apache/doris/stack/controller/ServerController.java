@@ -65,7 +65,7 @@ public class ServerController {
     @RequestMapping(value = "/progress/{processId}", method = RequestMethod.GET)
     public RResult processProgress(HttpServletRequest request, HttpServletResponse response,
                                    @PathVariable(value = "processId") int processId) throws Exception {
-        List<TaskInstanceEntity> tasks =  serverProcess.processProgress(request, response, processId);
+        List<TaskInstanceEntity> tasks = serverProcess.processProgress(request, response, processId);
         return RResult.success(tasks);
     }
 

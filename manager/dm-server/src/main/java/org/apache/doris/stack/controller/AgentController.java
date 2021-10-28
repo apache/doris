@@ -49,7 +49,7 @@ public class AgentController {
     @ApiOperation(value = "install doris service")
     @RequestMapping(value = "/installService", method = RequestMethod.POST)
     public RResult installService(HttpServletRequest request, HttpServletResponse response,
-                           @RequestBody DorisInstallReq installReq) throws Exception {
+                                  @RequestBody DorisInstallReq installReq) throws Exception {
         serverAgent.installService(request, response, installReq);
         return RResult.success();
     }

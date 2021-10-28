@@ -31,9 +31,9 @@ public class ProcessInstanceComponent {
 
     public int refreshProcess(int processId, int clusterId, int userId, ProcessTypeEnum processType) {
         ProcessInstanceEntity processInstance = queryProcessById(processId);
-        if(processInstance == null){
+        if (processInstance == null) {
             processInstance = new ProcessInstanceEntity(clusterId, userId, processType);
-        }else{
+        } else {
             processInstance.setProcessType(processType);
         }
         return processInstanceRepository.save(processInstance).getId();

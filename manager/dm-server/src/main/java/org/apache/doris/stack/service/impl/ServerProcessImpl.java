@@ -150,7 +150,7 @@ public class ServerProcessImpl implements ServerProcess {
 
             //save agent
             agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
-            log.info("host {} installing agent.",host);
+            log.info("host {} installing agent.", host);
         }
         return processId;
     }

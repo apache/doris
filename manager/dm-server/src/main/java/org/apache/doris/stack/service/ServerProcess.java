@@ -17,7 +17,6 @@
 
 package org.apache.doris.stack.service;
 
-import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
