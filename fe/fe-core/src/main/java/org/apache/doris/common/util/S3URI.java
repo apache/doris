@@ -17,11 +17,15 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.base.Preconditions;
+import org.apache.doris.common.UserException;
+
 import com.google.common.collect.ImmutableSet;
 
+import org.apache.parquet.Strings;
 import org.apache.parquet.glob.GlobExpander;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Set;
 
@@ -55,22 +59,48 @@ public class S3URI {
      *
      * @param location fully qualified URI
      */
-    public S3URI(String location) {
-        this(location, false);
+
+    public static S3URI create(String location) throws UserException {
+        return create(location, false);
     }
 
-    public S3URI(String location, boolean forceVirtualHosted) {
-        Preconditions.checkNotNull(location, "Location cannot be null.");
-        this.location = location;
+    public static S3URI create(String location, boolean forceVirtualHosted) throws UserException {
+        S3URI s3URI = new S3URI(location, forceVirtualHosted);
+        return s3URI;
+    }
+
+    private S3URI(String location, boolean forceVirtualHosted) throws UserException {
+        if (Strings.isNullOrEmpty(location)) {
+            throw new UserException("s3 location can not be null");
+        }
+
+        try {
+            // the location need to be normalized to eliminate double "/", or the hadoop aws api
+            // won't handle it correctly.
+            this.location = new URI(location).normalize().toString();
+        } catch (URISyntaxException e) {
+            throw new UserException("Invalid s3 uri: " + e.getMessage());
+        }
+
         this.forceVirtualHosted = forceVirtualHosted;
         String[] schemeSplit = location.split(SCHEME_DELIM);
-        Preconditions.checkState(schemeSplit.length == 2, "Invalid S3 URI: %s", location);
+        if (schemeSplit.length != 2) {
+            throw new UserException("Invalid s3 uri: " + location);
+        }
 
         this.scheme = schemeSplit[0];
-        Preconditions.checkState(VALID_SCHEMES.contains(scheme.toLowerCase()), "Invalid scheme: %s", scheme);
+        if (!VALID_SCHEMES.contains(scheme.toLowerCase())) {
+            throw new UserException("Invalid scheme: " + scheme);
+        }
+
         String[] authoritySplit = schemeSplit[1].split(PATH_DELIM, 2);
-        Preconditions.checkState(authoritySplit.length == 2, "Invalid S3 URI: %s", location);
-        Preconditions.checkState(!authoritySplit[1].trim().isEmpty(), "Invalid S3 key: %s", location);
+        if (authoritySplit.length != 2) {
+            throw new UserException("Invalid s3 uri: " + location);
+        }
+        if (authoritySplit[1].trim().isEmpty()) {
+            throw new UserException("Invalid s3 key: " + location);
+        }
+
         // Strip query and fragment if they exist
         String path = authoritySplit[1];
         path = path.split(QUERY_DELIM)[0];

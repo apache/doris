@@ -188,7 +188,6 @@ public class S3Storage extends BlobStorage {
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
         long start = System.currentTimeMillis();
-        S3URI uri = new S3URI(remoteFilePath, forceHostedStyle);
         // Write the data to a local file
         File localFile = new File(localFilePath);
         if (localFile.exists()) {
@@ -203,6 +202,7 @@ public class S3Storage extends BlobStorage {
             }
         }
         try {
+            S3URI uri = S3URI.create(remoteFilePath, forceHostedStyle);
             GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
             if (localFile.length() == fileSize) {
                 LOG.info(
@@ -220,7 +220,7 @@ public class S3Storage extends BlobStorage {
                     Status.ErrCode.COMMON_ERROR,
                     "get file from s3 error: " + s3Exception.awsErrorDetails().errorMessage());
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.toString());
@@ -229,8 +229,8 @@ public class S3Storage extends BlobStorage {
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        S3URI uri = new S3URI(remoteFile, forceHostedStyle);
         try {
+            S3URI uri = S3URI.create(remoteFile, forceHostedStyle);
             PutObjectResponse response =
                     getClient(uri.getVirtualBucket())
                             .putObject(
@@ -248,9 +248,9 @@ public class S3Storage extends BlobStorage {
     }
 
     public Status copy(String origFilePath, String destFilePath) {
-        S3URI origUri = new S3URI(origFilePath);
-        S3URI descUri = new S3URI(destFilePath, forceHostedStyle);
         try {
+            S3URI origUri = S3URI.create(origFilePath);
+            S3URI descUri = S3URI.create(destFilePath, forceHostedStyle);
             getClient(descUri.getVirtualBucket())
                     .copyObject(
                             CopyObjectRequest.builder()
@@ -270,8 +270,8 @@ public class S3Storage extends BlobStorage {
 
     @Override
     public Status upload(String localPath, String remotePath) {
-        S3URI uri = new S3URI(remotePath, forceHostedStyle);
         try {
+            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             PutObjectResponse response =
                     getClient(uri.getVirtualBucket())
                             .putObject(
@@ -300,8 +300,8 @@ public class S3Storage extends BlobStorage {
 
     @Override
     public Status delete(String remotePath) {
-        S3URI uri = new S3URI(remotePath, forceHostedStyle);
         try {
+            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             DeleteObjectResponse response =
                     getClient(uri.getVirtualBucket())
                             .deleteObject(
@@ -367,8 +367,8 @@ public class S3Storage extends BlobStorage {
         if (!remotePath.endsWith("/")) {
             remotePath += "/";
         }
-        S3URI uri = new S3URI(remotePath, forceHostedStyle);
         try {
+            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             PutObjectResponse response =
                     getClient(uri.getVirtualBucket())
                             .putObject(
@@ -387,8 +387,8 @@ public class S3Storage extends BlobStorage {
 
     @Override
     public Status checkPathExist(String remotePath) {
-        S3URI uri = new S3URI(remotePath, forceHostedStyle);
         try {
+            S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             getClient(uri.getVirtualBucket())
                     .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
             return Status.OK;

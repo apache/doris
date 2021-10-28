@@ -39,7 +39,7 @@ import java.util.UUID;
 @Ignore
 public class S3StorageTest {
     private static String basePath;
-    private final String bucket = "s3://cmy-repo/";
+    private final String bucket = "s3://doris-test/";
     private Map<String, String> properties;
     private S3Storage storage;
     private String testFile;
