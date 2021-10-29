@@ -32,4 +32,7 @@ public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, Inte
     @Query("select f from AgentRoleEntity f where f.host = :host")
     List<AgentRoleEntity> queryAgentByHost(@Param("host") String host);
 
+    @Query("select f from AgentRoleEntity f where f.host = :host and f.role = :role")
+    AgentRoleEntity queryByHostRole(@Param("host") String host, @Param("role") String role);
+
 }

@@ -37,9 +37,9 @@ import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
-import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
+import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.constants.CmdTypeEnum;
 import org.apache.doris.stack.constants.Constants;
@@ -105,10 +105,10 @@ public class AgentProcessImpl implements AgentProcess {
     private AgentRoleComponent agentRoleComponent;
 
     @Autowired
-    private AgentComponent agentComponent;
+    private ProcessInstanceComponent processInstanceComponent;
 
     @Autowired
-    private ProcessInstanceComponent processInstanceComponent;
+    private TaskInstanceComponent taskInstanceComponent;
 
     @Autowired
     private TaskInstanceRepository taskInstanceRepository;
@@ -142,9 +142,9 @@ public class AgentProcessImpl implements AgentProcess {
         }
     }
 
-    private RResult installDoris(int processId, InstallInfo install) {
+    private void installDoris(int processId, InstallInfo install) {
         CommandRequest creq = new CommandRequest();
-        TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost());
+        TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE);
         if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(install.isMkFeMetadir());
@@ -164,14 +164,12 @@ public class AgentProcessImpl implements AgentProcess {
         } else {
             throw new ServerException("The service installation is not currently supported");
         }
-        RResult result = agentRest.commandExec(install.getHost(), agentPort(install.getHost()), creq);
-        if (result != null && result.isSuccess()) {
-            installService.setStatus(ExecutionStatus.RUNNING);
-        } else {
-            installService.setStatus(ExecutionStatus.FAILURE);
+        boolean isRunning = taskInstanceComponent.checkTaskRunning(installService.getProcessId(), installService.getHost(), installService.getProcessType(), installService.getTaskType());
+        if (isRunning) {
+            return;
         }
-        taskInstanceRepository.save(installService);
-        return result;
+        RResult result = agentRest.commandExec(install.getHost(), agentPort(install.getHost()), creq);
+        taskInstanceComponent.refreshTask(installService, result);
     }
 
     @Override
@@ -196,7 +194,7 @@ public class AgentProcessImpl implements AgentProcess {
             log.error("conf {} can not encoding:", deployConf.getConf(), e);
         }
         CommandRequest creq = new CommandRequest();
-        TaskInstanceEntity deployTask = new TaskInstanceEntity(processId, deployConf.getHost());
+        TaskInstanceEntity deployTask = new TaskInstanceEntity(processId, deployConf.getHost(), ProcessTypeEnum.DEPLOY_CONFIG);
         if (ServiceRole.FE.name().equals(deployConf.getRole())) {
             WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
             feConf.setContent(deployConf.getConf());
@@ -210,13 +208,12 @@ public class AgentProcessImpl implements AgentProcess {
             creq.setCommandType(CommandType.WRITE_BE_CONF.name());
             deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
         }
-        RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
-        if (result != null && result.isSuccess()) {
-            deployTask.setStatus(ExecutionStatus.RUNNING);
-        } else {
-            deployTask.setStatus(ExecutionStatus.FAILURE);
+        boolean isRunning = taskInstanceComponent.checkTaskRunning(deployTask.getProcessId(), deployTask.getHost(), deployTask.getProcessType(), deployTask.getTaskType());
+        if (isRunning) {
+            return;
         }
-        taskInstanceRepository.save(deployTask);
+        RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
+        taskInstanceComponent.refreshTask(deployTask, result);
     }
 
     @Override
@@ -234,7 +231,7 @@ public class AgentProcessImpl implements AgentProcess {
                 continue;
             }
             CommandRequest creq = new CommandRequest();
-            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, exec.getHost());
+            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, exec.getHost(), ProcessTypeEnum.START_SERVICE);
             switch (commandType) {
                 case START_FE:
                     FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
@@ -258,14 +255,12 @@ public class AgentProcessImpl implements AgentProcess {
                     break;
             }
             creq.setCommandType(commandType.name());
-            RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
-
-            if (result != null && result.isSuccess()) {
-                execTask.setStatus(ExecutionStatus.RUNNING);
-            } else {
-                execTask.setStatus(ExecutionStatus.FAILURE);
+            boolean isRunning = taskInstanceComponent.checkTaskRunning(execTask.getProcessId(), execTask.getHost(), execTask.getProcessType(), execTask.getTaskType());
+            if (isRunning) {
+                return;
             }
-            taskInstanceRepository.save(execTask);
+            RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
+            taskInstanceComponent.refreshTask(execTask, result);
             log.info("agent {} execute {} {} ", exec.getHost(), dorisExec.getCommand(), exec.getRole());
         }
     }
@@ -325,7 +320,7 @@ public class AgentProcessImpl implements AgentProcess {
                 }
             }
         } catch (SQLException e) {
-            log.error("query show frontends fail", e);
+            log.error("query show frontends fail");
         } finally {
             JdbcUtil.closeConn(conn);
             JdbcUtil.closeStmt(stmt);
@@ -368,21 +363,28 @@ public class AgentProcessImpl implements AgentProcess {
         int agentPort = agentPort(be);
         AgentEntity aliveAgent = getAliveAgent();
         Integer jdbcPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
-
-        TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, be, TaskTypeEnum.JOIN_BE, ExecutionStatus.RUNNING);
-        taskInstanceRepository.save(installAgent);
-        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, installAgent, new BeJoin(aliveAgent.getHost(), jdbcPort, be, agentPort));
+        TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(processId, be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
+        if (joinBeTask == null) {
+            return;
+        }
+        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, joinBeTask, new BeJoin(aliveAgent.getHost(), jdbcPort, be, agentPort));
         ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
         Futures.addCallback(submit, new TaskExecCallback(taskContext));
     }
 
     @Override
     public boolean register(AgentRoleRegister agentReg) {
-        AgentEntity agent = agentComponent.agentInfo(agentReg.getHost());
+        AgentRoleEntity agent = agentRoleComponent.queryByHostRole(agentReg.getHost(), agentReg.getRole());
         if (agent == null) {
-            throw new ServerException("can not find " + agentReg.getHost() + " agent");
+            log.error("can not find agent {} role {}", agentReg.getHost(), agentReg.getRole());
+            throw new ServerException("can not register " + agentReg.getHost() + " role " + agentReg.getRole());
+        } else if (Flag.NO.equals(agent.getRegister())) {
+            agent.setRegister(Flag.YES);
+        } else {
+            log.info("agent {} role {} already register.", agentReg.getHost(), agentReg.getRole());
         }
-        AgentRoleEntity agentRoleEntity = agentRoleComponent.registerAgentRole(agentReg);
+
+        AgentRoleEntity agentRoleEntity = agentRoleComponent.saveAgentRole(agent);
         return agentRoleEntity != null;
     }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.manager.agent.command;
 
-import org.apache.doris.manager.agent.task.TaskResult;
+import org.apache.doris.manager.common.domain.TaskResult;
 
 import java.util.List;
 

@@ -41,6 +41,8 @@ public interface ServerProcess {
 
     List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
+    List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step);
+
     /**
      * Refresh the task status on the agent side again
      */
@@ -63,5 +65,4 @@ public interface ServerProcess {
     void heartbeat(String host, Integer port);
 
     boolean register(AgentRegister agent);
-
 }

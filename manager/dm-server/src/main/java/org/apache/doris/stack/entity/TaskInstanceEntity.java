@@ -21,6 +21,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 
 import javax.persistence.Column;
@@ -54,6 +55,10 @@ public class TaskInstanceEntity {
     private String host;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "process_type", nullable = false)
+    private ProcessTypeEnum processType;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "task_type", nullable = false)
     private TaskTypeEnum taskType;
 
@@ -73,17 +78,19 @@ public class TaskInstanceEntity {
     @Column(name = "result")
     private String result;
 
-    public TaskInstanceEntity(int processId, String host, TaskTypeEnum taskType, ExecutionStatus status) {
+    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
+        this.processType = processType;
         this.taskType = taskType;
         this.status = status;
         this.startTime = new Date();
     }
 
-    public TaskInstanceEntity(int processId, String host) {
+    public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType) {
         this.processId = processId;
         this.host = host;
+        this.processType = processType;
         this.startTime = new Date();
     }
 }

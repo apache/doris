@@ -43,6 +43,7 @@ public class JdbcUtil {
 
     public static Connection getConnection(String host, Integer port) throws SQLException {
         String url = "jdbc:mysql://" + host + ":" + port + "?user=" + Constants.DORIS_DEFAULT_QUERY_USER + "&password=" + Constants.DORIS_DEFAULT_QUERY_PASSWORD;
+        System.out.println(url);
         return DriverManager.getConnection(url);
     }
 
@@ -94,5 +95,9 @@ public class JdbcUtil {
         } catch (SQLException e) {
             log.error("close resultset error:", e);
         }
+    }
+
+    public static void main(String[] args) throws SQLException {
+        System.out.println(getConnection("10.220.147.155", 9030));
     }
 }

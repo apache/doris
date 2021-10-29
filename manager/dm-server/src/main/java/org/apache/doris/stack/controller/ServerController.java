@@ -70,6 +70,18 @@ public class ServerController {
     }
 
     /**
+     * Query the installation status of tasks in the current installation process
+     */
+    @ApiOperation(value = "Query the installation status of tasks in the current installation process")
+    @RequestMapping(value = "/task/{processId}/{step}", method = RequestMethod.GET)
+    public RResult taskProgress(HttpServletRequest request, HttpServletResponse response,
+                                @PathVariable(value = "processId") int processId,
+                                @PathVariable(value = "step") String step) throws Exception {
+        List<TaskInstanceEntity> tasks = serverProcess.taskProgress(request, response, processId, step);
+        return RResult.success(tasks);
+    }
+
+    /**
      * After the installation is complete, call the interface
      */
     @ApiOperation(value = "After the installation is complete, call the interface")

@@ -30,6 +30,7 @@ import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
+import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
@@ -85,6 +86,9 @@ public class ServerProcessImpl implements ServerProcess {
     private ProcessInstanceComponent processInstanceComponent;
 
     @Autowired
+    private TaskInstanceComponent taskInstanceComponent;
+
+    @Autowired
     private TaskInstanceRepository taskInstanceRepository;
 
     @Autowired
@@ -113,13 +117,18 @@ public class ServerProcessImpl implements ServerProcess {
     }
 
     @Override
+    public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step) {
+        return taskInstanceRepository.queryTasksByProcessStep(processId, step);
+    }
+
+    @Override
     public void refreshAgentTaskStatus(int processId) {
         List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
         for (TaskInstanceEntity task : taskEntities) {
             if (task.getTaskType().agentTask()
                     && task.getStatus().typeIsRunning()) {
                 RResult rResult = agentTask.taskInfo(new TaskInfoReq(task.getHost(), task.getExecutorId()));
-                //update task status
+                taskInstanceComponent.refreshTask(task, rResult);
             }
         }
     }
@@ -129,6 +138,7 @@ public class ServerProcessImpl implements ServerProcess {
         ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
         if (processInstance != null) {
             processInstance.setFinish(Flag.YES);
+            processInstance.setUpdateTime(new Date());
             processInstanceComponent.updateProcess(processInstance);
         }
     }
@@ -141,9 +151,10 @@ public class ServerProcessImpl implements ServerProcess {
         int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {
-            TaskInstanceEntity installAgent = new TaskInstanceEntity(processId, host, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED);
-            taskInstanceRepository.save(installAgent);
-
+            TaskInstanceEntity installAgent = taskInstanceComponent.saveTask(processId, host, ProcessTypeEnum.INSTALL_AGENT, TaskTypeEnum.INSTALL_AGENT, ExecutionStatus.SUBMITTED);
+            if (installAgent == null) {
+                continue;
+            }
             TaskContext taskContext = new TaskContext(TaskTypeEnum.INSTALL_AGENT, installAgent, new AgentInstall(host, installReq));
             ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
             Futures.addCallback(submit, new TaskExecCallback(taskContext));

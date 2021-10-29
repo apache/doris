@@ -51,6 +51,7 @@ public class JoinBeTask extends AbstractTask {
         try {
             conn = JdbcUtil.getConnection(requestParams.getFeHost(), requestParams.getFePort());
         } catch (SQLException e) {
+            log.error("get connection fail:", e);
             throw new JdbcException("Failed to get fe's jdbc connection");
         }
         Properties beConf = agentRest.roleConfig(requestParams.getBeHost(), requestParams.getAgentPort(), ServiceRole.BE.name());

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.task;
+package org.apache.doris.manager.common.domain;
 
 import java.util.Date;
 

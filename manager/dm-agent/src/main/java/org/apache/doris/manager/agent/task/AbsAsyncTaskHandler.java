@@ -17,6 +17,8 @@
 
 package org.apache.doris.manager.agent.task;
 
+import org.apache.doris.manager.common.domain.TaskState;
+
 import java.util.concurrent.ExecutorService;
 
 public abstract class AbsAsyncTaskHandler extends TaskHandler {

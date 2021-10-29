@@ -21,17 +21,22 @@ public class ProcessInstanceComponent {
      * save process and return id
      */
     public int saveProcess(ProcessInstanceEntity processInstance) {
+        checkHasUnfinishProcess(processInstance.getUserId());
+        return processInstanceRepository.save(processInstance).getId();
+    }
+
+    public void checkHasUnfinishProcess(int userId) {
         //query whether there is a process currently being installed
-        ProcessInstanceEntity processEntity = processInstanceRepository.queryProcessByuserId(processInstance.getUserId());
-        if (processEntity != null && processEntity.getId() != processInstance.getId()) {
+        ProcessInstanceEntity processEntity = processInstanceRepository.queryProcessByuserId(userId);
+        if (processEntity != null) {
             throw new ServerException("You already have an installation in the current environment!");
         }
-        return processInstanceRepository.save(processInstance).getId();
     }
 
     public int refreshProcess(int processId, int clusterId, int userId, ProcessTypeEnum processType) {
         ProcessInstanceEntity processInstance = queryProcessById(processId);
         if (processInstance == null) {
+            checkHasUnfinishProcess(userId);
             processInstance = new ProcessInstanceEntity(clusterId, userId, processType);
         } else {
             processInstance.setProcessType(processType);

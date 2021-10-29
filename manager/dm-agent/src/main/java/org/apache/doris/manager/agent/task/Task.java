@@ -18,6 +18,8 @@
 package org.apache.doris.manager.agent.task;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.common.domain.TaskResult;
+import org.apache.doris.manager.common.domain.TaskState;
 
 import java.io.IOException;
 import java.util.Date;
