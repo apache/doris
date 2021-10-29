@@ -93,4 +93,8 @@ public class RespContent {
         }
 
     }
+
+    public String getErrorURL() {
+        return ErrorURL;
+    }
 }
