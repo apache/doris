@@ -17,13 +17,14 @@
 
 package org.apache.doris.spark.sql
 
+import org.apache.commons.lang3.StringUtils
 import org.apache.doris.spark.cfg.ConfigurationOptions
 import org.apache.doris.spark.exception.DorisException
-
 import org.apache.spark.sql.jdbc.JdbcDialect
 import org.apache.spark.sql.sources._
-
 import org.slf4j.Logger
+
+import java.sql.{Date, Timestamp}
 
 private[sql] object Utils {
   /**
@@ -42,16 +43,16 @@ private[sql] object Utils {
    */
   def compileFilter(filter: Filter, dialect: JdbcDialect, inValueLengthLimit: Int): Option[String] = {
     Option(filter match {
-      case EqualTo(attribute, value) => s"${quote(attribute)} = ${dialect.compileValue(value)}"
-      case GreaterThan(attribute, value) => s"${quote(attribute)} > ${dialect.compileValue(value)}"
-      case GreaterThanOrEqual(attribute, value) => s"${quote(attribute)} >= ${dialect.compileValue(value)}"
-      case LessThan(attribute, value) => s"${quote(attribute)} < ${dialect.compileValue(value)}"
-      case LessThanOrEqual(attribute, value) => s"${quote(attribute)} <= ${dialect.compileValue(value)}"
+      case EqualTo(attribute, value) => s"${quote(attribute)} = ${compileValue(value)}"
+      case GreaterThan(attribute, value) => s"${quote(attribute)} > ${compileValue(value)}"
+      case GreaterThanOrEqual(attribute, value) => s"${quote(attribute)} >= ${compileValue(value)}"
+      case LessThan(attribute, value) => s"${quote(attribute)} < ${compileValue(value)}"
+      case LessThanOrEqual(attribute, value) => s"${quote(attribute)} <= ${compileValue(value)}"
       case In(attribute, values) =>
         if (values.isEmpty || values.length >= inValueLengthLimit) {
           null
         } else {
-          s"${quote(attribute)} in (${dialect.compileValue(values)})"
+          s"${quote(attribute)} in (${compileValue(values)})"
         }
       case IsNull(attribute) => s"${quote(attribute)} is null"
       case IsNotNull(attribute) => s"${quote(attribute)} is not null"
@@ -71,6 +72,27 @@ private[sql] object Utils {
         }
       case _ => null
     })
+  }
+
+  /**
+   * Escape special characters in SQL string literals.
+   * @param value The string to be escaped.
+   * @return Escaped string.
+   */
+  private def escapeSql(value: String): String =
+    if (value == null) null else StringUtils.replace(value, "'", "''")
+
+  /**
+   * Converts value to SQL expression.
+   * @param value The value to be converted.
+   * @return Converted value.
+   */
+  private def compileValue(value: Any): Any = value match {
+    case stringValue: String => s"'${escapeSql(stringValue)}'"
+    case timestampValue: Timestamp => "'" + timestampValue + "'"
+    case dateValue: Date => "'" + dateValue + "'"
+    case arrayValue: Array[Any] => arrayValue.map(compileValue).mkString(", ")
+    case _ => value
   }
 
   /**
