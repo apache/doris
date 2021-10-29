@@ -34,6 +34,13 @@ struct TMasterInfo {
     8: optional i64 backend_id
 }
 
+// Contain master
+struct TFrontendInfo {
+    1: required Types.TNetworkAddress network_address
+    2: required i64 fe_start_time
+    3: required bool is_alive
+}
+
 struct TBackendInfo {
     1: required Types.TPort be_port
     2: required Types.TPort http_port
@@ -49,5 +56,5 @@ struct THeartbeatResult {
 }
 
 service HeartbeatService {
-    THeartbeatResult heartbeat(1:TMasterInfo master_info);
+    THeartbeatResult heartbeat(1:TMasterInfo master_info, 2:list<TFrontendInfo> frontend_info);
 }

@@ -23,12 +23,17 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class Frontend implements Writable {
+
+    private static final Logger LOG = LogManager.getLogger(Frontend.class);
+
     private FrontendNodeType role;
     private String nodeName;
     private String host;
@@ -40,6 +45,7 @@ public class Frontend implements Writable {
 
     private long replayedJournalId;
     private long lastUpdateTime;
+    private long lastStartTime = -1;
     private String heartbeatErrMsg = "";
 
     private boolean isAlive = false;
@@ -98,6 +104,10 @@ public class Frontend implements Writable {
         return lastUpdateTime;
     }
 
+    public long getLastStartTime() {
+        return lastStartTime;
+    }
+
     /**
      * handle Frontend's heartbeat response.
      * Because the replayed journal id is very likely to be changed at each heartbeat response,
@@ -107,7 +117,10 @@ public class Frontend implements Writable {
     public boolean handleHbResponse(FrontendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
-            isAlive = true;
+//            if (!isAlive || lastStartTime <= 0) {
+//                lastStartTime = hbResponse.getHbTime();
+//            }
+//            isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();
@@ -115,6 +128,14 @@ public class Frontend implements Writable {
             lastUpdateTime = hbResponse.getHbTime();
             heartbeatErrMsg = "";
             isChanged = true;
+
+            if (!isAlive) {
+                lastStartTime = hbResponse.getStartTime();
+                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getStartTime());
+                isAlive = true;
+            } else if (this.lastStartTime <= 0) {
+                this.lastStartTime = hbResponse.getStartTime();
+            }
         } else {
             if (isAlive) {
                 isAlive = false;

@@ -45,6 +45,7 @@ public class BootstrapFinishAction extends RestBaseAction {
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
     public static final String VERSION = "version";
+    public static final String START_TIME = "startTime";
 
     public BootstrapFinishAction(ActionController controller) {
         super(controller);
@@ -95,6 +96,7 @@ public class BootstrapFinishAction extends RestBaseAction {
                     result.setQueryPort(Config.query_port);
                     result.setRpcPort(Config.rpc_port);
                     result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                    result.setStartTime(Catalog.getCurrentCatalog().getFeStartTime());
                 }
             }
         } else {
@@ -112,6 +114,7 @@ public class BootstrapFinishAction extends RestBaseAction {
         private int queryPort = 0;
         private int rpcPort = 0;
         private String version = "";
+        private long startTime = -1;
 
         public BootstrapResult() {
             super();
@@ -151,6 +154,14 @@ public class BootstrapFinishAction extends RestBaseAction {
 
         public void setVersion(String version) {
             this.version = version;
+        }
+
+        public long getStartTime() {
+            return startTime;
+        }
+
+        public void setStartTime(long startTime) {
+            this.startTime = startTime;
         }
 
         @Override

@@ -368,6 +368,7 @@ public class Catalog {
     private int masterRpcPort;
     private int masterHttpPort;
     private String masterIp;
+    private long feStartTime;
 
     private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
 
@@ -545,6 +546,7 @@ public class Catalog {
         this.masterRpcPort = 0;
         this.masterHttpPort = 0;
         this.masterIp = "";
+        this.feStartTime = System.currentTimeMillis();
 
         this.systemInfo = new SystemInfoService();
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
@@ -5064,6 +5066,10 @@ public class Catalog {
 
     public String getNodeName() {
         return this.nodeName;
+    }
+
+    public long getFeStartTime() {
+        return this.feStartTime;
     }
 
     public FrontendNodeType getFeType() {

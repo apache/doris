@@ -56,6 +56,7 @@ public class BootstrapFinishAction {
     public static final String QUERY_PORT = "queryPort";
     public static final String RPC_PORT = "rpcPort";
     public static final String VERSION = "version";
+    public static final String START_TIME = "startTime";
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
@@ -89,6 +90,7 @@ public class BootstrapFinishAction {
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                result.setStartTime(Catalog.getCurrentCatalog().getFeStartTime());
             }
 
             return ResponseEntityBuilder.ok(result);
@@ -105,6 +107,7 @@ public class BootstrapFinishAction {
         private int queryPort = 0;
         private int rpcPort = 0;
         private String version = "";
+        private long startTime = -1;
 
         public BootstrapResult() {
 
@@ -140,6 +143,14 @@ public class BootstrapFinishAction {
 
         public void setVersion(String version) {
             this.version = version;
+        }
+
+        public long getStartTime() {
+            return startTime;
+        }
+
+        public void setStartTime(long startTime) {
+            this.startTime = startTime;
         }
 
     }

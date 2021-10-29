@@ -31,14 +31,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private int bePort;
     private int httpPort;
     private int brpcPort;
-    private long beStartTime;
     private String version = "";
 
     public BackendHbResponse() {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
-    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime, String version) {
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime
+            , long startTime, String version) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -46,7 +46,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.httpPort = httpPort;
         this.brpcPort = brpcPort;
         this.hbTime = hbTime;
-        this.beStartTime = beStartTime;
+        this.startTime = startTime;
         this.version = version;
     }
 
@@ -71,10 +71,6 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public int getBrpcPort() {
         return brpcPort;
-    }
-
-    public long getBeStartTime() {
-        return beStartTime;
     }
 
     public String getVersion() {

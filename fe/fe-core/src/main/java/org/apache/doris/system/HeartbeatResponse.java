@@ -49,6 +49,7 @@ public class HeartbeatResponse implements Writable {
      */
     protected String msg;
     protected long hbTime;
+    protected long startTime;
 
     public HeartbeatResponse(Type type) {
         this.type = type;
@@ -68,6 +69,10 @@ public class HeartbeatResponse implements Writable {
 
     public long getHbTime() {
         return hbTime;
+    }
+
+    public long getStartTime() {
+        return startTime;
     }
 
     public void setTypeRead(boolean isTypeRead) {

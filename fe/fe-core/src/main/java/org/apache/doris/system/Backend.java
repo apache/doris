@@ -656,11 +656,11 @@ public class Backend implements Writable {
             this.lastUpdateMs = hbResponse.getHbTime();
             if (!isAlive.get()) {
                 isChanged = true;
-                this.lastStartTime = hbResponse.getBeStartTime();
-                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getBeStartTime());
+                this.lastStartTime = hbResponse.getStartTime();
+                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getStartTime());
                 this.isAlive.set(true);
             } else if (this.lastStartTime <= 0) {
-                this.lastStartTime = hbResponse.getBeStartTime();
+                this.lastStartTime = hbResponse.getStartTime();
             }
 
             heartbeatErrMsg = "";

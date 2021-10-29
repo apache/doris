@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TPaloBrokerService;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -223,9 +224,16 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 THeartbeatResult result;
+
+                List<TFrontendInfo> tFrontendsInfo = Lists.newArrayList();
+                for (Frontend fe : Catalog.getCurrentCatalog().getFrontends(null)) {
+                    tFrontendsInfo.add(new TFrontendInfo(
+                            new TNetworkAddress(fe.getHost(), fe.getRpcPort()), fe.getLastStartTime(), fe.isAlive()));
+                }
+
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
-                    result = client.heartbeat(copiedMasterInfo);
+                    result = client.heartbeat(copiedMasterInfo, tFrontendsInfo);
                 } else {
                     // Mocked result
                     TBackendInfo backendInfo = new TBackendInfo();
@@ -294,6 +302,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (Catalog.getCurrentCatalog().isReady()) {
                     return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
                             Catalog.getCurrentCatalog().getMaxJournalId(), System.currentTimeMillis(),
+                            Catalog.getCurrentCatalog().getFeStartTime(),
                             Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
@@ -331,8 +340,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
                         String version = root.getString(BootstrapFinishAction.VERSION);
+                        long startTime = root.getLong(BootstrapFinishAction.START_TIME);
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version == null ? "unknown" : version);
+                                System.currentTimeMillis(), startTime, version == null ? "unknown" : version);
                     }
                 } else if (root.has("code")) {
                     // new return
@@ -345,8 +355,9 @@ public class HeartbeatMgr extends MasterDaemon {
                         int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
                         String version = dataObj.getString(BootstrapFinishAction.VERSION);
+                        long startTime = root.getLong(BootstrapFinishAction.START_TIME);
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version);
+                                System.currentTimeMillis(), startTime, version);
                     }
                 } else {
                     throw new Exception("invalid return value: " + result);
@@ -369,7 +380,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                     return new FrontendHbResponse(fe.getNodeName(), result.getQueryPort(),
                             result.getRpcPort(), result.getReplayedJournalId(),
-                            System.currentTimeMillis(), result.getVersion());
+                            System.currentTimeMillis(), result.getStartTime(), result.getVersion());
 
                 } else {
                     return new FrontendHbResponse(fe.getNodeName(), result.getMsg());

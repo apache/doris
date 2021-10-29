@@ -1023,6 +1023,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setQueryPort(Config.query_port);
                 result.setRpcPort(Config.rpc_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
+                result.setStartTime(Catalog.getCurrentCatalog().getFeStartTime());
             }
         } else {
             result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
