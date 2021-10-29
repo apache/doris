@@ -158,7 +158,7 @@ public class BackendLoadStatistic {
                 totalLoadScore += getLoadScore(medium);
             }
         }
-        return totalLoadScore / mediumCount == 0 ? 1 : mediumCount;
+        return totalLoadScore / (mediumCount == 0 ? 1 : mediumCount);
     }
 
     public void setClazz(TStorageMedium medium, Classification clazz) {
