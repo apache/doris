@@ -426,19 +426,24 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 *reinterpret_cast<int8_t*>(slot) = col.GetInt();
                 break;
             }
-            if (pure_doc_value && col.IsArray()) {
+
+            bool is_nested_str = false;
+            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
                 *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
                 break;
+            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
+                is_nested_str = true;
+            } else if (pure_doc_value && col.IsArray()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
             }
 
-            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-            RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-            const std::string& val = col.GetString();
-            size_t val_size = col.GetStringLength();
+            const rapidjson::Value& str_col = is_nested_str? col[0]: col;
+            const std::string& val = str_col.GetString();
+            size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;
             bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-            RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
+            RETURN_ERROR_IF_PARSING_FAILED(result, str_col, type);
             *reinterpret_cast<int8_t*>(slot) = b;
             break;
         }
