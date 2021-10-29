@@ -33,6 +33,7 @@ class Slice;
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICIT_INT64_NUM = 160;
+const static int HLL_EXPLICIT_INT64_NUM_DOUBLE = HLL_EXPLICIT_INT64_NUM*2;
 const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
@@ -82,13 +83,18 @@ public:
 
     HyperLogLog() = default;
     explicit HyperLogLog(uint64_t hash_value): _type(HLL_DATA_EXPLICIT) {
+        _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
         _explicit_data[0] = hash_value;
         _explicit_data_num = 1;
     }
 
     explicit HyperLogLog(const Slice& src);
 
-    ~HyperLogLog() { delete[] _registers; }
+    ~HyperLogLog() {
+        delete [] _registers;
+        delete [] _explicit_data;
+        _explicit_data_num = 0;
+    }
 
     typedef uint8_t SetTypeValueType;
     typedef int32_t SparseLengthValueType;
@@ -103,6 +109,13 @@ public:
 
     // Return max size of serialized binary
     size_t max_serialized_size() const;
+
+    size_t memory_consumed() const {
+        size_t size = sizeof(*this);
+        if (_explicit_data) size += HLL_EXPLICIT_INT64_NUM_DOUBLE;
+        if (_registers) size += HLL_REGISTERS_COUNT;
+        return size;
+    }
 
     // Input slice should has enough capacity for serialize, which
     // can be get through max_serialized_size(). If insufficient buffer
@@ -154,7 +167,7 @@ private:
     HllDataType _type = HLL_DATA_EMPTY;
 
     uint32_t _explicit_data_num = 0;
-    uint64_t _explicit_data[HLL_EXPLICIT_INT64_NUM * 2];
+    uint64_t* _explicit_data = nullptr;
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.

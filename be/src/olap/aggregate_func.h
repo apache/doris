@@ -487,6 +487,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         dst_slice->data = reinterpret_cast<char*>(hll);
 
+        mem_pool->mem_tracker()->Consume(hll->memory_consumed());
+
         agg_pool->add(hll);
     }
 
