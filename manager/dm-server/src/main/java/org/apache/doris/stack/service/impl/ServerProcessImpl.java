@@ -118,7 +118,11 @@ public class ServerProcessImpl implements ServerProcess {
 
     @Override
     public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step) {
-        return taskInstanceRepository.queryTasksByProcessStep(processId, step);
+        ProcessTypeEnum processType = ProcessTypeEnum.findByName(step);
+        if (processType == null) {
+            throw new ServerException("can not find this step " + step);
+        }
+        return taskInstanceRepository.queryTasksByProcessStep(processId, processType);
     }
 
     @Override

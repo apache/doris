@@ -17,6 +17,8 @@
 
 package org.apache.doris.stack.dao;
 
+import org.apache.doris.stack.constants.ProcessTypeEnum;
+import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -30,8 +32,8 @@ public interface TaskInstanceRepository extends JpaRepository<TaskInstanceEntity
     List<TaskInstanceEntity> queryTasksByProcessId(@Param("processId") int processId);
 
     @Query("select f from TaskInstanceEntity f where f.processId = :processId and f.processType = :processType")
-    List<TaskInstanceEntity> queryTasksByProcessStep(@Param("processId") int processId, @Param("processType") String processType);
+    List<TaskInstanceEntity> queryTasksByProcessStep(@Param("processId") int processId, @Param("processType") ProcessTypeEnum processType);
 
     @Query("select f from TaskInstanceEntity f where f.processId = :processId and host = :host and processType = :processType and taskType = :taskType")
-    TaskInstanceEntity queryTask(@Param("processId") int processId, @Param("host") String host, @Param("processType") String processType, @Param("taskType") String taskType);
+    TaskInstanceEntity queryTask(@Param("processId") int processId, @Param("host") String host, @Param("processType") ProcessTypeEnum processType, @Param("taskType") TaskTypeEnum taskType);
 }

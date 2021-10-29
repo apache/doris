@@ -35,6 +35,15 @@ public enum ProcessTypeEnum {
         this.desc = desc;
     }
 
+    public static ProcessTypeEnum findByName(String name) {
+        for (ProcessTypeEnum type : ProcessTypeEnum.values()) {
+            if (type.name().equals(name)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
     public int getCode() {
         return code;
     }
@@ -42,4 +51,5 @@ public enum ProcessTypeEnum {
     public String getDesc() {
         return desc;
     }
+
 }

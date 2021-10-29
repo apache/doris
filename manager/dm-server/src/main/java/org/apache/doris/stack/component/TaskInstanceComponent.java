@@ -24,7 +24,7 @@ public class TaskInstanceComponent {
      * The same host, the same tasktype, can only have one
      */
     public boolean checkTaskRunning(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType) {
-        TaskInstanceEntity taskEntity = taskInstanceRepository.queryTask(processId, host, processType.name(), taskType.name());
+        TaskInstanceEntity taskEntity = taskInstanceRepository.queryTask(processId, host, processType, taskType);
         if (taskEntity == null) {
             return false;
         } else if (taskEntity.getStatus().typeIsRunning()) {
