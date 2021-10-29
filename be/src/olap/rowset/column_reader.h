@@ -197,8 +197,6 @@ public:
     // Get the seek position of this column
     virtual OLAPStatus seek(PositionProvider* positions);
 
-    // TODO. It’s not very clear, why don’t present skip,
-    // If the upper layer skips and the bottom layer does not skip, isn’t it inaccurate that next judges whether it’s empty or not?
     virtual OLAPStatus skip(uint64_t row_count);
 
     virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
