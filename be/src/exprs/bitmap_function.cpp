@@ -614,9 +614,9 @@ BooleanVal BitmapFunctions::bitmap_has_all(FunctionContext *ctx, const StringVal
     }
 
     if (lhs.len != 0 && rhs.len != 0) {
-        BitmapValue bitmap = BitmapValue((char *) lhs.ptr);
+        BitmapValue bitmap = BitmapValue(reinterpret_cast<char*>(lhs.ptr));
         int64_t lhs_cardinality = bitmap.cardinality();
-        bitmap |= BitmapValue((char *) rhs.ptr);
+        bitmap |= BitmapValue(reinterpret_cast<char*>(rhs.ptr));
         return {bitmap.cardinality() == lhs_cardinality};
     } else if (rhs.len != 0) {
         return {false};
