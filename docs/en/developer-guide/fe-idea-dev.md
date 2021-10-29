@@ -43,7 +43,7 @@ If your are only interested in FE module, and for some reason you can't or don't
 the minimum tool required for FE module is `thrift`, so you can manually install `thrift` and copy or create a link of 
 the executable `thrift` command to `./thirdparty/installed/bin`.
 
-Doris build against `thrift` 0.13.0, and `thrift` 0.13.0 should also work well, but the newer version will not.
+Doris build against `thrift` 0.13.0 ( note : `Doris` 0.15 and later version build against `thrift` 0.13.0 , the previous version is still `thrift` 0.9.3)
 
 If your are using macOS, try `brew install thrift@0.13.0` and will get `thrift` 0.13.0 installed at `/usr/local/opt/thrift@0.13.0/bin/thrift`, 
 then create a soft link to `./thirdparty/installed/bin/thrift`.
