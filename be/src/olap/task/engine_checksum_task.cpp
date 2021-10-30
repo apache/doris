@@ -17,7 +17,7 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/reader.h"
+#include "olap/tuple_reader.h"
 #include "olap/row.h"
 
 namespace doris {
@@ -55,7 +55,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    Reader reader;
+    TupleReader reader;
     ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = READER_CHECKSUM;

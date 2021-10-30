@@ -33,7 +33,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
-#include "olap/reader.h"
+#include "olap/tuple_reader.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
 #include "runtime/descriptors.h"
@@ -43,15 +43,13 @@
 namespace doris {
 
 class OlapScanNode;
-class OLAPReader;
 class RuntimeProfile;
 class Field;
 
 class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                bool need_agg_finalize, const TPaloScanRange& scan_range,
-                const std::vector<OlapScanRange*>& key_ranges);
+                bool need_agg_finalize, const TPaloScanRange& scan_range);
 
     ~OlapScanner();
 
