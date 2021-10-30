@@ -597,6 +597,19 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     return {bitmap.cardinality() != 0};
 }
 
+BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
+
+    if (src.len == 0) {
+        return reinterpret_cast<BitmapValue*>(src.ptr)->maximum();
+    } else {
+        auto bitmap = BitmapValue((char*)src.ptr);
+        return bitmap.maximum();
+    }
+}
+
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,
                                                              const TinyIntVal& src, StringVal* dst);
 template void BitmapFunctions::bitmap_update_int<SmallIntVal>(FunctionContext* ctx,
