@@ -137,6 +137,9 @@ mockDataDF.write.format("doris")
 	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
+  //other options
+  //specify the fields to write
+  .option("doris.write.field","$YOUR_FIELDS_TO_WRITE")
   .save()
 
 ## stream sink(StructuredStreaming)
@@ -154,6 +157,9 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
   .option("user", "$YOUR_DORIS_USERNAME")
   .option("password", "$YOUR_DORIS_PASSWORD")
+  //other options
+  //specify the fields to write
+  .option("doris.write.field","$YOUR_FIELDS_TO_WRITE")
   .start()
   .awaitTermination()
 ```
