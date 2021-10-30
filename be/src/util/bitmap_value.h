@@ -1439,6 +1439,18 @@ public:
         return ss.str();
     }
 
+
+    doris_udf::BigIntVal maximum() {
+        switch (_type) {
+            case SINGLE:
+                return doris_udf::BigIntVal(_sv);
+            case BITMAP:
+                return doris_udf::BigIntVal(_bitmap.maximum());
+            default:
+                return doris_udf::BigIntVal::null();
+        }
+    }
+
 private:
     void _convert_to_smaller_type() {
         if (_type == BITMAP) {

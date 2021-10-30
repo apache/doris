@@ -420,6 +420,7 @@ module.exports = [
               "bitmap_union",
               "bitmap_xor",
               "to_bitmap",
+              "bitmap_max",
             ],
           },
           {

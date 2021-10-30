@@ -91,6 +91,7 @@ public:
     static StringVal bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src);
     template <typename T>
     static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_max(FunctionContext* ctx, const StringVal& str);
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
