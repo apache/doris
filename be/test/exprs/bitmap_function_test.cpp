@@ -446,6 +446,32 @@ TEST_F(BitmapFunctionsTest, bitmap_from_string) {
     }
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_max) {
+    BigIntVal result = BitmapFunctions::bitmap_max(ctx, StringVal::null());
+    ASSERT_TRUE(result.is_null);
+
+    BitmapValue bitmap1;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap1);
+    result = BitmapFunctions::bitmap_max(ctx, empty_str);
+    ASSERT_TRUE(result.is_null);
+
+    BitmapValue bitmap2 = BitmapValue(1024);
+    StringVal bitmap_str = convert_bitmap_to_string(ctx, bitmap2);
+    result = BitmapFunctions::bitmap_max(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1024), result);
+
+    BitmapValue bitmap3 = BitmapValue({1024, 1});
+    bitmap_str = convert_bitmap_to_string(ctx, bitmap3);
+    result = BitmapFunctions::bitmap_max(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1024), result);
+
+    BitmapValue bitmap4 = BitmapValue({1024, 3, 2});
+    bitmap_str = convert_bitmap_to_string(ctx, bitmap4);
+    result = BitmapFunctions::bitmap_max(ctx, bitmap_str);
+    ASSERT_EQ(BigIntVal(1024), result);
+}
+
+
 } // namespace doris
 
 int main(int argc, char** argv) {
