@@ -139,7 +139,7 @@ mockDataDF.write.format("doris")
   .option("password", "$YOUR_DORIS_PASSWORD")
   //other options
   //specify the fields to write
-  .option("doris.write.field","$YOUR_FIELDS_TO_WRITE")
+  .option("doris.write.fields","$YOUR_FIELDS_TO_WRITE")
   .save()
 
 ## stream sink(StructuredStreaming)
@@ -159,7 +159,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .option("password", "$YOUR_DORIS_PASSWORD")
   //other options
   //specify the fields to write
-  .option("doris.write.field","$YOUR_FIELDS_TO_WRITE")
+  .option("doris.write.fields","$YOUR_FIELDS_TO_WRITE")
   .start()
   .awaitTermination()
 ```

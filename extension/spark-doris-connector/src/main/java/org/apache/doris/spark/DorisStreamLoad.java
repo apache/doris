@@ -84,7 +84,7 @@ public class DorisStreamLoad implements Serializable{
         this.passwd = settings.getProperty(ConfigurationOptions.DORIS_REQUEST_AUTH_PASSWORD);
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
-        this.columns = settings.getProperty(ConfigurationOptions.DORIS_WRITE_FIELD);
+        this.columns = settings.getProperty(ConfigurationOptions.DORIS_WRITE_FIELDS);
     }
 
     public String getLoadUrlStr() {

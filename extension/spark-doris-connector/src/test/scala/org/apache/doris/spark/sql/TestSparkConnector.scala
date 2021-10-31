@@ -34,7 +34,6 @@ class TestSparkConnector {
   def rddReadTest(): Unit = {
     val sparkConf: SparkConf = new SparkConf().setMaster("local[*]")
     val sc = new SparkContext(sparkConf)
-    //sc.setLogLevel("DEBUG")
     import org.apache.doris.spark._
     val dorisSparkRDD = sc.dorisRDD(
       tableIdentifier = Some(dorisTable),

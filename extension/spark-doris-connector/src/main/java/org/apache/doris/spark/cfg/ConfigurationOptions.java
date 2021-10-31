@@ -64,5 +64,5 @@ public interface ConfigurationOptions {
     String DORIS_DESERIALIZE_QUEUE_SIZE = "doris.deserialize.queue.size";
     int DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT = 64;
 
-    String DORIS_WRITE_FIELD = "doris.write.field";
+    String DORIS_WRITE_FIELDS = "doris.write.fields";
 }
