@@ -436,3 +436,12 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `disable_join_reorder`
 
    用于关闭所有系统自动的 join reorder 算法。取值有两种：true 和 false。默认行况下关闭，也就是采用系统自动的 join reorder 算法。设置为 true 后，系统会关闭所有自动排序的算法，采用 SQL 原始的表顺序，执行 join
+
+* `exec_scheduling_strategy`
+
+    用于配置 Query 的执行调度策略。目前支持两种调度策略（默认是 EVENLY_BACKEND）：
+
+    - EVENLY_BACKEND: 选择尽可能多的节点参与计算，并且尽量保证各节点均衡，默认的调度策略。
+
+    - MIN_BACKEND：选择尽可能少的节点参与计算，适用于高吞吐、高并发的点查场景。
+

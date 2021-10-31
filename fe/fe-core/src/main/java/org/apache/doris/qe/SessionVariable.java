@@ -154,16 +154,18 @@ public class SessionVariable implements Serializable, Writable {
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
-    
+
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
+    public static final String EXEC_SCHEDULING_STRATEGY = "exec_scheduling_strategy";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -389,6 +391,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = EXEC_SCHEDULING_STRATEGY)
+    public long execSchedulingStrategy = ExecSchedulingStrategy.EVENLY_BACKEND.getValue();
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -808,6 +813,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
+    }
+
+    public long getExecSchedulingStrategy() {
+        return execSchedulingStrategy;
+    }
+
+    public void setExecSchedulingStrategy(long execSchedulingStrategy) {
+        this.execSchedulingStrategy = execSchedulingStrategy;
     }
 
     // Serialize to thrift object

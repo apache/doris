@@ -44,6 +44,8 @@ public class VariableVarConverters {
         converters.put(SessionVariable.SQL_MODE, sqlModeConverter);
         RuntimeFilterTypeConverter runtimeFilterTypeConverter = new RuntimeFilterTypeConverter();
         converters.put(SessionVariable.RUNTIME_FILTER_TYPE, runtimeFilterTypeConverter);
+        ExecSchedulingStrategyConverter execSchedulingStrategyConverter = new ExecSchedulingStrategyConverter();
+        converters.put(SessionVariable.EXEC_SCHEDULING_STRATEGY, execSchedulingStrategyConverter);
     }
 
     public static Boolean hasConverter(String varName) {
@@ -89,6 +91,19 @@ public class VariableVarConverters {
         @Override
         public String decode(Long value) throws DdlException {
             return RuntimeFilterTypeHelper.decode(value);
+        }
+    }
+
+    // Converter to convert exec scheduling strategy variable
+    public static class ExecSchedulingStrategyConverter implements VariableVarConverterI {
+        @Override
+        public Long encode(String value) throws DdlException {
+            return ExecSchedulingStrategyTypeHelper.encode(value);
+        }
+
+        @Override
+        public String decode(Long value) throws DdlException {
+            return ExecSchedulingStrategyTypeHelper.decode(value);
         }
     }
 }

@@ -443,3 +443,12 @@ Translated with www.DeepL.com/Translator (free version)
 * `disable_join_reorder`
 
     Used to turn off all automatic join reorder algorithms in the system. There are two values: true and false.It is closed by default, that is, the automatic join reorder algorithm of the system is adopted. After set to true, the system will close all automatic sorting algorithms, adopt the original SQL table order, and execute join
+
+* `exec_scheduling_strategy`
+
+  Used to configure the execution scheduling strategy of query. Currently, two scheduling strategies are supported (the default is EVENLY_BACKEND)
+
+  - EVENLY_BACKEND: Select as many backends as possible to serve the query, and try to ensure that each backends is balanced, and this is the default scheduling strategy.
+
+  - MIN_BACKEND：Select as few backends as possible to serve the query, which is suitable for the point query scenario with high throughput and high concurrency
+

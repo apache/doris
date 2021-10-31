@@ -104,6 +104,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1359,7 +1360,13 @@ public class Coordinator {
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode, idToBackend, addressToBackendID);
             }
             if (!(fragmentContainsColocateJoin | fragmentContainsBucketShuffleJoin)) {
-                computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
+                long schedulingStrategy = (ConnectContext.get() == null ? ExecSchedulingStrategy.EVENLY_BACKEND.getValue() :
+                    ConnectContext.get().getSessionVariable().getExecSchedulingStrategy());
+                if (schedulingStrategy == ExecSchedulingStrategy.MIN_BACKEND.getValue()) {
+                    computeScanRangeAssignmentWithMinNodeStrategy(scanNode, locations, assignment, assignedBytesPerHost);
+                } else {
+                    computeScanRangeAssignmentByScheduler(scanNode, locations, assignment, assignedBytesPerHost);
+                }
             }
         }
     }
@@ -1481,6 +1488,84 @@ public class Coordinator {
             // Volume is optional, so we need to set the value and the is-set bit
             scanRangeParams.setVolumeId(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);
+        }
+    }
+
+    /**
+     * A strategy for high throughput and high concurrency point query scenarios.
+     *
+     * Suppose need to scan five tables(T0, T1, T2, T3, T4), (T0-0, T0-1) represents two replicas of T0,
+     * (BE0, BE1, BE2, BE3, BE4) represent the five backends where these replicas are located
+     *
+     * The assignment compute logic is as follows
+     *
+     * 1. Count the distribution of the replicas of the tablets on each be, assuming the distribution as follows
+     *    BE0: T0-0, T1-0, T2-0
+     *    BE1: T0-1, T1-1
+     *    BE2: T2-1, T3-0
+     *    BE3: T3-1, T4-0
+     *    BE4: T4-1
+     *
+     * 2. Select be with the largest number of tablets to schedule tablets. For the first time,
+     *    we will choose to schedule (T0, T1, T2) to BE0
+     *
+     * 3. Count the distribution of the replicas of the remaining tablets on each be.
+     *    And then repeat step 1 and step 2 until the remaining tables are empty.
+     *
+     *    Still the above example, after schedule (T0, T1, T2), the remaining tables is (T3, T4),
+     *    the distribution of the remaining tables in each be is as follows, and this time we will
+     *    choose to schedule (T3, T4) to BE3
+     *    BE0:
+     *    BE1:
+     *    BE2: T3-0
+     *    BE3: T3-1, T4-0
+     *    BE4: T4-1
+     *
+     * 4. Finaly, the assignment is as follows,  only used two backends serve the scan(Query).
+     *    BE0: T0, T1, T2
+     *    BE3: T3, T4
+     * */
+    private void computeScanRangeAssignmentWithMinNodeStrategy(
+            final ScanNode scanNode,
+            final List<TScanRangeLocations> locations,
+            FragmentScanRangeAssignment assignment,
+            HashMap<TNetworkAddress, Long> assignedBytesPerHost) throws Exception {
+        // 1. Count the distribution of the replicas of the remaining tablets on each be
+        Map<Long /* backend_id */, Map<TScanRangeLocations, TScanRangeLocation>> beToScanRangeLocations =
+                SimpleScheduler.groupTScanRangeLocationsByBE(locations, this.idToBackend);
+
+        int assigned = 0;
+        while (assigned < locations.size()) {
+            // 2. Select be with the largest number of tablets to schedule tablets.
+            List<Map.Entry<Long, Map<TScanRangeLocations, TScanRangeLocation>>> entries =
+                    new ArrayList<>(beToScanRangeLocations.entrySet());
+            Collections.shuffle(entries);
+            Map.Entry<Long, Map<TScanRangeLocations, TScanRangeLocation>> maxLocations = entries.stream()
+                    .max(Comparator.comparingInt(entry -> entry.getValue().size())).get();
+
+            Backend backend = this.idToBackend.get(maxLocations.getKey());
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            this.addressToBackendID.put(execHostPort, backend.getId());
+
+            for (Map.Entry<TScanRangeLocations, TScanRangeLocation> entry : maxLocations.getValue().entrySet()) {
+                assigned++;
+                assignedBytesPerHost.put(execHostPort, assignedBytesPerHost.computeIfAbsent(execHostPort, key -> 0L) + 1);
+
+                Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort, new HashMap<>());
+                List<TScanRangeParams> scanRangeParams = findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
+                TScanRangeParams tScanRangeParams = new TScanRangeParams();
+                tScanRangeParams.scan_range = entry.getKey().scan_range;
+                tScanRangeParams.setVolumeId(entry.getValue().getVolumeId());
+                scanRangeParams.add(tScanRangeParams);
+            }
+
+            // 3. Count the distribution of the replicas of the remaining tablets on each be.
+            List<TScanRangeLocations> assignedScans = new ArrayList<>(maxLocations.getValue().keySet());
+            beToScanRangeLocations.entrySet().forEach(entry -> {
+                for (TScanRangeLocations scanRangeLocations : assignedScans) {
+                    entry.getValue().remove(scanRangeLocations);
+                }
+            });
         }
     }
 

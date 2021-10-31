@@ -32,9 +32,11 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +124,34 @@ public class SimpleScheduler {
         throw new UserException("there is no scanNode Backend. " +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
+    }
+
+    public static Map<Long /* backend_id */, Map<TScanRangeLocations, TScanRangeLocation>> groupTScanRangeLocationsByBE(
+            final List<TScanRangeLocations> locations,
+            ImmutableMap<Long /* backend_id */, Backend> backends) throws UserException {
+        Map<Long /* backend_id */, Map<TScanRangeLocations, TScanRangeLocation>> rets = new HashMap<>();
+        for (TScanRangeLocations scanRangeLocations : locations) {
+            boolean hasAvailableBe = false;
+            for (TScanRangeLocation scanRangeLocation : scanRangeLocations.getLocations()) {
+                Backend backend = backends.get(scanRangeLocation.getBackendId());
+                if (!isAvailable(backend)) {
+                    continue;
+                }
+
+                hasAvailableBe = true;
+                rets.computeIfAbsent(scanRangeLocation.getBackendId(), backendId -> new HashMap<>())
+                        .put(scanRangeLocations, scanRangeLocation);
+            }
+
+            if (!hasAvailableBe) {
+                throw new UserException("there is no scanNode Backend. " +
+                        getBackendErrorMsg(scanRangeLocations.getLocations().stream()
+                                .map(l -> l.backend_id).collect(Collectors.toList()),
+                                backends, scanRangeLocations.getLocations().size()));
+            }
+        }
+
+        return rets;
     }
 
     public static TNetworkAddress getHost(ImmutableMap<Long, Backend> backends,
