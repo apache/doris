@@ -117,10 +117,6 @@ public class Frontend implements Writable {
     public boolean handleHbResponse(FrontendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
-//            if (!isAlive || lastStartTime <= 0) {
-//                lastStartTime = hbResponse.getHbTime();
-//            }
-//            isAlive = true;
             version = hbResponse.getVersion();
             queryPort = hbResponse.getQueryPort();
             rpcPort = hbResponse.getRpcPort();

@@ -20,6 +20,7 @@
 #include <atomic>
 #include <string>
 
+#include "agent/heartbeat_server.h"
 #include "common/object_pool.h"
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
@@ -40,6 +41,8 @@ public:
         _start_time = DateTimeValue::local_time();
     }
 
+    ~QueryFragmentsCtx() {};
+
     bool countdown() { return fragment_num.fetch_sub(1) == 1; }
 
     bool is_timeout(const DateTimeValue& now) const {
@@ -47,6 +50,16 @@ public:
             return false;
         }
         if (now.second_diff(_start_time) > timeout_second) {
+            return true;
+        }
+        return false;
+    }
+
+    bool is_coord_restart() const {
+        if (HeartbeatServer::is_fe_restart(_exec_env, coord_addr.hostname, _start_time)) {
+            LOG(WARNING) << "Coordinator stop or restart: ip" << coord_addr.hostname 
+                      << " port:" << coord_addr.port
+                      << " query_id:" << query_id;
             return true;
         }
         return false;

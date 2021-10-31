@@ -24,6 +24,7 @@
 #include <sstream>
 
 #include "agent/cgroups_mgr.h"
+#include "agent/heartbeat_server.h"
 #include "common/object_pool.h"
 #include "common/resource_tls.h"
 #include "gen_cpp/DataSinks_types.h"
@@ -56,6 +57,7 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(plan_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(coord_restart_canceled_fragment_count, MetricUnit::NOUNIT);
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -130,6 +132,13 @@ public:
             return false;
         }
         if (now.second_diff(_start_time) > _timeout_second) {
+            return true;
+        }
+        return false;
+    }
+
+    bool is_coord_restart() const {
+        if (HeartbeatServer::is_fe_restart(_exec_env, _coord_addr.hostname, _start_time)) {
             return true;
         }
         return false;
@@ -411,6 +420,7 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
           _stop_background_threads_latch(1) {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("FragmentMgr");
     INT_UGAUGE_METRIC_REGISTER(_entity, timeout_canceled_fragment_count);
+    INT_UGAUGE_METRIC_REGISTER(_entity, coord_restart_canceled_fragment_count);
     REGISTER_HOOK_METRIC(plan_fragment_count, [this]() {
         std::lock_guard<std::mutex> lock(_lock);
         return _fragment_map.size();
@@ -655,27 +665,37 @@ Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCanc
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     do {
-        std::vector<TUniqueId> to_cancel;
+        std::vector<TUniqueId> timeout_to_cancel;
+        std::vector<TUniqueId> coord_restart_to_cancel;
         DateTimeValue now = DateTimeValue::local_time();
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& it : _fragment_map) {
                 if (it.second->is_timeout(now)) {
-                    to_cancel.push_back(it.second->fragment_instance_id());
+                    timeout_to_cancel.push_back(it.second->fragment_instance_id());
+                }
+                if (it.second->is_coord_restart()) {
+                    coord_restart_to_cancel.push_back(it.second->fragment_instance_id());
                 }
             }
             for (auto it = _fragments_ctx_map.begin(); it != _fragments_ctx_map.end();) {
-                if (it->second->is_timeout(now)) {
+                if (it->second->is_timeout(now) || it->second->is_coord_restart()) {
                     it = _fragments_ctx_map.erase(it);
                 } else {
                     ++it;
                 }
             }
         }
-        timeout_canceled_fragment_count->increment(to_cancel.size());
-        for (auto& id : to_cancel) {
+        timeout_canceled_fragment_count->increment(timeout_to_cancel.size());
+        for (auto& id : timeout_to_cancel) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "
+                      << print_id(id);
+        }
+        coord_restart_canceled_fragment_count->increment(coord_restart_to_cancel.size());
+        for (auto& id : coord_restart_to_cancel) {
+            cancel(id, PPlanFragmentCancelReason::FE_RESTART);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel fragment when coordinator stop or restart "
                       << print_id(id);
         }
     } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));

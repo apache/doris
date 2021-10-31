@@ -32,6 +32,7 @@ class BrpcStubCache;
 class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
+class DateTimeValue;
 class DiskIoMgr;
 class EtlJobMgr;
 class EvHttpServer;
@@ -41,6 +42,7 @@ class ResultCache;
 class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
+class FrontendStartInfo;
 class StorageEngine;
 class PoolMemTrackerRegistry;
 class PriorityThreadPool;
@@ -147,6 +149,10 @@ public:
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
+    std::map<std::string, FrontendStartInfo*>& frontends_start_time() { return _frontends_start_time; }
+    DateTimeValue* last_heartbeat() { return _last_heartbeat; }
+    void set_last_heartbeat(DateTimeValue* last_heartbeat) { _last_heartbeat = last_heartbeat; }
+
     // The root tracker should be set before calling ExecEnv::init();
     void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
 
@@ -219,6 +225,9 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
 
     PluginMgr* _plugin_mgr = nullptr;
+
+    std::map<std::string, FrontendStartInfo*> _frontends_start_time;
+    DateTimeValue* _last_heartbeat = nullptr;
 };
 
 template <>

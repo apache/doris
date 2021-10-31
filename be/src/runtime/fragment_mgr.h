@@ -113,6 +113,7 @@ private:
 
     std::shared_ptr<MetricEntity> _entity = nullptr;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
+    UIntGauge* coord_restart_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
 };

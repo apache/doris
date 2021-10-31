@@ -24,6 +24,7 @@
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/olap_define.h"
+#include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "thrift/transport/TTransportUtils.h"
 
@@ -34,9 +35,22 @@ class StorageEngine;
 class Status;
 class ThriftServer;
 
+struct FrontendStartInfo {
+    int64_t start_time;
+    bool is_alive;
+    DateTimeValue* last_heartbeat; // Invalid time of Info
+
+    FrontendStartInfo(int64_t start_time, bool is_alive, DateTimeValue* last_heartbeat)
+            : start_time(start_time), is_alive(is_alive), last_heartbeat(last_heartbeat) {}
+
+    ~FrontendStartInfo() {
+        delete last_heartbeat;
+    }
+};
+
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
-    explicit HeartbeatServer(TMasterInfo* master_info);
+    explicit HeartbeatServer(ExecEnv* exec_env, TMasterInfo* master_info);
     virtual ~HeartbeatServer(){};
 
     virtual void init_cluster_id();
@@ -49,10 +63,15 @@ public:
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
     virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
+    
+    // Used to determine whether the frontend has been restarted after receiving the frontend message
+    static const bool is_fe_restart(ExecEnv* exec_env, const std::string& hostname,
+                                    const DateTimeValue& fe_msg_time);
 
 private:
     Status _heartbeat(const TMasterInfo& master_info);
 
+    ExecEnv* _exec_env;
     StorageEngine* _olap_engine;
     int64_t _be_epoch;
 

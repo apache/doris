@@ -223,17 +223,19 @@ public class HeartbeatMgr extends MasterDaemon {
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
-                THeartbeatResult result;
-
-                List<TFrontendInfo> tFrontendsInfo = Lists.newArrayList();
+		List<TFrontendInfo> tFrontendsInfo = Lists.newArrayList();
                 for (Frontend fe : Catalog.getCurrentCatalog().getFrontends(null)) {
-                    tFrontendsInfo.add(new TFrontendInfo(
-                            new TNetworkAddress(fe.getHost(), fe.getRpcPort()), fe.getLastStartTime(), fe.isAlive()));
+                    TFrontendInfo frontendInfo = new TFrontendInfo();
+                    frontendInfo.setNetworkAddress(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    frontendInfo.setFeStartTime(fe.getLastStartTime());
+                    frontendInfo.setIsAlive(fe.isAlive());
+                    tFrontendsInfo.add(frontendInfo);
                 }
-
+                copiedMasterInfo.setFrontendsInfo(tFrontendsInfo);
+		THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
-                    result = client.heartbeat(copiedMasterInfo, tFrontendsInfo);
+                    result = client.heartbeat(copiedMasterInfo);
                 } else {
                     // Mocked result
                     TBackendInfo backendInfo = new TBackendInfo();
@@ -355,7 +357,7 @@ public class HeartbeatMgr extends MasterDaemon {
                         int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
                         int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
                         String version = dataObj.getString(BootstrapFinishAction.VERSION);
-                        long startTime = root.getLong(BootstrapFinishAction.START_TIME);
+                        long startTime = dataObj.getLong(BootstrapFinishAction.START_TIME);
                         return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
                                 System.currentTimeMillis(), startTime, version);
                     }

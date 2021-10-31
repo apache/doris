@@ -49,7 +49,6 @@ import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
-import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TRoutineLoadTask;
 import org.apache.doris.thrift.TScanBatchResult;
 import org.apache.doris.thrift.TScanCloseParams;
@@ -118,7 +117,7 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public THeartbeatResult heartbeat(TMasterInfo master_info, List<TFrontendInfo> frontends_info) throws TException {
+        public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
