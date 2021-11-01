@@ -42,9 +42,9 @@ public interface AgentProcess {
     void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception;
 
     /**
-     * request agent rest api
+     * start service
      */
-    void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception;
+    void startService(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception;
 
     void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception;
 

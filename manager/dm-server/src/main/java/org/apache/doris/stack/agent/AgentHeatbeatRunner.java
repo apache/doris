@@ -61,7 +61,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
                 log.error("heartbeat check fail:", ex);
                 ex.printStackTrace();
             }
-        }, 0, HEALTH_TIME, TimeUnit.MILLISECONDS);
+        }, HEALTH_TIME, HEALTH_TIME, TimeUnit.MILLISECONDS);
     }
 
     /**

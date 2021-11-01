@@ -56,7 +56,7 @@ public class AgentTaskStatusRunner implements ApplicationRunner {
                 log.error("refresh agent task fail:", ex);
                 ex.printStackTrace();
             }
-        }, 0, REFRESH_TIME, TimeUnit.MILLISECONDS);
+        }, REFRESH_TIME, REFRESH_TIME, TimeUnit.MILLISECONDS);
     }
 
     private void refreshTaskStatus() {

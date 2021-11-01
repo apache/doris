@@ -33,8 +33,5 @@ public class DorisExecReq {
 
     private int clusterId;
 
-    //START STOP
-    private String command;
-
     private List<DorisExec> dorisExecs;
 }

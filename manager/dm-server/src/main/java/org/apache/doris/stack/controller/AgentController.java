@@ -66,13 +66,13 @@ public class AgentController {
     }
 
     /**
-     * request agent:start stop fe/be
+     * request agent:start  fe/be
      */
-    @ApiOperation(value = "start or stop service")
-    @RequestMapping(value = "/execute", method = RequestMethod.POST)
-    public RResult execute(HttpServletRequest request, HttpServletResponse response,
-                           @RequestBody DorisExecReq dorisExec) throws Exception {
-        agentProcess.execute(request, response, dorisExec);
+    @ApiOperation(value = "start service")
+    @RequestMapping(value = "/startService", method = RequestMethod.POST)
+    public RResult startService(HttpServletRequest request, HttpServletResponse response,
+                                @RequestBody DorisExecReq dorisExec) throws Exception {
+        agentProcess.startService(request, response, dorisExec);
         return RResult.success();
     }
 

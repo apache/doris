@@ -224,20 +224,19 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     @Override
-    public void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
+    public void startService(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisExec.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
         int processId = processInstanceComponent.refreshProcess(dorisExec.getProcessId(), dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
-        CmdTypeEnum cmdType = CmdTypeEnum.findByName(dorisExec.getCommand());
 
         String leaderFe = getLeaderFeHostPort();
         List<DorisExec> dorisExecs = dorisExec.getDorisExecs();
         for (DorisExec exec : dorisExecs) {
-            CommandType commandType = transAgentCmd(cmdType, ServiceRole.findByName(exec.getRole()));
+            CommandType commandType = transAgentCmd(CmdTypeEnum.START, ServiceRole.findByName(exec.getRole()));
             if (commandType == null) {
-                log.error("not support command {} {}", cmdType, exec.getRole());
+                log.error("not support command {} {}", CmdTypeEnum.START, exec.getRole());
                 continue;
             }
             CommandRequest creq = new CommandRequest();
@@ -254,12 +253,6 @@ public class AgentProcessImpl implements AgentProcess {
                 case START_BE:
                     execTask.setTaskType(TaskTypeEnum.START_BE);
                     break;
-                case STOP_FE:
-                    execTask.setTaskType(TaskTypeEnum.STOP_FE);
-                    break;
-                case STOP_BE:
-                    execTask.setTaskType(TaskTypeEnum.STOP_BE);
-                    break;
                 default:
                     log.error("not support command: {}", commandType.name());
                     break;
@@ -271,7 +264,7 @@ public class AgentProcessImpl implements AgentProcess {
             }
             RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
             taskInstanceComponent.refreshTask(execTask, result);
-            log.info("agent {} execute {} {} ", exec.getHost(), dorisExec.getCommand(), exec.getRole());
+            log.info("agent {} starting {} ", exec.getHost(), exec.getRole());
         }
     }
 

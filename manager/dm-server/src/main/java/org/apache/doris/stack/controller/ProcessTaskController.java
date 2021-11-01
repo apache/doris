@@ -49,7 +49,7 @@ public class ProcessTaskController {
      * query user history installation progress
      */
     @ApiOperation(value = "query user history installation progress")
-    @RequestMapping(value = "/historyProgress", method = RequestMethod.POST)
+    @RequestMapping(value = "/historyProgress", method = RequestMethod.GET)
     public RResult historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
         ProcessInstanceEntity process = processTask.historyProgress(request, response);
         return RResult.success(process);
@@ -59,7 +59,7 @@ public class ProcessTaskController {
      * Installation progress of the current process
      */
     @ApiOperation(value = "query user history installation progress")
-    @RequestMapping(value = "/progress/{processId}", method = RequestMethod.GET)
+    @RequestMapping(value = "/{processId}/progress", method = RequestMethod.GET)
     public RResult processProgress(HttpServletRequest request, HttpServletResponse response,
                                    @PathVariable(value = "processId") int processId) {
         List<TaskInstanceEntity> tasks = processTask.processProgress(request, response, processId);
@@ -70,7 +70,7 @@ public class ProcessTaskController {
      * Query the installation status of tasks in the current installation process
      */
     @ApiOperation(value = "Query the installation status of tasks in the current installation process")
-    @RequestMapping(value = "/{processId}/current", method = RequestMethod.GET)
+    @RequestMapping(value = "/{processId}/currentTasks", method = RequestMethod.GET)
     public RResult taskProgress(HttpServletRequest request, HttpServletResponse response,
                                 @PathVariable(value = "processId") int processId) {
         List<TaskInstanceEntity> tasks = processTask.taskProgress(request, response, processId);
