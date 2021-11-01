@@ -19,8 +19,6 @@ package org.apache.doris.stack.service;
 
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.entity.ProcessInstanceEntity;
-import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
 
@@ -32,23 +30,6 @@ import java.util.List;
  * server
  */
 public interface ServerProcess {
-
-    /**
-     * query user history installation progress
-     * null means that nothing currently being installed
-     */
-    ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception;
-
-    List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
-
-    List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step);
-
-    /**
-     * Refresh the task status on the agent side again
-     */
-    void refreshAgentTaskStatus(int processId);
-
-    void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 
     /**
      * install agent

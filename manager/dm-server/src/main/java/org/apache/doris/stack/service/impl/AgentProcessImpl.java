@@ -121,7 +121,11 @@ public class AgentProcessImpl implements AgentProcess {
     public void installService(HttpServletRequest request, HttpServletResponse response,
                                DorisInstallReq installReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        boolean success = taskInstanceComponent.checkParentTaskSuccess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
+        Preconditions.checkArgument(success, "The agent is not installed successfully and the service cannot be installed");
+
         int processId = processInstanceComponent.refreshProcess(installReq.getProcessId(), installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE);
+
         //Installed host and service
         List<String> agentRoleList = agentRoleComponent.queryAgentRoles().stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
@@ -175,6 +179,9 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        boolean success = taskInstanceComponent.checkParentTaskSuccess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
+        Preconditions.checkArgument(success, "doris is not installed successfully and the configuration cannot be delivered");
+
         int processId = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), deployConfigReq.getClusterId(), userId, ProcessTypeEnum.DEPLOY_CONFIG);
         List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
         for (DeployConfig config : deployConfigs) {
@@ -219,6 +226,9 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void execute(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisExec.getProcessId(), ProcessTypeEnum.START_SERVICE);
+        Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
+
         int processId = processInstanceComponent.refreshProcess(dorisExec.getProcessId(), dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
         CmdTypeEnum cmdType = CmdTypeEnum.findByName(dorisExec.getCommand());
 
@@ -353,6 +363,9 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        boolean success = taskInstanceComponent.checkParentTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
+        Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
+
         int processId = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER);
         for (String be : beJoinReq.getHosts()) {
             addBeToCluster(processId, be);

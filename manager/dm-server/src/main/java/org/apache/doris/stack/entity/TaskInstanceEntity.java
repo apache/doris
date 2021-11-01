@@ -21,6 +21,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 
@@ -78,6 +79,10 @@ public class TaskInstanceEntity {
     @Column(name = "result")
     private String result;
 
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "finish", nullable = false)
+    private Flag finish;
+
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
@@ -85,6 +90,7 @@ public class TaskInstanceEntity {
         this.taskType = taskType;
         this.status = status;
         this.startTime = new Date();
+        this.finish = Flag.NO;
     }
 
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType) {
@@ -92,5 +98,6 @@ public class TaskInstanceEntity {
         this.host = host;
         this.processType = processType;
         this.startTime = new Date();
+        this.finish = Flag.NO;
     }
 }

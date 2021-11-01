@@ -21,6 +21,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.bean.SpringApplicationContext;
 import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 
@@ -48,6 +49,7 @@ public class TaskExecCallback implements FutureCallback<Object> {
         taskInstance.setEndTime(new Date());
         taskInstance.setResult(String.valueOf(result));
         taskInstance.setStatus(ExecutionStatus.SUCCESS);
+        taskInstance.setFinish(Flag.YES);
         taskInstanceRepository.save(taskInstance);
     }
 

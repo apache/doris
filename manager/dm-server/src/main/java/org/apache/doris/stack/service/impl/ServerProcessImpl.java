@@ -25,7 +25,6 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.AgentRoleComponent;
@@ -33,23 +32,18 @@ import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.constants.ExecutionStatus;
-import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
-import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
-import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.AgentInstall;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
-import org.apache.doris.stack.model.request.TaskInfoReq;
 import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.runner.TaskExecCallback;
 import org.apache.doris.stack.runner.TaskExecuteThread;
-import org.apache.doris.stack.service.AgentTask;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,9 +68,6 @@ public class ServerProcessImpl implements ServerProcess {
     private final ListeningExecutorService taskExecService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
 
     @Autowired
-    private AgentTask agentTask;
-
-    @Autowired
     private AgentComponent agentComponent;
 
     @Autowired
@@ -89,63 +80,10 @@ public class ServerProcessImpl implements ServerProcess {
     private TaskInstanceComponent taskInstanceComponent;
 
     @Autowired
-    private TaskInstanceRepository taskInstanceRepository;
-
-    @Autowired
     private AgentCache agentCache;
 
     @Autowired
     private AuthenticationService authenticationService;
-
-    @Override
-    public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessByuserId(userId);
-        return processEntity;
-    }
-
-    @Override
-    public List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
-        ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
-        if (processInstance == null) {
-            log.error("The process {} does not exist", processId);
-            throw new ServerException("The process does not exist");
-        }
-        refreshAgentTaskStatus(processId);
-        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
-        return taskEntities;
-    }
-
-    @Override
-    public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step) {
-        ProcessTypeEnum processType = ProcessTypeEnum.findByName(step);
-        if (processType == null) {
-            throw new ServerException("can not find this step " + step);
-        }
-        return taskInstanceRepository.queryTasksByProcessStep(processId, processType);
-    }
-
-    @Override
-    public void refreshAgentTaskStatus(int processId) {
-        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
-        for (TaskInstanceEntity task : taskEntities) {
-            if (task.getTaskType().agentTask()
-                    && task.getStatus().typeIsRunning()) {
-                RResult rResult = agentTask.taskInfo(new TaskInfoReq(task.getHost(), task.getExecutorId()));
-                taskInstanceComponent.refreshTask(task, rResult);
-            }
-        }
-    }
-
-    @Override
-    public void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception {
-        ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
-        if (processInstance != null) {
-            processInstance.setFinish(Flag.YES);
-            processInstance.setUpdateTime(new Date());
-            processInstanceComponent.updateProcess(processInstance);
-        }
-    }
 
     @Override
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {

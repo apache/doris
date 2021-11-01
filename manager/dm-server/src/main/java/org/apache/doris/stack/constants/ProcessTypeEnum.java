@@ -21,11 +21,11 @@ package org.apache.doris.stack.constants;
  * process step type
  **/
 public enum ProcessTypeEnum {
-    INSTALL_AGENT(0, "INSTALL_AGENT"),
-    INSTALL_SERVICE(1, "INSTALL_SERVICE"),
-    DEPLOY_CONFIG(2, "DEPLOY_CONFIG"),
-    START_SERVICE(3, "START_SERVICE"),
-    BUILD_CLUSTER(4, "BUILD_CLUSTER");
+    INSTALL_AGENT(0, "install agent"),
+    INSTALL_SERVICE(1, "install service"),
+    DEPLOY_CONFIG(2, "deploy config"),
+    START_SERVICE(3, "start service"),
+    BUILD_CLUSTER(4, "build cluster");
 
     private int code;
     private String desc;
@@ -42,6 +42,24 @@ public enum ProcessTypeEnum {
             }
         }
         return null;
+    }
+
+    public static ProcessTypeEnum findByCode(int code) {
+        for (ProcessTypeEnum type : ProcessTypeEnum.values()) {
+            if (type.code == code) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    public static ProcessTypeEnum findParent(ProcessTypeEnum processType) {
+        if (processType != null) {
+            int parentCode = processType.getCode() - 1;
+            return findByCode(parentCode);
+        } else {
+            return processType;
+        }
     }
 
     public int getCode() {

@@ -6,12 +6,16 @@ import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.TaskResult;
 import org.apache.doris.manager.common.domain.TaskState;
 import org.apache.doris.stack.constants.ExecutionStatus;
+import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Optional;
 
 @Component
 @Slf4j
@@ -47,18 +51,53 @@ public class TaskInstanceComponent {
         }
     }
 
+    /**
+     * refresh task status
+     */
     public void refreshTask(TaskInstanceEntity taskInstance, RResult result) {
         if (result == null || result.getData() == null) {
             taskInstance.setStatus(ExecutionStatus.FAILURE);
         } else {
             TaskResult taskResult = JSON.parseObject(JSON.toJSONString(result.getData()), TaskResult.class);
             taskInstance.setExecutorId(taskResult.getTaskId());
-            if (TaskState.FINISHED.equals(taskResult.getTaskState())) {
-                taskInstance.setStatus(ExecutionStatus.SUCCESS);
-            } else {
+            if (TaskState.RUNNING.equals(taskResult.getTaskState())) {
                 taskInstance.setStatus(ExecutionStatus.RUNNING);
+            } else if (taskResult.getRetCode() == 0) {
+                taskInstance.setStatus(ExecutionStatus.SUCCESS);
+                taskInstance.setFinish(Flag.YES);
+            } else {
+                taskInstance.setStatus(ExecutionStatus.FAILURE);
             }
         }
         taskInstanceRepository.save(taskInstance);
+    }
+
+    /**
+     * Check whether the parent task is successful
+     */
+    public boolean checkParentTaskSuccess(int processId, ProcessTypeEnum processType) {
+        ProcessTypeEnum parent = ProcessTypeEnum.findParent(processType);
+        if (parent == null) {
+            return true;
+        }
+        List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, parent);
+        for (TaskInstanceEntity task : taskInstanceEntities) {
+            if (Flag.YES.equals(task.getFinish())) {
+                log.info("task {} is unsuccess", task.getTaskType());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * query task by id
+     */
+    public TaskInstanceEntity queryTaskById(int taskId) {
+        Optional<TaskInstanceEntity> optional = taskInstanceRepository.findById(taskId);
+        if (optional.isPresent()) {
+            return optional.get();
+        }
+        return null;
     }
 }

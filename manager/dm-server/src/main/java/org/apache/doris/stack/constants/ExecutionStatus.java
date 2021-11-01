@@ -75,7 +75,7 @@ public enum ExecutionStatus {
      * @return status
      */
     public boolean typeIsRunning() {
-        return this == RUNNING;
+        return this == RUNNING || this == SUBMITTED;
     }
 
     public int getCode() {

@@ -21,14 +21,11 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.RResult;
-import org.apache.doris.stack.entity.ProcessInstanceEntity;
-import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.model.request.AgentCommon;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
 import org.apache.doris.stack.service.ServerProcess;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -37,7 +34,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.List;
 
 @Api(tags = "Server API")
 @RestController
@@ -47,50 +43,6 @@ public class ServerController {
 
     @Autowired
     private ServerProcess serverProcess;
-
-    /**
-     * query user history installation progress
-     */
-    @ApiOperation(value = "query user history installation progress")
-    @RequestMapping(value = "/historyProgress", method = RequestMethod.POST)
-    public RResult historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
-        ProcessInstanceEntity process = serverProcess.historyProgress(request, response);
-        return RResult.success(process);
-    }
-
-    /**
-     * Installation progress of the current process
-     */
-    @ApiOperation(value = "query user history installation progress")
-    @RequestMapping(value = "/progress/{processId}", method = RequestMethod.GET)
-    public RResult processProgress(HttpServletRequest request, HttpServletResponse response,
-                                   @PathVariable(value = "processId") int processId) throws Exception {
-        List<TaskInstanceEntity> tasks = serverProcess.processProgress(request, response, processId);
-        return RResult.success(tasks);
-    }
-
-    /**
-     * Query the installation status of tasks in the current installation process
-     */
-    @ApiOperation(value = "Query the installation status of tasks in the current installation process")
-    @RequestMapping(value = "/task/{processId}/{step}", method = RequestMethod.GET)
-    public RResult taskProgress(HttpServletRequest request, HttpServletResponse response,
-                                @PathVariable(value = "processId") int processId,
-                                @PathVariable(value = "step") String step) throws Exception {
-        List<TaskInstanceEntity> tasks = serverProcess.taskProgress(request, response, processId, step);
-        return RResult.success(tasks);
-    }
-
-    /**
-     * After the installation is complete, call the interface
-     */
-    @ApiOperation(value = "After the installation is complete, call the interface")
-    @RequestMapping(value = "/installComplete/{processId}", method = RequestMethod.POST)
-    public RResult installComplete(HttpServletRequest request, HttpServletResponse response,
-                                   @PathVariable(value = "processId") int processId) throws Exception {
-        serverProcess.installComplete(request, response, processId);
-        return RResult.success();
-    }
 
     /**
      * install and start agent and return processId

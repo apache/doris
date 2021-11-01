@@ -20,7 +20,7 @@ package org.apache.doris.stack.agent;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.dao.ProcessInstanceRepository;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
-import org.apache.doris.stack.service.ServerProcess;
+import org.apache.doris.stack.service.ProcessTask;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -42,7 +42,7 @@ public class AgentTaskStatusRunner implements ApplicationRunner {
     private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
-    private ServerProcess serverProcess;
+    private ProcessTask processTask;
 
     @Autowired
     private ProcessInstanceRepository processInstanceRepository;
@@ -62,7 +62,7 @@ public class AgentTaskStatusRunner implements ApplicationRunner {
     private void refreshTaskStatus() {
         List<ProcessInstanceEntity> processEntities = processInstanceRepository.queryProcessList();
         for (ProcessInstanceEntity process : processEntities) {
-            serverProcess.refreshAgentTaskStatus(process.getId());
+            processTask.refreshAgentTaskStatus(process.getId());
         }
     }
 }
