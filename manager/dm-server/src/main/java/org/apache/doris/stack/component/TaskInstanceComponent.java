@@ -1,7 +1,25 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.stack.component;
 
 import com.alibaba.fastjson.JSON;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.TaskResult;
 import org.apache.doris.manager.common.domain.TaskState;
@@ -58,15 +76,20 @@ public class TaskInstanceComponent {
         if (result == null || result.getData() == null) {
             taskInstance.setStatus(ExecutionStatus.FAILURE);
         } else {
-            TaskResult taskResult = JSON.parseObject(JSON.toJSONString(result.getData()), TaskResult.class);
-            taskInstance.setExecutorId(taskResult.getTaskId());
-            if (TaskState.RUNNING.equals(taskResult.getTaskState())) {
-                taskInstance.setStatus(ExecutionStatus.RUNNING);
-            } else if (taskResult.getRetCode() == 0) {
-                taskInstance.setStatus(ExecutionStatus.SUCCESS);
-                taskInstance.setFinish(Flag.YES);
-            } else {
+            CommandResult commandResult = JSON.parseObject(JSON.toJSONString(result.getData()), CommandResult.class);
+            TaskResult taskResult = commandResult.getTaskResult();
+            if (taskResult == null) {
                 taskInstance.setStatus(ExecutionStatus.FAILURE);
+            } else {
+                taskInstance.setExecutorId(taskResult.getTaskId());
+                if (TaskState.RUNNING.equals(taskResult.getTaskState())) {
+                    taskInstance.setStatus(ExecutionStatus.RUNNING);
+                } else if (taskResult.getRetCode() == 0) {
+                    taskInstance.setStatus(ExecutionStatus.SUCCESS);
+                    taskInstance.setFinish(Flag.YES);
+                } else {
+                    taskInstance.setStatus(ExecutionStatus.FAILURE);
+                }
             }
         }
         taskInstanceRepository.save(taskInstance);
@@ -82,7 +105,7 @@ public class TaskInstanceComponent {
         }
         List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, parent);
         for (TaskInstanceEntity task : taskInstanceEntities) {
-            if (Flag.YES.equals(task.getFinish())) {
+            if (Flag.NO.equals(task.getFinish())) {
                 log.info("task {} is unsuccess", task.getTaskType());
                 return false;
             }

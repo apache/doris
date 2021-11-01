@@ -18,7 +18,7 @@
 package org.apache.doris.manager.agent.api;
 
 import org.apache.doris.manager.agent.command.CommandFactory;
-import org.apache.doris.manager.agent.command.CommandResult;
+import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.agent.command.CommandResultService;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.task.Task;
