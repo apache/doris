@@ -43,12 +43,12 @@ If your are only interested in FE module, and for some reason you can't or don't
 the minimum tool required for FE module is `thrift`, so you can manually install `thrift` and copy or create a link of 
 the executable `thrift` command to `./thirdparty/installed/bin`.
 
-Doris build against `thrift` 0.9.3, and `thrift` 0.9.3.1 should also work well, but the newer version will not.
+Doris build against `thrift` 0.13.0 ( note : `Doris` 0.15 and later version build against `thrift` 0.13.0 , the previous version is still `thrift` 0.9.3)
 
-If your are using macOS, try `brew install thrift@0.9` and will get `thrift` 0.9.3.1 installed at `/usr/local/opt/thrift@0.9/bin/thrift`, 
+If your are using macOS, try `brew install thrift@0.13.0` and will get `thrift` 0.13.0 installed at `/usr/local/opt/thrift@0.13.0/bin/thrift`, 
 then create a soft link to `./thirdparty/installed/bin/thrift`.
         
-For Windows users, download `thrift` 0.9.3 from `http://archive.apache.org/dist/thrift/0.9.3/thrift-0.9.3.exe`, 
+For Windows users, download `thrift` 0.13.0 from `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`, 
 and put it into `thirdparty/installed/bin/` folder.
 
 Go to `./fe` folder and run the following maven command to generate sources.
@@ -74,9 +74,11 @@ is generate codes in Linux and copy them back. Using Docker should also be an op
 
 1. Import `./fe` into IDEA
 
-2. Follow the picture to create the folders and copy files under `webroot` into it.
+2. Follow the picture to create the folders
 
 ![](/images/DEBUG4.png)
+
+3. Build `ui` project , and copy files from directory `ui/dist` into directory `webroot` ( you can skip this step , if you don't need `Doris` UI )
 
 ## Custom FE configuration
 
