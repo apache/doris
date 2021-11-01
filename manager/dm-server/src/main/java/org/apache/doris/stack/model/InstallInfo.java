@@ -35,9 +35,5 @@ public class InstallInfo {
      */
     private String packageUrl;
 
-    private boolean mkFeMetadir;
-
-    private boolean mkBeStorageDir;
-
     private String installDir;
 }

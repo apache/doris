@@ -61,7 +61,7 @@ public class ProcessTaskController {
     @ApiOperation(value = "query user history installation progress")
     @RequestMapping(value = "/progress/{processId}", method = RequestMethod.GET)
     public RResult processProgress(HttpServletRequest request, HttpServletResponse response,
-                                   @PathVariable(value = "processId") int processId) throws Exception {
+                                   @PathVariable(value = "processId") int processId) {
         List<TaskInstanceEntity> tasks = processTask.processProgress(request, response, processId);
         return RResult.success(tasks);
     }
@@ -70,11 +70,10 @@ public class ProcessTaskController {
      * Query the installation status of tasks in the current installation process
      */
     @ApiOperation(value = "Query the installation status of tasks in the current installation process")
-    @RequestMapping(value = "/task/{processId}/{step}", method = RequestMethod.GET)
+    @RequestMapping(value = "/{processId}/current", method = RequestMethod.GET)
     public RResult taskProgress(HttpServletRequest request, HttpServletResponse response,
-                                @PathVariable(value = "processId") int processId,
-                                @PathVariable(value = "step") String step) throws Exception {
-        List<TaskInstanceEntity> tasks = processTask.taskProgress(request, response, processId, step);
+                                @PathVariable(value = "processId") int processId) {
+        List<TaskInstanceEntity> tasks = processTask.taskProgress(request, response, processId);
         return RResult.success(tasks);
     }
 
@@ -100,9 +99,9 @@ public class ProcessTaskController {
     }
 
     /**
-     * request task detail
+     * request task result
      */
-    @RequestMapping(value = "/task/info/{taskId}", method = RequestMethod.GET)
+    @RequestMapping(value = "/task/result/{taskId}", method = RequestMethod.GET)
     public RResult taskInfo(@PathVariable int taskId) {
         return RResult.success(processTask.taskInfo(taskId));
     }

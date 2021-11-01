@@ -27,5 +27,9 @@ public enum TaskState {
     // Task has completed
     FINISHED,
     // Task state is unkown
-    UNKNOWN
+    UNKNOWN;
+
+    public boolean typeIsRunning() {
+        return this == INITIALIZED || this == QUEUED || this == RUNNING;
+    }
 }

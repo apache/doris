@@ -34,7 +34,7 @@ public interface ProcessTask {
 
     List<TaskInstanceEntity> processProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
-    List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step);
+    List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId);
 
     void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 

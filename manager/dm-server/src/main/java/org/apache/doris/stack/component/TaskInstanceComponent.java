@@ -22,7 +22,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.TaskResult;
-import org.apache.doris.manager.common.domain.TaskState;
 import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
@@ -32,6 +31,7 @@ import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -82,13 +82,15 @@ public class TaskInstanceComponent {
                 taskInstance.setStatus(ExecutionStatus.FAILURE);
             } else {
                 taskInstance.setExecutorId(taskResult.getTaskId());
-                if (TaskState.RUNNING.equals(taskResult.getTaskState())) {
+                if (taskResult.getTaskState().typeIsRunning()) {
                     taskInstance.setStatus(ExecutionStatus.RUNNING);
-                } else if (taskResult.getRetCode() == 0) {
+                } else if (taskResult.getRetCode() != null && taskResult.getRetCode() == 0) {
                     taskInstance.setStatus(ExecutionStatus.SUCCESS);
                     taskInstance.setFinish(Flag.YES);
+                    taskInstance.setEndTime(new Date());
                 } else {
                     taskInstance.setStatus(ExecutionStatus.FAILURE);
+                    taskInstance.setEndTime(new Date());
                 }
             }
         }

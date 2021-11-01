@@ -26,7 +26,6 @@ import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.Flag;
-import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
@@ -89,12 +88,10 @@ public class ProcessTaskImpl implements ProcessTask {
     }
 
     @Override
-    public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId, String step) {
-        ProcessTypeEnum processType = ProcessTypeEnum.findByName(step);
-        if (processType == null) {
-            throw new ServerException("can not find this step " + step);
-        }
-        return taskInstanceRepository.queryTasksByProcessStep(processId, processType);
+    public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
+        ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
+        Preconditions.checkArgument(processEntity != null, "can not find processId " + processId);
+        return taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
     }
 
     @Override

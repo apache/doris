@@ -151,7 +151,7 @@ public class AgentProcessImpl implements AgentProcess {
         TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE);
         if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
-            feBody.setMkFeMetadir(install.isMkFeMetadir());
+            feBody.setMkFeMetadir(true);
             feBody.setPackageUrl(install.getPackageUrl());
             feBody.setInstallDir(install.getInstallDir());
             creq.setCommandType(CommandType.INSTALL_FE.name());
@@ -159,7 +159,7 @@ public class AgentProcessImpl implements AgentProcess {
             installService.setTaskType(TaskTypeEnum.INSTALL_FE);
         } else if (ServiceRole.BE.name().equals(install.getRole())) {
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
-            beBody.setMkBeStorageDir(install.isMkBeStorageDir());
+            beBody.setMkBeStorageDir(true);
             beBody.setInstallDir(install.getInstallDir());
             beBody.setPackageUrl(install.getPackageUrl());
             creq.setCommandType(CommandType.INSTALL_BE.name());
