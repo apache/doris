@@ -175,14 +175,15 @@ CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "10");
+CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
 // memory_limitation_per_thread_for_schema_change unit GB
 CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
 
-CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
+// the clean interval of file descriptor cache and segment cache
+CONF_mInt32(cache_clean_interval, "1800");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -439,7 +440,7 @@ CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
-CONF_mInt64(write_buffer_size, "104857600");
+CONF_mInt64(write_buffer_size, "209715200");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -628,10 +629,15 @@ CONF_Int32(send_batch_thread_pool_queue_size, "102400");
 // so if there are too many segment in a rowset, the compaction process
 // will run out of memory.
 // When doing compaction, each segment may take at least 1MB buffer.
-CONF_mInt32(max_segment_num_per_rowset, "100");
+CONF_mInt32(max_segment_num_per_rowset, "200");
 
 // The connection timeout when connecting to external table such as odbc table.
 CONF_mInt32(external_table_connect_timeout_sec, "5");
+
+// The capacity of lur cache in segment loader.
+// Althought it is called "segment cache", but it caches segments in rowset granularity.
+// So the value of this config should corresponding to the number of rowsets on this BE.
+CONF_mInt32(segment_cache_capacity, "1000000");
 
 } // namespace config
 

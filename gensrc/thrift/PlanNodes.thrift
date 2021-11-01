@@ -343,6 +343,7 @@ struct TOlapScanNode {
   4: required bool is_preaggregation
   5: optional string sort_column
   6: optional Types.TKeysType keyType
+  7: optional string table_name
 }
 
 struct TEqJoinCondition {

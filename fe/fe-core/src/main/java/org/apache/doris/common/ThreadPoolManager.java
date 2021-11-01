@@ -17,12 +17,14 @@
 
 package org.apache.doris.common;
 
-import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+
+import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -91,7 +93,7 @@ public class ThreadPoolManager {
             };
             gauge.addLabel(new MetricLabel("name", poolName))
                     .addLabel(new MetricLabel("type", poolMetricType));
-            MetricRepo.addMetric(gauge);
+            MetricRepo.PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
     }
 

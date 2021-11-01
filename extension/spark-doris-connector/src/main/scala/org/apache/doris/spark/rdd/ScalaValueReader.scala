@@ -44,7 +44,7 @@ import scala.util.control.Breaks
  * @param settings request configuration
  */
 class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
-  protected val logger = Logger.getLogger(classOf[ScalaValueReader])
+  private val logger = Logger.getLogger(classOf[ScalaValueReader])
 
   protected val client = new BackendClient(new Routing(partition.getBeAddress), settings)
   protected val clientLock =

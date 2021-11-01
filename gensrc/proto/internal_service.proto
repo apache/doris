@@ -94,6 +94,8 @@ message PTabletWriterAddBatchRequest {
     // only valid when eos is true
     // valid partition ids that would write in this writer
     repeated int64 partition_ids = 8;
+    // the backend which send this request
+    optional int64 backend_id = 9 [default = -1];
 };
 
 message PTabletWriterAddBatchResult {

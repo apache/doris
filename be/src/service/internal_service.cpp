@@ -123,7 +123,8 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
-                             << ", sender_id=" << request->sender_id();
+                             << ", sender_id=" << request->sender_id()
+                             << ", backend id=" << request->backend_id();
             }
             st.to_protobuf(response->mutable_status());
         }
@@ -308,7 +309,7 @@ void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* co
     auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
     UniqueId unique_id(request->query_id());
     // TODO: avoid copy attachment copy
-    LOG(INFO) << "rpc apply_filter recv";
+    VLOG_NOTICE << "rpc apply_filter recv";
     Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
     if (!st.ok()) {
         LOG(WARNING) << "apply filter meet error" << st.to_string();

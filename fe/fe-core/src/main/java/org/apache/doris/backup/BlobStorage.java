@@ -134,5 +134,4 @@ public abstract class BlobStorage implements Writable {
             Text.writeString(out, entry.getValue());
         }
     }
-
 }
