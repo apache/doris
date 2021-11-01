@@ -172,16 +172,27 @@ private:
     // for push down es aggregate
     bool _is_aggregated = false;
 
+    // record column, function for every aggregation.
+    // but when meet count(1/*), do not record.
+    // we will get count info from ES result without adding parameter.
     std::vector<std::string> _aggregate_column_names;
     std::vector<std::string> _aggregate_function_names;
     std::vector<std::string> _group_by_column_names;
+    // record all ops for construct tuple for the first phase aggregation
+    // count(1/*) must be recorded too.
     std::vector<ScrollParser::EsAggregationOp> _aggregate_ops;
 
+    // tuple desc for the first phase of aggregate
     TupleId _intermediate_tuple_id;
     TupleDescriptor* _intermediate_tuple_desc;
 
+    // when need to push down aggregation, `_scan_row_desc` and `_conjunct_ctxs_for_aggregation` will be initialized.
+    // If has query filter, exec node usually use `_conjunct_ctxs` and send it to the parent exec node.
+    // eg: sql is "select count(a) from t1 where b = 2;", scan node will return two columns(a,b) to the aggregation node.
+    // when do es aggregation, query filter is only used for constructing dsl, and it shouldn't be send to the parent node.
+    // so we use `_conjunct_ctxs_for_aggregation` to record query filter but not `conjunct_ctxs`.
     std::unique_ptr<RowDescriptor> _scan_row_desc;
-    std::vector<ExprContext*> _es_scan_conjunct_ctxs_when_aggregate;
+    std::vector<ExprContext*> _conjunct_ctxs_for_aggregation;
 };
 
 } // namespace doris

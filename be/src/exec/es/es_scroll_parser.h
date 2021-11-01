@@ -48,7 +48,7 @@ public:
     Status fill_agg_tuple(const TupleDescriptor* intermediate_tuple_desc, Tuple* tuple, MemPool* mem_pool,
                           bool* line_eof, const std::map<std::string, std::string>& docvalue_context,
                           const int group_by_size, const std::vector<EsAggregationOp>& aggregate_functions);
-    Status set_any_val_for_agg(PrimitiveType type, MemPool* tuple_pool, const rapidjson::Value& val, void* slot, bool pure_doc_value);
+    Status set_any_val_from_json(PrimitiveType type, MemPool* tuple_pool, const rapidjson::Value& val, void* slot, bool pure_doc_value);
     const std::string& get_scroll_id();
     const std::string& get_after_key();
     int get_size();
@@ -74,6 +74,8 @@ private:
     rapidjson::SizeType _line_index;
 
     rapidjson::Document _document_node;
+    // we do es aggregation query via composite query, it will return _after_key
+    // we can use _after_key to read the next page, just add parameter 'after':'after_key'
     std::string _after_key;
     rapidjson::Value _inner_hits_node;
     rapidjson::Value _inner_agg_values;

@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
@@ -40,6 +41,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.external.elasticsearch.EsTablePartitions;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
@@ -404,6 +407,24 @@ public class QueryPlanTest {
 
         createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
 
+        createTable("CREATE EXTERNAL TABLE test.`doris_on_es` (\n" +
+                "  `price` int(11) NULL COMMENT \"\",\n" +
+                "  `color` varchar(20) NULL COMMENT \"\",\n" +
+                "  `sold` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=ELASTICSEARCH\n" +
+                "COMMENT \"ELASTICSEARCH\"\n" +
+                "PROPERTIES (\n" +
+                "\"hosts\" = \"127.0.0.1:9200\",\n" +
+                "\"user\" = \"\",\n" +
+                "\"password\" = \"\",\n" +
+                "\"index\" = \"cars\",\n" +
+                "\"type\" = \"_doc\",\n" +
+                "\"transport\" = \"http\",\n" +
+                "\"enable_docvalue_scan\" = \"true\",\n" +
+                "\"max_docvalue_fields\" = \"20\",\n" +
+                "\"enable_keyword_sniff\" = \"true\",\n" +
+                "\"version\" = \"7.3\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -1581,7 +1602,6 @@ public class QueryPlanTest {
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021-03-02 10:01:28'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1609430400"));
-
         //format less than
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02 10:01:28'";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
@@ -1799,4 +1819,88 @@ public class QueryPlanTest {
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
 
+    @Test
+    public void testPushDownAggToEs() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        EsTable esTable = (EsTable) connectContext.getCatalog().getDbOrMetaException("default_cluster:test")
+                .getTableOrMetaException("doris_on_es");
+        EsRestClient esRestClient = new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd(),
+                esTable.isHttpSslEnabled());
+        esTable.syncTableMetaData(esRestClient);
+        EsTablePartitions esTablePartitions = new EsTablePartitions();
+        esTable.setEsTablePartitions(esTablePartitions);
+        esTable.docValueContext().put("price", "price");
+        esTable.docValueContext().put("color", "color.keyword");
+        esTable.docValueContext().put("sold", "sold");
+
+        String sql, explainString;
+        // use es scan to do agg
+        sql = "select count(1) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // use es agg to do first phase of agg
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ count(1) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsAggregationNode"));
+
+        // About aggregate type
+        // 1. agg type
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ count(distinct price), topn(price, 1) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 2. column type
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(1) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 2.1 max(time) is ok
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ max(sold) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsAggregationNode"));
+
+        // 2.2 max(string) is not allowed
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ max(color) from doris_on_es";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 3. column can't be expr
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(2 * price) from doris_on_es group by sold";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 4. group by can't be expr
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(price), count(1), count(*) from doris_on_es group by 2 * price";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 5. the correct one
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(price), count(1), count(*) from doris_on_es group by sold";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("EsAggregationNode"));
+
+        // About predicate
+        // 1. in predicate include null value
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(price) from doris_on_es where color in ('red', 'blue', null) group by sold";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 2. not compound predicate is not allowed
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(price) from doris_on_es where not (color = 'red' or color = 'blue') group by sold";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsScanNode"));
+
+        // 3. the correct one
+        sql = "select /*+set_var(enable_pushdown_agg_to_es = true)*/ sum(price), count(1), count(*) from doris_on_es where color in ('red', 'blue') or color = 'green' group by sold";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("EsAggregationNode"));
+    }
 }

@@ -294,15 +294,8 @@ struct TEsScanNode {
     // so Fe should send names to BE
     10: optional list<string> group_by_column_names
     11: optional list<string> aggregate_column_names
-    // case 1: es scan
-    // conjuncts will be returned to parent node so conjuncts must be checked when exec_node prepare
-    // case 2: es aggregate
-    // conjuncts won't be returned to parent node so check is unnecessary
-    // if do nothing, conjuncts will be checked failed because row_desc is for agg, not for table desc.
-    // solve:
-    // if es scan, do nothing
-    // if es aggregate, let <conjuncts> is empty, and use <es_scan_conjuncts_when_aggregate> to filter data
-    12: optional list<Exprs.TExpr> es_scan_conjuncts_when_aggregate 
+    //`es_scan_conjuncts_when_aggregate` is used as query filter when do es aggregation
+    12: optional list<Exprs.TExpr> _conjunct_ctxs_for_aggregation 
 }
 
 struct TMiniLoadEtlFunction {

@@ -84,7 +84,7 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
             RETURN_IF_ERROR(add_aggregation_for_es(col_name, _aggregate_ops.back()));
         }
 
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.es_scan_node.es_scan_conjuncts_when_aggregate, &_es_scan_conjunct_ctxs_when_aggregate));
+        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.es_scan_node._conjunct_ctxs_for_aggregation, &_conjunct_ctxs_for_aggregation));
 
         vector<TTupleId> scan_tuple_ids {tnode.es_scan_node.tuple_id};
         _scan_row_desc.reset(new RowDescriptor(state->desc_tbl(), scan_tuple_ids, tnode.nullable_tuples));
@@ -97,7 +97,7 @@ Status EsHttpScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     if (_is_aggregated) {
-        RETURN_IF_ERROR(Expr::prepare(_es_scan_conjunct_ctxs_when_aggregate, state, *_scan_row_desc, expr_mem_tracker()));
+        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs_for_aggregation, state, *_scan_row_desc, expr_mem_tracker()));
     }
 
     _runtime_state = state;
@@ -159,10 +159,10 @@ Status EsHttpScanNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
 
     if (_is_aggregated) {
-        Expr::open(_es_scan_conjunct_ctxs_when_aggregate, state);
+        Expr::open(_conjunct_ctxs_for_aggregation, state);
     }
 
-    std::vector<ExprContext*>& conjunct_ctxs_reference = _is_aggregated ? _es_scan_conjunct_ctxs_when_aggregate : _conjunct_ctxs;
+    std::vector<ExprContext*>& conjunct_ctxs_reference = _is_aggregated ? _conjunct_ctxs_for_aggregation : _conjunct_ctxs;
 
     // if conjunct is constant, compute direct and set eos = true
     for (int conj_idx = 0; conj_idx < conjunct_ctxs_reference.size(); ++conj_idx) {
@@ -195,7 +195,7 @@ Status EsHttpScanNode::open(RuntimeState* state) {
         conjunct_ctxs_reference.erase(conjunct_ctxs_reference.begin() + conjunct_index);
     }
 
-    if (_is_aggregated && !_es_scan_conjunct_ctxs_when_aggregate.empty()) {
+    if (_is_aggregated && !_conjunct_ctxs_for_aggregation.empty()) {
         return Status::RuntimeError("es aggregate hasn't pushed down all conjuncts");
     }
 
@@ -335,7 +335,7 @@ Status EsHttpScanNode::close(RuntimeState* state) {
     update_status(collect_scanners_status());
 
     //close exec node
-    Expr::close(_es_scan_conjunct_ctxs_when_aggregate, state);
+    Expr::close(_conjunct_ctxs_for_aggregation, state);
     update_status(ExecNode::close(state));
 
     return _process_status;
@@ -471,7 +471,7 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);
-    auto status = _is_aggregated ? Expr::clone_if_not_exists(_es_scan_conjunct_ctxs_when_aggregate, _runtime_state, &scanner_expr_ctxs) :
+    auto status = _is_aggregated ? Expr::clone_if_not_exists(_conjunct_ctxs_for_aggregation, _runtime_state, &scanner_expr_ctxs) :
             Expr::clone_if_not_exists(_conjunct_ctxs, _runtime_state, &scanner_expr_ctxs);
     if (!status.ok()) {
         LOG(WARNING) << "Clone conjuncts failed.";

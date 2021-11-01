@@ -318,6 +318,10 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val) {
     TTypeDesc type_desc;
     TScalarType scalar_type;
     scalar_type.__set_type(val);
+    if (val == TPrimitiveType::VARCHAR || val == TPrimitiveType::CHAR) {
+        // for runtime/types.cpp check
+        scalar_type.__set_len(-1);
+    }
     type_node.__set_scalar_type(scalar_type);
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);

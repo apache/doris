@@ -507,158 +507,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             slot = nullptr;
             continue;
         }
-        switch (type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
-            // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
-            // this may be a tricky, but we can workaround this issue
-            std::string val;
-            if (pure_doc_value) {
-                if (!col[0].IsString()) {
-                    val = json_value_to_string(col[0]);
-                } else {
-                    val = col[0].GetString();
-                }
-            } else {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                if (!col.IsString()) {
-                    val = json_value_to_string(col);
-                } else {
-                    val = col.GetString();
-                }
-            }
-            size_t val_size = val.length();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-            if (UNLIKELY(buffer == NULL)) {
-                std::string details = strings::Substitute(
-                        ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
-            }
-            memcpy(buffer, val.data(), val_size);
-            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-            reinterpret_cast<StringValue*>(slot)->len = val_size;
-            break;
-        }
 
-        case TYPE_TINYINT: {
-            Status status = get_int_value<int8_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_SMALLINT: {
-            Status status = get_int_value<int16_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_INT: {
-            Status status = get_int_value<int32_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_BIGINT: {
-            Status status = get_int_value<int64_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_LARGEINT: {
-            Status status = get_int_value<__int128>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_DOUBLE: {
-            Status status = get_float_value<double>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_FLOAT: {
-            Status status = get_float_value<float>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_BOOLEAN: {
-            if (col.IsBool()) {
-                *reinterpret_cast<int8_t*>(slot) = col.GetBool();
-                break;
-            }
-
-            if (col.IsNumber()) {
-                *reinterpret_cast<int8_t*>(slot) = col.GetInt();
-                break;
-            }
-            if (pure_doc_value && col.IsArray()) {
-                *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
-                break;
-            }
-
-            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-            RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-            const std::string& val = col.GetString();
-            size_t val_size = col.GetStringLength();
-            StringParser::ParseResult result;
-            bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-            RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
-            *reinterpret_cast<int8_t*>(slot) = b;
-            break;
-        }
-
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-            if (col.IsNumber()) {
-                // ES process date/datetime field would use millisecond timestamp for index or docvalue
-                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
-                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col, type));
-            } else if (col.IsArray() && pure_doc_value) {
-                // this would happened just only when `enable_docvalue_scan = true`
-                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
-                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
-                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
-                // date field's docvalue
-                if (col[0].IsString()) {
-                    RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col[0], type));
-                    break;
-                }
-                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col[0], type));
-            } else {
-                // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-                RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col, type));
-            }
-            break;
-        }
-        default: {
-            DCHECK(false);
-            return Status::RuntimeError("Excepted Aggregation Type is in (int/date/double/varchar...), but found type\n"
-                                        "is" + type_to_string(type) + ", please check the Es table type or Aggregation column type");
-        }
-        }
+        set_any_val_from_json(type, tuple_pool, col, slot, pure_doc_value);
     }
 
     *line_eof = false;
@@ -745,7 +595,7 @@ Status ScrollParser::fill_agg_tuple(const TupleDescriptor* intermediate_tuple_de
 
             void* slot = tuple->get_slot(slot_desc->tuple_offset());
 
-            Status status = set_any_val_for_agg(type, mem_pool, val, slot, pure_doc_value);
+            Status status = set_any_val_from_json(type, mem_pool, val, slot, pure_doc_value);
             if (!status.ok()) {
                 return status;
             }
@@ -802,9 +652,9 @@ Status ScrollParser::fill_agg_tuple(const TupleDescriptor* intermediate_tuple_de
 
                 Status status1, status2;
                 string error_msg = "set avg error: ";
-                status1 = set_any_val_for_agg(PrimitiveType::TYPE_DOUBLE, mem_pool, sum, &avgState->sum,
+                status1 = set_any_val_from_json(PrimitiveType::TYPE_DOUBLE, mem_pool, sum, &avgState->sum,
                                               pure_doc_value);
-                status2 = set_any_val_for_agg(PrimitiveType::TYPE_BIGINT, mem_pool, count, &avgState->count,
+                status2 = set_any_val_from_json(PrimitiveType::TYPE_BIGINT, mem_pool, count, &avgState->count,
                                               pure_doc_value);
 
                 if (!status1.ok() || !status2.ok()) {
@@ -834,7 +684,7 @@ Status ScrollParser::fill_agg_tuple(const TupleDescriptor* intermediate_tuple_de
 
                 void* slot = tuple->get_slot(slot_desc->tuple_offset());
 
-                Status status = set_any_val_for_agg(type, mem_pool, count, slot, pure_doc_value);
+                Status status = set_any_val_from_json(type, mem_pool, count, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -861,7 +711,7 @@ Status ScrollParser::fill_agg_tuple(const TupleDescriptor* intermediate_tuple_de
 
                 void* slot = tuple->get_slot(slot_desc->tuple_offset());
 
-                Status status = set_any_val_for_agg(type, mem_pool, val, slot, pure_doc_value);
+                Status status = set_any_val_from_json(type, mem_pool, val, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -917,16 +767,27 @@ Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::
     return Status::OK();
 }
 
-Status ScrollParser::set_any_val_for_agg(PrimitiveType type, MemPool* tuple_pool, const rapidjson::Value& val, void* slot, bool pure_doc_value) {
+Status ScrollParser::set_any_val_from_json(PrimitiveType type, MemPool* tuple_pool, const rapidjson::Value& val, void* slot, bool pure_doc_value) {
     switch (type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR: {
+            // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
+            // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
+            // this may be a tricky, but we can workaround this issue
             std::string string_val;
-            RETURN_ERROR_IF_COL_IS_ARRAY(val, type);
-            if (!val.IsString()) {
-                string_val = json_value_to_string(val);
+            if (pure_doc_value) {
+                if (!val[0].IsString()) {
+                    string_val = json_value_to_string(val[0]);
+                } else {
+                    string_val = val[0].GetString();
+                }
             } else {
-                string_val = val.GetString();
+                RETURN_ERROR_IF_COL_IS_ARRAY(val, type);
+                if (!val.IsString()) {
+                    string_val = json_value_to_string(val);
+                } else {
+                    string_val = val.GetString();
+                }
             }
             size_t string_val_size = string_val.length();
             char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(string_val_size));
@@ -1007,6 +868,10 @@ Status ScrollParser::set_any_val_for_agg(PrimitiveType type, MemPool* tuple_pool
                 *reinterpret_cast<int8_t*>(slot) = val.GetInt();
                 break;
             }
+            if (pure_doc_value && val.IsArray()) {
+                *reinterpret_cast<int8_t*>(slot) = val[0].GetBool();
+                break;
+            }
 
             RETURN_ERROR_IF_COL_IS_ARRAY(val, type);
             RETURN_ERROR_IF_COL_IS_NOT_STRING(val, type);
@@ -1023,7 +888,22 @@ Status ScrollParser::set_any_val_for_agg(PrimitiveType type, MemPool* tuple_pool
         case TYPE_DATE:
         case TYPE_DATETIME: {
             if (val.IsNumber()) {
+                // ES process date/datetime field would use millisecond timestamp for index or docvalue
+                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
+                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
                 RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, val, type));
+            } else if (val.IsArray() && pure_doc_value) {
+                // this would happened just only when `enable_docvalue_scan = true`
+                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
+                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
+                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
+                // date field's docvalue
+                if (val[0].IsString()) {
+                    RETURN_IF_ERROR(fill_date_slot_with_strval(slot, val[0], type));
+                    break;
+                }
+                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
+                RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, val[0], type));
             } else {
                 RETURN_ERROR_IF_COL_IS_ARRAY(val, type);
                 RETURN_ERROR_IF_COL_IS_NOT_STRING(val, type);
@@ -1033,7 +913,7 @@ Status ScrollParser::set_any_val_for_agg(PrimitiveType type, MemPool* tuple_pool
         }
         default: {
             DCHECK(false);
-            return Status::RuntimeError("Excepted Aggregation Type is in (int/date/double/varchar...), but found type\n"
+            return Status::RuntimeError("Excepted Type is in (int/date/double/varchar...), but found type\n"
                                         "is" + type_to_string(type) + ", please check the Es table type or Aggregation column type");
         }
     }

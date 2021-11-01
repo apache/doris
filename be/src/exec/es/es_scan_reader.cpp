@@ -39,7 +39,7 @@ const std::string AGG_SCROLL_SEARCH_FILTER_PATH =
         "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields,aggregations,aggregations.groupby.buckets";
 
 const std::string REQUEST_SCROLL_PATH = "_scroll";
-const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
+const std::string REQUEST_PREFERENCE_PREFIX = "preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
 const std::string REQUEST_SEPARATOR = "/";
 
@@ -85,8 +85,8 @@ ESScanReader::ESScanReader(const std::string& target,
         std::stringstream scratch;
         scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
                 << "/_search?"
-                << REQUEST_PREFERENCE_PREFIX
-                << _shards << "&" << filter_path;
+                << REQUEST_PREFERENCE_PREFIX << _shards
+                << "&" << filter_path;
         _get_agg_url = scratch.str();
     } else if (props.find(KEY_TERMINATE_AFTER) != props.end()) {
         _exactly_once = true;
@@ -94,8 +94,9 @@ ESScanReader::ESScanReader(const std::string& target,
         // just send a normal search  against the elasticsearch with additional terminate_after param to achieve terminate early effect when limit take effect
         scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
                 << "/_search?"
-                << "terminate_after=" << props.at(KEY_TERMINATE_AFTER) << REQUEST_PREFERENCE_PREFIX
-                << _shards << "&" << filter_path;
+                << "terminate_after=" << props.at(KEY_TERMINATE_AFTER)
+                << "&" << REQUEST_PREFERENCE_PREFIX << _shards
+                << "&" << filter_path;
         _search_url = scratch.str();
     } else {
         _exactly_once = false;
@@ -104,8 +105,10 @@ ESScanReader::ESScanReader(const std::string& target,
         // add terminate_after for the first scroll to avoid decompress all postings list
         scratch << _target << REQUEST_SEPARATOR << _index << REQUEST_SEPARATOR << _type
                 << "/_search?"
-                << "scroll=" << _scroll_keep_alive << REQUEST_PREFERENCE_PREFIX << _shards << "&"
-                << filter_path << "&terminate_after=" << batch_size_str;
+                << "scroll=" << _scroll_keep_alive
+                << "&" << REQUEST_PREFERENCE_PREFIX << _shards
+                << "&" << filter_path
+                << "&terminate_after=" << batch_size_str;
         _init_scroll_url = scratch.str();
         _next_scroll_url = _target + REQUEST_SEARCH_SCROLL_PATH + "?" + filter_path;
     }

@@ -80,6 +80,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -102,6 +103,8 @@ public class EsScanNode extends ScanNode {
     private List<Expr> es_scan_conjuncts_when_aggregate;
     boolean isFinalized = false;
     boolean isAggregated = false;
+
+    private Optional<String>  reason_why_agg_not_push_down = Optional.empty();
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName);
@@ -216,7 +219,7 @@ public class EsScanNode extends ScanNode {
             }
 
             if (es_scan_conjuncts_when_aggregate != null) {
-                esScanNode.setEsScanConjunctsWhenAggregate(Expr.treesToThrift(es_scan_conjuncts_when_aggregate));
+                esScanNode.setConjunctCtxsForAggregation(Expr.treesToThrift(es_scan_conjuncts_when_aggregate));
             }
         }
         msg.es_scan_node = esScanNode;
@@ -385,6 +388,14 @@ public class EsScanNode extends ScanNode {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
         }
 
+        if (ConnectContext.get().getSessionVariable().isEnablePushDownAggToES()) {
+            if (reason_why_agg_not_push_down.isPresent()) {
+                output.append(prefix).append("agg push down: ").append("false").append(",")
+                        .append(" reason: ").append(reason_why_agg_not_push_down.get()).append("\n");
+            } else if (isAggregated) {
+                output.append(prefix).append("agg push down: ").append("true").append("\n");
+            }
+        }
         List<Expr> es_scan_conjuncts = isAggregated ? es_scan_conjuncts_when_aggregate : conjuncts;
         if (!es_scan_conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
@@ -408,22 +419,26 @@ public class EsScanNode extends ScanNode {
 
     public boolean supportAggregationPushDown(AggregationNode aggregationNode) {
         if (!ConnectContext.get().getSessionVariable().isEnablePushDownAggToES()) {
+            reason_why_agg_not_push_down = Optional.of("Session Variable [enable_pushdown_agg_to_es] is disabled");
             return false;
         }
 
         if (table.syncEsVersion().before(EsMajorVersion.V_7_X)) {
             // before 6.5, composite group by query hasn't been supported.
+            reason_why_agg_not_push_down = Optional.of("version is too lower, do not support composite...");
             return false;
         }
 
         if (this.hasLimit()) {
             // select avg from (select * from t1 limit x) t group by xx
+            reason_why_agg_not_push_down = Optional.of("Scan Limit has not been pushed down to Es Aggregation");
             return false;
         }
         
         ImmutableSet<String> functions = ImmutableSet.of("sum","avg","count","min","max");
         if (!(aggregationNode.getChildren().size() == 1
                 && aggregationNode.getChild(0) instanceof EsScanNode)) {
+            reason_why_agg_not_push_down = Optional.of("Now only support one table aggregation push down to es");
             return false;
         }
 
@@ -434,6 +449,7 @@ public class EsScanNode extends ScanNode {
             if (functions.contains(function.getFnName().getFunction())) {
                 aggregate_function_names.add(function.getFnName().getFunction());
             } else {
+                reason_why_agg_not_push_down = Optional.of(String.format("aggregate function [%s] do not support", function.getFnName().getFunction()));
                 return false;
             }
         }
@@ -441,6 +457,7 @@ public class EsScanNode extends ScanNode {
         // group by Expr check
         for (Expr groupByExpr : aggInfo.getGroupingExprs()) {
             if (!(groupByExpr instanceof SlotRef)) {
+                reason_why_agg_not_push_down = Optional.of("expr can't been pushed down to ES, eg : 2*A");
                 return false;
             }
         }
@@ -449,11 +466,13 @@ public class EsScanNode extends ScanNode {
         // eg : avg(decimal value col), intermediate slot is varchar, but output slot is decimal
         for (SlotDescriptor slotDescriptor : aggInfo.getIntermediateTupleDesc().getSlots()) {
             if (!supportAggregationResultType(slotDescriptor)) {
+                reason_why_agg_not_push_down = Optional.of("Aggregate data type do not supported, eg: decimal");
                 return false;
             }
         }
         for (SlotDescriptor slotDescriptor : aggInfo.getOutputTupleDesc().getSlots()) {
             if (!supportAggregationResultType(slotDescriptor)) {
+                reason_why_agg_not_push_down = Optional.of("Aggregate data type do not supported, eg: decimal");
                 return false;
             }
         }
@@ -475,12 +494,13 @@ public class EsScanNode extends ScanNode {
                     }
                     if (functionParamExprs != null && functionParamExprs.size() == 1) {
                         // only support agg(col), not support agg(1/1.0)
-                        // count is special, count(1/*) is ok, count(col) is not allowed now
+                        // count is special, count(1/*) is ok, count(2) is not ok
                         if (functionParamExprs.get(0) instanceof CastExpr) {
                             // it's ok, maybe sum(int) -> bigint[sum(int)]
                             CastExpr castExpr = (CastExpr) functionParamExprs.get(0);
                             SlotRef colRef = castExpr.unwrapSlotRef();
                             if (colRef == null || castExpr.getChildren().size() != 1) {
+                                reason_why_agg_not_push_down = Optional.of("unexpected error");
                                 return false;
                             }
                             aggregate_column_names.add(colRef.getColumnName());
@@ -489,12 +509,14 @@ public class EsScanNode extends ScanNode {
                             aggregate_column_names.add(colRef.getColumnName());
                         } else {
                             if (!functionCallExpr.getFnName().getFunction().equals("count")) {
+                                reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
                                 return false;
                             }
                             String label_ = slotDescriptor.getLabel();
                             if (label_.equals("count(1)")) {
                                 aggregate_column_names.add("");
                             } else {
+                                reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
                                 return false;
                             }
                         }
@@ -502,20 +524,26 @@ public class EsScanNode extends ScanNode {
                         aggregate_column_names.add("");
                         Preconditions.checkState(slotDescriptor.getLabel().equals("count(*)"));
                     } else {
+                        reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
                         return false;
                     }
                 } else {
+                    reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
                     return false;
                 }
             }
         }
 
         // predicate check
-        if (!supportConjunctPushDown()) return false;
+        if (!supportConjunctPushDown()) {
+            reason_why_agg_not_push_down = Optional.of("predicate has not been pushed down completely");
+            return false;
+        }
 
         // check field can do aggregate operator or not
         for (String group_field : group_by_column_names) {
             if (!table.docValueContext().containsKey(group_field)) {
+                reason_why_agg_not_push_down = Optional.of("group by column has not enabled doc_value");
                 return false;
             }
         }
@@ -524,6 +552,7 @@ public class EsScanNode extends ScanNode {
                 continue;
             }
             if (!table.docValueContext().containsKey(aggregate_field)) {
+                reason_why_agg_not_push_down = Optional.of("aggregate column has not enabled doc_value");
                 return false;
             }
         }
@@ -543,6 +572,7 @@ public class EsScanNode extends ScanNode {
                     }
                     Type type = col_name_to_functions.get(aggregate_column_names.get(i));
                     if (type.isStringType()) {
+                        reason_why_agg_not_push_down = Optional.of("Es Aggregation do not support string");
                         return false;
                     }
                 }
