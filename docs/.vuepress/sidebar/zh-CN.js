@@ -97,6 +97,7 @@ module.exports = [
                     "query-profile-action",
                   ],
                 },
+                "backends-action",
                 "bootstrap-action",
                 "cancel-load-action",
                 "check-decommission-action",
