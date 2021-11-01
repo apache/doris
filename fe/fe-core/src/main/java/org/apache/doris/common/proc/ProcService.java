@@ -38,7 +38,7 @@ public final class ProcService {
         root.register("backends", new BackendsProcDir(Catalog.getCurrentSystemInfo()));
         root.register("dbs", new DbsProcDir(Catalog.getCurrentCatalog()));
         root.register("jobs", new JobsDbProcDir(Catalog.getCurrentCatalog()));
-        root.register("db_statistic", new StatisticProcDir(Catalog.getCurrentCatalog()));
+        root.register("statistic", new StatisticProcDir(Catalog.getCurrentCatalog()));
         root.register("tasks", new TasksProcDir());
         root.register("frontends", new FrontendsProcNode(Catalog.getCurrentCatalog()));
         root.register("brokers", Catalog.getCurrentCatalog().getBrokerMgr().getProcNode());
