@@ -91,8 +91,15 @@ public:
     explicit HyperLogLog(const Slice& src);
 
     ~HyperLogLog() {
+        clear();
+    }
+
+    void clear() {
+        _type = HLL_DATA_EMPTY;
         delete [] _registers;
+        _registers = nullptr;
         delete [] _explicit_data;
+        _explicit_data = nullptr;
         _explicit_data_num = 0;
     }
 
