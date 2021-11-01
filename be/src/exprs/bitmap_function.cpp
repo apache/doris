@@ -620,6 +620,25 @@ BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src
     }
 }
 
+StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
+                                                const BigIntVal& range_start, const BigIntVal& range_end) {
+    if (src.is_null || range_start.is_null || range_end.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val >= range_end.val || range_start.val < 0 || range_end.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_range(range_start.val, range_end.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,
                                                              const TinyIntVal& src, StringVal* dst);
 template void BitmapFunctions::bitmap_update_int<SmallIntVal>(FunctionContext* ctx,

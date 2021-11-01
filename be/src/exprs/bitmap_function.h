@@ -97,6 +97,8 @@ public:
     template <typename T>
     static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_max(FunctionContext* ctx, const StringVal& str);
+    static StringVal bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src, 
+                                            const BigIntVal& range_start, const BigIntVal& range_end);
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
