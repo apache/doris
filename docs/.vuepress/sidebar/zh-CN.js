@@ -415,6 +415,7 @@ module.exports = [
               "bitmap_empty",
               "bitmap_from_string",
               "bitmap_has_any",
+              "bitmap_has_all",
               "bitmap_hash",
               "bitmap_intersect",
               "bitmap_or",

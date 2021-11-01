@@ -80,6 +80,8 @@ public:
                                       const BigIntVal& input);
     static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs,
                                      const StringVal& rhs);
+    static BooleanVal bitmap_has_all(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs);
 
     // intersect count
     template <typename T, typename ValType>
