@@ -49,12 +49,12 @@ under the License.
 导入方式和Broker Load 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 ```
     WITH S3
- (
+    (
         "AWS_ENDPOINT" = "AWS_ENDPOINT",
         "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
         "AWS_SECRET_KEY"="AWS_SECRET_KEY",
         "AWS_REGION" = "AWS_REGION"
-  )
+    )
 ```
 
 完整示例如下
@@ -76,4 +76,19 @@ under the License.
     (
         "timeout" = "3600"
     );
+```
+
+## 常见问题
+
+S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可能没开启或没支持 virtual-hosted style 方式的访问，此时我们可以添加 `use_path_style` 参数来强制使用 path style 方式：
+
+```
+  WITH S3
+  (
+        "AWS_ENDPOINT" = "AWS_ENDPOINT",
+        "AWS_ACCESS_KEY" = "AWS_ACCESS_KEY",
+        "AWS_SECRET_KEY"="AWS_SECRET_KEY",
+        "AWS_REGION" = "AWS_REGION",
+        "use_path_style" = "true"
+  )
 ```
