@@ -175,7 +175,7 @@ CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "10");
+CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
@@ -440,7 +440,7 @@ CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
-CONF_mInt64(write_buffer_size, "104857600");
+CONF_mInt64(write_buffer_size, "209715200");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
