@@ -20,9 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -35,13 +33,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -502,6 +496,30 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {{
+            dstTable.getBaseSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getBaseSchema(anyBoolean);
+            minTimes = 0;
+            result = columns;
+            dstTable.getFullSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getColumn("k1");
+            minTimes = 0;
+            result = columns.get(0);
+            dstTable.getColumn("k2");
+            minTimes = 0;
+            result = columns.get(1);
+            dstTable.getColumn("v1");
+            minTimes = 0;
+            result = columns.get(2);
+            dstTable.getColumn("v2");
+            minTimes = 0;
+            result = columns.get(3);
+        }};
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k3");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
@@ -629,6 +647,30 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {{
+            dstTable.getBaseSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getBaseSchema(anyBoolean);
+            minTimes = 0;
+            result = columns;
+            dstTable.getFullSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getColumn("k1");
+            minTimes = 0;
+            result = columns.get(0);
+            dstTable.getColumn("k2");
+            minTimes = 0;
+            result = columns.get(1);
+            dstTable.getColumn("v1");
+            minTimes = 0;
+            result = columns.get(2);
+            dstTable.getColumn("v2");
+            minTimes = 0;
+            result = columns.get(3);
+        }};
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k5 = 1");
@@ -658,6 +700,30 @@ public class StreamLoadScanNodeTest {
                 slot.setIsNullable(false);
             }
         }
+
+        new Expectations() {{
+            dstTable.getBaseSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getBaseSchema(anyBoolean);
+            minTimes = 0;
+            result = columns;
+            dstTable.getFullSchema();
+            minTimes = 0;
+            result = columns;
+            dstTable.getColumn("k1");
+            minTimes = 0;
+            result = columns.get(0);
+            dstTable.getColumn("k2");
+            minTimes = 0;
+            result = columns.get(1);
+            dstTable.getColumn("v1");
+            minTimes = 0;
+            result = columns.get(2);
+            dstTable.getColumn("v2");
+            minTimes = 0;
+            result = columns.get(3);
+        }};
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");

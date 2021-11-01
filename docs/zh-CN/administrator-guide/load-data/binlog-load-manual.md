@@ -105,7 +105,7 @@ client中的receiver将负责通过Get命令接收数据，每获取到一个数
 
 channel控制着单个表事务的开始、提交、终止。一个事务周期内，一般会从consumer获取到多个batch的数据，因此会产生多个向BE发送数据的子任务Task，在提交事务成功前，这些Task不会实际生效。
 
-满足一定条件时（比如超过一定时间、获取到了空的batch），consumer将会阻塞并通知各个channel提交事务。
+满足一定条件时（比如超过一定时间、达到提交最大数据大小），consumer将会阻塞并通知各个channel提交事务。
 
 当且仅当所有channel都提交成功，才会通过Ack命令通知canal并继续获取并消费数据。
 
@@ -434,6 +434,26 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 	
 ## 相关参数
 
+### CANAL配置
+
+下面配置属于canal端的配置，主要通过修改 conf 目录下的 canal.properties 调整配置值。
+
+* `canal.ip`
+
+	canal server的ip地址
+	
+* `canal.port`
+
+	canal server的端口
+
+* `canal.instance.memory.buffer.size`
+
+	canal端的store环形队列的队列长度，必须设为2的幂次方，默认长度16384。此值等于canal端能缓存event数量的最大值，也直接决定了Doris端一个事务内所能容纳的最大event数量。建议将它改的足够大，防止Doris端一个事务内能容纳的数据量上限太小，导致提交事务太过频繁造成数据的版本堆积。
+	
+* `canal.instance.memory.buffer.memunit`
+
+	canal端默认一个event所占的空间，默认空间为1024 bytes。此值乘上store环形队列的队列长度等于store的空间最大值，比如store队列长度为16384，则store的空间为16MB。但是，一个event的实际大小并不等于此值，而是由这个event内有多少行数据和每行数据的长度决定的，比如一张只有两列的表的insert event只有30字节，但delete event可能达到数千字节，这是因为通常delete event的行数比insert event多。
+
 ### FE配置
 
 下面配置属于数据同步作业的系统级别配置，主要通过修改 fe.conf 来调整配置值。
@@ -445,6 +465,18 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 * `sync_commit_interval_second`
 
 	提交事务的最大时间间隔。若超过了这个时间channel中还有数据没有提交，consumer会通知channel提交事务。
+	
+* `min_sync_commit_size`
+
+      提交事务需满足的最小event数量。若Fe接收到的event数量小于它，会继续等待下一批数据直到时间超过了`sync_commit_interval_second `为止。默认值是10000个events，如果你想修改此配置，请确保此值小于canal端的`canal.instance.memory.buffer.size`配置（默认16384），否则在ack前Fe会尝试获取比store队列长度更多的event，导致store队列阻塞至超时为止。
+      
+* `min_bytes_sync_commit`
+
+	提交事务需满足的最小数据大小。若Fe接收到的数据大小小于它，会继续等待下一批数据直到时间超过了`sync_commit_interval_second `为止。默认值是15MB，如果你想修改此配置，请确保此值小于canal端的`canal.instance.memory.buffer.size`和`canal.instance.memory.buffer.memunit`的乘积（默认16MB），否则在ack前Fe会尝试获取比store空间更大的数据，导致store队列阻塞至超时为止。
+	
+* `max_bytes_sync_commit`
+
+	提交事务时的数据大小的最大值。若Fe接收到的数据大小大于它，会立即提交事务并发送已积累的数据。默认值是64MB，如果你想修改此配置，请确保此值大于canal端的`canal.instance.memory.buffer.size`和`canal.instance.memory.buffer.memunit`的乘积（默认16MB）和`min_bytes_sync_commit`。
 	
 * `max_sync_task_threads_num`
 

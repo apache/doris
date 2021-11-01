@@ -35,7 +35,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
           _rowset(std::move(rowset)),
           _stats(&_owned_stats),
           _parent_tracker(std::move(parent_tracker)) {
-    _rowset->aquire();
+    _rowset->acquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
@@ -44,7 +44,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         _parent_tracker = read_context->runtime_state->instance_mem_tracker();
     }
 
-    RETURN_NOT_OK(_rowset->load(true, _parent_tracker));
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
@@ -92,9 +92,13 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
     read_options.use_page_cache = read_context->use_page_cache;
 
+    // load segments
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY));
+
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
-    for (auto& seg_ptr : _rowset->_segments) {
+    for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
         auto s = seg_ptr->new_iterator(schema, read_options, _parent_tracker, &iter);
         if (!s.ok()) {

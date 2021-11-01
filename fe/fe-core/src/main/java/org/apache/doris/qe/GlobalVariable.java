@@ -82,7 +82,6 @@ public final class GlobalVariable {
 
     // Don't allow create instance.
     private GlobalVariable() {
-
     }
 
     public static List<String> getPersistentGlobalVarNames() {

@@ -45,6 +45,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/histogram.h"
@@ -553,7 +554,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
 
     if (tablet == nullptr) {
         if (err != nullptr) {
-            *err = "tablet does not exist";
+            *err = "tablet does not exist. " + BackendOptions::get_localhost();
         }
         return nullptr;
     }
@@ -561,7 +562,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     if (!tablet->is_used()) {
         LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
         if (err != nullptr) {
-            *err = "tablet cannot be used";
+            *err = "tablet cannot be used. " + BackendOptions::get_localhost();
         }
         return nullptr;
     }

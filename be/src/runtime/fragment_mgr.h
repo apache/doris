@@ -99,6 +99,8 @@ private:
 
     std::mutex _lock;
 
+    std::condition_variable _cv;
+
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
     // query id -> QueryFragmentsCtx

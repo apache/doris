@@ -241,7 +241,7 @@ public class FileSystemManager {
                 return null;
             }
             if (fileSystem.getDFSFileSystem() == null) {
-                logger.info("could not find file system for path " + path + " create a new one");
+                logger.info("create file system for new path: " + path);
                 UserGroupInformation ugi = null;
 
                 // create a new filesystem
@@ -402,7 +402,7 @@ public class FileSystemManager {
                 return null;
             }
             if (fileSystem.getDFSFileSystem() == null) {
-                logger.info("could not find file system for path " + path + " create a new one");
+                logger.info("create file system for new path " + path);
                 // create a new filesystem
                 Configuration conf = new Configuration();
                 conf.set(FS_S3A_ACCESS_KEY, accessKey);

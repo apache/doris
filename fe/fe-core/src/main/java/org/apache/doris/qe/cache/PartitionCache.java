@@ -130,7 +130,9 @@ public class PartitionCache extends Cache {
             return;
         }
 
-        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmt.toSql());
+        String nokeyStmtWithViewStmt = nokeyStmt.toSql() + allViewExpandStmtListStr;
+        InternalService.PUpdateCacheRequest updateRequest
+                = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmtWithViewStmt);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

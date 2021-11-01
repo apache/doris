@@ -150,6 +150,7 @@ public class DorisStreamLoad implements Serializable{
     }
 
     public void load(String value) throws StreamLoadException {
+        LOG.debug("Streamload Request:{} ,Body:{}", loadUrlStr, value);
         LoadResponse loadResponse = loadBatch(value);
         LOG.info("Streamload Response:{}",loadResponse);
         if(loadResponse.status != 200){
@@ -169,7 +170,7 @@ public class DorisStreamLoad implements Serializable{
 
     private LoadResponse loadBatch(String value) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+        String label = String.format("spark_streamload_%s%02d%02d_%02d%02d%02d_%s",
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
                 UUID.randomUUID().toString().replaceAll("-", ""));
@@ -194,12 +195,11 @@ public class DorisStreamLoad implements Serializable{
             while ((line = br.readLine()) != null) {
                 response.append(line);
             }
-//            log.info("AuditLoader plugin load with label: {}, response code: {}, msg: {}, content: {}",label, status, respMsg, response.toString());
             return new LoadResponse(status, respMsg, response.toString());
 
         } catch (Exception e) {
             e.printStackTrace();
-            String err = "failed to load audit via AuditLoader plugin with label: " + label;
+            String err = "failed to execute spark streamload with label: " + label;
             LOG.warn(err, e);
             return new LoadResponse(-1, e.getMessage(), err);
         } finally {

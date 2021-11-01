@@ -39,7 +39,7 @@ import java.util.UUID;
 @Ignore
 public class S3StorageTest {
     private static String basePath;
-    private final String bucket = "s3://yang-repo/";
+    private final String bucket = "s3://doris-test/";
     private Map<String, String> properties;
     private S3Storage storage;
     private String testFile;
@@ -56,6 +56,8 @@ public class S3StorageTest {
         properties.put("AWS_ACCESS_KEY", System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("AWS_SECRET_KEY", System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("AWS_ENDPOINT", "http://s3.bj.bcebos.com");
+        properties.put(S3Storage.USE_PATH_STYLE, "false");
+
         properties.put("AWS_REGION", "bj");
         storage = new S3Storage(properties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
@@ -123,7 +125,6 @@ public class S3StorageTest {
         storage.rename(testFile + ".bak", testFile + ".bak1");
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, storage.checkPathExist(testFile + ".bak").getErrCode());
         Assert.assertEquals(Status.OK, storage.checkPathExist(testFile + ".bak1"));
-
     }
 
     @Test
@@ -133,17 +134,16 @@ public class S3StorageTest {
         Assert.assertEquals(Status.OK, storage.delete(deleteFile));
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, storage.checkPathExist(deleteFile).getErrCode());
         Assert.assertEquals(Status.OK, storage.delete(deleteFile + "xxxx"));
-
     }
 
     @Test
     public void list() {
         List<RemoteFile> result = new ArrayList<>();
-        String listPath =  bucket + basePath + "_list" + "/Ode_to_the_West_Wind";
+        String listPath = bucket + basePath + "_list" + "/Ode_to_the_West_Wind";
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".1"));
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".2"));
         Assert.assertEquals(Status.OK, storage.directUpload(content, listPath + ".3"));
-        Assert.assertEquals(Status.OK, storage.list(bucket + basePath  + "_list/*", result));
+        Assert.assertEquals(Status.OK, storage.list(bucket + basePath + "_list/*", result));
         Assert.assertEquals(3, result.size());
     }
 

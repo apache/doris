@@ -75,8 +75,9 @@ public class SqlCache extends Cache {
             return;
         }
 
+        String originStmtWithViewStmt = selectStmt.getOrigStmt().originStmt + allViewExpandStmtListStr;
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(selectStmt.getOrigStmt().originStmt, latestTable.latestPartitionId,
+                rowBatchBuilder.buildSqlUpdateRequest(originStmtWithViewStmt, latestTable.latestPartitionId,
                         latestTable.latestVersion, latestTable.latestTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();

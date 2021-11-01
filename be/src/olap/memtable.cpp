@@ -61,6 +61,7 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
 }
 
 void MemTable::insert(const Tuple* tuple) {
+    _rows++;
     bool overwritten = false;
     uint8_t* _tuple_buf = nullptr;
     if (_keys_type == KeysType::DUP_KEYS) {
@@ -120,6 +121,8 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
 }
 
 OLAPStatus MemTable::flush() {
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
+                  << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -141,6 +144,8 @@ OLAPStatus MemTable::flush() {
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
+    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
+                  << ", flushsize: " << _flush_size;
     return OLAP_SUCCESS;
 }
 

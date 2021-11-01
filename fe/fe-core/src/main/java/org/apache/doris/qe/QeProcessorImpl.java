@@ -162,7 +162,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .db(context.getDatabase())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getQueryProfile())
-                    .isReportSucc(context.getSessionVariable().isReportSucc()).build();
+                    .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
         return querySet;
