@@ -307,20 +307,23 @@ TEST(BitmapValueTest, bitmap_to_string) {
     ASSERT_STREQ("1,2", empty.to_string().c_str());
 }
 
-TEST(BitmapValueTest, bitmap_subset_limit) {
-    BitmapValue bitmap = BitmapValue("1,2,3,10,11,5,6,7,8,9");
-    BitmapValue ret_bitmap;
-    ASSERT_EQ(5, bitmap.bitmap_subset_limit(0, 5, &ret_bitmap));
-    ASSERT_STREQ("1,2,3,5,6", ret_bitmap.to_string().c_str())
+TEST(BitmapValueTest, sub_limit) {
+    BitmapValue bitmap({1,2,3,10,11,5,6,7,8,9});
+    BitmapValue ret_bitmap1;
+    ASSERT_EQ(5, bitmap.sub_limit(0, 5, &ret_bitmap1));
+    ASSERT_STREQ("1,2,3,5,6", ret_bitmap1.to_string().c_str());
 
-    ASSERT_EQ(4, bitmap.bitmap_subset_limit(6, 10, &ret_bitmap));
-    ASSERT_STREQ("8,9,10,11", ret_bitmap.to_string().c_str())
+    BitmapValue ret_bitmap2;
+    ASSERT_EQ(4, bitmap.sub_limit(6, 10, &ret_bitmap2));
+    ASSERT_STREQ("8,9,10,11", ret_bitmap2.to_string().c_str());
 
-    ASSERT_EQ(3, bitmap.bitmap_subset_limit(5, 3, &ret_bitmap));
-    ASSERT_STREQ("7,8,9", ret_bitmap.to_string().c_str())
+    BitmapValue ret_bitmap3;
+    ASSERT_EQ(3, bitmap.sub_limit(5, 3, &ret_bitmap3));
+    ASSERT_STREQ("7,8,9", ret_bitmap3.to_string().c_str());
 
-    ASSERT_EQ(5, bitmap.bitmap_subset_limit(2, 5, &ret_bitmap));
-    ASSERT_STREQ("3,5,6,7,8", ret_bitmap.to_string().c_str())
+    BitmapValue ret_bitmap4;
+    ASSERT_EQ(5, bitmap.sub_limit(2, 5, &ret_bitmap4));
+    ASSERT_STREQ("3,5,6,7,8", ret_bitmap4.to_string().c_str());
 }
 
 TEST(BitmapValueTest, bitmap_single_convert) {

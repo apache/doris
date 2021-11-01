@@ -675,11 +675,11 @@ TEST_F(BitmapFunctionsTest, bitmap_subset_limit) {
 
     res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(35), BigIntVal(10));
     result = BitmapFunctions::bitmap_count(ctx, res);
-    ASSERT_EQ(BigIntVal(5), result);
+    ASSERT_EQ(BigIntVal(6), result);
 
     res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(31), DecimalV2Value::MAX_INT64);
     result = BitmapFunctions::bitmap_count(ctx, res);
-    ASSERT_EQ(BigIntVal(9), result);
+    ASSERT_EQ(BigIntVal(10), result);
 
     // abnormal
     // negative range_start and cardinality_limit
