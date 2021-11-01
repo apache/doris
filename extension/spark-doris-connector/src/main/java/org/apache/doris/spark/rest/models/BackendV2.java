@@ -23,18 +23,50 @@ import java.util.List;
 /**
  * Be response model
  **/
-@Deprecated
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class Backend {
+public class BackendV2 {
 
     @JsonProperty(value = "rows")
-    private List<BackendRow> rows;
+    private List<BackendRowV2> rows;
 
-    public List<BackendRow> getRows() {
+    public List<BackendRowV2> getRows() {
         return rows;
     }
 
-    public void setRows(List<BackendRow> rows) {
+    public void setRows(List<BackendRowV2> rows) {
         this.rows = rows;
+    }
+
+    public static class BackendRowV2 {
+        @JsonProperty("ip")
+        public String ip;
+        @JsonProperty("http_port")
+        public int httpPort;
+        @JsonProperty("is_alive")
+        public boolean isAlive;
+
+        public String getIp() {
+            return ip;
+        }
+
+        public void setIp(String ip) {
+            this.ip = ip;
+        }
+
+        public int getHttpPort() {
+            return httpPort;
+        }
+
+        public void setHttpPort(int httpPort) {
+            this.httpPort = httpPort;
+        }
+
+        public boolean isAlive() {
+            return isAlive;
+        }
+
+        public void setAlive(boolean alive) {
+            isAlive = alive;
+        }
     }
 }
