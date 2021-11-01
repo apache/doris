@@ -607,6 +607,24 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     return {bitmap.cardinality() != 0};
 }
 
+BooleanVal BitmapFunctions::bitmap_has_all(FunctionContext *ctx, const StringVal &lhs,
+                                           const StringVal &rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BooleanVal::null();
+    }
+
+    if (lhs.len != 0 && rhs.len != 0) {
+        BitmapValue bitmap = BitmapValue(reinterpret_cast<char *>(lhs.ptr));
+        int64_t lhs_cardinality = bitmap.cardinality();
+        bitmap |= BitmapValue(reinterpret_cast<char *>(rhs.ptr));
+        return {bitmap.cardinality() == lhs_cardinality};
+    } else if (rhs.len != 0) {
+        return {false};
+    } else {
+        return {true};
+    }
+}
+
 BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return BigIntVal::null();
@@ -618,6 +636,25 @@ BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src
         auto bitmap = BitmapValue((char*)src.ptr);
         return bitmap.maximum();
     }
+}
+
+StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
+                                                const BigIntVal& range_start, const BigIntVal& range_end) {
+    if (src.is_null || range_start.is_null || range_end.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val >= range_end.val || range_start.val < 0 || range_end.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_range(range_start.val, range_end.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,

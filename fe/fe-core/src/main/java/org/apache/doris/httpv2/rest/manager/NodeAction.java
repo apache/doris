@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest.manager;
 
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -48,7 +46,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 
-import org.apache.commons.httpclient.HttpException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +66,9 @@ import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import lombok.Getter;
+import lombok.Setter;
 
 /*
  * Used to return all node information, configuration information and modify node config.
@@ -540,10 +540,10 @@ public class NodeAction extends RestBaseController {
     }
 
     private void parseFeSetConfigResponse(String response, Pair<String, Integer> hostPort,
-                                          List<Map<String, String>> failedTotal) throws HttpException {
+                                          List<Map<String, String>> failedTotal) throws Exception {
         JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
         if (jsonObject.get("code").getAsInt() != HttpUtils.REQUEST_SUCCESS_CODE) {
-            throw new HttpException(jsonObject.get("msg").getAsString());
+            throw new Exception(jsonObject.get("msg").getAsString());
         }
         SetConfigAction.SetConfigEntity setConfigEntity = GsonUtils.GSON.fromJson(jsonObject.get("data").getAsJsonObject(),
                 SetConfigAction.SetConfigEntity.class);

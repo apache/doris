@@ -308,7 +308,8 @@ public class OutFileClause {
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed.");
+                throw new AnalysisException("Exporting results to local disk is not allowed." 
+                    + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
             }
             isLocalOutput = true;
             filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
