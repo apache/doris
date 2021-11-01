@@ -86,6 +86,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _cur_add_batch_request.set_allocated_id(&_parent->_load_id);
     _cur_add_batch_request.set_index_id(_index_id);
     _cur_add_batch_request.set_sender_id(_parent->_sender_id);
+    _cur_add_batch_request.set_backend_id(_node_id);
     _cur_add_batch_request.set_eos(false);
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
@@ -93,7 +94,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
-    _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
+    _name = fmt::format("NodeChannel[{}-{}]", _index_id, _node_id);
     return Status::OK();
 }
 
@@ -282,7 +283,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
     timer.stop();
-    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
+    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms"
+                  << ", " << _load_info;
 
     if (_add_batches_finished) {
         {

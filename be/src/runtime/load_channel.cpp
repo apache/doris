@@ -94,7 +94,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(),
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
+                                       &finished, request.partition_ids(),
                                        tablet_vec));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
