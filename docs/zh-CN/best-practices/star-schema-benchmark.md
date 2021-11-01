@@ -30,7 +30,7 @@ under the License.
 
 本文档主要介绍如何在 Doris 中通过 SSB 进程初步的性能测试。
 
-> 注1：包括 SSB 在内标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
+> 注1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
 > 
 > 注2：本文档涉及的操作都在 CentOS 7 环境进行。
 
@@ -60,7 +60,7 @@ sh build-ssb-dbgen.sh
 sh gen-ssb-data.sh -s 100 -c 100
 ```
 
-> 注1：`sh gen-ssb-data.sh -h 查看帮助`
+> 注1：通过 `sh gen-ssb-data.sh -h` 查看脚本帮助。
 > 
 > 注2：数据会以 `.tbl` 为后缀生成在  `ssb-data/` 目录下。文件总大小约60GB。生成时间可能在数分钟到1小时不等。
 > 
@@ -84,7 +84,7 @@ sh gen-ssb-data.sh -s 100 -c 100
 
     1. 导入 4 张维度表数据（customer, part, supplier and date）
     
-        因为这4张维表数据量较小，导入较简答，我们使用以下命令先导入这4表的数据：
+        因为这4张维表数据量较小，导入较简单，我们使用以下命令先导入这4表的数据：
         
         `sh load-dimension-data.sh`
         
@@ -92,9 +92,11 @@ sh gen-ssb-data.sh -s 100 -c 100
 
         通过以下命令导入 lineorder 表数据：
         
-        `sh load-fact-data.sh -c 3`
+        `sh load-fact-data.sh -c 5`
         
-        `-c 3` 表示启动 5 个并发线程导入（默认为3）。在单 BE 节点情况下，由 `sh gen-ssb-data.sh -s 100 -c 100` 生成的 lineorder 数据，使用 `sh load-fact-data.sh -c 3` 的导入时间约为 10min。内存开销约为 5-6GB。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
+        `-c 5` 表示启动 5 个并发线程导入（默认为3）。在单 BE 节点情况下，由 `sh gen-ssb-data.sh -s 100 -c 100` 生成的 lineorder 数据，使用 `sh load-fact-data.sh -c 3` 的导入时间约为 10min。内存开销约为 5-6GB。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
+
+    > 注：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
 
 5. 检查导入数据
 
@@ -152,7 +154,7 @@ SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.co
     | q4.2 | 1430 | 670 | 8 | BLOOM_FILTER |
     | q4.2 | 1750 | 1030 | 8 | BLOOM_FILTER |
 
-    > 注1：“这个测试集和你的生成环境相去甚远，不要迷信他！”
+    > 注1：“这个测试集和你的生产环境相去甚远，请对他保持怀疑态度！”
     > 
     > 注2：测试结果为多次执行取平均值（Page Cache 会起到一定加速作用）。并且数据经过充分的 compaction （如果在刚导入数据后立刻测试，则查询延迟可能高于本测试结果）
     >
@@ -160,5 +162,5 @@ SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.co
     >
     > 注4：Parallelism 表示查询并发度，通过 `set parallel_fragment_exec_instance_num=8` 设置。
     >
-    > 注5：Runtime Filter Mode 是 Runtime Filter 的类型，通过 `set runtime_filter_type="BLOOM_FILTER"` 设置。（[Runtime Filter](http://doris.incubator.apache.org/master/zh-CN/administrator-guide/runtime-filter.html) 功能对 SSB 测试集效果显著。因为该测试级中，Join 算子右表的数据可以对左表起到很好的过滤作用。你可以尝试通过 `set runtime_filter_mode=off` 关闭该功能，看看查询延迟的变化。）
+    > 注5：Runtime Filter Mode 是 Runtime Filter 的类型，通过 `set runtime_filter_type="BLOOM_FILTER"` 设置。（[Runtime Filter](http://doris.incubator.apache.org/master/zh-CN/administrator-guide/runtime-filter.html) 功能对 SSB 测试集效果显著。因为该测试集中，Join 算子右表的数据可以对左表起到很好的过滤作用。你可以尝试通过 `set runtime_filter_mode=off` 关闭该功能，看看查询延迟的变化。）
 
