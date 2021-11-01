@@ -649,6 +649,61 @@ TEST_F(BitmapFunctionsTest, bitmap_subset_in_range) {
 
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_subset_limit) {
+    // null
+    StringVal res = BitmapFunctions::bitmap_subset_limit(ctx, StringVal::null(), BigIntVal(1), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
+
+    // empty
+    BitmapValue bitmap0;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap0);
+    res = BitmapFunctions::bitmap_subset_limit(ctx, empty_str, BigIntVal(10), BigIntVal(20));
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(0), result);
+
+    // normal
+    BitmapValue bitmap1({0,1,2,3,4,5,6,7,45,47,49,43,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,100,200,500});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(4), BigIntVal(10));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(10), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(0), BigIntVal(1));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(1), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(35), BigIntVal(10));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(5), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(31), DecimalV2Value::MAX_INT64);
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(9), result);
+
+    // abnormal
+    // negative range_start and cardinality_limit
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(-10), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(10), BigIntVal(-20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(-10), BigIntVal(-20));
+    ASSERT_TRUE(res.is_null);
+
+    // null range
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal::null(), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(10), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal::null(), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+
+}
+
 } // namespace doris
 
 int main(int argc, char** argv) {
