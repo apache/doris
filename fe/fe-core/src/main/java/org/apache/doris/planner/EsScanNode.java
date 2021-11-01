@@ -509,14 +509,14 @@ public class EsScanNode extends ScanNode {
                             aggregate_column_names.add(colRef.getColumnName());
                         } else {
                             if (!functionCallExpr.getFnName().getFunction().equals("count")) {
-                                reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
+                                reason_why_agg_not_push_down = Optional.of("Now only support base aggregation with actual column and count(1/*), eg: sum(1) is not ok");
                                 return false;
                             }
                             String label_ = slotDescriptor.getLabel();
                             if (label_.equals("count(1)")) {
                                 aggregate_column_names.add("");
                             } else {
-                                reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
+                                reason_why_agg_not_push_down = Optional.of("Now only support base aggregation with actual column and count(1/*), eg: sum(1) is not ok");
                                 return false;
                             }
                         }
@@ -524,11 +524,11 @@ public class EsScanNode extends ScanNode {
                         aggregate_column_names.add("");
                         Preconditions.checkState(slotDescriptor.getLabel().equals("count(*)"));
                     } else {
-                        reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
+                        reason_why_agg_not_push_down = Optional.of("Now only support base aggregation with actual column and count(1/*), eg: sum(1) is not ok");
                         return false;
                     }
                 } else {
-                    reason_why_agg_not_push_down = Optional.of("Now only support count(1/*) and other base aggregation with column (sum(1) is not ok)");
+                    reason_why_agg_not_push_down = Optional.of("Now only support base aggregation with actual column and count(1/*), eg: sum(1) is not ok");
                     return false;
                 }
             }
