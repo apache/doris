@@ -52,13 +52,16 @@ Note: For different versions of Doris, you need to download the corresponding mi
 | apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) or later | 0.10.x or later |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) or later | 0.12.x - 0.14.0 |
-| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | later |
+| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) or later | 0.14.x |
+| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 1.15.0 or later |
 
 **note**:
 
-> 1. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.1.
+> 1. Dev docker image [ChangeLog](https://github.com/apache/incubator-doris/blob/master/thirdparty/CHANGELOG.md)
 
-> 2. In the docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
+> 2. Doris version 0.14.0 still uses apache/incubator-doris:build-env-1.2 to compile, and the subsequent code will use apache/incubator-doris:build-env-1.3.1.
+
+> 3. In the docker image of build-env-1.3.1, both OpenJDK 8 and OpenJDK 11 are included, and OpenJDK 11 is used for compilation by default. Please make sure that the JDK version used for compiling is the same as the JDK version used at runtime, otherwise it may cause unexpected operation errors. You can use the following command to switch the default JDK version in container:
 >
 >   Switch to JDK 8:
 >   

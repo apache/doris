@@ -201,6 +201,10 @@ public class Column implements Writable {
     }
 
     public void setIsKey(boolean isKey) {
+        // column is key, aggregationType is always null, isAggregationTypeImplicit is always false.
+        if (isKey) {
+            setAggregationType(null, false);
+        }
         this.isKey = isKey;
     }
 

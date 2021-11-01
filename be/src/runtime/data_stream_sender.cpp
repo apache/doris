@@ -71,7 +71,7 @@ DataStreamSender::Channel::Channel(DataStreamSender* parent, const RowDescriptor
     std::string localhost = BackendOptions::get_localhost();
     _is_local = _brpc_dest_addr.hostname == localhost && _brpc_dest_addr.port == config::brpc_port;
     if (_is_local) {
-        LOG(INFO) << "will use local exechange, dest_node_id:" << _dest_node_id;
+        VLOG_NOTICE << "will use local exechange, dest_node_id:" << _dest_node_id;
     }
 }
 
@@ -258,30 +258,30 @@ Status DataStreamSender::Channel::close_wait(RuntimeState* state) {
 }
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc)
-        : _pool(pool),
+        : _row_desc(row_desc),
+          _current_pb_batch(&_pb_batch1),
+          _pool(pool),
           _sender_id(sender_id),
-          _row_desc(row_desc),
           _serialize_batch_timer(NULL),
           _bytes_sent_counter(NULL),
-          _local_bytes_send_counter(NULL),
-          _current_pb_batch(&_pb_batch1) {}
+          _local_bytes_send_counter(NULL) {}
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                    const TDataStreamSink& sink,
                                    const std::vector<TPlanFragmentDestination>& destinations,
                                    int per_channel_buffer_size,
                                    bool send_query_statistics_with_every_batch)
-        : _sender_id(sender_id),
-          _pool(pool),
-          _row_desc(row_desc),
-          _current_channel_idx(0),
-          _part_type(sink.output_partition.type),
-          _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
-          _current_pb_batch(&_pb_batch1),
+        : _row_desc(row_desc),
           _profile(NULL),
+          _current_pb_batch(&_pb_batch1),
+          _pool(pool),
+          _sender_id(sender_id),
           _serialize_batch_timer(NULL),
           _bytes_sent_counter(NULL),
           _local_bytes_send_counter(NULL),
+          _current_channel_idx(0),
+          _part_type(sink.output_partition.type),
+          _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
           _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||

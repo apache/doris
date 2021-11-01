@@ -234,9 +234,6 @@ set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/
 add_library(arrow STATIC IMPORTED)
 set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
 
-add_library(double-conversion STATIC IMPORTED)
-set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
-
 add_library(parquet STATIC IMPORTED)
 set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
 
@@ -297,13 +294,13 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minzip STATIC IMPORTED)
 set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
+add_library(gsasl STATIC IMPORTED)
+set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
 if (ARCH_AMD64)
     # libhdfs3 only support x86 or amd64
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
-
-    add_library(gsasl STATIC IMPORTED)
-    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
 
     add_library(xml2 STATIC IMPORTED)
     set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
@@ -497,6 +494,7 @@ set(COMMON_THIRDPARTY
     lz4
     libevent
     libevent_pthreads
+    gsasl
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -509,7 +507,6 @@ set(COMMON_THIRDPARTY
     bitshuffle
     roaring
     fmt
-    double-conversion
     jemalloc
     brotlicommon
     brotlidec
@@ -535,7 +532,6 @@ endif()
 set(X86_DEPENDENCIES
     ${COMMON_THIRDPARTY}   
     hdfs3
-    gsasl
     xml2
     lzma
 )

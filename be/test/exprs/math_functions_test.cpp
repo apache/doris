@@ -181,7 +181,7 @@ TEST_F(MathFunctionsTest, hex_int) {
     ASSERT_EQ(StringVal("FFE5853AB393E6C0"),
               MathFunctions::hex_int(context, BigIntVal(-7453337203775808)));
     
-    ASSERT_EQ(StringVal(""),
+    ASSERT_EQ(StringVal("0"),
               MathFunctions::hex_int(context, BigIntVal(0)));
     
     ASSERT_EQ(StringVal("C"),

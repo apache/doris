@@ -33,12 +33,12 @@
 #include <string>
 
 #include "common/status.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/tuple.h"
 #include "runtime/row_batch.h"
-#include "exprs/expr_context.h"
+#include "runtime/tuple.h"
 
 namespace doris {
 class FileWriter;
@@ -51,7 +51,7 @@ public:
 
     arrow::Status Write(const void* data, int64_t nbytes) override;
     // return the current write position of the stream
-    arrow::Status Tell(int64_t* position) const override;
+    arrow::Result<int64_t> Tell() const override;
     arrow::Status Close() override;
 
     bool closed() const override { return _is_closed; }
@@ -62,7 +62,7 @@ public:
 
 private:
     FileWriter* _file_writer; // not owned
-    int64_t _cur_pos = 0;         // current write position
+    int64_t _cur_pos = 0;     // current write position
     bool _is_closed = false;
     int64_t _written_len = 0;
 };
@@ -70,8 +70,7 @@ private:
 // a wrapper of parquet output stream
 class ParquetWriterWrapper {
 public:
-    ParquetWriterWrapper(FileWriter* file_writer,
-                         const std::vector<ExprContext*>& output_expr_ctxs,
+    ParquetWriterWrapper(FileWriter* file_writer, const std::vector<ExprContext*>& output_expr_ctxs,
                          const std::map<std::string, std::string>& properties,
                          const std::vector<std::vector<std::string>>& schema);
     virtual ~ParquetWriterWrapper();

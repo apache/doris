@@ -54,6 +54,8 @@ under the License.
     col_type：列类型
 
     ```
+        BOOLEAN（1字节）
+            范围：{0,1}
         TINYINT（1字节）
             范围：-2^7 + 1 ~ 2^7 - 1
         SMALLINT（2字节）
@@ -282,7 +284,7 @@ under the License.
            "storage_medium" = "[SSD|HDD]",
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
-           ["replica_allocation" = "xxx"]
+           ["replication_allocation" = "xxx"]
            )
     ```
 
@@ -292,7 +294,7 @@ under the License.
                                默认存放 30 天。
                                格式为："yyyy-MM-dd HH:mm:ss"
        replication_num:        指定分区的副本数。默认为 3。
-       replica_allocation:     按照资源标签来指定副本分布。
+       replication_allocation:     按照资源标签来指定副本分布。
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -370,13 +372,14 @@ under the License.
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
@@ -792,7 +795,7 @@ under the License.
     );
 ```
 
-16. 通过 replica_allocation 指定表的副本分布
+16. 通过 replication_allocation 指定表的副本分布
 
 ```	
     CREATE TABLE example_db.table_hash
@@ -802,7 +805,7 @@ under the License.
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-		"replica_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
 	);
 
 
@@ -822,7 +825,7 @@ under the License.
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32",
-    "dynamic_partition."replica_allocation" = "tag.location.group_a:3"
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
 ```
 

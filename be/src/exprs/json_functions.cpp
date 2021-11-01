@@ -190,8 +190,6 @@ StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& j
         return StringVal::null();
     }
     rapidjson::Value array_obj(rapidjson::kObjectType);
-    rapidjson::Document document;
-    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
     array_obj.SetString(rapidjson::StringRef((char*)json_str.ptr, json_str.len));
     rapidjson::StringBuffer buf;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buf);

@@ -35,13 +35,15 @@ public class SqlCache extends Cache {
         super(queryId, selectStmt);
     }
 
-    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable) {
+    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
+        this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
+        String originStmtWithViewStmt = selectStmt.getOrigStmt().originStmt + allViewExpandStmtListStr;
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(selectStmt.getOrigStmt().originStmt))
+                .setSqlKey(CacheProxy.getMd5(originStmtWithViewStmt))
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
@@ -73,8 +75,9 @@ public class SqlCache extends Cache {
             return;
         }
 
+        String originStmtWithViewStmt = selectStmt.getOrigStmt().originStmt + allViewExpandStmtListStr;
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(selectStmt.getOrigStmt().originStmt, latestTable.latestPartitionId,
+                rowBatchBuilder.buildSqlUpdateRequest(originStmtWithViewStmt, latestTable.latestPartitionId,
                         latestTable.latestVersion, latestTable.latestTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();

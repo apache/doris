@@ -146,10 +146,10 @@ enum FieldType {
     OLAP_FIELD_TYPE_STRING = 26
 };
 
-// 定义Field支持的所有聚集方法
-// 注意，实际中并非所有的类型都能使用以下所有的聚集方法
-// 例如对于string类型使用SUM就是毫无意义的(但不会导致程序崩溃)
-// Field类的实现并没有进行这类检查，应该在创建表的时候进行约束
+// Define all aggregation methods supported by Field
+// Note that in practice, not all types can use all the following aggregation methods
+// For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
+// The implementation of the Field class does not perform such checks, and should be constrained when creating the table
 enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -163,11 +163,14 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
 };
 
-// 压缩算法类型
+// Compression algorithm type
 enum OLAPCompressionType {
-    OLAP_COMP_TRANSPORT = 1, // 用于网络传输的压缩算法，压缩率低，cpu开销低
-    OLAP_COMP_STORAGE = 2,   // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
-    OLAP_COMP_LZ4 = 3,       // 用于储存的压缩算法，压缩率低，cpu开销低
+    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
+    OLAP_COMP_TRANSPORT = 1,
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
+    OLAP_COMP_STORAGE = 2,  
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
+    OLAP_COMP_LZ4 = 3,       
 };
 
 enum PushType {

@@ -51,13 +51,16 @@ under the License.
 | apache/incubator-doris:build-env | before [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.8.x, 0.9.x |
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.10.x, 0.11.x |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
-| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 后续的发布版本 |
+| apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 0.14.x |
+| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 后续的发布版本 |
 
 **注意**：
 
-> 1. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3.1。
+> 1. 编译镜像 [ChangeLog](https://github.com/apache/incubator-doris/blob/master/thirdparty/CHANGELOG.md)。
 
-> 2. 在 build-env-1.3.1 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
+> 2. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3.1。
+
+> 3. 在 build-env-1.3.1 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
 > 
 >   切换到 JDK 8：
 >   

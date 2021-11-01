@@ -94,7 +94,20 @@ TEST_F(ThreadPoolTest, TestNoTaskOpenClose) {
 static void simple_task_method(int n, std::atomic<int32_t>* counter) {
     while (n--) {
         (*counter)++;
-        boost::detail::yield(n);
+        if (n < 32 || n & 1) {
+            sched_yield();
+        } else {
+            // g++ -Wextra warns on {} or {0}
+            struct timespec rqtp = {0, 0};
+
+            // POSIX says that timespec has tv_sec and tv_nsec
+            // But it doesn't guarantee order or placement
+
+            rqtp.tv_sec = 0;
+            rqtp.tv_nsec = 1000;
+
+            nanosleep(&rqtp, 0);
+        }
     }
 }
 
@@ -740,21 +753,24 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
 }
 
 static void MyFunc(int idx, int n) {
-    std::cout << idx << ", " << std::this_thread::get_id() << " before sleep " << n << " seconds" << std::endl;
+    std::cout << idx << ", " << std::this_thread::get_id() << " before sleep " << n << " seconds"
+              << std::endl;
     sleep(n);
-    std::cout << idx << ", " << std::this_thread::get_id() << " after sleep " << n << " seconds" << std::endl;
+    std::cout << idx << ", " << std::this_thread::get_id() << " after sleep " << n << " seconds"
+              << std::endl;
 }
 
 TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPool> thread_pool;
     ThreadPoolBuilder("my_pool")
-        .set_min_threads(0)
-        .set_max_threads(5)
-        .set_max_queue_size(10)
-        .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
-        .build(&thread_pool);
+            .set_min_threads(0)
+            .set_max_threads(5)
+            .set_max_queue_size(10)
+            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+            .build(&thread_pool);
 
-    std::unique_ptr<ThreadPoolToken> token1 = thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
+    std::unique_ptr<ThreadPoolToken> token1 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
     for (int i = 0; i < 10; i++) {
         token1->submit_func(std::bind(&MyFunc, i, 1));
     }
@@ -762,7 +778,8 @@ TEST_F(ThreadPoolTest, TestNormal) {
     token1->wait();
     ASSERT_EQ(0, token1->num_tasks());
 
-    std::unique_ptr<ThreadPoolToken> token2 = thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
+    std::unique_ptr<ThreadPoolToken> token2 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
         token2->submit_func(std::bind(&MyFunc, i, 1));
     }
@@ -770,7 +787,8 @@ TEST_F(ThreadPoolTest, TestNormal) {
     token2->wait();
     ASSERT_EQ(0, token2->num_tasks());
 
-    std::unique_ptr<ThreadPoolToken> token3 = thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 1);
+    std::unique_ptr<ThreadPoolToken> token3 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 1);
     for (int i = 0; i < 10; i++) {
         token3->submit_func(std::bind(&MyFunc, i, 1));
     }
@@ -778,7 +796,8 @@ TEST_F(ThreadPoolTest, TestNormal) {
     token3->wait();
     ASSERT_EQ(0, token3->num_tasks());
 
-    std::unique_ptr<ThreadPoolToken> token4 = thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    std::unique_ptr<ThreadPoolToken> token4 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
     for (int i = 0; i < 10; i++) {
         token4->submit_func(std::bind(&MyFunc, i, 1));
     }
@@ -786,7 +805,8 @@ TEST_F(ThreadPoolTest, TestNormal) {
     token4->wait();
     ASSERT_EQ(0, token4->num_tasks());
 
-    std::unique_ptr<ThreadPoolToken> token5 = thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
+    std::unique_ptr<ThreadPoolToken> token5 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
         token5->submit_func(std::bind(&MyFunc, i, 1));
     }
@@ -800,7 +820,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
                                                   .set_min_threads(3)
                                                   .set_max_threads(3)
                                                   .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
-                            .ok());
+                        .ok());
 
     ASSERT_EQ(3, _pool->min_threads());
     ASSERT_EQ(3, _pool->max_threads());

@@ -120,7 +120,7 @@ CREATE TABLE flink_doris_sink (
 INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 ```
 
-### DataStream
+### DataStreamSource
 
 ```java
  Properties properties = new Properties();
@@ -130,6 +130,110 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
  properties.put("table.identifier","db.table");
  env.addSource(new DorisSourceFunction(new DorisStreamOptions(properties),new SimpleListDeserializationSchema())).print();
 ```
+
+### DataStreamSink
+
+```java
+// -------- sink with raw json string stream --------
+Properties pro = new Properties();
+pro.setProperty("format", "json");
+pro.setProperty("strip_outer_array", "true");
+env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+     .addSink(
+     	DorisSink.sink(
+            DorisReadOptions.builder().build(),
+         	DorisExecutionOptions.builder()
+                    .setBatchSize(3)
+                    .setBatchIntervalMs(0l)
+                    .setMaxRetries(3)
+                    .setStreamLoadProp(pro).build(),
+         	DorisOptions.builder()
+                    .setFenodes("FE_IP:8030")
+                    .setTableIdentifier("db.table")
+                    .setUsername("root")
+                    .setPassword("").build()
+     	));
+
+OR
+env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+    .addSink(
+    	DorisSink.sink(
+        	DorisOptions.builder()
+                    .setFenodes("FE_IP:8030")
+                    .setTableIdentifier("db.table")
+                    .setUsername("root")
+                    .setPassword("").build()
+    	));
+
+
+// -------- sink with RowData stream --------
+DataStream<RowData> source = env.fromElements("")
+    .map(new MapFunction<String, RowData>() {
+        @Override
+        public RowData map(String value) throws Exception {
+            GenericRowData genericRowData = new GenericRowData(3);
+            genericRowData.setField(0, StringData.fromString("北京"));
+            genericRowData.setField(1, 116.405419);
+            genericRowData.setField(2, 39.916927);
+            return genericRowData;
+        }
+    });
+
+String[] fields = {"city", "longitude", "latitude"};
+LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+
+source.addSink(
+    DorisSink.sink(
+        fields,
+        types,
+        DorisReadOptions.builder().build(),
+        DorisExecutionOptions.builder()
+            .setBatchSize(3)
+            .setBatchIntervalMs(0L)
+            .setMaxRetries(3)
+            .build(),
+        DorisOptions.builder()
+            .setFenodes("FE_IP:8030")
+            .setTableIdentifier("db.table")
+            .setUsername("root")
+            .setPassword("").build()
+    ));
+```
+
+### DataSetSink
+
+```java
+MapOperator<String, RowData> data = env.fromElements("")
+    .map(new MapFunction<String, RowData>() {
+        @Override
+        public RowData map(String value) throws Exception {
+            GenericRowData genericRowData = new GenericRowData(3);
+            genericRowData.setField(0, StringData.fromString("北京"));
+            genericRowData.setField(1, 116.405419);
+            genericRowData.setField(2, 39.916927);
+            return genericRowData;
+        }
+    });
+
+DorisOptions dorisOptions = DorisOptions.builder()
+    .setFenodes("FE_IP:8030")
+    .setTableIdentifier("db.table")
+    .setUsername("root")
+    .setPassword("").build();
+DorisReadOptions readOptions = DorisReadOptions.defaults();
+DorisExecutionOptions executionOptions = DorisExecutionOptions.defaults();
+
+LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+String[] fiels = {"city", "longitude", "latitude"};
+
+DorisDynamicOutputFormat outputFormat =
+    new DorisDynamicOutputFormat(dorisOptions, readOptions, executionOptions, types, fiels);
+
+outputFormat.open(0, 1);
+data.output(outputFormat);
+outputFormat.close();
+```
+
 
 
 ## 配置
@@ -156,7 +260,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 | sink.batch.size     | 100                | 单次写BE的最大行数        |
 | sink.max-retries     | 1                | 写BE失败之后的重试次数       |
 | sink.batch.interval     | 1s                | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为1秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。|
-| sink.properties.*     | --               | Stream load 的导入参数。例如:'sink.properties.column_separator' = ','等。<br /> 支持JSON格式导入，需要同时开启'sink.properties.format' = 'json'和'sink.properties.strip_outer_array' = 'true' |
+| sink.properties.*     | --               | Stream load 的导入参数。例如:'sink.properties.column_separator' = ','等。如果需要特殊字符作为分隔符, 可以加上参数'sink.properties.escape_delimiters' = 'true', '\\x01'会被转换为二进制的0x01<br /> 支持JSON格式导入，需要同时开启'sink.properties.format' = 'json'和'sink.properties.strip_outer_array' = 'true' |
 
 
 

@@ -96,7 +96,11 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 void OlapScanNode::init_scan_profile() {
-    _scanner_profile.reset(new RuntimeProfile("OlapScanner"));
+    std::string scanner_profile_name = "OlapScanner";
+    if (_olap_scan_node.__isset.table_name) {
+        scanner_profile_name = fmt::format("OlapScanner({0})", _olap_scan_node.table_name);
+    }
+    _scanner_profile.reset(new RuntimeProfile(scanner_profile_name));
     runtime_profile()->add_child(_scanner_profile.get(), true, NULL);
 
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -689,7 +693,6 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
         res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
                                  block_row_count, &range);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -700,7 +703,6 @@ Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_c
         std::vector<OlapTuple> range;
         auto res = table->split_range({}, {}, block_row_count, &range);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to show hints by split range. [res=%d]", res);
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -781,7 +783,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
             OlapScanner* scanner = new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                   _need_agg_finalize, *scan_range, scanner_ranges);
+                                                   _need_agg_finalize, *scan_range);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);

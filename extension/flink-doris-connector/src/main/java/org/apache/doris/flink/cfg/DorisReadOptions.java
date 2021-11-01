@@ -103,6 +103,10 @@ public class DorisReadOptions implements Serializable {
         return new Builder();
     }
 
+    public static DorisReadOptions defaults(){
+        return DorisReadOptions.builder().build();
+    }
+
     /**
      * Builder of {@link DorisReadOptions}.
      */
@@ -179,6 +183,7 @@ public class DorisReadOptions implements Serializable {
         public DorisReadOptions build() {
             return new DorisReadOptions(readFields, filterQuery, requestTabletSize, requestConnectTimeoutMs, requestReadTimeoutMs, requestQueryTimeoutS, requestRetries, requestBatchSize, execMemLimit, deserializeQueueSize, deserializeArrowAsync);
         }
+
     }
 
 

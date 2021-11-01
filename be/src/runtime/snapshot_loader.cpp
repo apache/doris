@@ -49,7 +49,7 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
           _task_id(task_id),
           _broker_addr(broker_addr),
           _prop(broker_prop) {
-    _storage_backend.reset(new BrokerStorageBackend(_env, broker_addr, broker_prop));
+    _storage_backend.reset(new BrokerStorageBackend(_env, _broker_addr, _prop));
 }
 
 SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
@@ -66,10 +66,10 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id, co
           _task_id(task_id),
           _broker_addr(TNetworkAddress()),
           _prop(prop) {
-              _storage_backend.reset(new S3StorageBackend(prop));
+              _storage_backend.reset(new S3StorageBackend(_prop));
           }
 
-SnapshotLoader::~SnapshotLoader() {}
+SnapshotLoader::~SnapshotLoader() = default;
 
 Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_dest_path,
                               std::map<int64_t, std::vector<std::string>>* tablet_files) {

@@ -21,25 +21,29 @@ import org.apache.doris.spark.DorisStreamLoad
 import org.apache.doris.spark.cfg.{ConfigurationOptions, SparkSettings}
 import org.apache.doris.spark.sql.DorisSourceProvider.SHORT_NAME
 import org.apache.spark.SparkConf
-import org.apache.spark.internal.Logging
-import org.apache.spark.sql.sources.v2.writer.streaming.StreamWriter
-import org.apache.spark.sql.sources.v2.{DataSourceOptions, StreamWriteSupport}
+import org.apache.spark.sql.execution.streaming.Sink
+import org.apache.spark.sql.sources._
 import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode}
-import org.apache.spark.sql.sources.{BaseRelation, CreatableRelationProvider, DataSourceRegister, Filter, RelationProvider}
+import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.IOException
 import java.util
-import scala.collection.JavaConversions.mapAsScalaMap
 import scala.collection.JavaConverters.mapAsJavaMapConverter
 import scala.util.control.Breaks
 
-private[sql] class DorisSourceProvider extends DataSourceRegister with RelationProvider with CreatableRelationProvider with StreamWriteSupport with Logging {
+private[sql] class DorisSourceProvider extends DataSourceRegister
+  with RelationProvider
+  with CreatableRelationProvider
+  with StreamSinkProvider {
+
+  private val logger: Logger = LoggerFactory.getLogger(classOf[DorisSourceProvider].getName)
+
   override def shortName(): String = SHORT_NAME
 
   override def createRelation(sqlContext: SQLContext, parameters: Map[String, String]): BaseRelation = {
-    new DorisRelation(sqlContext, Utils.params(parameters, log))
+    new DorisRelation(sqlContext, Utils.params(parameters, logger))
   }
 
 
@@ -51,7 +55,7 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
                               data: DataFrame): BaseRelation = {
 
     val sparkSettings = new SparkSettings(sqlContext.sparkContext.getConf)
-    sparkSettings.merge(Utils.params(parameters, log).asJava)
+    sparkSettings.merge(Utils.params(parameters, logger).asJava)
     // init stream loader
     val dorisStreamLoader = new DorisStreamLoad(sparkSettings)
 
@@ -124,10 +128,10 @@ private[sql] class DorisSourceProvider extends DataSourceRegister with RelationP
     }
   }
 
-  override def createStreamWriter(queryId: String, structType: StructType, outputMode: OutputMode, dataSourceOptions: DataSourceOptions): StreamWriter = {
+  override def createSink(sqlContext: SQLContext, parameters: Map[String, String], partitionColumns: Seq[String], outputMode: OutputMode): Sink = {
     val sparkSettings = new SparkSettings(new SparkConf())
-    sparkSettings.merge(Utils.params(dataSourceOptions.asMap().toMap, log).asJava)
-    new DorisStreamWriter(sparkSettings)
+    sparkSettings.merge(Utils.params(parameters, logger).asJava)
+    new DorisStreamLoadSink(sqlContext, sparkSettings)
   }
 }
 

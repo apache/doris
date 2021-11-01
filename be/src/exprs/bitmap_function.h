@@ -55,6 +55,8 @@ public:
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
+                                          const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
@@ -64,6 +66,9 @@ public:
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_not(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
+    static StringVal bitmap_and_not(FunctionContext* ctx, const StringVal& src,
+                                    const StringVal& dst);
+
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
     // Example:
@@ -91,6 +96,7 @@ public:
     static StringVal bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src);
     template <typename T>
     static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_max(FunctionContext* ctx, const StringVal& str);
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

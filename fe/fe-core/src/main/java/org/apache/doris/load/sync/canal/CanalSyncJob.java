@@ -60,7 +60,7 @@ public class CanalSyncJob extends SyncJob {
     protected final static String CANAL_DEBUG = "canal.debug";
 
     @SerializedName(value = "remote")
-    private CanalDestination remote;
+    private final CanalDestination remote;
     @SerializedName(value = "username")
     private String username;
     @SerializedName(value = "password")
@@ -139,7 +139,7 @@ public class CanalSyncJob extends SyncJob {
             password = properties.get(CANAL_PASSWORD);
         }
 
-        // optional binlog properties
+        // optional
         if (properties.containsKey(CANAL_BATCH_SIZE)) {
             try {
                 batchSize = Integer.parseInt(properties.get(CANAL_BATCH_SIZE));
@@ -148,6 +148,7 @@ public class CanalSyncJob extends SyncJob {
             }
         }
 
+        // optional
         if (properties.containsKey(CANAL_DEBUG)) {
             debug = Boolean.parseBoolean(properties.get(CANAL_DEBUG));
         }

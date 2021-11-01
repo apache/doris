@@ -136,9 +136,6 @@ void Tablet::save_meta() {
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
-    // User could directly update tablet schema by _tablet_meta,
-    // So we need to refetch schema again
-    _schema = _tablet_meta->tablet_schema();
 }
 
 OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
@@ -149,8 +146,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
-        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        generate_tablet_meta_copy_unlocked(new_tablet_meta);
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -564,13 +560,19 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
         if (missed_versions.empty()) {
-            LOG(WARNING) << "tablet:" << full_name()
-                         << ", version already has been merged. spec_version: " << spec_version;
+            // if version_path is null, it may be a compaction check logic.
+            // so to avoid print too many logs.
+            if (version_path != nullptr) {
+                LOG(WARNING) << "tablet:" << full_name()
+                    << ", version already has been merged. spec_version: " << spec_version;
+            }
             status = OLAP_ERR_VERSION_ALREADY_MERGED;
         } else {
-            LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
-                         << ", missed version for version:" << spec_version;
-            _print_missed_versions(missed_versions);
+            if (version_path != nullptr) {
+                LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                    << ", missed version for version:" << spec_version;
+                _print_missed_versions(missed_versions);
+            }
         }
     }
     return status;

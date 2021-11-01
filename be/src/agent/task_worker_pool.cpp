@@ -51,6 +51,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
@@ -425,7 +426,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatus task_status;
         string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, &err);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, false, &err);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -1098,19 +1099,36 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
 }
 
 void TaskWorkerPool::_report_task_worker_thread_callback() {
+    StorageEngine::instance()->register_report_listener(this);
     TReportRequest request;
     request.__set_backend(_backend);
 
-    do {
+    while (_is_work) {
+        _is_doing_work = false;
+        // wait at most report_task_interval_seconds, or being notified
+        _worker_thread_condition_variable.wait_for(
+                MonoDelta::FromSeconds(config::report_task_interval_seconds));
+        if (!_is_work) {
+            break;
+        }
+
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            // sleep a short time and try again
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing task report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
         {
             lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
-        _is_doing_work = false;
-    } while (!_stop_background_threads_latch.wait_for(
-            MonoDelta::FromSeconds(config::report_task_interval_seconds)));
+    }
+    StorageEngine::instance()->deregister_report_listener(this);
 }
 
 /// disk state report thread will report disk state at a configurable fix interval.
@@ -1122,14 +1140,6 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO) << "waiting to receive first heartbeat from frontend";
-            sleep(config::sleep_one_second);
-            continue;
-        }
-
         // wait at most report_disk_state_interval_seconds, or being notified
         _worker_thread_condition_variable.wait_for(
                 MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
@@ -1137,7 +1147,18 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             break;
         }
 
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing disk report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // Random sleep 1~5 seconds before doing report.
+        // In order to avoid the problem that the FE receives many report requests at the same time
+        // and can not be processed.
+        _random_sleep(5);
+
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
@@ -1168,13 +1189,6 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO) << "waiting to receive first heartbeat from frontend";
-            sleep(config::sleep_one_second);
-            continue;
-        }
 
         // wait at most report_tablet_interval_seconds, or being notified
         _worker_thread_condition_variable.wait_for(
@@ -1183,7 +1197,15 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             break;
         }
 
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing tablet report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
         request.tablets.clear();
         uint64_t report_version = _s_report_version;
         OLAPStatus build_all_report_tablets_info_status =
@@ -1194,7 +1216,8 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
             // report, and the report version has a small probability that it has not been updated in time. When FE
             // receives this report, it is possible to delete the new tablet.
-            LOG(WARNING) << "report version " << report_version << " change to " << _s_report_version;
+            LOG(WARNING) << "report version " << report_version << " change to "
+                         << _s_report_version;
             DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
             continue;
         }
@@ -1617,6 +1640,11 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     default:
         break;
     }
+}
+
+void TaskWorkerPool::_random_sleep(int second) {
+    Random rnd(UnixMillis());
+    sleep(rnd.Uniform(second) + 1);
 }
 
 } // namespace doris

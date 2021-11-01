@@ -308,7 +308,7 @@ void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* co
     auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
     UniqueId unique_id(request->query_id());
     // TODO: avoid copy attachment copy
-    LOG(INFO) << "rpc apply_filter recv";
+    VLOG_NOTICE << "rpc apply_filter recv";
     Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
     if (!st.ok()) {
         LOG(WARNING) << "apply filter meet error" << st.to_string();
@@ -333,7 +333,7 @@ void PInternalServiceImpl<T>::send_data(google::protobuf::RpcController* control
             PDataRow* row = new PDataRow();
             row->CopyFrom(request->data(i));
             pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
-                                   sizeof(row) + row->ByteSize());
+                                   sizeof(row) + row->ByteSizeLong());
         }
         response->mutable_status()->set_status_code(0);
     }

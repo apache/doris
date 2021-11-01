@@ -487,14 +487,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     // database lock should be held.
-    public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    // If exceptBeId != -1, should not choose src replica with same BE id as exceptBeId
+    public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots, long exceptBeId) throws SchedException {
         /*
          * get all candidate source replicas
          * 1. source replica should be healthy.
-         * 2. slot of this source replica is available. 
+         * 2. slot of this source replica is available.
          */
         List<Replica> candidates = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
+            if (exceptBeId != -1 && replica.getBackendId() == exceptBeId) {
+                continue;
+            }
+
             if (replica.isBad()) {
                 continue;
             }
@@ -504,7 +509,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 // backend which is in decommission can still be the source backend
                 continue;
             }
-            
+
             if (replica.getLastFailedVersion() > 0) {
                 continue;
             }
@@ -545,10 +550,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
      */
     public void chooseSrcReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
-        chooseSrcReplica(backendsWorkingSlots);
-        if (srcReplica.getBackendId() == destBackendId) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "the chosen source replica is in dest backend");
-        }
+        chooseSrcReplica(backendsWorkingSlots, destBackendId);
+        Preconditions.checkState(srcReplica.getBackendId() != destBackendId,
+                "wrong be id: " + destBackendId);
     }
     
     /*
@@ -573,9 +577,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
+            // check version and replica state.
+            // if the replica's state is DECOMMISSION, it may be chose as dest replica,
+            // and its state will be set to NORMAL later.
             if (replica.getLastFailedVersion() <= 0
                     && ((replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash)
-                            || replica.getVersion() > visibleVersion)) {
+                    || replica.getVersion() > visibleVersion) && replica.getState() != ReplicaState.DECOMMISSION) {
                 // skip healthy replica
                 continue;
             }

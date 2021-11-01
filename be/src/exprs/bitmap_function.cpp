@@ -530,6 +530,16 @@ StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_and_not(FunctionContext* ctx, const StringVal& lhs,
+                                          const StringVal& rhs) {
+    return bitmap_xor(ctx, lhs, bitmap_and(ctx, lhs, rhs));
+}
+
+BigIntVal BitmapFunctions::bitmap_and_not_count(FunctionContext* ctx, const StringVal& lhs,
+                                          const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_and_not(ctx, lhs, rhs));
+}
+
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
         return StringVal::null();
@@ -595,6 +605,19 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     }
 
     return {bitmap.cardinality() != 0};
+}
+
+BigIntVal BitmapFunctions::bitmap_max(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
+
+    if (src.len == 0) {
+        return reinterpret_cast<BitmapValue*>(src.ptr)->maximum();
+    } else {
+        auto bitmap = BitmapValue((char*)src.ptr);
+        return bitmap.maximum();
+    }
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,

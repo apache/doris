@@ -59,7 +59,9 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
     private static Logger logger = LogManager.getLogger(CanalSyncDataConsumer.class);
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    private static final long COMMIT_MEM_SIZE = 64 * 1024 * 1024; // 64mb;
+    private static final long MIN_COMMIT_EVENT_SIZE = Config.min_sync_commit_size;
+    private static final long MIN_COMMIT_MEM_SIZE = Config.min_bytes_sync_commit;
+    private static final long MAX_COMMIT_MEM_SIZE = Config.max_bytes_sync_commit;
 
     private CanalSyncJob syncJob;
     private CanalConnector connector;
@@ -198,7 +200,8 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         // do nothing
                     }
                     if (dataEvents == null) {
-                        if (totalSize > 0 || totalMemSize > 0) {
+                        // If not, continue to wait for the next batch of data
+                        if (totalSize >= MIN_COMMIT_EVENT_SIZE || totalMemSize >= MIN_COMMIT_MEM_SIZE) {
                             break;
                         }
                         try {
@@ -218,7 +221,8 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                         executeOneBatch(dataEvents);
                         totalSize += size;
                         totalMemSize += dataEvents.getMemSize();
-                        if (totalMemSize >= COMMIT_MEM_SIZE) {
+                        // size of bytes received so far is larger than max commit memory size.
+                        if (totalMemSize >= MAX_COMMIT_MEM_SIZE) {
                             break;
                         }
                     }
@@ -228,6 +232,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                     }
                 }
 
+                // wait all channels done
                 Status st = waitForTxn();
                 if (!running) {
                     abortForTxn("stopping client");

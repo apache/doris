@@ -44,10 +44,10 @@ FE将查询计划拆分成为Fragment下发到BE进行任务执行。BE在执行
 通过Mysql命令，将FE上的Report的开关打开
 
 ```
-mysql> set is_report_success=true; 
+mysql> set enable_profile=true; 
 ```
 
-之后执行对应的SQL语句之后，在FE的Web页面就可以看到对应SQL语句执行的Report信息：
+之后执行对应的SQL语句之后（旧版本为`is_report_success`），在FE的Web页面就可以看到对应SQL语句执行的Report信息：
 ![image.png](/images/running_profile.png)
 
 这里会列出最新执行完成的**100条语句**，我们可以通过Profile查看详细的统计信息。

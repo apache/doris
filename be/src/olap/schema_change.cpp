@@ -466,13 +466,13 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
         return OLAP_ERR_NOT_INITED;
     }
 
-    // a.1 先判断数据是否需要过滤，最终只有标记为1的才是留下需要的
-    //   对于没有filter的来说，相当于全部设置为1后留下
+    // a.1 First determine whether the data needs to be filtered, and finally only those marked as 1 are left as needed
+    // For those without filter, it is equivalent to leave after setting all to 1
     const uint32_t row_num = ref_block->row_block_info().row_num;
-    // (0表示过滤掉不要，1表示要,过程中2表示此row要切后续不需要再比较其他列)
+    // (0 means no need to filter out, 1 means yes, during the process 2 means that this row needs to be cut and there is no need to compare other columns later)
     std::vector<int8_t> is_data_left_vec(row_num, 1);
 
-    // 一行一行地进行比较
+    // Compare each row
     for (size_t row_index = 0; row_index < row_num; ++row_index) {
         ref_block->get_row(row_index, &read_helper);
 
@@ -486,14 +486,14 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
         }
     }
 
-    // a.2 计算留下的row num
+    // a.2 Calculate the left row num
     uint32_t new_row_num = row_num - *filtered_rows;
 
     const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
     MemPool* mem_pool = mutable_block->mem_pool();
-    // b. 根据前面的过滤信息，只对还标记为1的处理
+    // b. According to the previous filtering information, only processes that are also marked as 1
     for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len;
          ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
@@ -537,15 +537,15 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
             FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
             FieldType newtype = mutable_block->tablet_schema().column(i).type();
             if (newtype == reftype) {
-                // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
+                // Low efficiency, you can also directly calculate the variable length domain copy, but it will still destroy the package
                 for (size_t row_index = 0, new_row_index = 0;
                      row_index < ref_block->row_block_info().row_num; ++row_index) {
-                    // 不需要的row，每次处理到这个row时就跳过
+                    // Unneeded row, skip every time this row is processed
                     if (need_filter_data && is_data_left_vec[row_index] == 0) {
                         continue;
                     }
 
-                    // 指定新的要写入的row index（不同于读的row_index）
+                    // Specify the new row index to be written (different from the read row_index)
                     mutable_block->get_row(new_row_index++, &write_helper);
                     ref_block->get_row(row_index, &read_helper);
 
@@ -597,10 +597,10 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                         }
                     }
                 }
-                // 从ref_column 写入 i列。
+                // Write column i from ref_column.
             } else {
                 // copy and alter the field
-                // 此处可以暂时不动，新类型暂时不涉及类型转换
+                // You can stay here for the time being, the new type does not involve type conversion for the time being
                 switch (reftype) {
                 case OLAP_FIELD_TYPE_TINYINT:
                     CONVERT_FROM_TYPE(int8_t);
@@ -637,10 +637,10 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                 }
             }
         } else {
-            // 新增列，写入默认值
+            // New column, write default value
             for (size_t row_index = 0, new_row_index = 0;
                  row_index < ref_block->row_block_info().row_num; ++row_index) {
-                // 不需要的row，每次处理到这个row时就跳过
+                // Unneeded row, skip every time this row is processed
                 if (need_filter_data && is_data_left_vec[row_index] == 0) {
                     continue;
                 }
@@ -658,9 +658,9 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
         }
     }
 
-    // NOTE 当前mutable_block的内存row_num还是和ref一样多
-    //  （其实在init时就可以重新init成少的，filter留下的new_row_num）
-    // 在split_table时，可能会出现因为过滤导致没有数据
+    // NOTE The current row_num of mutable_block is still as much as ref
+    // (Actually, you can re-init into less when init, the new_row_num left by the filter)
+    // In split_table, there may be no data due to filtering
     mutable_block->finalize(new_row_num);
     return OLAP_SUCCESS;
 }
@@ -766,7 +766,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
         return OLAP_SUCCESS;
     }
 
-    // TODO(lijiao) : 为什么舍弃原有的m_row_block_buffer
+    // TODO(lijiao) : Why abandon the original m_row_block_buffer
     *row_block = new (nothrow) RowBlock(&_tablet_schema);
 
     if (*row_block == nullptr) {
@@ -1041,7 +1041,7 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader,
         RETURN_NOT_OK(reserve_block(&new_row_block, ref_row_block->row_block_info().row_num,
                                     _row_block_allocator));
 
-        // 将ref改为new。这一步按道理来说确实需要等大的块，但理论上和writer无关。
+        // Change ref to new. This step is reasonable to say that it does need to wait for a large block, but theoretically it has nothing to do with the writer.
         uint64_t filtered_rows = 0;
         res = _row_block_changer.change_row_block(ref_row_block, rowset_reader->version().second,
                                                   new_row_block.get(), &filtered_rows);
@@ -1096,10 +1096,10 @@ SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_bloc
           _row_block_changer(row_block_changer),
           _memory_limitation(memory_limitation),
           _row_block_allocator(nullptr) {
-    // 每次SchemaChange做外排的时候，会写一些临时版本（比如999,1000,1001），为避免Cache冲突，临时
-    // 版本进行2个处理：
-    // 1. 随机值作为VersionHash
-    // 2. 版本号取一个BIG NUMBER加上当前正在进行SchemaChange的版本号
+    // Every time SchemaChange is used for external rowing, some temporary versions (such as 999, 1000, 1001) will be written, in order to avoid Cache conflicts, temporary
+    // The version performs 2 processes:
+    // 1. Random value as VersionHash
+    // 2. The version number takes a BIG NUMBER plus the version number of the current SchemaChange
     _temp_delta_versions.first = (1 << 28);
     _temp_delta_versions.second = (1 << 28);
     // TODO(zyh): remove the magic number
@@ -1666,8 +1666,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
               << "base_tablet=" << base_tablet->full_name()
               << ", new_tablet=" << new_tablet->full_name();
 
-    // a. 解析Alter请求，转换成内部的表示形式
-    // 不使用DELETE_DATA命令指定的删除条件
+    // a. Parse the Alter request and convert it into an internal representation
+    // Do not use the delete condition specified by the DELETE_DATA command
     RowBlockChanger rb_changer(new_tablet->tablet_schema());
     bool sc_sorting = false;
     bool sc_directly = false;
@@ -1679,9 +1679,9 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
         return res;
     }
 
-    // NOTE split_table如果使用row_block，会导致原block变小
-    // 但由于历史数据在后续base/cumulative后还是会变成正常，故用directly也可以
-    // b. 生成历史数据转换器
+    // NOTE split_table if row_block is used, the original block will become smaller
+    // But since the historical data will become normal after the subsequent base/cumulative, it is also possible to use directly
+    // b. Generate historical data converter
     SchemaChange* sc_procedure = nullptr;
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
@@ -1702,7 +1702,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    // c. 转换数据
+    // c. Convert data
     DeleteHandler delete_handler;
     std::vector<ColumnId> return_columns;
     size_t num_cols = base_tablet->tablet_schema().num_columns();
@@ -1817,15 +1817,15 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
     }
 
-    // change中增加了filter信息，在_parse_request中会设置filter的column信息
-    // 并在每次row block的change时，过滤一些数据
+    // Add filter information in change, and filter column information will be set in _parse_request
+    // And filter some data every time the row block changes
     RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler);
 
     bool sc_sorting = false;
     bool sc_directly = false;
     SchemaChange* sc_procedure = nullptr;
 
-    // a. 解析Alter请求，转换成内部的表示形式
+    // a.Parse the Alter request and convert it into an internal representation
     OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
                                     &sc_sorting, &sc_directly, sc_params.materialized_params_map);
     if (res != OLAP_SUCCESS) {
@@ -1833,7 +1833,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    // b. 生成历史数据转换器
+    // b. Generate historical data converter
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting for base_tablet "
@@ -1857,14 +1857,14 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         goto PROCESS_ALTER_EXIT;
     }
 
-    // c. 转换历史数据
+    // c.Convert historical data
     for (auto& rs_reader : sc_params.ref_rowset_readers) {
         VLOG_TRACE << "begin to convert a history rowset. version=" << rs_reader->version().first
                    << "-" << rs_reader->version().second;
 
         // set status for monitor
-        // 只要有一个new_table为running，ref table就设置为running
-        // NOTE 如果第一个sub_table先fail，这里会继续按正常走
+        // As long as there is a new_table as running, ref table is set as running
+        // NOTE If the first sub_table fails first, it will continue to go as normal here
         TabletSharedPtr new_tablet = sc_params.new_tablet;
 
         RowsetWriterContext writer_context;
@@ -1906,8 +1906,8 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
                                                    rowset_writer->rowset_id().to_string());
-        // 将新版本的数据加入header
-        // 为了防止死锁的出现，一定要先锁住旧表，再锁住新表
+        // Add the new version of the data to the header
+        // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
         sc_params.new_tablet->obtain_push_lock();
         RowsetSharedPtr new_rowset = rowset_writer->build();
         if (new_rowset == nullptr) {
@@ -1941,7 +1941,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                    << " version=" << rs_reader->version().first << "-"
                    << rs_reader->version().second;
     }
-    // XXX: 此时应该不取消SchemaChange状态，因为新Delta还要转换成新旧Schema的版本
+    // XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
 PROCESS_ALTER_EXIT : {
     // save tablet meta here because rowset meta is not saved during add rowset
     WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
@@ -1960,7 +1960,7 @@ PROCESS_ALTER_EXIT : {
 }
 
 // @static
-// 分析column的mapping以及filter key的mapping
+// Analyze the mapping of the column and the mapping of the filter key
 OLAPStatus SchemaChangeHandler::_parse_request(
         TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,
         bool* sc_sorting, bool* sc_directly,
@@ -2014,7 +2014,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(
             continue;
         }
 
-        // 新加列走这里
+        // Newly added column go here
         //if (new_column_schema.is_allow_null || new_column_schema.has_default_value) {
         {
             column_mapping->ref_column = -1;
@@ -2034,7 +2034,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(
             continue;
         }
 
-        // XXX: 只有DROP COLUMN时，遇到新Schema转旧Schema时会进入这里。
+        // XXX: Only when DROP COLUMN, you will enter here when you encounter a new Schema to an old Schema。
         column_mapping->ref_column = -1;
 
         if (OLAP_SUCCESS != (res = _init_column_mapping(column_mapping, new_column, ""))) {
@@ -2048,7 +2048,7 @@ OLAPStatus SchemaChangeHandler::_parse_request(
 
     // Check if re-aggregation is needed.
     *sc_sorting = false;
-    // 若Key列的引用序列出现乱序，则需要重排序
+    // If the reference sequence of the Key column is out of order, it needs to be reordered
     int num_default_value = 0;
 
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
