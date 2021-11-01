@@ -415,6 +415,8 @@ module.exports = [
               "bitmap_hash",
               "bitmap_intersect",
               "bitmap_or",
+              "bitmap_and_count",
+              "bitmap_or_count",
               "bitmap_xor",
               "bitmap_not",
               "bitmap_and_not",
