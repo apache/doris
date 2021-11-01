@@ -17,7 +17,6 @@
 
 #include "util/system_metrics.h"
 
-#include <gperftools/malloc_extension.h>
 #include <stdio.h>
 
 #include <functional>
@@ -25,6 +24,7 @@
 #include "gutil/strings/split.h" // for string split
 #include "gutil/strtoint.h"      //  for atoi64
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 
 namespace doris {
 
@@ -313,14 +313,7 @@ void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
 }
 
 void SystemMetrics::_update_memory_metrics() {
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
-    LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
-#else
-    size_t allocated_bytes = 0;
-    MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
-                                                    &allocated_bytes);
-    _memory_metrics->memory_allocated_bytes->set_value(allocated_bytes);
-#endif
+    _memory_metrics->memory_allocated_bytes->set_value(MemInfo::current_mem());
 }
 
 void SystemMetrics::_install_disk_metrics(const std::set<std::string>& disk_devices) {

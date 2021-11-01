@@ -310,7 +310,9 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
                                      MAX_EXPR_VALUES_ARRAY_SIZE / expr_values_bytes_per_row_));
 
     int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
-    if (UNLIKELY(!tracker->TryConsume(mem_usage))) {
+    Status st = tracker->TryConsume(mem_usage);
+    WARN_IF_ERROR(st, "PartitionedHashTableCtx::ExprValuesCache failed");
+    if (UNLIKELY(!st)) {
         capacity_ = 0;
         string details = Substitute(
                 "PartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes.", mem_usage);

@@ -955,6 +955,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     doris::init_glog("be-test");
+    doris::MemInfo::init();
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();
