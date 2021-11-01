@@ -1741,6 +1741,7 @@ public class QueryPlanTest {
 
     @Test
     public void testCompoundPredicateWriteRule() throws Exception {
+        FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
 
         // false or e ==> e
