@@ -41,6 +41,10 @@ public class AgentComponent {
         return agentRepository.queryAgentNodes(hosts);
     }
 
+    public List<AgentEntity> queryAgentNodes(int clusterId) {
+        return agentRepository.queryAgentNodesByClusterId(clusterId);
+    }
+
     public AgentEntity agentInfo(String host) {
         List<AgentEntity> agentEntities = agentRepository.agentInfo(host);
         if (agentEntities != null && !agentEntities.isEmpty()) {

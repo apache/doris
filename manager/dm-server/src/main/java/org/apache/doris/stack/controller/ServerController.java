@@ -60,8 +60,17 @@ public class ServerController {
      */
     @ApiOperation(value = "agent info list")
     @RequestMapping(value = "/agentList", method = RequestMethod.POST)
-    public RResult agentList() {
-        return RResult.success(serverProcess.agentList());
+    public RResult agentList(@RequestParam int clusterId) {
+        return RResult.success(serverProcess.agentList(clusterId));
+    }
+
+    /**
+     * role info list
+     */
+    @ApiOperation(value = "agent role info list")
+    @RequestMapping(value = "/roleList", method = RequestMethod.POST)
+    public RResult roleList(@RequestParam int clusterId) {
+        return RResult.success(serverProcess.roleList(clusterId));
     }
 
     /**

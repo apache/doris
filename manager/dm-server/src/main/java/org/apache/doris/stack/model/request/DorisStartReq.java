@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.constants;
+package org.apache.doris.stack.model.request;
 
-/**
- * task type
- **/
-public enum TaskTypeEnum {
-    INSTALL_AGENT,
-    INSTALL_FE,
-    INSTALL_BE,
-    DEPLOY_FE_CONFIG,
-    DEPLOY_BE_CONFIG,
-    START_FE,
-    START_BE,
-    STOP_FE,
-    STOP_BE,
-    JOIN_BE;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.DorisStart;
 
-    /**
-     * agent side task
-     */
-    public boolean agentTask() {
-        return this != INSTALL_AGENT && this != JOIN_BE;
-    }
+import java.util.List;
 
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DorisStartReq {
+
+    private int processId;
+
+    private int clusterId;
+
+    private List<DorisStart> dorisStarts;
 }

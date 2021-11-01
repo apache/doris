@@ -49,14 +49,14 @@ public class TaskInstanceEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
-    @Column(name = "process_id", nullable = false)
+    @Column(name = "process_id")
     private int processId;
 
     @Column(name = "host", nullable = false)
     private String host;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "process_type", nullable = false)
+    @Column(name = "process_type")
     private ProcessTypeEnum processType;
 
     @Enumerated(EnumType.STRING)
@@ -97,6 +97,12 @@ public class TaskInstanceEntity {
         this.processId = processId;
         this.host = host;
         this.processType = processType;
+        this.startTime = new Date();
+        this.finish = Flag.NO;
+    }
+
+    public TaskInstanceEntity(String host) {
+        this.host = host;
         this.startTime = new Date();
         this.finish = Flag.NO;
     }

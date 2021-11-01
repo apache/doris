@@ -228,8 +228,8 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
 > |command    |ture    | String  | 执行命令: START STOP                          |
-> |dorisExecs.host    |true    |String   |指定的机器列表|
-> |dorisExecs.role |true |String |doris角色：FE、BE|
+> |dorisStarts.host    |true    |String   |指定的机器列表|
+> |dorisStarts.role |true |String |doris角色：FE、BE|
 
 **返回字段**
 
@@ -254,7 +254,7 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 ``` json
 {
     "command":"START",
-    "dorisExecs":[{
+    "dorisStarts":[{
         "host":"10.10.10.11",
         "role":"FE"
     }]

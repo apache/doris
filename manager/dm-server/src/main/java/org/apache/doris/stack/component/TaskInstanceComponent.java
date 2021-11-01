@@ -43,7 +43,7 @@ public class TaskInstanceComponent {
     private TaskInstanceRepository taskInstanceRepository;
 
     /**
-     * The same host, the same tasktype, can only have one
+     * The same host, the same tasktype, can only have one in a install process
      */
     public boolean checkTaskRunning(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType) {
         TaskInstanceEntity taskEntity = taskInstanceRepository.queryTask(processId, host, processType, taskType);
@@ -72,7 +72,7 @@ public class TaskInstanceComponent {
     /**
      * refresh task status
      */
-    public void refreshTask(TaskInstanceEntity taskInstance, RResult result) {
+    public TaskInstanceEntity refreshTask(TaskInstanceEntity taskInstance, RResult result) {
         if (result == null || result.getData() == null) {
             taskInstance.setStatus(ExecutionStatus.FAILURE);
         } else {
@@ -94,7 +94,7 @@ public class TaskInstanceComponent {
                 }
             }
         }
-        taskInstanceRepository.save(taskInstance);
+        return taskInstanceRepository.save(taskInstance);
     }
 
     /**

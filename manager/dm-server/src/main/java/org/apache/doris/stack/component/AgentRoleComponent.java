@@ -34,15 +34,19 @@ public class AgentRoleComponent {
     @Autowired
     private AgentRoleRepository agentRoleRepository;
 
-    public List<AgentRoleEntity> queryAgentRoles() {
+    public List<AgentRoleEntity> queryAllAgentRoles() {
         return agentRoleRepository.findAll();
     }
 
-    public List<AgentRoleEntity> queryAgentByRole(String role) {
+    public List<AgentRoleEntity> queryAgentRoles(int clusterId) {
+        return agentRoleRepository.queryAgentRoles(clusterId);
+    }
+
+    public List<AgentRoleEntity> queryAgentByRole(String role, int clusterId) {
         if (StringUtils.isBlank(role)) {
-            return Lists.newArrayList();
+            return agentRoleRepository.queryAgentRoles(clusterId);
         }
-        return agentRoleRepository.queryAgentByRole(role);
+        return agentRoleRepository.queryAgentByRole(role, clusterId);
     }
 
     public List<AgentRoleEntity> queryAgentByHost(String host) {

@@ -25,6 +25,7 @@ import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
+import org.apache.doris.stack.model.request.DorisStartReq;
 import org.apache.doris.stack.service.AgentProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 @Api(tags = "Agent API")
 @RestController
@@ -66,13 +68,13 @@ public class AgentController {
     }
 
     /**
-     * request agent:start  fe/be
+     * Start the service when installing the cluster
      */
-    @ApiOperation(value = "start service")
+    @ApiOperation(value = "Start the service when installing the cluster")
     @RequestMapping(value = "/startService", method = RequestMethod.POST)
     public RResult startService(HttpServletRequest request, HttpServletResponse response,
-                                @RequestBody DorisExecReq dorisExec) throws Exception {
-        agentProcess.startService(request, response, dorisExec);
+                                @RequestBody DorisStartReq dorisStart) throws Exception {
+        agentProcess.startService(request, response, dorisStart);
         return RResult.success();
     }
 
@@ -95,5 +97,15 @@ public class AgentController {
     public RResult register(@RequestBody AgentRoleRegister agentReg) {
         boolean register = agentProcess.register(agentReg);
         return RResult.success(register);
+    }
+
+    /**
+     * execute command: START/STOP
+     */
+    @ApiOperation(value = "execute command:START/STOP")
+    @RequestMapping(value = "/execute", method = RequestMethod.POST)
+    public RResult execute(@RequestBody DorisExecReq dorisExec) {
+        List<Integer> taskIds = agentProcess.execute(dorisExec);
+        return RResult.success(taskIds);
     }
 }

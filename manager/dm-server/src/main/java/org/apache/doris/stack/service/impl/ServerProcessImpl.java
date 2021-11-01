@@ -18,7 +18,6 @@
 package org.apache.doris.stack.service.impl;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -109,9 +108,15 @@ public class ServerProcessImpl implements ServerProcess {
     }
 
     @Override
-    public List<AgentEntity> agentList() {
-        List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(Lists.newArrayList());
+    public List<AgentEntity> agentList(int clusterId) {
+        List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(clusterId);
         return agentEntities;
+    }
+
+    @Override
+    public List<AgentRoleEntity> roleList(int clusterId) {
+        List<AgentRoleEntity> agentRoleEntities = agentRoleComponent.queryAgentRoles(clusterId);
+        return agentRoleEntities;
     }
 
     @Override

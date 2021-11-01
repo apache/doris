@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.service.ServerProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -42,9 +41,6 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
 
     private static final long HEALTH_TIME = 60 * 1000L;
     private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-
-    @Autowired
-    private ServerProcess serverProcess;
 
     @Autowired
     private AgentRepository agentRepository;
@@ -69,7 +65,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
      */
     private void heartbeatCheck() {
         long currTime = System.currentTimeMillis();
-        List<AgentEntity> agents = serverProcess.agentList();
+        List<AgentEntity> agents = agentRepository.findAll();
         for (AgentEntity agent : agents) {
             Date lastReportedTime = agent.getLastReportedTime();
             long diff = HEALTH_TIME + 1;

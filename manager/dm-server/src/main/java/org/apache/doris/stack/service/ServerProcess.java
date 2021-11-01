@@ -39,7 +39,9 @@ public interface ServerProcess {
     /**
      * agent list
      */
-    List<AgentEntity> agentList();
+    List<AgentEntity> agentList(int clusterId);
+
+    List<AgentRoleEntity> roleList(int clusterId);
 
     List<AgentRoleEntity> agentRole(String host);
 

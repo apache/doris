@@ -22,9 +22,11 @@ import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
+import org.apache.doris.stack.model.request.DorisStartReq;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 /**
  * server agent
@@ -44,10 +46,11 @@ public interface AgentProcess {
     /**
      * start service
      */
-    void startService(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception;
+    void startService(HttpServletRequest request, HttpServletResponse response, DorisStartReq dorisStart) throws Exception;
 
     void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception;
 
     boolean register(AgentRoleRegister agentReg);
 
+    List<Integer> execute(DorisExecReq dorisExec);
 }

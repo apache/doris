@@ -20,18 +20,19 @@ package org.apache.doris.stack.model.request;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.model.DorisExec;
 
 import java.util.List;
 
-@Data
+/**
+ * doris exec command req
+ **/
 @AllArgsConstructor
 @NoArgsConstructor
+@Data
 public class DorisExecReq {
 
-    private int processId;
+    private String command;
 
-    private int clusterId;
-
-    private List<DorisExec> dorisExecs;
+    //agent role ids
+    private List<Integer> roles;
 }

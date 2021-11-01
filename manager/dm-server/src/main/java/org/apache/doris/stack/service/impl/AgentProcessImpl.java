@@ -19,11 +19,13 @@ package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
@@ -54,12 +56,13 @@ import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.BeJoin;
 import org.apache.doris.stack.model.DeployConfig;
-import org.apache.doris.stack.model.DorisExec;
+import org.apache.doris.stack.model.DorisStart;
 import org.apache.doris.stack.model.InstallInfo;
 import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
+import org.apache.doris.stack.model.request.DorisStartReq;
 import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.runner.TaskExecCallback;
 import org.apache.doris.stack.runner.TaskExecuteThread;
@@ -127,7 +130,7 @@ public class AgentProcessImpl implements AgentProcess {
         int processId = processInstanceComponent.refreshProcess(installReq.getProcessId(), installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE);
 
         //Installed host and service
-        List<String> agentRoleList = agentRoleComponent.queryAgentRoles().stream()
+        List<String> agentRoleList = agentRoleComponent.queryAgentRoles(installReq.getClusterId()).stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
                 .collect(Collectors.toList());
         List<InstallInfo> installInfos = installReq.getInstallInfos();
@@ -224,23 +227,23 @@ public class AgentProcessImpl implements AgentProcess {
     }
 
     @Override
-    public void startService(HttpServletRequest request, HttpServletResponse response, DorisExecReq dorisExec) throws Exception {
+    public void startService(HttpServletRequest request, HttpServletResponse response, DorisStartReq dorisStart) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisExec.getProcessId(), ProcessTypeEnum.START_SERVICE);
+        boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
-        int processId = processInstanceComponent.refreshProcess(dorisExec.getProcessId(), dorisExec.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
+        int processId = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), dorisStart.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
 
-        String leaderFe = getLeaderFeHostPort();
-        List<DorisExec> dorisExecs = dorisExec.getDorisExecs();
-        for (DorisExec exec : dorisExecs) {
-            CommandType commandType = transAgentCmd(CmdTypeEnum.START, ServiceRole.findByName(exec.getRole()));
+        String leaderFe = getLeaderFeHostPort(dorisStart.getClusterId());
+        List<DorisStart> dorisStarts = dorisStart.getDorisStarts();
+        for (DorisStart start : dorisStarts) {
+            CommandType commandType = transAgentCmd(CmdTypeEnum.START, ServiceRole.findByName(start.getRole()));
             if (commandType == null) {
-                log.error("not support command {} {}", CmdTypeEnum.START, exec.getRole());
+                log.error("not support command {} {}", CmdTypeEnum.START, start.getRole());
                 continue;
             }
             CommandRequest creq = new CommandRequest();
-            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, exec.getHost(), ProcessTypeEnum.START_SERVICE);
+            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, start.getHost(), ProcessTypeEnum.START_SERVICE);
             switch (commandType) {
                 case START_FE:
                     FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
@@ -262,9 +265,9 @@ public class AgentProcessImpl implements AgentProcess {
             if (isRunning) {
                 return;
             }
-            RResult result = agentRest.commandExec(exec.getHost(), agentPort(exec.getHost()), creq);
+            RResult result = agentRest.commandExec(start.getHost(), agentPort(start.getHost()), creq);
             taskInstanceComponent.refreshTask(execTask, result);
-            log.info("agent {} starting {} ", exec.getHost(), exec.getRole());
+            log.info("agent {} starting {} ", start.getHost(), start.getRole());
         }
     }
 
@@ -285,8 +288,8 @@ public class AgentProcessImpl implements AgentProcess {
     /**
      * get alive agent
      */
-    public AgentEntity getAliveAgent() {
-        List<AgentRoleEntity> agentRoleEntities = agentRoleComponent.queryAgentByRole(ServiceRole.FE.name());
+    public AgentEntity getAliveAgent(int cluserId) {
+        List<AgentRoleEntity> agentRoleEntities = agentRoleComponent.queryAgentByRole(ServiceRole.FE.name(), cluserId);
         AgentEntity aliveAgent = null;
         for (AgentRoleEntity agentRole : agentRoleEntities) {
             aliveAgent = agentCache.agentInfo(agentRole.getHost());
@@ -301,8 +304,8 @@ public class AgentProcessImpl implements AgentProcess {
     /**
      * query leader fe host editLogPort
      */
-    public String getLeaderFeHostPort() {
-        AgentEntity aliveAgent = getAliveAgent();
+    public String getLeaderFeHostPort(int clusterId) {
+        AgentEntity aliveAgent = getAliveAgent(clusterId);
         Integer jdbcPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
         //query leader fe
         Connection conn = null;
@@ -361,13 +364,13 @@ public class AgentProcessImpl implements AgentProcess {
 
         int processId = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER);
         for (String be : beJoinReq.getHosts()) {
-            addBeToCluster(processId, be);
+            addBeToCluster(processId, be, beJoinReq.getClusterId());
         }
     }
 
-    private void addBeToCluster(int processId, String be) {
+    private void addBeToCluster(int processId, String be, int clusterId) {
         int agentPort = agentPort(be);
-        AgentEntity aliveAgent = getAliveAgent();
+        AgentEntity aliveAgent = getAliveAgent(clusterId);
         Integer jdbcPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
         TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(processId, be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
         if (joinBeTask == null) {
@@ -392,5 +395,52 @@ public class AgentProcessImpl implements AgentProcess {
 
         AgentRoleEntity agentRoleEntity = agentRoleComponent.saveAgentRole(agent);
         return agentRoleEntity != null;
+    }
+
+    @Override
+    public List<Integer> execute(DorisExecReq dorisExec) {
+        List<Integer> taskIds = Lists.newArrayList();
+        List<Integer> roles = dorisExec.getRoles();
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(roles), "roles can not empty");
+        List<AgentRoleEntity> agentRoleEntities = agentRoleComponent.queryAllAgentRoles();
+        for (AgentRoleEntity agentRole : agentRoleEntities) {
+            if (roles.contains(agentRole.getId())) {
+                int taskId = execute(agentRole.getHost(), agentRole.getRole(), dorisExec.getCommand());
+                taskIds.add(taskId);
+            }
+        }
+        return taskIds;
+    }
+
+    /**
+     * execute a command return taskId
+     */
+    private int execute(String host, String roleName, String commandName) {
+        CommandRequest creq = new CommandRequest();
+        TaskInstanceEntity execTask = new TaskInstanceEntity(host);
+        CommandType command = CommandType.findByName(commandName + "_" + roleName);
+        switch (command) {
+            case START_FE:
+                execTask.setTaskType(TaskTypeEnum.START_FE);
+                break;
+            case START_BE:
+                execTask.setTaskType(TaskTypeEnum.START_BE);
+                break;
+            case STOP_FE:
+                execTask.setTaskType(TaskTypeEnum.STOP_FE);
+                break;
+            case STOP_BE:
+                execTask.setTaskType(TaskTypeEnum.STOP_BE);
+                break;
+            default:
+                log.error("not support command: {}", command.name());
+                break;
+        }
+
+        creq.setCommandType(command.name());
+        RResult result = agentRest.commandExec(host, agentPort(host), creq);
+        TaskInstanceEntity taskInstanceEntity = taskInstanceComponent.refreshTask(execTask, result);
+        log.info("agent {} {} {} ", host, execTask.getTaskType().name(), roleName);
+        return taskInstanceEntity.getId();
     }
 }
