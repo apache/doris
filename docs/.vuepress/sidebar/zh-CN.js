@@ -420,6 +420,8 @@ module.exports = [
               "bitmap_or",
               "bitmap_xor",
               "bitmap_not",
+              "bitmap_and_not",
+              "bitmap_and_not_count",
               "bitmap_to_string",
               "bitmap_union",
               "bitmap_xor",
