@@ -479,7 +479,6 @@ public class RestService implements Serializable {
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
      */
-    @VisibleForTesting
     public static String randomBackend(SparkSettings sparkSettings , Logger logger) throws DorisException, IOException {
         String feNodes = sparkSettings.getProperty(DORIS_FENODES);
         String feNode = randomEndpoint(feNodes, logger);
@@ -499,7 +498,14 @@ public class RestService implements Serializable {
     }
 
 
-
+    /**
+     * translate Doris FE response to inner {@link BackendRow} struct.
+     * @param response Doris FE response
+     * @param logger {@link Logger}
+     * @return inner {@link List<BackendRow>} struct
+     * @throws DorisException,IOException throw when translate failed
+     * */
+    @VisibleForTesting
     static List<BackendRow> parseBackend(String response, Logger logger) throws DorisException, IOException {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         Backend backend;
