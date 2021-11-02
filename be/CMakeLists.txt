@@ -28,6 +28,8 @@ endif()
 
 project(doris CXX C)
 
+# Write compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 # set platforms
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
