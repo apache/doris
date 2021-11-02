@@ -30,7 +30,6 @@
             <groupId>org.apache.doris</groupId>
             <artifactId>manager</artifactId>
         </dependency>
-
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
