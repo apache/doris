@@ -141,12 +141,14 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
                 continue;
             }
-            installDoris(process.getId(), install, process.getPackageUrl(), process.getInstallDir());
             String installDir = process.getInstallDir();
             if (!installDir.endsWith(File.separator)) {
                 installDir = installDir + File.separator;
             }
-            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir + install.getRole().toLowerCase(), Flag.NO));
+            installDir = installDir + install.getRole().toLowerCase();
+            installDoris(process.getId(), install, process.getPackageUrl(), installDir);
+
+            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
             log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
     }

@@ -55,17 +55,21 @@ fi
 
 
 cd $DORIS_HOME
-rm -rf doris.tar.gz
+rm -rf doris-be.tar.gz
 if [ $? -ne 0 ] ;then exit 1;fi
 
-wget  $URL -O doris.tar.gz --quiet
+wget  $URL -O doris-be.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-tar -zxvf doris.tar.gz
+rm -rf $DORIS_HOME/betmp
+mkdir -p $DORIS_HOME/betmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-mv $DORIS_HOME/doris/be $DORIS_HOME/
+tar -zxvf doris-be.tar.gz --strip-components=1 -C $DORIS_HOME/betmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_HOME/doris
+mv $DORIS_HOME/betmp/be $DORIS_HOME/
+if [ $? -ne 0 ] ;then exit 1;fi
+
+rm -rf $DORIS_HOME/betmp
 if [ $? -ne 0 ] ;then exit 1;fi
