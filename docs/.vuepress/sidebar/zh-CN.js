@@ -422,6 +422,7 @@ module.exports = [
               "bitmap_and_count",
               "bitmap_or_count",
               "bitmap_xor",
+              "bitmap_xor_count",
               "bitmap_not",
               "bitmap_and_not",
               "bitmap_and_not_count",
