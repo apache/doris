@@ -57,6 +57,8 @@ public:
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& src,
+                                      const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
     static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);

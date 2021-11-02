@@ -347,6 +347,59 @@ TEST_F(BitmapFunctionsTest, bitmap_and) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_xor) {
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 2019});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_xor(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+
+    BigIntVal expected(4);
+    ASSERT_EQ(expected, result);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_xor_count) {
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({3, 4, 5});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(4);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({1, 2, 3});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({4, 5, 6});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(6);
+        ASSERT_EQ(expected, result);
+    }
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_and_count) {
     BitmapValue bitmap1({0, 1, 2});
     BitmapValue bitmap2;
