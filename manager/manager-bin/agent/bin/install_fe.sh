@@ -29,17 +29,17 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 
 URL=
-DORIS_HOME=
+DORIS_FE_HOME=
 while true; do
     case "$1" in
         --url) URL=$2 ; shift 2;;
-        --installDir) DORIS_HOME=$2 ; shift 2;;
+        --installDir) DORIS_FE_HOME=$2 ; shift 2;;
         --) shift ;  break ;;
         *) echo "Internal error" ; exit 1 ;;
     esac
 done
 
-if [ x"$DORIS_HOME" == x"" ]; then
+if [ x"$DORIS_FE_HOME" == x"" ]; then
     echo "--installDir can not empty!"
     exit 1
 fi
@@ -49,26 +49,26 @@ if [ x"$URL" == x"" ]; then
     exit 1
 fi
 
-if [ ! -d $DORIS_HOME ]; then
-    mkdir -p $DORIS_HOME
+if [ ! -d $DORIS_FE_HOME ]; then
+    mkdir -p $DORIS_FE_HOME
 fi
 
-cd $DORIS_HOME
+cd $DORIS_FE_HOME
 rm -rf doris-fe.tar.gz
 if [ $? -ne 0 ] ;then exit 1;fi
 
 wget  $URL -O doris-fe.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_HOME/fetmp
-mkdir -p $DORIS_HOME/fetmp
+rm -rf $DORIS_FE_HOME/fetmp
+mkdir -p $DORIS_FE_HOME/fetmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-tar -zxvf doris-fe.tar.gz --strip-components=1 -C $DORIS_HOME/fetmp
+tar -zxvf doris-fe.tar.gz --strip-components=1 -C $DORIS_FE_HOME/fetmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-mv $DORIS_HOME/fetmp/fe $DORIS_HOME/
+mv $DORIS_FE_HOME/fetmp/fe/* $DORIS_FE_HOME/
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_HOME/fetmp
+rm -rf $DORIS_FE_HOME/fetmp
 if [ $? -ne 0 ] ;then exit 1;fi
