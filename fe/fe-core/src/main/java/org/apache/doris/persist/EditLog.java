@@ -861,6 +861,11 @@ public class EditLog {
                     catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
+                case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                    ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
+                    catalog.getAlterInstance().replayProcessModifyEngine(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1493,5 +1498,9 @@ public class EditLog {
 
     public void logDropSqlBlockRule(List<String> ruleNames) {
         logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
+    }
+
+    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 }
