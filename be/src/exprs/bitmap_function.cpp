@@ -519,6 +519,11 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs,
+                                                const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_xor(ctx, lhs, rhs));
+}
+
 StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
