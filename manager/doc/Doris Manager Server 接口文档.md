@@ -89,21 +89,21 @@
 
 **请求参数**
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|clusterId   |int    |集群id   |
+> |:-----   |:------|:-----------------------------   |
+> |clusterId   |int    |集群id   |
 
 **返回字段**
 
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|msg   |String    |调用信息   |
-|code  |String | 结果状态。0：正常  |
-|data.id  |int | agentId |
-|data.host  |String |agent host  |
-|data.port  |String | agent port |
-|data.status  |String | agent状态 ：RUNNING STOP|
-|data.registerTime  |Date | agent注册时间  |
-|data.lastReportedTime  |Date | agent最后上报时间  |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.id  |int | agentId |
+> |data.host  |String |agent host  |
+> |data.port  |String | agent port |
+> |data.status  |String | agent状态 ：RUNNING STOP|
+> |data.registerTime  |Date | agent注册时间  |
+> |data.lastReportedTime  |Date | agent最后上报时间  |
 
 **接口示例**
 
@@ -634,19 +634,19 @@
 
 **请求参数**
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|clusterId   |int    |集群id   |
+> |:-----   |:------|:-----------------------------   |
+> |clusterId   |int    |集群id   |
 
 **返回字段**
 
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|msg   |String    |调用信息   |
-|code  |String | 结果状态。0：正常  |
-|data.host  |String |agent host  |
-|data.role  |String |安装角色 FE BE |
-|data.feNodeType  |String | 角色类型 FOLLOWer OBserveer|
-|data.register  |String | 安装后是否注册成功 |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.host  |String |agent host  |
+> |data.role  |String |安装角色 FE BE |
+> |data.feNodeType  |String | 角色类型 FOLLOWer OBserveer|
+> |data.register  |String | 安装后是否注册成功 |
 
 **接口示例**
 
