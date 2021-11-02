@@ -1472,16 +1472,14 @@ public:
 
     /**
      * Return new set with specified start and limit
-     * @param range_start the index for subset begin
-     * @param cardinality_limit the length of subset
+     * @param range_start the start value for the range
+     * @param cardinality_limit the length of the subset
      * @return the real count for subset, maybe less than cardinality_limit
      */
     int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit, BitmapValue* ret_bitmap) {
-        int64_t cur_index = 0;
         int64_t count = 0;
         for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
-            if (cur_index < range_start) {
-                ++cur_index;
+            if (*it < range_start) {
                 continue;
             }
             if (count < cardinality_limit) {

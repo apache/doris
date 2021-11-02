@@ -727,7 +727,7 @@ TEST_F(BitmapFunctionsTest, bitmap_subset_limit) {
 
     res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(35), BigIntVal(10));
     result = BitmapFunctions::bitmap_count(ctx, res);
-    ASSERT_EQ(BigIntVal(6), result);
+    ASSERT_EQ(BigIntVal(7), result);
 
     res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(31), DecimalV2Value::MAX_INT64);
     result = BitmapFunctions::bitmap_count(ctx, res);

@@ -32,9 +32,9 @@ under the License.
 
 `BITMAP BITMAP_SUBSET_LIMIT(BITMAP src, BIGINT range_start, BIGINT cardinality_limit)`
 
-返回 BITMAP 指定位置区间内的子集。
-range_start：开始位置
-cardinality_limit：子集元素个数
+生成 src 的子 BITMAP， 从不小于 range_start 的位置开始，大小限制为 cardinality_limit 。
+range_start：范围起始点（含）
+cardinality_limit：子BIGMAP基数上限
 
 ## example
 
@@ -50,7 +50,7 @@ mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5
 +-------+
 | value |
 +-------+
-| 5     |
+| 4，5     |
 +-------+
 ```
 
