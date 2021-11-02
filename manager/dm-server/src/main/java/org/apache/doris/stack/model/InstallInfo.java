@@ -30,10 +30,7 @@ public class InstallInfo {
      * be / fe
      */
     private String role;
-    /**
-     * be/fe package url
-     */
-    private String packageUrl;
 
-    private String installDir;
+    // FOLLOWER / OBSERVER
+    private String feNodeType;
 }

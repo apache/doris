@@ -17,6 +17,7 @@
 
 package org.apache.doris.stack.component;
 
+import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.dao.ProcessInstanceRepository;
@@ -38,27 +39,23 @@ public class ProcessInstanceComponent {
      * save process and return id
      */
     public int saveProcess(ProcessInstanceEntity processInstance) {
-        checkHasUnfinishProcess(processInstance.getUserId());
+        checkHasUnfinishProcess(processInstance.getUserId(),-1);
         return processInstanceRepository.save(processInstance).getId();
     }
 
-    public void checkHasUnfinishProcess(int userId) {
+    public void checkHasUnfinishProcess(int userId,int processId) {
         //query whether there is a process currently being installed
         ProcessInstanceEntity processEntity = processInstanceRepository.queryProcessByuserId(userId);
-        if (processEntity != null) {
+        if (processEntity != null && processEntity.getId() != processId) {
             throw new ServerException("You already have an installation in the current environment!");
         }
     }
 
-    public int refreshProcess(int processId, int clusterId, int userId, ProcessTypeEnum processType) {
+    public ProcessInstanceEntity refreshProcess(int processId, ProcessTypeEnum processType) {
         ProcessInstanceEntity processInstance = queryProcessById(processId);
-        if (processInstance == null) {
-            checkHasUnfinishProcess(userId);
-            processInstance = new ProcessInstanceEntity(clusterId, userId, processType);
-        } else {
-            processInstance.setProcessType(processType);
-        }
-        return processInstanceRepository.save(processInstance).getId();
+        Preconditions.checkArgument(processInstance != null,"install process is not exist");
+        processInstance.setProcessType(processType);
+        return processInstanceRepository.save(processInstance);
     }
 
     public ProcessInstanceEntity queryProcessByuserId(int userId) {

@@ -91,6 +91,7 @@ public class ProcessTaskImpl implements ProcessTask {
     public List<TaskInstanceEntity> taskProgress(HttpServletRequest request, HttpServletResponse response, int processId) {
         ProcessInstanceEntity processEntity = processInstanceComponent.queryProcessById(processId);
         Preconditions.checkArgument(processEntity != null, "can not find processId " + processId);
+        refreshAgentTaskStatus(processId);
         return taskInstanceRepository.queryTasksByProcessStep(processId, processEntity.getProcessType());
     }
 
@@ -137,6 +138,7 @@ public class ProcessTaskImpl implements ProcessTask {
             Map<String, Object> param = new HashMap<>();
             param.put("taskId", taskEntity.getExecutorId());
             RResult result = agentRest.taskInfo(taskEntity.getHost(), agentPort(taskEntity.getHost()), param);
+            taskInstanceComponent.refreshTask(taskEntity, result);
             return result.getData();
         } else {
             return taskEntity.getResult();

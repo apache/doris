@@ -52,6 +52,7 @@ import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.BeJoin;
@@ -75,6 +76,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -124,13 +126,13 @@ public class AgentProcessImpl implements AgentProcess {
     public void installService(HttpServletRequest request, HttpServletResponse response,
                                DorisInstallReq installReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        processInstanceComponent.checkHasUnfinishProcess(userId,installReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
         Preconditions.checkArgument(success, "The agent is not installed successfully and the service cannot be installed");
 
-        int processId = processInstanceComponent.refreshProcess(installReq.getProcessId(), installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_SERVICE);
-
+        ProcessInstanceEntity process = processInstanceComponent.refreshProcess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
         //Installed host and service
-        List<String> agentRoleList = agentRoleComponent.queryAgentRoles(installReq.getClusterId()).stream()
+        List<String> agentRoleList = agentRoleComponent.queryAgentRoles(process.getClusterId()).stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
                 .collect(Collectors.toList());
         List<InstallInfo> installInfos = installReq.getInstallInfos();
@@ -143,28 +145,32 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
                 continue;
             }
-            installDoris(processId, install);
-            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getInstallDir(), Flag.NO));
+            installDoris(process.getId(), install, installReq.getPackageUrl(), installReq.getInstallDir());
+            String installDir = installReq.getInstallDir();
+            if(!installDir.endsWith(File.separator)){
+                installDir = installDir + File.separator;
+            }
+            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), installDir + install.getRole().toLowerCase(), Flag.NO));
             log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
     }
 
-    private void installDoris(int processId, InstallInfo install) {
+    private void installDoris(int processId, InstallInfo install, String packageUrl, String installDir) {
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE);
         if (ServiceRole.FE.name().equals(install.getRole())) {
             FeInstallCommandRequestBody feBody = new FeInstallCommandRequestBody();
             feBody.setMkFeMetadir(true);
-            feBody.setPackageUrl(install.getPackageUrl());
-            feBody.setInstallDir(install.getInstallDir());
+            feBody.setPackageUrl(packageUrl);
+            feBody.setInstallDir(installDir);
             creq.setCommandType(CommandType.INSTALL_FE.name());
             creq.setBody(JSON.toJSONString(feBody));
             installService.setTaskType(TaskTypeEnum.INSTALL_FE);
         } else if (ServiceRole.BE.name().equals(install.getRole())) {
             BeInstallCommandRequestBody beBody = new BeInstallCommandRequestBody();
             beBody.setMkBeStorageDir(true);
-            beBody.setInstallDir(install.getInstallDir());
-            beBody.setPackageUrl(install.getPackageUrl());
+            beBody.setPackageUrl(packageUrl);
+            beBody.setInstallDir(installDir);
             creq.setCommandType(CommandType.INSTALL_BE.name());
             creq.setBody(JSON.toJSONString(beBody));
             installService.setTaskType(TaskTypeEnum.INSTALL_BE);
@@ -182,13 +188,14 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        processInstanceComponent.checkHasUnfinishProcess(userId,deployConfigReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
         Preconditions.checkArgument(success, "doris is not installed successfully and the configuration cannot be delivered");
 
-        int processId = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), deployConfigReq.getClusterId(), userId, ProcessTypeEnum.DEPLOY_CONFIG);
+        ProcessInstanceEntity process = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
         List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
         for (DeployConfig config : deployConfigs) {
-            deployConf(processId, config);
+            deployConf(process.getId(), config);
             log.info("agent {} deploy {} conf", config.getHost(), config.getRole());
         }
     }
@@ -208,12 +215,14 @@ public class AgentProcessImpl implements AgentProcess {
         if (ServiceRole.FE.name().equals(deployConf.getRole())) {
             WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
             feConf.setContent(deployConf.getConf());
+            feConf.setCreateMetaDir(true);
             creq.setBody(JSON.toJSONString(feConf));
             creq.setCommandType(CommandType.WRITE_FE_CONF.name());
             deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
         } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
             WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
             beConf.setContent(deployConf.getConf());
+            beConf.setCreateStorageDir(true);
             creq.setBody(JSON.toJSONString(beConf));
             creq.setCommandType(CommandType.WRITE_BE_CONF.name());
             deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
@@ -229,12 +238,13 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void startService(HttpServletRequest request, HttpServletResponse response, DorisStartReq dorisStart) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        processInstanceComponent.checkHasUnfinishProcess(userId,dorisStart.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
-        int processId = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), dorisStart.getClusterId(), userId, ProcessTypeEnum.START_SERVICE);
+        ProcessInstanceEntity process = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
 
-        String leaderFe = getLeaderFeHostPort(dorisStart.getClusterId());
+        String leaderFe = getLeaderFeHostPort(process.getClusterId());
         List<DorisStart> dorisStarts = dorisStart.getDorisStarts();
         for (DorisStart start : dorisStarts) {
             CommandType commandType = transAgentCmd(CmdTypeEnum.START, ServiceRole.findByName(start.getRole()));
@@ -243,7 +253,7 @@ public class AgentProcessImpl implements AgentProcess {
                 continue;
             }
             CommandRequest creq = new CommandRequest();
-            TaskInstanceEntity execTask = new TaskInstanceEntity(processId, start.getHost(), ProcessTypeEnum.START_SERVICE);
+            TaskInstanceEntity execTask = new TaskInstanceEntity(process.getId(), start.getHost(), ProcessTypeEnum.START_SERVICE);
             switch (commandType) {
                 case START_FE:
                     FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
@@ -359,12 +369,13 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        processInstanceComponent.checkHasUnfinishProcess(userId,beJoinReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
 
-        int processId = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), beJoinReq.getClusterId(), userId, ProcessTypeEnum.BUILD_CLUSTER);
+        ProcessInstanceEntity process = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
         for (String be : beJoinReq.getHosts()) {
-            addBeToCluster(processId, be, beJoinReq.getClusterId());
+            addBeToCluster(process.getId(), be, process.getClusterId());
         }
     }
 

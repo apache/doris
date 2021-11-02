@@ -33,7 +33,5 @@ public class BeJoinReq {
 
     private int processId;
 
-    private int clusterId;
-
     private List<String> hosts;
 }

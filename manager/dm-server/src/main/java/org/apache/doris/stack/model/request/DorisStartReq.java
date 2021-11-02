@@ -31,7 +31,5 @@ public class DorisStartReq {
 
     private int processId;
 
-    private int clusterId;
-
     private List<DorisStart> dorisStarts;
 }

@@ -53,8 +53,18 @@ if [ ! -d $DORIS_HOME ]; then
     mkdir -p $DORIS_HOME
 fi
 
-wget  $URL -O doris-fe.tar.gz --quiet
+cd $DORIS_HOME
+rm -rf doris.tar.gz
 if [ $? -ne 0 ] ;then exit 1;fi
 
-tar -zxvf doris-fe.tar.gz  -C $DORIS_HOME
+wget  $URL -O doris.tar.gz --quiet
+if [ $? -ne 0 ] ;then exit 1;fi
+
+tar -zxvf doris.tar.gz
+if [ $? -ne 0 ] ;then exit 1;fi
+
+mv $DORIS_HOME/doris/fe $DORIS_HOME/
+if [ $? -ne 0 ] ;then exit 1;fi
+
+rm -rf $DORIS_HOME/doris
 if [ $? -ne 0 ] ;then exit 1;fi

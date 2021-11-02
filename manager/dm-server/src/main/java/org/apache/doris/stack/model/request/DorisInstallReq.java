@@ -30,9 +30,12 @@ import java.util.List;
 public class DorisInstallReq {
 
     private int processId;
+    /**
+     * doris package url
+     */
+    private String packageUrl;
 
-    private int clusterId;
+    private String installDir;
 
     private List<InstallInfo> installInfos;
-
 }
