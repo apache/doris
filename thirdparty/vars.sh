@@ -205,7 +205,7 @@ BROTLI_SOURCE="brotli-1.0.9"
 BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
 
 # flatbuffers
-FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/2.0.0.tar.gz"
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v2.0.0.tar.gz"
 FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
 FLATBUFFERS_SOURCE=flatbuffers-2.0.0
 FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
