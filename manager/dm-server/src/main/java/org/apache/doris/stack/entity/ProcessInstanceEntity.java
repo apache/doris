@@ -67,10 +67,18 @@ public class ProcessInstanceEntity {
     @Column(name = "finish", nullable = false)
     private Flag finish;
 
-    public ProcessInstanceEntity(int clusterId, int userId, ProcessTypeEnum processType) {
+    @Column(name = "package_url", length = 1024)
+    private String packageUrl;
+
+    @Column(name = "install_dir", length = 1024)
+    private String installDir;
+
+    public ProcessInstanceEntity(int clusterId, int userId, ProcessTypeEnum processType, String packageUrl, String installDir) {
         this.clusterId = clusterId;
         this.userId = userId;
         this.processType = processType;
+        this.installDir = installDir;
+        this.packageUrl = packageUrl;
         this.createTime = new Date();
         this.updateTime = new Date();
         this.finish = Flag.NO;

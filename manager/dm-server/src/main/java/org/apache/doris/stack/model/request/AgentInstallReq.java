@@ -28,6 +28,8 @@ import java.util.List;
 @NoArgsConstructor
 public class AgentInstallReq {
 
+    private int clusterId;
+
     private List<String> hosts;
 
     private String user;
@@ -38,5 +40,5 @@ public class AgentInstallReq {
 
     private String installDir;
 
-    private int clusterId;
+    private String packageUrl;
 }

@@ -49,7 +49,6 @@ import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
-import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
@@ -116,9 +115,6 @@ public class AgentProcessImpl implements AgentProcess {
     private TaskInstanceComponent taskInstanceComponent;
 
     @Autowired
-    private TaskInstanceRepository taskInstanceRepository;
-
-    @Autowired
     private AuthenticationService authenticationService;
 
     @Override
@@ -126,7 +122,7 @@ public class AgentProcessImpl implements AgentProcess {
     public void installService(HttpServletRequest request, HttpServletResponse response,
                                DorisInstallReq installReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        processInstanceComponent.checkHasUnfinishProcess(userId,installReq.getProcessId());
+        processInstanceComponent.checkHasUnfinishProcess(userId, installReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(installReq.getProcessId(), ProcessTypeEnum.INSTALL_SERVICE);
         Preconditions.checkArgument(success, "The agent is not installed successfully and the service cannot be installed");
 
@@ -145,12 +141,12 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
                 continue;
             }
-            installDoris(process.getId(), install, installReq.getPackageUrl(), installReq.getInstallDir());
-            String installDir = installReq.getInstallDir();
-            if(!installDir.endsWith(File.separator)){
+            installDoris(process.getId(), install, process.getPackageUrl(), process.getInstallDir());
+            String installDir = process.getInstallDir();
+            if (!installDir.endsWith(File.separator)) {
                 installDir = installDir + File.separator;
             }
-            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), installDir + install.getRole().toLowerCase(), Flag.NO));
+            agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir + install.getRole().toLowerCase(), Flag.NO));
             log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
     }
@@ -188,7 +184,7 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void deployConfig(HttpServletRequest request, HttpServletResponse response, DeployConfigReq deployConfigReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        processInstanceComponent.checkHasUnfinishProcess(userId,deployConfigReq.getProcessId());
+        processInstanceComponent.checkHasUnfinishProcess(userId, deployConfigReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
         Preconditions.checkArgument(success, "doris is not installed successfully and the configuration cannot be delivered");
 
@@ -238,7 +234,7 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void startService(HttpServletRequest request, HttpServletResponse response, DorisStartReq dorisStart) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        processInstanceComponent.checkHasUnfinishProcess(userId,dorisStart.getProcessId());
+        processInstanceComponent.checkHasUnfinishProcess(userId, dorisStart.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
@@ -369,7 +365,7 @@ public class AgentProcessImpl implements AgentProcess {
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        processInstanceComponent.checkHasUnfinishProcess(userId,beJoinReq.getProcessId());
+        processInstanceComponent.checkHasUnfinishProcess(userId, beJoinReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
 

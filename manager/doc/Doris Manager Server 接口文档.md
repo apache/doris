@@ -26,11 +26,13 @@
 
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
-> |clusterId|true|String|集群ID|
+> |clusterId|true|String|集群ID ,新建集群后返回的id|
 > |hosts    |true    |List|机器列表                          |
 > |user    |true    |String   |ssh 用户|
 > |port |true |int |ssh 端口|
 > |sshKey |true |String |ssh 私钥|
+> |packageUrl |true |String |doris编译包下载地址，只支持http方式。|
+> |installDir |true |String |安装路径|
 
 **返回字段**
 
@@ -48,6 +50,8 @@
 ``` json
 {
     "clusterId":"1",
+    "packageUrl":"https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-0.15.1-rc03-no-avx2-binary.tar.gz",
+    "installDir":"/usr/local/doris",
     "hosts":["10.10.10.11"],
     "user":"root",
     "sshPort":22,
@@ -148,10 +152,9 @@
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
 > |processId|true|int|当前安装的流程ID，接口1返回的结果|
-> |packageUrl |true |String |doris编译包下载地址，只支持http方式。|
-> |installDir |true |String |安装路径|
 > |installInfos.host    |ture    | String  |指定安装doris的机器                          |
 > |installInfos.role    |true    |String   |doris角色：FE、BE|
+> |installInfos.feNodeType    |false    |String   |角色为FE时:FOLLOWER / OBSERVER|
 
 **返回字段**
 
@@ -169,11 +172,10 @@
 ``` json
 {
     "processId":1,
-    "packageUrl":"https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-0.15.1-rc03-no-avx2-binary.tar.gz",
-    "installDir":"/usr/local/doris",
     "installInfos":[{
         "host":"10.220.147.155",
-        "role":"FE"
+        "role":"FE",
+        "feNodeType":"FOLLOWER"
     },
     {
         "host":"10.220.147.155",

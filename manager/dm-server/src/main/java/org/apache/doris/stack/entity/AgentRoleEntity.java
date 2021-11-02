@@ -49,6 +49,7 @@ public class AgentRoleEntity {
     @Column(name = "role")
     private String role;
 
+    //FOLLOWER / OBSERVER
     @Column(name = "fe_node_type")
     private String feNodeType;
 
@@ -58,9 +59,10 @@ public class AgentRoleEntity {
     @Column(name = "register")
     private Flag register;
 
-    public AgentRoleEntity(String host, String role, String installDir, Flag register) {
+    public AgentRoleEntity(String host, String role, String feNodeType, String installDir, Flag register) {
         this.host = host;
         this.role = role;
+        this.feNodeType = feNodeType;
         this.installDir = installDir;
         this.register = register;
     }

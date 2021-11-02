@@ -32,7 +32,6 @@ import java.util.List;
 @NoArgsConstructor
 public class DeployConfigReq {
 
-    private int processId;
-
     List<DeployConfig> deployConfigs;
+    private int processId;
 }

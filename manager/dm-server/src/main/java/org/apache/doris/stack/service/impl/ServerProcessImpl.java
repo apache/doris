@@ -88,7 +88,7 @@ public class ServerProcessImpl implements ServerProcess {
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
         Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
-        ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT);
+        ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT, installReq.getPackageUrl(), installReq.getInstallDir());
         int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {
