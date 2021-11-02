@@ -81,6 +81,7 @@ public:
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
     void release(RowBlock* row_block);
+    bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
 
 private:
     const TabletSchema& _tablet_schema;
