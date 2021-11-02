@@ -127,13 +127,13 @@ public:
             return;
         }
 
-        if (consumption_metric_ != nullptr) {
+        if (UNLIKELY(consumption_metric_ != nullptr)) {
             RefreshConsumptionFromMetric();
             return; // TODO(yingchun): why return not update tracker?
         }
         for (auto& tracker : all_trackers_) {
             tracker->consumption_->add(bytes);
-            if (tracker->consumption_metric_ == nullptr) {
+            if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(), 0);
             }
         }
@@ -172,7 +172,7 @@ public:
         }
         // if (UNLIKELY(bytes == 0)) return true;
         // if (UNLIKELY(bytes < 0)) return false; // needed in RELEASE, hits DCHECK in DEBUG
-        if (consumption_metric_ != nullptr) RefreshConsumptionFromMetric();
+        if (UNLIKELY(consumption_metric_ != nullptr)) RefreshConsumptionFromMetric();
         int i;
         // Walk the tracker tree top-down.
         for (i = all_trackers_.size() - 1; i >= 0; --i) {
@@ -223,7 +223,7 @@ public:
 
         // if (UNLIKELY(bytes <= 0)) return; // < 0 needed in RELEASE, hits DCHECK in DEBUG
 
-        if (consumption_metric_ != nullptr) {
+        if (UNLIKELY(consumption_metric_ != nullptr)) {
             RefreshConsumptionFromMetric();
             return;
         }
@@ -235,7 +235,7 @@ public:
             /// metric. Don't blow up in this case. (Note that this doesn't affect non-process
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
-            if (tracker->consumption_metric_ == nullptr) {
+            if (LIKELY(tracker->consumption_metric_ == nullptr)) {
                 DCHECK_GE(tracker->consumption_->current_value(), 0)
                         << std::endl
                         << tracker->LogUsage(UNLIMITED_DEPTH);
@@ -378,11 +378,6 @@ public:
                                    const std::string& details,
                                    int64_t failed_allocation = 0) WARN_UNUSED_RESULT;
 
-    void set_query_exec_finished() {
-        DCHECK(is_query_mem_tracker_);
-        query_exec_finished_.store(1);
-    }
-
     static void update_limits(int64_t bytes,
                               const std::vector<std::shared_ptr<MemTracker>>& trackers) {
         for (auto& tracker : trackers) {
@@ -495,17 +490,11 @@ private:
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex gc_lock_;
 
-    /// True if this is a Query MemTracker returned from CreateQueryMemTracker().
-    bool is_query_mem_tracker_ = false;
-
     /// Only used if 'is_query_mem_tracker_' is true.
     /// 0 if the query is still executing or 1 if it has finished executing. Before
     /// it has finished executing, the tracker limit is treated as "reserved memory"
     /// for the purpose of admission control - see GetPoolMemReserved().
     std::atomic<int32_t> query_exec_finished_{0};
-
-    /// Only valid for MemTrackers returned from CreateQueryMemTracker()
-    TUniqueId query_id_;
 
     /// Only valid for MemTrackers returned from GetRequestPoolMemTracker()
     std::string pool_name_;

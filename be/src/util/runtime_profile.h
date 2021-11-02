@@ -148,7 +148,9 @@ public:
 
         virtual void add(int64_t delta) {
             int64_t new_val = current_value_.add(delta);
-            UpdateMax(new_val);
+            if (delta > 0) {
+                UpdateMax(new_val);
+            }
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
