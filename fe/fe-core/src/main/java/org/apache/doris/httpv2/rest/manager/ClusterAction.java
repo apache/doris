@@ -92,7 +92,7 @@ public class ClusterAction extends RestBaseController {
                 Catalog.getCurrentSystemInfo().addBackends(newBackend, false);
             } catch (UserException e) {
                 LOG.error("Failed to add backend node: {}:{}", backend.getKey(), backend.getValue(), e);
-                failed.put(backend.getKey(), e.getMessage());
+                failed.put(backend.getKey() + ":" + backend.getValue(), e.getMessage());
             }
         }
         return ResponseEntityBuilder.ok(failed);
