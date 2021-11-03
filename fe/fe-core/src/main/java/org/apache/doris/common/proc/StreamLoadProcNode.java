@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
