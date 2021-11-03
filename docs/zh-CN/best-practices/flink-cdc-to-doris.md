@@ -131,7 +131,7 @@ https://repo1.maven.org/maven2/com/ververica/flink-connector-mysql-cdc/2.0.2/fli
 
 这里注意Flink CDC 和Flink 的版本对应关系
 
-![image-20211025170642628](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211025170642628.png)
+![/images/cdc/image-20211025170642628.png)
 
 - 将上面下载或者编译好的 Flink  Doris Connector jar包复制到 Flink 根目录下的lib目录下
 - Flink cdc的jar包也复制到 Flink 根目录下的lib目录下
@@ -146,7 +146,7 @@ https://repo1.maven.org/maven2/com/ververica/flink-connector-mysql-cdc/2.0.2/fli
 # wget https://github.com/hf200012/hf200012.github.io/raw/main/lib/doris-flink-1.0-SNAPSHOT.jar -P ./lib/
 ```
 
-![image-20211026095513892](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026095513892.png)
+![image-20211026095513892](/images/cdc/image-20211026095513892.png)
 
 #### 4.2.2 启动Flink
 
@@ -161,7 +161,7 @@ Starting taskexecutor daemon on host doris01.
 
 我们通过web访问（默认端口是8081）启动起来Flink 集群，可以看到集群正常启动
 
-![image-20211025162831632](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211025162831632.png)
+![image-20211025162831632](/images/cdc/image-20211025162831632.png)
 
 ### 4.3 安装Apache Doris
 
@@ -227,7 +227,7 @@ CREATE TABLE `doris_test` (
 > set execution.result-mode=tableau;
 ```
 
-![image-20211025165547903](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211025165547903.png)
+![image-20211025165547903](/images/cdc/image-20211025165547903.png)
 
 #### 4.5.1 创建 Flink CDC Mysql 映射表
 
@@ -253,7 +253,7 @@ CREATE TABLE test_flink_cdc (
 select * from test_flink_cdc;
 ```
 
-![image-20211026100505972](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026100505972.png)
+![image-20211026100505972](/images/cdc/image-20211026100505972.png)
 
 #### 4.5.2 创建Flink Doris Table 映射表
 
@@ -281,7 +281,7 @@ WITH (
 select * from doris_test_sink;
 ```
 
-![image-20211026100804091](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026100804091.png)
+![image-20211026100804091](/images/cdc/image-20211026100804091.png)
 
 执行插入操作，将Mysql 里的数据通过 Flink CDC结合Doris Flink Connector方式插入到 Doris中
 
@@ -289,11 +289,11 @@ select * from doris_test_sink;
 INSERT INTO doris_test_sink select id,name from test_flink_cdc
 ```
 
-![image-20211026101004547](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026101004547.png)
+![image-20211026101004547](/images/cdc/image-20211026101004547.png)
 
 提交成功之后我们在Flink的Web界面可以看到相关的Job任务信息
 
-![image-20211026100943474](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026100943474.png)
+![image-20211026100943474](/images/cdc/image-20211026100943474.png)
 
 #### 4.5.3 向Mysql表中插入数据
 
@@ -316,13 +316,13 @@ INSERT INTO test_cdc VALUES (91233, 'zhangfeng_9');
 
 首先停掉Insert into这个任务，因为我是在本地单机模式，只有一个task任务，所以要停掉，然后在命令行执行查询语句才能看到数据
 
-![image-20211026101203629](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211026101203629.png)
+![image-20211026101203629](/images/cdc/image-20211026101203629.png)
 
 #### 4.5.5 修改Mysql的数据
 
 重新启动Insert into任务
 
-![image-20211025182341086](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211025182341086.png)
+![image-20211025182341086](/images/cdc/image-20211025182341086.png)
 
 修改Mysql表里的数据
 
@@ -334,7 +334,7 @@ update test_cdc set name='这个是验证修改的操作' where id =123
 
 注意这里如果要想Mysql表里的数据修改，Doris里的数据也同样修改，Doris数据表的模型要是Unique key模型，其他数据模型（Aggregate Key 和 Duplicate Key）不能进行数据的更新操作。
 
-![image-20211025182435827](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211025182435827.png)
+![image-20211025182435827](/images/cdc/image-20211025182435827.png)
 
 #### 4.5.6 删除数据操作
 
