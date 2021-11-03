@@ -84,17 +84,18 @@ public class ClusterAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        Map<String, String> failed = Maps.newHashMap();
+        Map<String, Boolean> result = Maps.newHashMap();
         for (Map.Entry<String, Integer> backend : hostPorts.entrySet()) {
             List<Pair<String, Integer>> newBackend = Lists.newArrayList();
             newBackend.add(Pair.create(backend.getKey(), backend.getValue()));
             try {
                 Catalog.getCurrentSystemInfo().addBackends(newBackend, false);
+                result.put(backend.getKey(), true);
             } catch (UserException e) {
                 LOG.error("Failed to add backend node: {}:{}", backend.getKey(), backend.getValue(), e);
-                failed.put(backend.getKey() + ":" + backend.getValue(), e.getMessage());
+                result.put(backend.getKey(), false);
             }
         }
-        return ResponseEntityBuilder.ok(failed);
+        return ResponseEntityBuilder.ok(result);
     }
 }
