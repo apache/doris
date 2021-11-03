@@ -33,6 +33,8 @@ public:
 
     Status begin_txn(StreamLoadContext* ctx);
 
+    Status pre_commit_txn(StreamLoadContext* ctx);
+
     Status commit_txn(StreamLoadContext* ctx);
 
     void rollback_txn(StreamLoadContext* ctx);

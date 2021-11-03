@@ -805,6 +805,68 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive txn pre-commit request: {}, backend: {}", request, clientAddr);
+
+        TLoadTxnCommitResult result = new TLoadTxnCommitResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            loadTxnPreCommitImpl(request);
+        } catch (UserException e) {
+            LOG.warn("failed to pre-commit txn: {}: {}", request.getTxnId(), e.getMessage());
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        if (request.isSetAuthCode()) {
+        } else if (request.isSetAuthCodeUuid()) {
+            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else {
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+        }
+
+        // get database
+        Catalog catalog = Catalog.getCurrentCatalog();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db;
+        if (request.isSetDbId() && request.getDbId() > 0) {
+            db = catalog.getDbNullable(request.getDbId());
+        } else {
+            db = catalog.getDbNullable(fullDbName);
+        }
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+
+        long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
+        Catalog.getCurrentGlobalTransactionMgr().preCommitTransaction2PC(
+                db, Lists.newArrayList(table), request.getTxnId(),
+                TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+    }
+
+    @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive txn commit request: {}, backend: {}", request, clientAddr);

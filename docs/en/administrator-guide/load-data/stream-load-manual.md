@@ -169,6 +169,20 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 + merge\_type
      The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
++ two\_phase\_commit
+
+    Stream load supports the two-phase commit mode。The mode could be enabled by declaring ```two_phase_commit=true``` in http header. This mode is disabled by default.
+    the two-phase commit mode means：During Stream load, after data is written, the message will be returned to the client, the data is invisible at this point and the transaction status is PRECOMMITTED. The data will be visible only after COMMIT is triggered by client。
+    
+    1. User can invoke the following interface to trigger commit operations for transaction：
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_commit
+    ```
+    
+    2. User can invoke the following interface to trigger abort operations for transaction：
+    ```
+    curl -X PUT --location-trusted -u user:passwd -H "txn:txnId" http://fe_host:http_port/api/{db}/_stream_load_abort
+    ```
 
 ### Return results
 

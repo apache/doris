@@ -174,6 +174,59 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     return Status::OK();
 }
 
+Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
+    DorisMetrics::instance()->txn_commit_request_total->increment(1);
+
+    TLoadTxnCommitRequest request;
+    set_request_auth(&request, ctx->auth);
+    request.db = ctx->db;
+    if (ctx->db_id > 0) {
+        request.db_id = ctx->db_id;
+        request.__isset.db_id = true;
+    }
+    request.tbl = ctx->table;
+    request.txnId = ctx->txn_id;
+    request.sync = true;
+    request.commitInfos = std::move(ctx->commit_infos);
+    request.__isset.commitInfos = true;
+    request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
+
+    // set attachment if has
+    TTxnCommitAttachment attachment;
+    if (collect_load_stat(ctx, &attachment)) {
+        request.txnCommitAttachment = std::move(attachment);
+        request.__isset.txnCommitAttachment = true;
+    }
+
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TLoadTxnCommitResult result;
+#ifndef BE_TEST
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+              client->loadTxnPreCommit(result, request);
+            },
+            config::txn_commit_rpc_timeout_ms));
+#else
+    result = k_stream_load_commit_result;
+#endif
+    // Return if this transaction is committed successful; otherwise, we need try
+    // to
+    // rollback this transaction
+    Status status(result.status);
+    if (!status.ok()) {
+        LOG(WARNING) << "precommit transaction failed, errmsg=" << status.get_error_msg()
+                     << ctx->brief();
+        if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
+            ctx->need_rollback = false;
+        }
+        return status;
+    }
+    // precommit success, set need_rollback to false
+    ctx->need_rollback = false;
+    return Status::OK();
+}
+
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->txn_commit_request_total->increment(1);
 

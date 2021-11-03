@@ -134,6 +134,7 @@ public:
     double max_filter_ratio = 0.0;
     int32_t timeout_second = -1;
     AuthInfo auth;
+    bool two_phase_commit = false;
 
     // the following members control the max progress of a consuming
     // process. if any of them reach, the consuming will finish.
@@ -180,6 +181,7 @@ public:
     int64_t begin_txn_cost_nanos = 0;
     int64_t stream_load_put_cost_nanos = 0;
     int64_t commit_and_publish_txn_cost_nanos = 0;
+    int64_t pre_commit_txn_cost_nanos = 0;
     int64_t read_data_cost_nanos = 0;
     int64_t write_data_cost_nanos = 0;
 

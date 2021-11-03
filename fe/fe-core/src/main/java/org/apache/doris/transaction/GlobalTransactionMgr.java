@@ -173,6 +173,32 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
+    public void preCommitTransaction2PC(Database db, List<Table> tableList, long transactionId,
+                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+                                               TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            preCommitTransaction2PC(db.getId(), tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
+    }
+
+    public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
+                                  TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        LOG.debug("try to pre-commit transaction: {}", transactionId);
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+    }
+
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
         commitTransaction(dbId, tableList, transactionId, tabletCommitInfos, null);
@@ -197,6 +223,16 @@ public class GlobalTransactionMgr implements Writable {
         LOG.debug("try to commit transaction: {}", transactionId);
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.commitTransaction(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
+    }
+
+    private void commitTransaction2PC(long dbId, long transactionId)
+            throws Exception {
+        if (Config.disable_load_job) {
+            throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
+        }
+
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        dbTransactionMgr.commitTransaction2PC(transactionId);
     }
 
     public boolean commitAndPublishTransaction(Database db, List<Table> tableList, long transactionId,
@@ -230,6 +266,23 @@ public class GlobalTransactionMgr implements Writable {
         return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
     }
 
+    public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
+            throws Exception {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        if (!MetaLockUtils.tryWriteLockTablesOrMetaException(tableList, timeoutMillis, TimeUnit.MILLISECONDS)) {
+            throw new UserException("get tableList write lock timeout, tableList=(" + StringUtils.join(tableList, ",") + ")");
+        }
+        try {
+            commitTransaction2PC(db.getId(), transactionId);
+        } finally {
+            MetaLockUtils.writeUnlockTables(tableList);
+        }
+        stopWatch.stop();
+        LOG.info("stream load tasks are committed successfully. txns: {}. time cost: {} ms." +
+                " data will be visable later.", transactionId, stopWatch.getTime());
+    }
+
     public void abortTransaction(long dbId, long transactionId, String reason) throws UserException {
         abortTransaction(dbId, transactionId, reason, null);
     }
@@ -243,6 +296,11 @@ public class GlobalTransactionMgr implements Writable {
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
         dbTransactionMgr.abortTransaction(label, reason);
+    }
+
+    public void abortTransaction2PC(Long dbId, long transactionId) throws UserException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+        dbTransactionMgr.abortTransaction2PC(transactionId);
     }
 
     /*
@@ -498,6 +556,10 @@ public class GlobalTransactionMgr implements Writable {
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
+                TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
+                if (transactionState.getTransactionStatus() == TransactionStatus.PRECOMMITTED) {
+                    continue;
+                }
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
