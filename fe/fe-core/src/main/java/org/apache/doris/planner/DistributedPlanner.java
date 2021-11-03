@@ -293,6 +293,7 @@ public class DistributedPlanner {
     private PlanFragment createTableFunctionFragment(PlanNode node, PlanFragment childFragment) {
         Preconditions.checkState(node instanceof TableFunctionNode);
         node.setChild(0, childFragment.getPlanRoot());
+        node.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.addPlanRoot(node);
         return childFragment;
     }

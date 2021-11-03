@@ -688,7 +688,7 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException("Doris only support `explode_split(varchar, varchar)` table function");
+                    throw new AnalysisException("Current only support `explode_split`, `explode_bitmap()` and `explode_json_array_xx` table functions");
                 }
                 return;
             }
