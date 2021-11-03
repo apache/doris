@@ -57,7 +57,7 @@ public:
     explicit RowBlockSorter(RowBlockAllocator* allocator);
     virtual ~RowBlockSorter();
     size_t num_rows() { 
-        return _swap_row_block->capacity(); 
+        return _swap_row_block != nullptr ? _swap_row_block->capacity() : 0;
     }
 
     bool sort(RowBlock** row_block);
