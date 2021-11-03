@@ -129,7 +129,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         // This change will cause the predicate in on clause be adjusted to the front of the association table,
         // causing semantic analysis to fail. Unknown column 'column1' in 'table1'
         // So we need to readjust the order of the tables here.
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+        if (analyzer.enableStarJoinReorder()) {
             sortTableRefKeepSequenceOfOnClause();
         }
 
