@@ -1878,12 +1878,10 @@ public class SingleNodePlanner {
             throws UserException {
         Preconditions.checkNotNull(lateralViewRefs);
         Preconditions.checkState(lateralViewRefs.size() > 0);
-        for (LateralViewRef lateralViewRef: lateralViewRefs) {
-            TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
-                    lateralViewRef);
-            tableFunctionNode.init(analyzer);
-            inputNode = tableFunctionNode;
-        }
+        TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
+                lateralViewRefs);
+        tableFunctionNode.init(analyzer);
+        inputNode = tableFunctionNode;
         return inputNode;
     }
 
