@@ -671,6 +671,25 @@ StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const St
     return serialize(ctx, &ret_bitmap);
 }
 
+StringVal BitmapFunctions::bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
+        const BigIntVal& range_start, const BigIntVal& cardinality_limit) {
+    if (src.is_null || range_start.is_null || cardinality_limit.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val < 0 || cardinality_limit.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_limit(range_start.val, cardinality_limit.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,
                                                              const TinyIntVal& src, StringVal* dst);
 template void BitmapFunctions::bitmap_update_int<SmallIntVal>(FunctionContext* ctx,
