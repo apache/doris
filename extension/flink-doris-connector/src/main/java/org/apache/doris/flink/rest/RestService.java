@@ -360,7 +360,7 @@ public class RestService implements Serializable {
             logger.error(SHOULD_NOT_HAPPEN_MESSAGE);
             throw new ShouldNeverHappenException();
         }
-        List<BackendV2.BackendRowV2> backendRows = backend.getRows();
+        List<BackendV2.BackendRowV2> backendRows = backend.getBackends();
         logger.debug("Parsing schema result is '{}'.", backendRows);
         return backendRows;
     }

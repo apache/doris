@@ -487,10 +487,10 @@ public class RestService implements Serializable {
     public static String randomBackend(SparkSettings sparkSettings , Logger logger) throws DorisException, IOException {
         String feNodes = sparkSettings.getProperty(DORIS_FENODES);
         String feNode = randomEndpoint(feNodes, logger);
-        String beUrl =   String.format("http://%s" + BACKENDS,feNode);
+        String beUrl =   String.format("http://%s" + BACKENDS, feNode);
         HttpGet httpGet = new HttpGet(beUrl);
         String response = send(sparkSettings, httpGet, logger);
-        logger.info("Backend Info:{}",response);
+        logger.info("Backend Info:{}", response);
         List<BackendRow> backends = parseBackend(response, logger);
         logger.trace("Parse beNodes '{}'.", backends);
         if (backends == null || backends.isEmpty()) {
@@ -552,7 +552,7 @@ public class RestService implements Serializable {
         String beUrl =   String.format("http://%s" + BACKENDS_V2, feNode);
         HttpGet httpGet = new HttpGet(beUrl);
         String response = send(sparkSettings, httpGet, logger);
-        logger.info("Backend Info:{}",response);
+        logger.info("Backend Info:{}", response);
         List<BackendV2.BackendRowV2> backends = parseBackendV2(response, logger);
         logger.trace("Parse beNodes '{}'.", backends);
         if (backends == null || backends.isEmpty()) {
@@ -587,7 +587,7 @@ public class RestService implements Serializable {
             logger.error(SHOULD_NOT_HAPPEN_MESSAGE);
             throw new ShouldNeverHappenException();
         }
-        List<BackendV2.BackendRowV2> backendRows = backend.getRows();
+        List<BackendV2.BackendRowV2> backendRows = backend.getBackends();
         logger.debug("Parsing schema result is '{}'.", backendRows);
         return backendRows;
     }

@@ -26,15 +26,15 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class BackendV2 {
 
-    @JsonProperty(value = "rows")
-    private List<BackendRowV2> rows;
+    @JsonProperty(value = "backends")
+    private List<BackendRowV2> backends;
 
-    public List<BackendRowV2> getRows() {
-        return rows;
+    public List<BackendRowV2> getBackends() {
+        return backends;
     }
 
     public void setRows(List<BackendRowV2> rows) {
-        this.rows = rows;
+        this.backends = rows;
     }
 
     public static class BackendRowV2 {

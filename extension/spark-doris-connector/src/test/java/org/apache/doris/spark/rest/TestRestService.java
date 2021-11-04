@@ -38,6 +38,7 @@ import org.apache.doris.spark.cfg.Settings;
 import org.apache.doris.spark.exception.DorisException;
 import org.apache.doris.spark.exception.IllegalArgumentException;
 import org.apache.doris.spark.rest.models.BackendRow;
+import org.apache.doris.spark.rest.models.BackendV2;
 import org.apache.doris.spark.rest.models.Field;
 import org.apache.doris.spark.rest.models.QueryPlan;
 import org.apache.doris.spark.rest.models.Schema;
@@ -48,6 +49,8 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import jdk.nashorn.internal.ir.annotations.Ignore;
 
 public class TestRestService {
     private static Logger logger = LoggerFactory.getLogger(TestRestService.class);
@@ -295,7 +298,8 @@ public class TestRestService {
         Assert.assertEquals(expected, actual);
     }
 
-    @Test
+    @Deprecated
+    @Ignore
     public void testParseBackend() throws Exception {
         String response = "{\"href_columns\":[\"BackendId\"],\"parent_url\":\"/rest/v1/system?path=/\"," +
                 "\"column_names\":[\"BackendId\",\"Cluster\",\"IP\",\"HostName\",\"HeartbeatPort\",\"BePort\"," +
@@ -312,5 +316,12 @@ public class TestRestService {
                 "\"{\\\"location\\\" : \\\"default\\\"}\",\"HostName\":\"localhost\"}]}";
         List<BackendRow> backendRows = RestService.parseBackend(response, logger);
         Assert.assertTrue(backendRows != null && !backendRows.isEmpty());
+    }
+
+    @Test
+    public void testParseBackendV2() throws Exception {
+        String response = "{\"backends\":[{\"ip\":\"192.168.1.1\",\"http_port\":8042,\"is_alive\":true}, {\"ip\":\"192.168.1.2\",\"http_port\":8042,\"is_alive\":true}]}";
+        List<BackendV2.BackendRowV2> backendRows = RestService.parseBackendV2(response, logger);
+        Assert.assertEquals(2, backendRows.size());
     }
 }
