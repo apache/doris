@@ -41,7 +41,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -121,7 +120,7 @@ public class ClusterAction extends RestBaseController {
             headers.put("Content-Type", "application/json; charset=utf-8");
             String response = HttpUtils.doPost(url, headers, hostPorts);
             return new ObjectMapper().readValue(response, Map.class);
-        } catch (IOException e) {
+        } catch (Exception e) {
             return ResponseEntityBuilder.internalError("Failed to forward request to master: " + e.getMessage());
         }
     }
