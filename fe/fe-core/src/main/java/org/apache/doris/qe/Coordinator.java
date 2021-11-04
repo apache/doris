@@ -1234,7 +1234,7 @@ public class Coordinator {
         }
 
         for (PlanNode childNode : node.getChildren()) {
-            if (isColocateFragment(planFragment, childNode)) {
+            if (childNode.getFragmentId().asInt() == planFragment.getId().asInt() && isColocateFragment(planFragment, childNode)) {
                 return true;
             }
         }
