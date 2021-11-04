@@ -186,23 +186,6 @@ void agg_update_row(const std::vector<uint32_t>& cids, DstRowType* dst, const Sr
     }
 }
 
-template <typename DstRowType, typename SrcRowType>
-void agg_update_row_with_sequence(const std::vector<uint32_t>& cids, DstRowType* dst,
-                                  const SrcRowType& src, const uint32_t sequence_idx) {
-    auto seq_dst_cell = dst->cell(sequence_idx);
-    auto seq_src_cell = src.cell(sequence_idx);
-    auto res = src.schema()->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
-    // dst sequence column larger than src, don't need to update
-    if (res > 0) {
-        return;
-    }
-    for (auto cid : cids) {
-        auto dst_cell = dst->cell(cid);
-        auto src_cell = src.cell(cid);
-        dst->schema()->column(cid)->agg_update(&dst_cell, src_cell);
-    }
-}
-
 template <typename RowType>
 void agg_finalize_row(RowType* row, MemPool* mem_pool) {
     for (uint32_t cid = row->schema()->num_key_columns(); cid < row->schema()->num_columns();
