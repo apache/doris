@@ -314,7 +314,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableJoinReorderBasedCost = false;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
-    public boolean forwardToMaster = false;
+    public boolean forwardToMaster = true;
 
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     public long loadMemLimit = 0L;

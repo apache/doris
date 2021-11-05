@@ -426,7 +426,10 @@ public class RoutineLoadManager implements Writable {
             // 1. Find if the given BE id has available slots
             if (previoudBeId != -1L) {
                 int idleTaskNum = 0;
-                if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
+                if (beIdToMaxConcurrentTasks.containsKey(previoudBeId)) {
+                    idleTaskNum = 0;
+                    LOG.warn("backend:" + previoudBeId + " not found, cannot get idleTaskNum.");
+                } else if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
                     idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
                 } else {
                     idleTaskNum = Config.max_routine_load_task_num_per_be;
