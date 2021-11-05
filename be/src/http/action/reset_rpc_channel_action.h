@@ -15,17 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/brpc_stub_cache.h"
+#pragma once
+
+#include "http/http_handler.h"
 
 namespace doris {
+class ExecEnv;
+class ResetRPCChannelAction : public HttpHandler {
+public:
+    explicit ResetRPCChannelAction(ExecEnv* exec_env);
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(brpc_endpoint_stub_count, MetricUnit::NOUNIT);
+    virtual ~ResetRPCChannelAction() {}
 
-BrpcStubCache::BrpcStubCache() {
-    REGISTER_HOOK_METRIC(brpc_endpoint_stub_count, [this]() { return _stub_map.size(); });
-}
+    void handle(HttpRequest* req) override;
 
-BrpcStubCache::~BrpcStubCache() {
-    DEREGISTER_HOOK_METRIC(brpc_endpoint_stub_count);
-}
+private:
+    ExecEnv* _exec_env;
+};
 } // namespace doris

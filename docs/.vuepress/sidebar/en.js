@@ -137,6 +137,7 @@ module.exports = [
             ],
           },
           "cancel-label",
+          "check-reset-rpc-cache",
           "compaction-action",
           "connection-action",
           "fe-get-log-file",
