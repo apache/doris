@@ -25,11 +25,7 @@ function getMetaInfo(): Promise<IResult<MetaInfoResponse>> {
 function getSpaceList() {
     return http.get(`/api/rest/v2/manager/cluster/cluster_info/conn_info`);
 }
-function getCurrentUser() {
-    return http.get(`/api/user/current`);
-}
 export const DashboardAPI = {
     getMetaInfo,
     getSpaceList,
-    getCurrentUser,
 };

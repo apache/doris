@@ -17,7 +17,6 @@
 
 import React, { useState } from 'react';
 import { Descriptions, Radio, Select, Table, message } from 'antd';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import { ConfigurationTypeEnum } from '@src/common/common.data';
 import { useHistory } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -45,10 +44,10 @@ function Configuration() {
     function onChange(e: any) {
         if (e.target.value === ConfigurationTypeEnum.BE) {
             localStorage.setItem("nodeText","");
-            history.push(`/${DEFAULT_NAMESPACE_ID}/be-configuration`);
+            history.push(`/configuration/be`);
         } else {
             localStorage.setItem("nodeText","");
-            history.push(`/${DEFAULT_NAMESPACE_ID}/fe-configuration`);
+            history.push(`/configuration/fe`);
         }
     }
 

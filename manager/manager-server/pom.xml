@@ -45,6 +45,11 @@ under the License.
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.1.0</version>
+            </plugin>
         </plugins>
         <resources>
             <resource>
@@ -59,7 +64,7 @@ under the License.
                 <filtering>true</filtering>
                 <includes>
                     <include>logback-spring.xml</include>
-                    <include>static/*</include>
+                    <include>web-resource/*</include>
                     <include>mail/*</include>
                 </includes>
             </resource>

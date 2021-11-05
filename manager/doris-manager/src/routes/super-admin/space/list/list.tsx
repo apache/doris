@@ -14,19 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-import { Space, Card, Divider, message } from 'antd';
 import React, { useEffect, useState } from 'react';
+import styles from '../space.less';
+import { Card, Form } from 'antd';
+import { message, Space } from 'antd';
 import { useHistory } from 'react-router-dom';
-import { Form, Input, Button, Radio } from 'antd';
-import { InfoCircleOutlined } from '@ant-design/icons';
-import styles from './index.module.less';
-import Password from 'antd/lib/input/Password';
-type RequiredMark = boolean | 'optional';
-import { SpaceAPI } from './space.api';
+import { SpaceAPI } from '../space.api';
+import { RequiredMark } from 'antd/lib/form/Form';
+import { PlusOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 
-const FormLayoutDemo = () => {
-    const [spaceList, setSpaceList] = useState<{name: string, description: string, id: string}[]>([]);
+const SpaceList = () => {
+    const [spaceList, setSpaceList] = useState<{ name: string; description: string; id: string }[]>([]);
     const history = useHistory();
+    const { t } = useTranslation();
     function refresh() {
         SpaceAPI.spaceList().then(res => {
             const { msg, data, code } = res;
@@ -41,6 +42,9 @@ const FormLayoutDemo = () => {
     }
     const [form] = Form.useForm();
     const [requiredMark, setRequiredMarkType] = useState<RequiredMark>('optional');
+    const cardStyle = {
+        width: 500, marginBottom: 40, cursor: 'pointer', height: 100
+    }
 
     const onRequiredTypeChange = ({ requiredMarkValue }: { requiredMarkValue: RequiredMark }) => {
         setRequiredMarkType(requiredMarkValue);
@@ -50,40 +54,27 @@ const FormLayoutDemo = () => {
     }, []);
     return (
         <div className={styles.dorisSpaceList}>
-        <ul className={styles.dorisSpaceListContainer}>
-          {spaceList &&
-            spaceList.map((item, index) => {
-              return (
-                <li
-                  className="columns"
-                  key={item.name + index}
-                  onClick={() => {
-                    history.push(`/space/check/${item.id}`);
-                  }}
+            <div className={styles.dorisSpaceListContainer}>
+                {spaceList &&
+                    spaceList.map((item, index) => {
+                        return (
+                            <Card onClick={() => history.push(`/super-admin/space/detail/${item.id}`)} key={item.name} title={item.name} size="small" style={cardStyle}>
+                                <p>{item.description}</p>
+                            </Card>
+                        );
+                    })}
+                <Card
+                    onClick={() => history.push('/super-admin/space/new')}
+                    size="small"
+                    style={cardStyle}
                 >
-                  <div className="bg-white rounded bordered shadowed overflow-hidden">
-                    <h3 className="space-title">
-                      <span>{item.name}</span>
-                    </h3>
-                    <p>{item.description}</p>
-                  </div>
-                </li>
-              );
-            })}
-          <li className="columns text-centered">
-            <div className="bg-white rounded bordered shadowed overflow-hidden">
-              <a
-                className="newSpaceBTN"
-                onClick={() => history.push("/space/new")}
-              >
-                {/* <span className="plus">+</span> */}
-                {/* <Icon name={"add"} color="#ccc" size={60} /> */}
-                <span>新建空间</span>
-              </a>
+                    <Space style={{display: 'flex', alignItems: 'middle', justifyContent: 'center', fontSize: 18, lineHeight: '80px'}}>
+                        <PlusOutlined />
+                        <span>{t`NewSpace`}</span>
+                    </Space>
+                </Card>
             </div>
-          </li>
-        </ul>
-      </div>
+        </div>
     );
 };
-export default FormLayoutDemo;
+export default SpaceList;

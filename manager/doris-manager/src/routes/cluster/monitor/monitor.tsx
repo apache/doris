@@ -68,7 +68,7 @@ const gridStyle: React.CSSProperties = {
     width: 'calc(100%  / 6)',
     textAlign: 'center',
 };
-export function Monitor() {
+export function ClusterMonitor() {
     const { t } = useTranslation();
     const [TIMES, setTIMES] = useState(() => getTimes(dayjs()));
     const [statisticInfo, setStatisticInfo] = useState<any>({});
@@ -436,4 +436,3 @@ export function Monitor() {
         </div>
     );
 }
-export default Monitor;

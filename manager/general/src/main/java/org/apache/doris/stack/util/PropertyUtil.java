@@ -111,7 +111,7 @@ public class PropertyUtil {
             }
             url.append("/");
             if (StringUtils.isEmpty(DB_DBNAME)) {
-                url.append("mysqlDb");
+                url.append("manager");
             } else {
                 url.append(DB_DBNAME);
             }

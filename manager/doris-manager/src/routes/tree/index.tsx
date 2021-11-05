@@ -27,7 +27,6 @@ import { updateTreeData } from './tree.service';
 import { ContentRouteKeyEnum } from './tree.data';
 import CreateMenu from './create-menu/index';
 import styles from './tree.module.less';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import EventEmitter from '@src/utils/event-emitter';
 // import { LoadingWrapper } from '@src/components/loadingwrapper/loadingwrapper';
 const initTreeDate: DataNode[] = [];
@@ -103,7 +102,7 @@ export function MetaBaseTree(props: any) {
                 localStorage.setItem('database_id', id);
                 localStorage.setItem('database_name', name);
                 history.push({
-                    pathname: `/${DEFAULT_NAMESPACE_ID}/content/${ContentRouteKeyEnum.Database}/${id}`,
+                    pathname: `/meta/${ContentRouteKeyEnum.Database}/${id}`,
                     state: { id: id, name: name },
                 });
             } else {
@@ -112,7 +111,7 @@ export function MetaBaseTree(props: any) {
                 localStorage.setItem('table_id', id);
                 localStorage.setItem('table_name', name);
                 history.push({
-                    pathname: `/${DEFAULT_NAMESPACE_ID}/content/${ContentRouteKeyEnum.Table}/${id}`,
+                    pathname: `/meta/${ContentRouteKeyEnum.Table}/${id}`,
                     state: { id: id, name: name },
                 });
             }
@@ -120,7 +119,7 @@ export function MetaBaseTree(props: any) {
     }
 
     function goHome() {
-        history.push(`/${DEFAULT_NAMESPACE_ID}/content`);
+        history.push(`/meta`);
     }
     return (
         <div className={styles['palo-tree-container']}>

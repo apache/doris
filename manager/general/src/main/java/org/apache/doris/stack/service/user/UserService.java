@@ -165,6 +165,7 @@ public class UserService extends BaseService {
 
             userInfo.setSpaceId(clusterId);
             ClusterInfoEntity clusterInfo = clusterInfoRepository.findById(clusterId).get();
+            userInfo.setSpaceName(clusterInfo.getName());
             userInfo.setCollectionId(clusterInfo.getCollectionId());
             if (clusterInfo.getAddress() == null) {
                 userInfo.setSpaceComplete(false);
