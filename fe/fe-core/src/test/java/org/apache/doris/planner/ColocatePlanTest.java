@@ -172,4 +172,18 @@ public class ColocatePlanTest {
         Assert.assertEquals(instanceInfo.size(), 2);
     }
 
+    @Test
+    public void checkColocatePlanFragment() throws Exception {
+        String sql = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
+        StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
+        Planner planner = executor.planner();
+        Coordinator coordinator = Deencapsulation.getField(executor, "coord");
+        boolean isColocateFragment0 = Deencapsulation.invoke(coordinator, "isColocateFragment",
+                planner.getFragments().get(1), planner.getFragments().get(1).getPlanRoot());
+        Assert.assertFalse(isColocateFragment0);
+        boolean isColocateFragment1 = Deencapsulation.invoke(coordinator, "isColocateFragment",
+                planner.getFragments().get(2), planner.getFragments().get(2).getPlanRoot());
+        Assert.assertTrue(isColocateFragment1);
+    }
+
 }
