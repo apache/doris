@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
@@ -107,5 +108,15 @@ public class AgentController {
     public RResult execute(@RequestBody DorisExecReq dorisExec) {
         List<Integer> taskIds = agentProcess.execute(dorisExec);
         return RResult.success(taskIds);
+    }
+
+    /**
+     * query log
+     * type:fe.log/fe.out/be.log/be.out
+     */
+    @ApiOperation(value = "query log")
+    @RequestMapping(value = "/log", method = RequestMethod.POST)
+    public RResult log(@RequestParam String host, @RequestParam String type) {
+        return RResult.success(agentProcess.log(host, type));
     }
 }

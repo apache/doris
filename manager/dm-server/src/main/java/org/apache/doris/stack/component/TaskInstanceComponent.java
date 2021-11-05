@@ -77,20 +77,24 @@ public class TaskInstanceComponent {
             taskInstance.setStatus(ExecutionStatus.FAILURE);
         } else {
             CommandResult commandResult = JSON.parseObject(JSON.toJSONString(result.getData()), CommandResult.class);
-            TaskResult taskResult = commandResult.getTaskResult();
-            if (taskResult == null) {
+            if (commandResult == null) {
                 taskInstance.setStatus(ExecutionStatus.FAILURE);
             } else {
-                taskInstance.setExecutorId(taskResult.getTaskId());
-                if (taskResult.getTaskState().typeIsRunning()) {
-                    taskInstance.setStatus(ExecutionStatus.RUNNING);
-                } else if (taskResult.getRetCode() != null && taskResult.getRetCode() == 0) {
-                    taskInstance.setStatus(ExecutionStatus.SUCCESS);
-                    taskInstance.setFinish(Flag.YES);
-                    taskInstance.setEndTime(new Date());
-                } else {
+                TaskResult taskResult = commandResult.getTaskResult();
+                if (taskResult == null) {
                     taskInstance.setStatus(ExecutionStatus.FAILURE);
-                    taskInstance.setEndTime(new Date());
+                } else {
+                    taskInstance.setExecutorId(taskResult.getTaskId());
+                    if (taskResult.getTaskState().typeIsRunning()) {
+                        taskInstance.setStatus(ExecutionStatus.RUNNING);
+                    } else if (taskResult.getRetCode() != null && taskResult.getRetCode() == 0) {
+                        taskInstance.setStatus(ExecutionStatus.SUCCESS);
+                        taskInstance.setFinish(Flag.YES);
+                        taskInstance.setEndTime(new Date());
+                    } else {
+                        taskInstance.setStatus(ExecutionStatus.FAILURE);
+                        taskInstance.setEndTime(new Date());
+                    }
                 }
             }
         }

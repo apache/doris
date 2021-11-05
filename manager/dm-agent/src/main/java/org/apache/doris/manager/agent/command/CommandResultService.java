@@ -22,9 +22,9 @@ import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskContext;
 import org.apache.doris.manager.common.domain.CommandResult;
-import org.apache.doris.manager.common.domain.TaskResult;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.ServiceRole;
+import org.apache.doris.manager.common.domain.TaskResult;
 
 import java.util.Objects;
 

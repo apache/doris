@@ -31,11 +31,13 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
+import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
+import org.apache.doris.manager.common.domain.TaskResult;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 import org.apache.doris.stack.agent.AgentCache;
@@ -176,11 +178,16 @@ public class AgentProcessImpl implements AgentProcess {
         } else {
             throw new ServerException("The service installation is not currently supported");
         }
+        handleAgentTask(installService, install.getHost(), creq);
+    }
+
+    private void handleAgentTask(TaskInstanceEntity installService, String host, CommandRequest creq) {
         boolean isRunning = taskInstanceComponent.checkTaskRunning(installService.getProcessId(), installService.getHost(), installService.getProcessType(), installService.getTaskType());
         if (isRunning) {
             return;
         }
-        RResult result = agentRest.commandExec(install.getHost(), agentPort(install.getHost()), creq);
+        RResult result = agentRest.commandExec(host, agentPort(host), creq);
+        refreshAgentResult(host, agentPort(host), result);
         taskInstanceComponent.refreshTask(installService, result);
     }
 
@@ -226,12 +233,7 @@ public class AgentProcessImpl implements AgentProcess {
             creq.setCommandType(CommandType.WRITE_BE_CONF.name());
             deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
         }
-        boolean isRunning = taskInstanceComponent.checkTaskRunning(deployTask.getProcessId(), deployTask.getHost(), deployTask.getProcessType(), deployTask.getTaskType());
-        if (isRunning) {
-            return;
-        }
-        RResult result = agentRest.commandExec(deployConf.getHost(), agentPort(deployConf.getHost()), creq);
-        taskInstanceComponent.refreshTask(deployTask, result);
+        handleAgentTask(deployTask, deployConf.getHost(), creq);
     }
 
     @Override
@@ -270,12 +272,8 @@ public class AgentProcessImpl implements AgentProcess {
                     break;
             }
             creq.setCommandType(commandType.name());
-            boolean isRunning = taskInstanceComponent.checkTaskRunning(execTask.getProcessId(), execTask.getHost(), execTask.getProcessType(), execTask.getTaskType());
-            if (isRunning) {
-                return;
-            }
-            RResult result = agentRest.commandExec(start.getHost(), agentPort(start.getHost()), creq);
-            taskInstanceComponent.refreshTask(execTask, result);
+
+            handleAgentTask(execTask, start.getHost(), creq);
             log.info("agent {} starting {} ", start.getHost(), start.getRole());
         }
     }
@@ -440,8 +438,37 @@ public class AgentProcessImpl implements AgentProcess {
 
         creq.setCommandType(command.name());
         RResult result = agentRest.commandExec(host, agentPort(host), creq);
+        refreshAgentResult(execTask.getHost(), agentPort(host), result);
         TaskInstanceEntity taskInstanceEntity = taskInstanceComponent.refreshTask(execTask, result);
         log.info("agent {} {} {} ", host, execTask.getTaskType().name(), roleName);
         return taskInstanceEntity.getId();
+    }
+
+    /**
+     * Re-fetch result after requesting the agent interface each time
+     */
+    private RResult refreshAgentResult(String host, Integer port, RResult result) {
+        if (result == null || result.getData() == null) {
+            return null;
+        }
+        CommandResult commandResult = JSON.parseObject(JSON.toJSONString(result.getData()), CommandResult.class);
+        if (commandResult == null) {
+            return null;
+        }
+        TaskResult taskResult = commandResult.getTaskResult();
+        if (taskResult == null) {
+            return null;
+        }
+        return agentRest.taskInfo(host, port, taskResult.getTaskId());
+    }
+
+    @Override
+    public Object log(String host, String type) {
+        RResult rResult = agentRest.serverLog(host, agentPort(host), type);
+        if (rResult != null && rResult.isSuccess()) {
+            return rResult.getData();
+        } else {
+            return "fetch log fail";
+        }
     }
 }

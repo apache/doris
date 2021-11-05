@@ -53,4 +53,6 @@ public interface AgentProcess {
     boolean register(AgentRoleRegister agentReg);
 
     List<Integer> execute(DorisExecReq dorisExec);
+
+    Object log(String host, String type);
 }

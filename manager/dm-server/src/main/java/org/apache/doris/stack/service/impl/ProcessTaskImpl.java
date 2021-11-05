@@ -102,9 +102,7 @@ public class ProcessTaskImpl implements ProcessTask {
             if (task.getTaskType().agentTask()
                     && task.getStatus().typeIsRunning()
                     && StringUtils.isNotBlank(task.getExecutorId())) {
-                Map<String, Object> param = new HashMap<>();
-                param.put("taskId", task.getExecutorId());
-                RResult rResult = agentRest.taskInfo(task.getHost(), agentPort(task.getHost()), param);
+                RResult rResult = agentRest.taskInfo(task.getHost(), agentPort(task.getHost()), task.getExecutorId());
                 taskInstanceComponent.refreshTask(task, rResult);
             }
         }
@@ -135,9 +133,7 @@ public class ProcessTaskImpl implements ProcessTask {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
         Preconditions.checkNotNull("taskId {} not exist", taskId);
         if (taskEntity.getTaskType().agentTask()) {
-            Map<String, Object> param = new HashMap<>();
-            param.put("taskId", taskEntity.getExecutorId());
-            RResult result = agentRest.taskInfo(taskEntity.getHost(), agentPort(taskEntity.getHost()), param);
+            RResult result = agentRest.taskInfo(taskEntity.getHost(), agentPort(taskEntity.getHost()), taskEntity.getExecutorId());
             taskInstanceComponent.refreshTask(taskEntity, result);
             return result.getData();
         } else {
