@@ -167,12 +167,12 @@ public:
     DateTimeValue()
             : _neg(0),
               _type(TIME_DATETIME),
-              _second(0),
-              _minute(0),
               _hour(0),
-              _day(0),
-              _month(0),
+              _minute(0),
+              _second(0),
               _year(0),
+              _month(0),
+              _day(0),
               _microsecond(0) {}
 
     explicit DateTimeValue(int64_t t) { from_date_int64(t); }
@@ -628,12 +628,12 @@ private:
     // 1 bits for neg. 3 bits for type. 12bit for second
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.
-    uint16_t _second : 12;
+    uint16_t _hour : 12;
     uint8_t _minute;
-    uint8_t _hour;
-    uint8_t _day;
-    uint8_t _month;
+    uint8_t _second;
     uint16_t _year;
+    uint8_t _month;
+    uint8_t _day;
     // TODO(zc): used for nothing
     uint64_t _microsecond;
 
@@ -641,12 +641,12 @@ private:
                   uint32_t microsecond, uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
-              _second(second),
-              _minute(minute),
               _hour(hour),
-              _day(day),
-              _month(month),
+              _minute(minute),
+              _second(second),
               _year(year),
+              _month(month),
+              _day(day),
               _microsecond(microsecond) {}
 
     // RE2 obj is thread safe
