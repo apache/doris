@@ -62,6 +62,7 @@ import org.apache.doris.spark.exception.IllegalArgumentException;
 import org.apache.doris.spark.exception.ShouldNeverHappenException;
 import org.apache.doris.spark.rest.models.Backend;
 import org.apache.doris.spark.rest.models.BackendRow;
+import org.apache.doris.spark.rest.models.BackendV2;
 import org.apache.doris.spark.rest.models.QueryPlan;
 import org.apache.doris.spark.rest.models.Schema;
 import org.apache.doris.spark.rest.models.Tablet;
@@ -86,8 +87,9 @@ public class RestService implements Serializable {
     private static final String API_PREFIX = "/api";
     private static final String SCHEMA = "_schema";
     private static final String QUERY_PLAN = "_query_plan";
+    @Deprecated
     private static final String BACKENDS = "/rest/v1/system?path=//backends";
-
+    private static final String BACKENDS_V2 = "/api/backends?is_alive=true";
 
     /**
      * send request to Doris FE and get response json string.
@@ -478,14 +480,17 @@ public class RestService implements Serializable {
      * @param logger slf4j logger
      * @return the chosen one Doris BE node
      * @throws IllegalArgumentException BE nodes is illegal
+     * Deprecated, use randomBackendV2 instead
      */
+    @Deprecated
+    @VisibleForTesting
     public static String randomBackend(SparkSettings sparkSettings , Logger logger) throws DorisException, IOException {
         String feNodes = sparkSettings.getProperty(DORIS_FENODES);
         String feNode = randomEndpoint(feNodes, logger);
-        String beUrl =   String.format("http://%s" + BACKENDS,feNode);
+        String beUrl =   String.format("http://%s" + BACKENDS, feNode);
         HttpGet httpGet = new HttpGet(beUrl);
-        String response = send(sparkSettings,httpGet, logger);
-        logger.info("Backend Info:{}",response);
+        String response = send(sparkSettings, httpGet, logger);
+        logger.info("Backend Info:{}", response);
         List<BackendRow> backends = parseBackend(response, logger);
         logger.trace("Parse beNodes '{}'.", backends);
         if (backends == null || backends.isEmpty()) {
@@ -497,7 +502,6 @@ public class RestService implements Serializable {
         return backend.getIP() + ":" + backend.getHttpPort();
     }
 
-
     /**
      * translate Doris FE response to inner {@link BackendRow} struct.
      * @param response Doris FE response
@@ -505,6 +509,7 @@ public class RestService implements Serializable {
      * @return inner {@link List<BackendRow>} struct
      * @throws DorisException,IOException throw when translate failed
      * */
+    @Deprecated
     @VisibleForTesting
     static List<BackendRow> parseBackend(String response, Logger logger) throws DorisException, IOException {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -530,6 +535,59 @@ public class RestService implements Serializable {
             throw new ShouldNeverHappenException();
         }
         List<BackendRow> backendRows = backend.getRows().stream().filter(v -> v.getAlive()).collect(Collectors.toList());
+        logger.debug("Parsing schema result is '{}'.", backendRows);
+        return backendRows;
+    }
+
+    /**
+     * choice a Doris BE node to request.
+     * @param logger slf4j logger
+     * @return the chosen one Doris BE node
+     * @throws IllegalArgumentException BE nodes is illegal
+     */
+    @VisibleForTesting
+    public static String randomBackendV2(SparkSettings sparkSettings, Logger logger) throws DorisException {
+        String feNodes = sparkSettings.getProperty(DORIS_FENODES);
+        String feNode = randomEndpoint(feNodes, logger);
+        String beUrl =   String.format("http://%s" + BACKENDS_V2, feNode);
+        HttpGet httpGet = new HttpGet(beUrl);
+        String response = send(sparkSettings, httpGet, logger);
+        logger.info("Backend Info:{}", response);
+        List<BackendV2.BackendRowV2> backends = parseBackendV2(response, logger);
+        logger.trace("Parse beNodes '{}'.", backends);
+        if (backends == null || backends.isEmpty()) {
+            logger.error(ILLEGAL_ARGUMENT_MESSAGE, "beNodes", backends);
+            throw new IllegalArgumentException("beNodes", String.valueOf(backends));
+        }
+        Collections.shuffle(backends);
+        BackendV2.BackendRowV2 backend = backends.get(0);
+        return backend.getIp() + ":" + backend.getHttpPort();
+    }
+
+    static List<BackendV2.BackendRowV2> parseBackendV2(String response, Logger logger) throws DorisException {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        BackendV2 backend;
+        try {
+            backend = mapper.readValue(response, BackendV2.class);
+        } catch (com.fasterxml.jackson.core.JsonParseException e) {
+            String errMsg = "Doris BE's response is not a json. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (com.fasterxml.jackson.databind.JsonMappingException e) {
+            String errMsg = "Doris BE's response cannot map to schema. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        } catch (IOException e) {
+            String errMsg = "Parse Doris BE's response to json failed. res: " + response;
+            logger.error(errMsg, e);
+            throw new DorisException(errMsg, e);
+        }
+
+        if (backend == null) {
+            logger.error(SHOULD_NOT_HAPPEN_MESSAGE);
+            throw new ShouldNeverHappenException();
+        }
+        List<BackendV2.BackendRowV2> backendRows = backend.getBackends();
         logger.debug("Parsing schema result is '{}'.", backendRows);
         return backendRows;
     }
