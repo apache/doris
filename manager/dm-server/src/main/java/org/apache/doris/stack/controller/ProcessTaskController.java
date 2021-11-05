@@ -98,9 +98,9 @@ public class ProcessTaskController {
     }
 
     /**
-     * request task result
+     * request task info
      */
-    @RequestMapping(value = "/task/result/{taskId}", method = RequestMethod.GET)
+    @RequestMapping(value = "/task/info/{taskId}", method = RequestMethod.GET)
     public RResult taskInfo(@PathVariable int taskId) {
         return RResult.success(processTask.taskInfo(taskId));
     }

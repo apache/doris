@@ -18,6 +18,7 @@
 package org.apache.doris.stack.service.impl;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.RResult;
@@ -40,6 +41,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * agent task service
@@ -132,10 +134,9 @@ public class ProcessTaskImpl implements ProcessTask {
         Preconditions.checkNotNull("taskId {} not exist", taskId);
         if (taskEntity.getTaskType().agentTask()) {
             RResult result = agentRest.taskInfo(taskEntity.getHost(), agentPort(taskEntity.getHost()), taskEntity.getExecutorId());
-            taskInstanceComponent.refreshTask(taskEntity, result);
-            return result.getData();
+            return taskInstanceComponent.refreshTask(taskEntity, result);
         } else {
-            return taskEntity.getResult();
+            return taskEntity;
         }
     }
 
@@ -147,7 +148,9 @@ public class ProcessTaskImpl implements ProcessTask {
             RResult result = agentRest.taskLog(taskEntity.getHost(), agentPort(taskEntity.getHost()), taskEntity.getExecutorId());
             return result.getData();
         } else {
-            return taskEntity.getResult();
+            Map<String, Object> result = Maps.newHashMap();
+            result.put("log", taskEntity.getResult());
+            return result;
         }
     }
 

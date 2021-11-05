@@ -547,15 +547,15 @@
 }
 ```
 
-#### 9.查看任务执行结果
+#### 9.查看任务执行信息
 
 **接口功能**
 
-> 查看任务执行结果
+> 查看任务执行信息
 
 **URL**
 
-> /api/process/task/result/{taskId}
+> /api/process/task/info/{taskId}
 
 **支持格式**
 
@@ -577,12 +577,14 @@
 > |:-----   |:------|:-----------------------------   |
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
-> |data.taskResult.taskId |String | 任务ID |
-> |data.taskResult.submitTime |Date | 任务提交时间 |
-> |data.taskResult.startTime |Date | 任务开始时间 |
-> |data.taskResult.endTime |Date | 任务终止时间      |
-> |data.taskResult.taskState |String | 任务状态 |
-> |data.taskResult.retCode |int | 任务返回状态。0：正常 |
+> |data.id |int | 任务ID |
+> |data.processId |int | 任务所属流程ID |
+> |data.host |Date | 任务开始时间 |
+> |data.processType |Date | 安装类型      |
+> |data.taskType |String | 任务类型 |
+> |data.status |int | 任务返回状态。0：正常 |
+> |data.status |int | 任务返回状态。0：正常 |
+> |data.status |int | 任务返回状态。0：正常 |
 
 **接口示例**
 
