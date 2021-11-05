@@ -21,6 +21,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 /**
  * be join cluster req
  **/
@@ -31,9 +33,11 @@ public class BeJoin {
 
     private String feHost;
 
-    private int fePort;
+    private int feHttpPort;
 
     private String beHost;
 
     private int agentPort;
+
+    private Map<String, String> headers;
 }

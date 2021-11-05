@@ -17,18 +17,21 @@
 
 package org.apache.doris.stack.task;
 
+import com.alibaba.fastjson.JSON;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.bean.SpringApplicationContext;
 import org.apache.doris.stack.constants.Constants;
-import org.apache.doris.stack.exceptions.JdbcException;
+import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.BeJoin;
 import org.apache.doris.stack.runner.TaskContext;
-import org.apache.doris.stack.util.JdbcUtil;
+import org.apache.doris.stack.service.RestService;
 
-import java.sql.Connection;
-import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 /**
@@ -39,28 +42,31 @@ public class JoinBeTask extends AbstractTask {
 
     private AgentRest agentRest;
 
+    private RestService restService;
+
     public JoinBeTask(TaskContext taskContext) {
         super(taskContext);
         this.agentRest = SpringApplicationContext.getBean(AgentRest.class);
+        this.restService = SpringApplicationContext.getBean(RestService.class);
     }
 
     @Override
     public void handle() {
         BeJoin requestParams = (BeJoin) taskContext.getRequestParams();
-        Connection conn = null;
-        try {
-            conn = JdbcUtil.getConnection(requestParams.getFeHost(), requestParams.getFePort());
-        } catch (SQLException e) {
-            log.error("get connection fail:", e);
-            throw new JdbcException("Failed to get fe's jdbc connection");
-        }
+
+        Map<String, Integer> backends = Maps.newHashMap();
         Properties beConf = agentRest.roleConfig(requestParams.getBeHost(), requestParams.getAgentPort(), ServiceRole.BE.name());
-        String port = beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT);
-        String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND %s:%s";
-        String beSql = String.format(addBeSqlFormat, requestParams.getBeHost(), port);
-        boolean flag = JdbcUtil.execute(conn, beSql);
-        if (!flag) {
-            log.error("add be node fail:{}", beSql);
+        Integer beHeatPort = Integer.valueOf(beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT));
+        backends.put(requestParams.getBeHost(), beHeatPort);
+        Map<String, Boolean> statusMap = restService.addBackends(requestParams.getFeHost(), requestParams.getFeHttpPort(), backends, requestParams.getHeaders());
+        List<String> failBes = Lists.newArrayList();
+        statusMap.entrySet().stream().forEach(m -> {
+            if (!m.getValue()) {
+                failBes.add(m.getKey());
+            }
+        });
+        if (!failBes.isEmpty()) {
+            throw new ServerException("failed add backend:" + JSON.toJSONString(failBes));
         }
     }
 }
