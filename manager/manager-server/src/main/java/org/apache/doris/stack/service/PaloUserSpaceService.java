@@ -18,6 +18,11 @@
 package org.apache.doris.stack.service;
 
 import org.apache.doris.stack.constant.ConstantDef;
+import org.apache.doris.stack.exception.DorisHttpPortErrorException;
+import org.apache.doris.stack.exception.DorisIpErrorException;
+import org.apache.doris.stack.exception.DorisJdbcPortErrorException;
+import org.apache.doris.stack.exception.DorisUerOrPassErrorException;
+import org.apache.doris.stack.exception.DorisUserNoPermissionException;
 import org.apache.doris.stack.model.ldap.LdapUserInfo;
 import org.apache.doris.stack.model.request.config.InitStudioReq;
 import org.apache.doris.stack.model.request.user.UserGroupRole;
@@ -307,6 +312,15 @@ public class PaloUserSpaceService extends BaseService {
             paloLoginClient.loginPalo(entity);
         } catch (Exception e) {
             log.error("Doris cluster http access error.");
+            if (e.getMessage().contains("nodename nor servname provided, or not known")) {
+                throw new DorisIpErrorException();
+            } else if (e.getMessage().contains("failed: Connection refused (Connection refused)")) {
+                throw new DorisHttpPortErrorException();
+            } else if (e.getMessage().contains("Login palo error:Access denied for default_cluster")) {
+                throw new DorisUserNoPermissionException();
+            } else if (e.getMessage().contains("Login palo error:Access denied")) {
+                throw new DorisUerOrPassErrorException();
+            }
             throw new DorisConnectionException();
         }
 
@@ -317,7 +331,7 @@ public class PaloUserSpaceService extends BaseService {
             log.debug("Doris cluster jdbc access success.");
         } catch (Exception e) {
             log.error("Doris cluster jdbc access error.");
-            throw new DorisConnectionException();
+            throw new DorisJdbcPortErrorException();
         }
 
         // The manager function is enabled by default

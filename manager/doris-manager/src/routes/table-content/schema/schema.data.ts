@@ -30,16 +30,19 @@ export const BASIC_COLUMN = [
         title: '列注释',
         dataIndex: 'comment',
         key: 'comment',
+        width: 80,
     },
     {
         title: '允许空值',
         dataIndex: 'isNull',
         key: 'isNull',
+        width: 80,
     },
     {
         title: '默认值',
         dataIndex: 'defaultVal',
         key: 'defaultVal',
+        width: 80,
     },
 ];
 
@@ -49,6 +52,7 @@ export const TABLE_COLUMN_DUPLICATE = [
         title: '排序列（duplicate key）',
         dataIndex: 'key',
         key: 'key',
+        width: 200,
     },
 ];
 

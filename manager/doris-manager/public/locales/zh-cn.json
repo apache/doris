@@ -164,6 +164,12 @@
     "userPwd":"密码",
     "linkTest":"链接测试",
     "submit":"提交",
+    "SpaceDeleteTips": "连接空间的集群信息、空间内的文件夹（其中包括查询、仪表盘、定时任务等）、用户及权限信息等将被一并删除。确认删除空间？",
+    "DeleteSuccessTips": "删除成功",
+    "Failed": "失败",
+    "Delete": "删除",
+    "GoBack": "返回",
+    "NewSpace": "新建空间",
 
     "updateDoris": "请升级Doris集群!",
     "httpInfo": "HTTP连接信息",
@@ -185,6 +191,5 @@
     "TableType": "表类型（数据模型）",
     "TableStructure": "表结构",
     "loading":"加载中"
-
 }
 

@@ -23,7 +23,6 @@ import CSSModules from 'react-css-modules';
 import { Form, message, Table, Empty } from 'antd';
 import { useHistory } from 'react-router-dom';
 import { TableAPI } from '../table.api';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import EventEmitter from '@src/utils/event-emitter';
 const layout = {
     labelCol: { span: 6 },
@@ -43,7 +42,7 @@ function DataPre(props: any) {
     }, []);
     function refresh(id: string) {
         TableAPI.sendSql({
-            nsId: DEFAULT_NAMESPACE_ID,
+            nsId: '0',
             dbId: localStorage.getItem('database_id'),
             data: `select * from ${localStorage.getItem('table_name')} limit 50`,
         }).then(res => {

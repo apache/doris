@@ -58,7 +58,7 @@ public class DorisManager extends SpringBootServletInitializer {
 
         // Static resource allocation
         properties.put("server.servlet.context-path", "/");
-        properties.put("spring.resources.static-locations", "classpath:/static");
+        properties.put("spring.resources.static-locations", "classpath:/web-resource");
 
         return new SpringApplicationBuilder().properties(properties);
     }

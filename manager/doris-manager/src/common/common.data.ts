@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
-
 export enum FieldTypeEnum {
     TINYINT = 'TINYINT',
     SMALLINT = 'SMALLINT',
@@ -94,5 +92,5 @@ export const FIRST_COLUMN_FIELD_TYPES = FIELD_TYPES.filter(
 );
 
 export const ANALYTICS_URL = '/login';
-export const STUDIO_INDEX_URL = `/${DEFAULT_NAMESPACE_ID}/meta/index`; //待确认
-export const MANAGE_INDEX_URL = `/${DEFAULT_NAMESPACE_ID}/meta/index`;
+export const STUDIO_INDEX_URL = `/meta/index`; //待确认
+export const MANAGE_INDEX_URL = `/meta/index`;

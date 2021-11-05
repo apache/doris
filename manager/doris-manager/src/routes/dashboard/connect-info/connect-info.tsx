@@ -58,8 +58,8 @@ export function Component(props: any) {
     return (
         <div styleName="connect-info-container">
             <Card style={{ width: '100%' }}>
-                <p>t`httpInfo` {https}</p>
-                <p>t`JDBCInfo` {mysqls}</p>
+                <p>{t`httpInfo`} {https}</p>
+                <p>{t`JDBCInfo`} {mysqls}</p>
             </Card>
         </div>
     );
