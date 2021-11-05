@@ -19,25 +19,27 @@ package org.apache.doris.manager.agent.command;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.service.ServiceContext;
+import org.apache.doris.manager.agent.task.LRU;
 import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskContext;
 import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.manager.common.domain.TaskResult;
+import org.apache.doris.manager.common.domain.TaskState;
 
 import java.util.Objects;
 
 public class CommandResultService {
+    private static LRU<String, Integer> taskFinalStatus = new LRU<>(AgentConstants.COMMAND_HISTORY_SAVE_MAX_COUNT);
+
     public static CommandResult commandResult(String taskId) {
         if (Objects.isNull(TaskContext.getTaskByTaskId(taskId))) {
             return null;
         }
 
         Task task = TaskContext.getTaskByTaskId(taskId);
-        CommandResult commandResult = new CommandResult(task.getTaskResult(),
-                task.getTasklog().allStdLog(),
-                task.getTasklog().allErrLog());
+        CommandResult commandResult = new CommandResult(task.getTaskResult());
 
         switch (CommandType.valueOf(task.getTaskDesc().getTaskName())) {
             case INSTALL_FE:
@@ -46,57 +48,67 @@ public class CommandResultService {
             case WRITE_FE_CONF:
                 return commandResult;
             case START_FE:
-                return feStateResult(task, false);
+                return fetchCommandResult(task, CommandType.START_FE);
             case STOP_FE:
-                return feStateResult(task, true);
+                return fetchCommandResult(task, CommandType.STOP_FE);
             case START_BE:
-                return beStateResult(task, false);
+                return fetchCommandResult(task, CommandType.START_BE);
             case STOP_BE:
-                return beStateResult(task, true);
+                return fetchCommandResult(task, CommandType.STOP_BE);
             default:
                 return null;
         }
     }
 
-    private static CommandResult feStateResult(Task task, boolean isStop) {
+    private static CommandResult fetchCommandResult(Task task, CommandType commandType) {
         if (Objects.isNull(task.getTaskResult().getRetCode()) || task.getTaskResult().getRetCode() != 0) {
-            return new CommandResult(task.getTaskResult(),
-                    task.getTasklog().allStdLog(),
-                    task.getTasklog().allErrLog());
+            return new CommandResult(task.getTaskResult());
         }
 
-        // todo: save final status
         TaskResult tmpTaskResult = new TaskResult(task.getTaskResult());
-        boolean health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
-        if (isStop) {
-            tmpTaskResult.setRetCode(!health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
-        } else {
-            tmpTaskResult.setRetCode(health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
+
+        Integer finalStatus = taskFinalStatus.get(task.getTaskId());
+        if (Objects.nonNull(finalStatus)) {
+            tmpTaskResult.setTaskState(TaskState.FINISHED);
+            tmpTaskResult.setRetCode(finalStatus);
+            return new CommandResult(tmpTaskResult);
         }
 
-        return new CommandResult(tmpTaskResult,
-                task.getTasklog().allStdLog(),
-                task.getTasklog().allErrLog());
-    }
-
-    private static CommandResult beStateResult(Task task, boolean isStop) {
-        if (Objects.isNull(task.getTaskResult().getRetCode()) || task.getTaskResult().getRetCode() != 0) {
-            return new CommandResult(task.getTaskResult(),
-                    task.getTasklog().allStdLog(),
-                    task.getTasklog().allErrLog());
+        int retCode = AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+        Boolean health = false;
+        TaskState taskState = TaskState.RUNNING;
+        if (CommandType.START_FE == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
+            retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
+        } else if (CommandType.STOP_FE == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.FE).isHealth();
+            retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
+        } else if (CommandType.START_BE == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
+            retCode = health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = health ? TaskState.FINISHED : TaskState.RUNNING;
+        } else if (CommandType.STOP_BE == commandType) {
+            health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
+            retCode = !health ? AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE;
+            taskState = !health ? TaskState.FINISHED : TaskState.RUNNING;
         }
 
-        // todo: save final status
-        TaskResult tmpTaskResult = new TaskResult(task.getTaskResult());
-        boolean health = ServiceContext.getServiceMap().get(ServiceRole.BE).isHealth();
-        if (isStop) {
-            tmpTaskResult.setRetCode(!health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
-        } else {
-            tmpTaskResult.setRetCode(health ? 0 : AgentConstants.COMMAND_EXECUTE_UNHEALTH_CODE);
+        if (health && (CommandType.START_FE == commandType || CommandType.START_BE == commandType)) {
+            taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE);
+        }
+        if (!health && (CommandType.STOP_FE == commandType || CommandType.STOP_BE == commandType)) {
+            taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_SUCCESS_CODE);
         }
 
-        return new CommandResult(tmpTaskResult,
-                task.getTasklog().allStdLog(),
-                task.getTasklog().allErrLog());
+        if (task.getTaskResult().getSubmitTime().getTime() + AgentConstants.COMMAND_EXECUTE_TIMEOUT_MILSECOND < System.currentTimeMillis()) {
+            taskFinalStatus.put(task.getTaskId(), AgentConstants.COMMAND_EXECUTE_TIMEOUT_CODE);
+            tmpTaskResult.setTaskState(TaskState.FINISHED);
+        }
+
+        tmpTaskResult.setRetCode(retCode);
+        tmpTaskResult.setTaskState(taskState);
+        return new CommandResult(tmpTaskResult);
     }
 }

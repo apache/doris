@@ -26,7 +26,6 @@ import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskDesc;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.agent.task.TaskHook;
-import org.apache.doris.manager.agent.task.TaskLruLog;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
@@ -55,7 +54,7 @@ public class WriteFeConfCommand extends FeCommand {
 
         WriteFeConfTaskHook hook = new WriteFeConfTaskHook();
 
-        return new Task<TaskDesc>(desc, new TaskLruLog(), hook) {
+        return new Task<TaskDesc>(desc, hook) {
             @Override
             protected int execute() throws IOException {
                 try (FileOutputStream fos = new FileOutputStream(ServiceContext.getServiceMap().get(ServiceRole.FE).getConfigFilePath());

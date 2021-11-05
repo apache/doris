@@ -17,19 +17,11 @@
 
 package org.apache.doris.manager.common.domain;
 
-import org.apache.doris.manager.common.domain.TaskResult;
-
-import java.util.List;
-
 public class CommandResult {
     private TaskResult taskResult;
-    private List<String> stdlogs;
-    private List<String> errlogs;
 
-    public CommandResult(TaskResult taskResult, List<String> stdlogs, List<String> errlogs) {
+    public CommandResult(TaskResult taskResult) {
         this.taskResult = taskResult;
-        this.stdlogs = stdlogs;
-        this.errlogs = errlogs;
     }
 
     public TaskResult getTaskResult() {
@@ -38,21 +30,5 @@ public class CommandResult {
 
     public void setTaskResult(TaskResult taskResult) {
         this.taskResult = taskResult;
-    }
-
-    public List<String> getStdlogs() {
-        return stdlogs;
-    }
-
-    public void setStdlogs(List<String> stdlogs) {
-        this.stdlogs = stdlogs;
-    }
-
-    public List<String> getErrlogs() {
-        return errlogs;
-    }
-
-    public void setErrlogs(List<String> errlogs) {
-        this.errlogs = errlogs;
     }
 }

@@ -26,7 +26,6 @@ import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.agent.task.TaskDesc;
 import org.apache.doris.manager.agent.task.TaskHandlerFactory;
 import org.apache.doris.manager.agent.task.TaskHook;
-import org.apache.doris.manager.agent.task.TaskLruLog;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
@@ -54,7 +53,7 @@ public class WriteBeConfCommand extends BeCommand {
         desc.setCreateStorageDir(requestBody.isCreateStorageDir());
         WriteBeConfTaskHook hook = new WriteBeConfTaskHook();
 
-        return new Task<TaskDesc>(desc, new TaskLruLog(), hook) {
+        return new Task<TaskDesc>(desc, hook) {
             @Override
             protected int execute() throws IOException {
                 try (FileOutputStream fos = new FileOutputStream(ServiceContext.getServiceMap().get(ServiceRole.BE).getConfigFilePath());

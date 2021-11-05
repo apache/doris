@@ -17,18 +17,24 @@
 
 package org.apache.doris.manager.agent.task;
 
+import org.apache.doris.manager.agent.common.AgentConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
 public class ScriptTask extends Task<ScriptTaskDesc> {
 
+    private static final Logger TASKLOG = LoggerFactory.getLogger(AgentConstants.LOG_TYPE_TASK);
+
     public ScriptTask(ScriptTaskDesc taskDesc) {
-        super(taskDesc, new TaskLruLog());
+        super(taskDesc);
     }
 
     public ScriptTask(ScriptTaskDesc taskDesc, TaskHook taskHook) {
-        super(taskDesc, new TaskLruLog(), taskHook);
+        super(taskDesc, taskHook);
     }
 
     @Override
@@ -38,13 +44,15 @@ public class ScriptTask extends Task<ScriptTaskDesc> {
         BufferedReader stdInput = new BufferedReader(new InputStreamReader(proc.getInputStream()));
         BufferedReader stdError = new BufferedReader(new InputStreamReader(proc.getErrorStream()));
 
+        TASKLOG.info("scriptCmd:{}", taskDesc.getScriptCmd());
+
         String s = null;
         while ((s = stdInput.readLine()) != null) {
-            getTasklog().appendStdLog(s);
+            TASKLOG.info(s);
         }
 
         while ((s = stdError.readLine()) != null) {
-            getTasklog().appendErrLog(s);
+            TASKLOG.info(s);
         }
 
         int exitVal = proc.waitFor();
