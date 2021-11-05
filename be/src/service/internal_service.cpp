@@ -30,6 +30,9 @@
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/runtime_state.h"
 #include "service/brpc.h"
+#include "util/brpc_stub_cache.h"
+#include "util/md5.h"
+#include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 
@@ -212,9 +215,9 @@ void PInternalServiceImpl<T>::get_info(google::protobuf::RpcController* controll
         if (!kafka_request.partition_id_for_latest_offsets().empty()) {
             // get latest offsets for specified partition ids
             std::vector<PIntegerPair> partition_offsets;
-            Status st =
-                    _exec_env->routine_load_task_executor()->get_kafka_latest_offsets_for_partitions(
-                            request->kafka_meta_request(), &partition_offsets);
+            Status st = _exec_env->routine_load_task_executor()
+                                ->get_kafka_latest_offsets_for_partitions(
+                                        request->kafka_meta_request(), &partition_offsets);
             if (st.ok()) {
                 PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                 for (const auto& entry : partition_offsets) {
@@ -420,6 +423,79 @@ void PInternalServiceImpl<T>::transmit_block(google::protobuf::RpcController* cn
     if (done != nullptr) {
         done->Run();
     }
+}
+
+template <typename T>
+void PInternalServiceImpl<T>::check_rpc_channel(google::protobuf::RpcController* controller,
+                                                const PCheckRPCChannelRequest* request,
+                                                PCheckRPCChannelResponse* response,
+                                                google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(0);
+    if (request->data().size() != request->size()) {
+        std::stringstream ss;
+        ss << "data size not same, expected: " << request->size()
+           << ", actrual: " << request->data().size();
+        response->mutable_status()->add_error_msgs(ss.str());
+        response->mutable_status()->set_status_code(1);
+
+    } else {
+        Md5Digest digest;
+        digest.update(static_cast<const void*>(request->data().c_str()), request->data().size());
+        digest.digest();
+        if (!iequal(digest.hex(), request->md5())) {
+            std::stringstream ss;
+            ss << "md5 not same, expected: " << request->md5() << ", actrual: " << digest.hex();
+            response->mutable_status()->add_error_msgs(ss.str());
+            response->mutable_status()->set_status_code(1);
+        }
+    }
+}
+
+template <typename T>
+void PInternalServiceImpl<T>::reset_rpc_channel(google::protobuf::RpcController* controller,
+                                                const PResetRPCChannelRequest* request,
+                                                PResetRPCChannelResponse* response,
+                                                google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    response->mutable_status()->set_status_code(0);
+    if (request->all()) {
+        int size = ExecEnv::GetInstance()->brpc_stub_cache()->size();
+        if (size > 0) {
+            std::vector<std::string> endpoints;
+            ExecEnv::GetInstance()->brpc_stub_cache()->get_all(&endpoints);
+            ExecEnv::GetInstance()->brpc_stub_cache()->clear();
+            *response->mutable_channels() = {endpoints.begin(), endpoints.end()};
+        }
+    } else {
+        for (const std::string& endpoint : request->endpoints()) {
+            if (!ExecEnv::GetInstance()->brpc_stub_cache()->exist(endpoint)) {
+                response->mutable_status()->add_error_msgs(endpoint + ": not found.");
+                continue;
+            }
+
+            if (ExecEnv::GetInstance()->brpc_stub_cache()->erase(endpoint)) {
+                response->add_channels(endpoint);
+            } else {
+                response->mutable_status()->add_error_msgs(endpoint + ": reset failed.");
+            }
+        }
+        if (request->endpoints_size() != response->channels_size()) {
+            response->mutable_status()->set_status_code(1);
+        }
+    }
+}
+
+template <typename T>
+void PInternalServiceImpl<T>::hand_shake(google::protobuf::RpcController* cntl_base,
+                                         const PHandShakeRequest* request,
+                                         PHandShakeResponse* response,
+                                         google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    if (request->has_hello()) {
+        response->set_hello(request->hello());
+    }
+    response->mutable_status()->set_status_code(0);
 }
 
 template class PInternalServiceImpl<PBackendService>;

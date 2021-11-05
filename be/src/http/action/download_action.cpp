@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/download_action.h"
+#include "http/action/download_action.h"
 
 #include <sys/types.h>
 #include <unistd.h>
