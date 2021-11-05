@@ -428,7 +428,6 @@ public class RoutineLoadManager implements Writable {
                 int idleTaskNum = 0;
                 if (beIdToMaxConcurrentTasks.containsKey(previoudBeId)) {
                     idleTaskNum = 0;
-                    LOG.warn("backend:" + previoudBeId + " not found, cannot get idleTaskNum.");
                 } else if (beIdToConcurrentTasks.containsKey(previoudBeId)) {
                     idleTaskNum = beIdToMaxConcurrentTasks.get(previoudBeId) - beIdToConcurrentTasks.get(previoudBeId);
                 } else {
