@@ -106,7 +106,7 @@ import java.io.IOException;
 
 // this is the value written to bdb or local edit files. key is an auto-increasing long.
 public class JournalEntity implements Writable {
-    public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
+    public static final Logger LOG = LogManager.getLogger(JournalEntity.class);
 
     private short opCode;
     private Writable data;
