@@ -81,10 +81,10 @@ OLAPStatus EngineCloneTask::_do_clone() {
  
     // Check local tablet exist or not
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            _clone_req.tablet_id, _clone_req.replica_id, _clone_req.schema_hash);
+            _clone_req.tablet_id, _clone_req.schema_hash, _clone_req.replica_id);
     // for tablet with same tablet id, but diff replica id
     TabletSharedPtr old_version_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            _clone_req.tablet_id, 0 /*replica_id*/, _clone_req.schema_hash);
+            _clone_req.tablet_id, _clone_req.schema_hash);
     bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {

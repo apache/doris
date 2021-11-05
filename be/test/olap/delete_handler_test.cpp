@@ -257,7 +257,7 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id, 0 /*replica_id*/,
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -266,7 +266,7 @@ protected:
         res = k_engine->create_tablet(_create_dup_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(
-                _create_dup_tablet.tablet_id, 0 /*replica_id*/, _create_dup_tablet.tablet_schema.schema_hash);
+                _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(dup_tablet.get() != NULL);
         _dup_tablet_path = tablet->tablet_path();
     }
@@ -428,7 +428,7 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id, 0 /*replica_id*/,
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -795,7 +795,7 @@ protected:
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id, 0 /*replica_id*/,
+        tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet != nullptr);
         _tablet_path = tablet->tablet_path();

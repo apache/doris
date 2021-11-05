@@ -75,7 +75,7 @@ Status OlapScanner::prepare(
     _version = strtoul(scan_range.version.c_str(), nullptr, 10);
     {
         std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, 0 /*replica_id*/, schema_hash,
+        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, 0 /*replica_id*/,
                                                                           true, &err);
         if (_tablet.get() == nullptr) {
             std::stringstream ss;

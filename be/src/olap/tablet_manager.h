@@ -75,7 +75,7 @@ public:
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TReplicaId replica_id = 0,
                                bool include_deleted = false, std::string* err = nullptr);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
@@ -165,7 +165,7 @@ private:
 
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash, bool keep_files);
 
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, TReplicaId replica_id = 0);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
                                          bool include_deleted, std::string* err);
 
