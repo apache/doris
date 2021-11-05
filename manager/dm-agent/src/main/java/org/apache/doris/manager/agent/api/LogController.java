@@ -27,6 +27,7 @@ import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -51,7 +52,7 @@ public class LogController {
     /**
      * Obtain service logs according to type: fe.log/fe.out/be.log/be.out
      */
-    @RequestMapping(path = "/log", method = RequestMethod.GET)
+    @GetMapping
     public RResult log(@RequestParam String type) {
         Preconditions.checkArgument(StringUtils.isNotBlank(type), "type is required");
         String logPath = getLogPath(type);
