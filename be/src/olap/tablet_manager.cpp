@@ -105,7 +105,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, TReplicaId r
     TabletSharedPtr existed_tablet = nullptr;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     for (TabletSharedPtr item : tablet_map[tablet_id].table_arr) {
-        if (item->equal(tablet_id, replica_id, schema_hash)) {
+        if (item->equal(tablet_id, schema_hash, replica_id)) {
             existed_tablet = item;
             break;
         }
@@ -521,7 +521,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
                 for (list<TabletSharedPtr>::iterator it = tablet_map[tablet_id].table_arr.begin();
                     it != tablet_map[tablet_id].table_arr.end();) {
                     // clear tablets in unused data dirs, there is no need to compare tablet_replica_id
-                    if ((*it)->equal(tablet_id, 0 /*replica_id*/, schema_hash)) {
+                    if ((*it)->equal(tablet_id, schema_hash)) {
                         // We should first remove tablet from partition_map to avoid iterator
                         // becoming invalid.
                         _remove_tablet_from_partition(*(*it));
@@ -539,11 +539,11 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TReplicaId replica_id,
                                           bool include_deleted, string* err) {
     ReadLock rlock(_get_tablets_shard_lock(tablet_id));
-    return _get_tablet_unlocked(tablet_id, replica_id, schema_hash, include_deleted, err);
+    return _get_tablet_unlocked(tablet_id, schema_hash, include_deleted, err, replica_id);
 }
 
-TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
-                                                    bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+                                                    bool include_deleted, string* err, TReplicaId replica_id) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id, schema_hash, replica_id);
     if (tablet == nullptr && include_deleted) {
@@ -579,7 +579,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, TReplic
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                           TabletUid tablet_uid, bool include_deleted, string* err) {
     ReadLock rlock(_get_tablets_shard_lock(tablet_id));
-    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, schema_hash, 0 /*replica_id*/, include_deleted, err);
+    TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, schema_hash, include_deleted, err);
     if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
         return tablet;
     }
@@ -1345,7 +1345,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, TR
     list<TabletSharedPtr>& candidate_tablets = tablet_map[tablet_id].table_arr;
     list<TabletSharedPtr>::iterator it = candidate_tablets.begin();
     while (it != candidate_tablets.end()) {
-        if (!(*it)->equal(tablet_id, replica_id, schema_hash)) {
+        if (!(*it)->equal(tablet_id, schema_hash, replica_id)) {
             ++it;
             continue;
         }
@@ -1386,7 +1386,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     if (it != tablet_map.end()) {
         for (TabletSharedPtr tablet : it->second.table_arr) {
             CHECK(tablet != nullptr) << "tablet is nullptr. tablet_id=" << tablet_id;
-            if (tablet->equal(tablet_id, replica_id, schema_hash)) {
+            if (tablet->equal(tablet_id, schema_hash, replica_id)) {
                 VLOG_NOTICE << "get tablet success. tablet_id=" << tablet_id << ", replica_id=" << replica_id
                             << ", schema_hash=" << schema_hash;
                 return tablet;

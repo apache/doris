@@ -166,8 +166,8 @@ private:
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash, bool keep_files);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, TReplicaId replica_id = 0);
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, SchemaHash schema_hash,
-                                         bool include_deleted, std::string* err);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+                                         bool include_deleted, std::string* err, TReplicaId replica_id = 0);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
