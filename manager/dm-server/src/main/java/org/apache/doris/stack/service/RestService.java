@@ -91,9 +91,9 @@ public class RestService {
         String url = String.format(ADD_BACKENDS_API, host, port);
         PaloResponseEntity paloResponseEntity = null;
         try {
-            paloResponseEntity = poolManager.doGet(url, headers);
+            paloResponseEntity = poolManager.doPost(url, headers, hostPorts);
         } catch (Exception e) {
-            log.error("request backends list failed:", e);
+            log.error("request backends list failed:{}", JSON.toJSONString(paloResponseEntity), e);
             return result;
         }
         if (REQUEST_SUCCESS_CODE != paloResponseEntity.getCode()) {
