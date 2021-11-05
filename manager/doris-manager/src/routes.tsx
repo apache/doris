@@ -1,3 +1,9 @@
+import React, { lazy } from 'react';
+import SuperAdminContainer from './routes/super-admin-container';
+import { auth } from './utils/auth';
+import { Loading } from './components/loading';
+import { NotFound } from './components/not-found';
+import { Suspense } from 'react';
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,55 +21,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import React, { lazy } from 'react';
-import { Suspense } from "react";
-import {
-  Route,
-  Switch,
-  Redirect,
-  BrowserRouter as Router,
-} from "react-router-dom";
-import { Loading } from "./components/loading";
-import { NotFound } from "./components/not-found";
-import Container from "./routes/container";
-import AdminContainer from "./routes/admin-container";
-import { auth } from "./utils/auth";
+import { Route, Switch, Redirect, BrowserRouter as Router } from 'react-router-dom';
+import { Container } from './routes/container';
 const Login = lazy(() => import('../src/routes/passport/index'));
 
 const user = JSON.parse(window.localStorage.getItem('user') as string);
 // 对状态属性进行监听
 const routes = (
-  <Suspense fallback={<Loading />}>
-    <Router>
-      <Switch>
-        <Route
-          path="/"
-          render={(props) =>
-            auth.checkLogin() ? (
-              user.is_super_admin ?
-               (<AdminContainer {...props} /> ):
-               (<Container {...props} /> )
-            ) : props.history.location.pathname === "/login" ? (
-              <Login></Login>
-            ) : (
-              <Redirect to="/login" />
-            )
-          }
-        />
-        <Route
-          path="/login"
-          render={(props) =>
-            auth.checkLogin() ? (
-              <Redirect to="/" />
-            ) : (
-              <></>
-            )
-          }
-        />
-        <Route component={NotFound} />
-      </Switch>
-    </Router>
-  </Suspense>
+    <Suspense fallback={<Loading />}>
+        <Router>
+            <Switch>
+                <Route
+                    path="/"
+                    render={props =>
+                        auth.checkLogin() ? (
+                            user.is_super_admin ? (
+                                <SuperAdminContainer {...props} />
+                            ) : (
+                                <Container {...props} />
+                            )
+                        ) : props.history.location.pathname === '/login' ? (
+                            <Login></Login>
+                        ) : (
+                            <Redirect to="/login" />
+                        )
+                    }
+                />
+                <Route path="/login" render={props => (auth.checkLogin() ? <Redirect to="/" /> : <></>)} />
+                <Route component={NotFound} />
+            </Switch>
+        </Router>
+    </Suspense>
 );
 
 export default routes;

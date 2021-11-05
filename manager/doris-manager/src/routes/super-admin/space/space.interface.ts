@@ -27,3 +27,10 @@ export interface MetaInfoResponse {
     remainDisk: number;
     tblCount: number;
 }
+export interface Space {
+    name: string;
+    description: string;
+    id: string;
+}
+
+export type IRequiredMark = boolean | 'optional';

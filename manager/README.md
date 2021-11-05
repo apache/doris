@@ -28,9 +28,9 @@ Apache Doris Manager is used to manage the doris cluster, such as monitoring clu
 ```
 $ sh build.sh
 ```
-Compiles the front and back ends of the project. After compilation, a tar package will be generated in the output/ directory and output.tar.gz package.The content of the compiled output is:
+Compiles the front and back ends of the project. After compilation, a tar package will be generated in the output/ directory and doris-manager-1.0.0.tar.gz package.The content of the compiled output is:
 ```
-agent/
+agent/, doris manger agent
     bin/
         agent_start.sh, doris manger agent startup script
         agent_stop.sh, doris manger agent stop script
@@ -38,20 +38,23 @@ agent/
         install_fe.sh, doris fe install script
     lib/
         dm-agent.jar, executable package of doris manger agent
-conf/
-    manager.conf, doris manger server configuration file
-resources/, doris manger server static resources
-static/, doris manger server front end compilation output
-doris-manager.jar, executable package of doris manger server
-start_manager.sh, doris manger server startup script
-stop_manager.sh, doris manger server stop script
+server/, doris manger server
+    conf/
+        manager.conf, doris manger server configuration file
+    web-resource/, doris manger server front static resources
+    lib/
+        doris-manager.jar, executable package of doris manger server
+    bin/
+        start_manager.sh, doris manger server startup script
+        stop_manager.sh, doris manger server stop script
 ```
 
 ### Step2: install manager server
 #### 1) Unzip the installation package
-Copy output.tar.gz tar package to the the machine where the manager server needs to be installed.
+Copy doris-manager-1.0.0.tar.gz tar package to the the machine where the manager server needs to be installed.
 ```
-$ tar -zxvf output.tar.gz
+$ tar -zxvf doris-manager-1.0.0.tar.gz
+$ cd server
 ```
 #### 2) Modify profile
 Edit conf/manager.conf
@@ -87,7 +90,7 @@ MB_DB_DBNAME
 #### 3) Start manager server
 Start the manager service after decompression and configuration.
 ```
-$ sh start_manager.sh
+$ sh bin/start_manager.sh
 ```
 #### 4) User manager server
 Browser access ${serverIp}:8080, Manger server has a preset super administrator user. The information is as follows:

@@ -18,7 +18,6 @@
 /* eslint-disable prettier/prettier */
 import React, { useState, useEffect } from 'react';
 import { Table, Card, Space, Input } from 'antd';
-import { DEFAULT_NAMESPACE_ID, VERSION } from '@src/config';
 import { useTranslation } from 'react-i18next';
 import { getQueryInfo } from './query.api';
 import { ColumnsType } from 'antd/es/table';
@@ -39,7 +38,7 @@ function Query() {
 
     function queryDetails(record: any) {
         console.log(record)
-        history.push(`/${DEFAULT_NAMESPACE_ID}/details/${record[0]}`)
+        history.push(`/details/${record[0]}`)
     }
     useEffect(() => {
         getQueryInfo().then(res => {

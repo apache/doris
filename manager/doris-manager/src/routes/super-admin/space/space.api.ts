@@ -31,8 +31,8 @@ function spaceCheck(name: string): Promise<IResult<MetaInfoResponse>> {
 function spaceValidate(data: any): Promise<IResult<MetaInfoResponse>> {
     return http.post(`/api/space/validate`, data);
 }
-function spaceDel(): Promise<IResult<MetaInfoResponse>> {
-    return http.post(`/api/space/:spaceId`);
+function spaceDelete(spaceId: string): Promise<IResult<MetaInfoResponse>> {
+    return http.delete(`/api/space/${spaceId}`);
 }
 function spaceGet(spaceId: string): Promise<IResult<MetaInfoResponse>> {
     return http.get(`/api/space/${spaceId}`);
@@ -45,7 +45,7 @@ export const SpaceAPI = {
     spaceList,
     spaceCheck,
     spaceValidate,
-    spaceDel,
+    spaceDelete,
     spaceGet,
     spaceUpdate,
 };

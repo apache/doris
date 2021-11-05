@@ -18,7 +18,6 @@
 /* eslint-disable prettier/prettier */
 import React, { useEffect, useState } from 'react';
 import { Table, Space, message } from 'antd';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import { NodeAPI } from './node.api';
 import { useHistory } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -145,14 +144,14 @@ function NodeList() {
         let node = "";
         node += record[2]+":"+record[6]
         localStorage.setItem("nodeText", node);
-        history.push(`/${DEFAULT_NAMESPACE_ID}/be-configuration`)
+        history.push(`/configuration/be`)
     }
 
     function toFeDetailsPage(record: any) {
         let node = "";
         node += record[1]+":"+record[4]
         localStorage.setItem("nodeText", node);
-        history.push(`/${DEFAULT_NAMESPACE_ID}/fe-configuration`) ;
+        history.push(`/configuration/fe`) ;
     }
     return (
         <>

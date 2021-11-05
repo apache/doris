@@ -21,7 +21,7 @@ import { InfoCircleOutlined } from '@ant-design/icons';
 import styles from './index.module.less';
 import classNames from 'classnames';
 import Link from 'antd/lib/typography/Link';
-import { DEFAULT_NAMESPACE_ID, VERSION } from 'src/config';
+import { VERSION } from 'src/config';
 import { PassportAPI } from './passport.api';
 import { config } from 'process';
 import { STUDIO_INDEX_URL, MANAGE_INDEX_URL } from '@src/common/common.data';
