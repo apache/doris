@@ -53,6 +53,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Backend implements Writable {
 
+    public static final String DUMMY_IP = "0.0.0.0";
+
     public enum BackendState {
         using, /* backend is belong to a cluster*/
         offline,
