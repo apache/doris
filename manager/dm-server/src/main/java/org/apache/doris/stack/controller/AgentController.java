@@ -114,7 +114,7 @@ public class AgentController {
      * query log
      * type:fe.log/fe.out/be.log/be.out
      */
-    @ApiOperation(value = "query log")
+    @ApiOperation(value = "query service log,type:fe.log|fe.out|be.log|be.out")
     @RequestMapping(value = "/log", method = RequestMethod.GET)
     public RResult log(@RequestParam String host, @RequestParam String type) {
         return RResult.success(agentProcess.log(host, type));

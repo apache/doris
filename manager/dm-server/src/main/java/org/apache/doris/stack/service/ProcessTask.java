@@ -53,8 +53,5 @@ public interface ProcessTask {
     /**
      * fetch log
      */
-    Object taskStdlog(int taskId, int offset);
-
-    Object taskErrlog(int taskId, int offset);
-
+    Object taskLog(int taskId);
 }

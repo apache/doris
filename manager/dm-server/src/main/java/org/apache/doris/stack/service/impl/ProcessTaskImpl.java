@@ -39,9 +39,7 @@ import org.springframework.stereotype.Service;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * agent task service
@@ -142,29 +140,11 @@ public class ProcessTaskImpl implements ProcessTask {
     }
 
     @Override
-    public Object taskStdlog(int taskId, int offset) {
+    public Object taskLog(int taskId) {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
         Preconditions.checkNotNull("taskId {} not exist", taskId);
         if (taskEntity.getTaskType().agentTask()) {
-            Map<String, Object> param = new HashMap<>();
-            param.put("taskId", taskEntity.getExecutorId());
-            param.put("offset", offset);
-            RResult result = agentRest.taskStdLog(taskEntity.getHost(), agentPort(taskEntity.getHost()), param);
-            return result.getData();
-        } else {
-            return taskEntity.getResult();
-        }
-    }
-
-    @Override
-    public Object taskErrlog(int taskId, int offset) {
-        TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
-        Preconditions.checkNotNull("taskId {} not exist", taskId);
-        if (taskEntity.getTaskType().agentTask()) {
-            Map<String, Object> param = new HashMap<>();
-            param.put("taskId", taskEntity.getExecutorId());
-            param.put("offset", offset);
-            RResult result = agentRest.taskErrLog(taskEntity.getHost(), agentPort(taskEntity.getHost()), param);
+            RResult result = agentRest.taskLog(taskEntity.getHost(), agentPort(taskEntity.getHost()), taskEntity.getExecutorId());
             return result.getData();
         } else {
             return taskEntity.getResult();

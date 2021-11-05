@@ -27,7 +27,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
@@ -109,17 +108,9 @@ public class ProcessTaskController {
     /**
      * request task stdout log
      */
-    @RequestMapping(value = "/task/stdlog/{taskId}", method = RequestMethod.GET)
-    public RResult taskStdlog(@PathVariable int taskId, @RequestParam("offset") int offset) {
-        return RResult.success(processTask.taskStdlog(taskId, offset));
-    }
-
-    /**
-     * request task error log
-     */
-    @RequestMapping(value = "/task/errlog/{taskId}", method = RequestMethod.GET)
-    public RResult taskErrlog(@PathVariable int taskId, @RequestParam("offset") int offset) {
-        return RResult.success(processTask.taskStdlog(taskId, offset));
+    @RequestMapping(value = "/task/log/{taskId}", method = RequestMethod.GET)
+    public RResult taskLog(@PathVariable int taskId) {
+        return RResult.success(processTask.taskLog(taskId));
     }
 
 }

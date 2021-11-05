@@ -38,10 +38,8 @@ public class AgentConstants {
     public static final String BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH = "/storage";
     public static final String FE_CONFIG_FILE_RELATIVE_PATH = "/conf/fe.conf";
     public static final String BE_CONFIG_FILE_RELATIVE_PATH = "/conf/be.conf";
-    public static final String FE_LOG_FILE_RELATIVE_PATH = "/log/fe.log";
-    public static final String FE_LOG_OUT_FILE_RELATIVE_PATH = "/log/fe.out";
-    public static final String BE_LOG_FILE_RELATIVE_PATH = "/log/be.log";
-    public static final String BE_LOG_OUT_FILE_RELATIVE_PATH = "/log/be.out";
+    public static final String LOG_FILE_RELATIVE_PATH = "/log/";
+    public static final String TASK_LOG_FILE_RELATIVE_PATH = "/log/task.log";
 
     public static final int TASK_ERROR_CODE_DEFAULT = -501;
     public static final int TASK_ERROR_CODE_EXCEPTION = -502;

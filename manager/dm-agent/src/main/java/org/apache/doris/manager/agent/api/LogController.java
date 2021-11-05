@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
+import org.apache.doris.manager.agent.register.AgentContext;
 import org.apache.doris.manager.agent.service.Service;
 import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.common.domain.RResult;
@@ -29,7 +30,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -53,26 +53,31 @@ public class LogController {
      * Obtain service logs according to type: fe.log/fe.out/be.log/be.out
      */
     @GetMapping
-    public RResult log(@RequestParam String type) {
-        Preconditions.checkArgument(StringUtils.isNotBlank(type), "type is required");
+    public RResult serviceLog(@RequestParam String type) {
         String logPath = getLogPath(type);
         Map<String, String> result = appendLogInfo(logPath);
         return RResult.success(result);
     }
 
+    /**
+     * Obtain task log
+     */
+    @GetMapping("/task")
+    public RResult taskLog(@RequestParam String taskId) {
+        String logPath = AgentContext.getAgentInstallDir() + AgentConstants.TASK_LOG_FILE_RELATIVE_PATH;
+        Map<String, String> result = appendLogInfo(logPath);
+        return RResult.success(result);
+    }
+
     private String getLogPath(String type) {
+        Preconditions.checkArgument(StringUtils.isNotBlank(type), "type is required");
         Map<ServiceRole, Service> serviceMap = ServiceContext.getServiceMap();
-        switch (type) {
-            case "fe.log":
-                return serviceMap.get(ServiceRole.FE).getInstallDir() + AgentConstants.FE_LOG_FILE_RELATIVE_PATH;
-            case "fe.out":
-                return serviceMap.get(ServiceRole.FE).getInstallDir() + AgentConstants.FE_LOG_OUT_FILE_RELATIVE_PATH;
-            case "be.log":
-                return serviceMap.get(ServiceRole.BE).getInstallDir() + AgentConstants.BE_LOG_FILE_RELATIVE_PATH;
-            case "be.out":
-                return serviceMap.get(ServiceRole.BE).getInstallDir() + AgentConstants.BE_LOG_OUT_FILE_RELATIVE_PATH;
-            default:
-                throw new AgentException("can not find log path:" + type);
+        if (type.startsWith(ServiceRole.FE.name().toLowerCase())) {
+            return serviceMap.get(ServiceRole.FE).getInstallDir() + AgentConstants.LOG_FILE_RELATIVE_PATH + type;
+        } else if (type.startsWith(ServiceRole.BE.name().toLowerCase())) {
+            return serviceMap.get(ServiceRole.BE).getInstallDir() + AgentConstants.LOG_FILE_RELATIVE_PATH + type;
+        } else {
+            throw new AgentException("can not find this type log path:" + type);
         }
     }
 

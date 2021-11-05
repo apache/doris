@@ -583,8 +583,6 @@
 > |data.taskResult.endTime |Date | 任务终止时间      |
 > |data.taskResult.taskState |String | 任务状态 |
 > |data.taskResult.retCode |int | 任务返回状态。0：正常 |
-> |data.stdlogs |List | 任务输出日志 |
-> |data.errlogs |List | 任务错误日志 |
 
 **接口示例**
 
@@ -604,11 +602,7 @@
             "endTime": "2021-11-02 09:41:49",
             "taskState": "FINISHED",
             "retCode": 0
-        },
-        "stdlogs": [
-            "stop java, and remove pid file. "
-        ],
-        "errlogs": []
+        }
     }
 }
 ```
