@@ -331,14 +331,12 @@ public class StreamLoadScanNodeTest {
                 slot.setIsNullable(false);
             }
         }
-
-        new Expectations() {{
-            catalog.getFunction((Function) any, (Function.CompareMode) any);
-            result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false, true);
-        }};
         
         new Expectations() {
             {
+                catalog.getFunction((Function) any, (Function.CompareMode) any);
+                result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false, true);
+
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
 
@@ -523,7 +521,6 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k3");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -675,7 +672,6 @@ public class StreamLoadScanNodeTest {
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k5 = 1");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -684,7 +680,7 @@ public class StreamLoadScanNodeTest {
     }
 
     @Test(expected = UserException.class)
-    public void testWhereNotBool() throws UserException, UserException {
+    public void testWhereNotBool() throws UserException {
         Analyzer analyzer = new Analyzer(catalog, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
@@ -729,7 +725,6 @@ public class StreamLoadScanNodeTest {
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k1 + v2");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -763,11 +758,7 @@ public class StreamLoadScanNodeTest {
                 minTimes = 0;
                 dstTable.hasSequenceCol();
                 result = true;
-            }
-        };
 
-        new Expectations() {
-            {
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
                 minTimes = 0;
@@ -833,11 +824,7 @@ public class StreamLoadScanNodeTest {
                 minTimes = 0;
                 dstTable.hasSequenceCol();
                 result = true;
-            }
-        };
 
-        new Expectations() {
-            {
                 dstTable.getBaseSchema(anyBoolean); result = columns;
                 dstTable.getFullSchema(); result = columns;
 
@@ -879,3 +866,4 @@ public class StreamLoadScanNodeTest {
         scanNode.toThrift(planNode);
     }
 }
+

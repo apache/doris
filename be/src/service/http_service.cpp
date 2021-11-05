@@ -17,26 +17,28 @@
 
 #include "service/http_service.h"
 
+#include "http/action/check_rpc_channel_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/config_action.h"
+#include "http/action/download_action.h"
 #include "http/action/health_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/mini_load.h"
+#include "http/action/monitor_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
+#include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
-#include "http/action/tablets_distribution_action.h"
 #include "http/action/tablet_migration_action.h"
+#include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
-#include "http/action/config_action.h"
 #include "http/default_path_handlers.h"
-#include "http/download_action.h"
 #include "http/ev_http_server.h"
 #include "http/http_method.h"
-#include "http/monitor_action.h"
 #include "http/web_page_handler.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
@@ -92,12 +94,15 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // Register Tablets Distribution action
-    TabletsDistributionAction* tablets_distribution_action = _pool.add(new TabletsDistributionAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution", tablets_distribution_action);
+    TabletsDistributionAction* tablets_distribution_action =
+            _pool.add(new TabletsDistributionAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution",
+                                      tablets_distribution_action);
 
     // Register tablet migration action
     TabletMigrationAction* tablet_migration_action = _pool.add(new TabletMigrationAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration", tablet_migration_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration",
+                                      tablet_migration_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get(), _pool);
@@ -144,14 +149,22 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
-    ConfigAction* update_config_action = 
+    ConfigAction* update_config_action =
             _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
-    ConfigAction* show_config_action = 
-            _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
+    ConfigAction* show_config_action = _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
 
+    // 3 check action
+    CheckRPCChannelAction* check_rpc_channel_action = _pool.add(new CheckRPCChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET,
+                                      "/api/check_rpc_channel/{ip}/{port}/{payload_size}",
+                                      check_rpc_channel_action);
+
+    ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(new ResetRPCChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/reset_rpc_channel/{endpoints}",
+                                      reset_rpc_channel_action);
     _ev_http_server->start();
     return Status::OK();
 }

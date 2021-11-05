@@ -105,17 +105,20 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     _brpc_request.set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
-    if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
-        _brpc_stub =
-                state->exec_env()->brpc_stub_cache()->get_stub("127.0.0.1", _brpc_dest_addr.port);
-    } else {
-        _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
-    }
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    if (_need_close) {
+        _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
+        if (!_brpc_stub) {
+            std::string msg = fmt::format("Get rpc stub failed, dest_addr={}:{}",
+                                          _brpc_dest_addr.hostname, _brpc_dest_addr.port);
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
+        }
+    }
     return Status::OK();
 }
 
