@@ -19,8 +19,12 @@ package org.apache.doris.spark.sql
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkContext}
+import org.junit.Ignore;
 import org.junit.Test
 
+// This test need real connect info to run.
+// Set the connect info before comment out this @Ignore
+@Ignore
 class TestSparkConnector {
   val dorisFeNodes = "your_fe_host:8030"
   val dorisUser = "root"
@@ -107,3 +111,4 @@ class TestSparkConnector {
       .start().awaitTermination()
   }
 }
+
