@@ -96,7 +96,8 @@ public class RestService {
             log.error("request backends list failed:{}", JSON.toJSONString(paloResponseEntity), e);
             return result;
         }
-        if (REQUEST_SUCCESS_CODE != paloResponseEntity.getCode()) {
+        if (REQUEST_SUCCESS_CODE != paloResponseEntity.getCode()
+                || paloResponseEntity.getData() == null) {
             return result;
         }
         result = JSON.parseObject(paloResponseEntity.getData(), new TypeReference<Map<String, Boolean>>() {

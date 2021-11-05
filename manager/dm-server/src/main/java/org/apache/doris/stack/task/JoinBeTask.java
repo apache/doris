@@ -57,7 +57,8 @@ public class JoinBeTask extends AbstractTask {
         backends.put(backendHost, beHeatPort);
         Map<String, Boolean> statusMap = restService.addBackends(backendHost, requestParams.getFeHttpPort(), backends, requestParams.getHeaders());
 
-        if (statusMap.get(backendHost) == null
+        if (statusMap == null
+                || statusMap.get(backendHost) == null
                 || !statusMap.get(backendHost)) {
             log.error("failed add backend: {}:{}", backendHost, beHeatPort);
             throw new ServerException("failed add backend:" + backendHost);
