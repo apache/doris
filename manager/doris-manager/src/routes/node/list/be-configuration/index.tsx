@@ -20,7 +20,6 @@ import React, { useEffect, useState } from 'react';
 import { Descriptions, Radio, Select, Table, Space, Modal, Form, Input, Tooltip, message, Divider } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 const { Option } = Select;
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import { ConfigurationTypeEnum } from '@src/common/common.data';
 import { BeConfigAPI } from './be-config.api';
 import { useHistory } from 'react-router-dom';
@@ -95,10 +94,10 @@ function Configuration() {
         setTypeValue(e.target.value);
         if (e.target.value === ConfigurationTypeEnum.BE) {
             localStorage.setItem("nodeText","");
-            history.push(`/${DEFAULT_NAMESPACE_ID}/be-configuration`);
+            history.push(`/configuration/be`);
         } else {
             localStorage.setItem("nodeText","");
-            history.push(`/${DEFAULT_NAMESPACE_ID}/fe-configuration`);
+            history.push(`/configuration/fe`);
         }
     }
     const handleOk = (values: any) => {

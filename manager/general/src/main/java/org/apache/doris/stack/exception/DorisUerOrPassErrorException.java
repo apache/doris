@@ -15,14 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { getDefaultPageSize } from './utils/utils';
-import version from '../version.json';
+package org.apache.doris.stack.exception;
 
-export const TABLE_DELAY = 150;
-export const PAGESIZE_OPTIONS = ['10', '20', '50', '100', '200'];
-export const PAGINATION = {
-    current: 1,
-    pageSize: getDefaultPageSize(),
-    // total: 0
-};
-export const VERSION = `v${version.version}`;
+/**
+ * Copyright (C) 2020 Baidu, Inc. All Rights Reserved.
+ *
+ * @Author: songchuanyuan@baidu.com
+ * @Description：
+ * @Date: 2021/10/18
+ */
+public class DorisUerOrPassErrorException extends Exception {
+
+    public static final String MESSAGE = "用户名/密码错误，请检查后重新输入";
+
+    public DorisUerOrPassErrorException() {
+        super(MESSAGE);
+    }
+}

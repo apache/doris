@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-/* eslint-disable prettier/prettier */
 import { Row, Col, Select, Collapse, Button, Divider, AutoComplete } from 'antd';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -64,7 +63,7 @@ echarts.use([
 const { Panel } = Collapse;
 const { Option } = Select;
 
-export function Monitor() {
+export function NodeDashboard() {
     const { t } = useTranslation();
     const [TIMES, setTIMES] = useState(() => getTimes(dayjs()));
     const [beNodes, setBENodes] = useState<string[]>([]);
@@ -99,7 +98,7 @@ export function Monitor() {
         option.xAxis.data = xAxisData;
         const series: any[] = [];
         const legendData: any[] = [];
-        
+
         function transformChartsData(y_value: string, formatter?: string) {
             for (const [key, value] of Object.entries(y_value).sort()) {
                 if (Array.isArray(value)) {
@@ -126,23 +125,23 @@ export function Monitor() {
             transformChartsData(response.y_value);
         }
         option.legend = {
-            bottom: "0",
-            left:0,
+            bottom: '0',
+            left: 0,
             height: 80,
             width: 'auto',
-            type: "scroll",
+            type: 'scroll',
             itemHeight: 10,
             data: legendData,
-            orient: "vertical",
+            orient: 'vertical',
             pageIconSize: 7,
             textStyle: {
-                overflow: "breakAll"
+                overflow: 'breakAll',
             },
-        }
-        option.grid = {
-            bottom: 110
-          },
-        option.series = series;
+        };
+        (option.grid = {
+            bottom: 110,
+        }),
+            (option.series = series);
         return option;
     }
 
@@ -190,10 +189,13 @@ export function Monitor() {
             nodes: selectedBENodes,
         }).then(res => {
             const option = formatData(res.data, '基线数据版本合并情况');
-            option.legend.left = 20
-            option. yAxis = { type: 'value' ,minInterval : 1,
+            option.legend.left = 20;
+            option.yAxis = {
+                type: 'value',
+                minInterval: 1,
 
-            boundaryGap : [ 0, 0.1 ]}
+                boundaryGap: [0, 0.1],
+            };
             setBE_base_compaction_score(option);
         });
     }
@@ -202,10 +204,13 @@ export function Monitor() {
             nodes: selectedBENodes,
         }).then(res => {
             const option = formatData(res.data, '增量数据版本合并情况');
-            option.legend.left = 20
-            option. yAxis = { type: 'value' ,minInterval : 1,
+            option.legend.left = 20;
+            option.yAxis = {
+                type: 'value',
+                minInterval: 1,
 
-            boundaryGap : [ 0, 0.1 ]}
+                boundaryGap: [0, 0.1],
+            };
             setBE_cumu_compaction_score(option);
         });
     }
@@ -250,14 +255,14 @@ export function Monitor() {
             </Row>
             <div style={{ marginTop: 10 }}>
                 <Collapse defaultActiveKey="1">
-                    <Panel header={ t`BENodeStatusMonitoring`} key="1">
+                    <Panel header={t`BENodeStatusMonitoring`} key="1">
                         <Row justify="start" align="middle" style={{ padding: '20px 20px' }}>
                             <span>{t`nodeSelection`}：</span>
                             <Select
                                 mode="multiple"
                                 allowClear
                                 style={{ width: 600 }}
-                                placeholder={ t`PleaseSelectNode`}
+                                placeholder={t`PleaseSelectNode`}
                                 defaultValue={[...beNodes]}
                                 onChange={handleBENodeChange}
                             >
@@ -268,7 +273,7 @@ export function Monitor() {
                                 ))}
                             </Select>
                         </Row>
-                        <Row justify="start" >
+                        <Row justify="start">
                             <Row style={{ height: 340, width: 'calc(100% / 3)' }}>
                                 <h4>{t`CPUidleRate`}</h4>
                                 <ReactEChartsCore
@@ -276,7 +281,7 @@ export function Monitor() {
                                     option={be_cpu_idle}
                                     notMerge={true}
                                     lazyUpdate={true}
-                                    style={{ height: 340,width: '100%',top:'-20px' }}
+                                    style={{ height: 340, width: '100%', top: '-20px' }}
                                 />
                             </Row>
                             <Row style={{ height: 340, width: 'calc(100% / 3)' }}>
@@ -286,7 +291,7 @@ export function Monitor() {
                                     option={be_mem}
                                     notMerge={true}
                                     lazyUpdate={true}
-                                    style={{ height: 340, width: '100%',top:'-20px'}}
+                                    style={{ height: 340, width: '100%', top: '-20px' }}
                                 />
                             </Row>
                             <Row style={{ height: 340, width: 'calc(100% / 3)' }}>
@@ -296,30 +301,30 @@ export function Monitor() {
                                     option={be_disk_io}
                                     notMerge={true}
                                     lazyUpdate={true}
-                                    style={{ height: 340,width: '100%',top:'-20px' }}
+                                    style={{ height: 340, width: '100%', top: '-20px' }}
                                 />
                             </Row>
                         </Row>
                         <Divider />
-                        <Row justify="start" >
+                        <Row justify="start">
                             <Row style={{ height: 340, width: 'calc(100% / 2)' }}>
-                                <h4 style = {{marginLeft: '25px'}}>{t`BaselineDataVersionConsolidation`}</h4>
+                                <h4 style={{ marginLeft: '25px' }}>{t`BaselineDataVersionConsolidation`}</h4>
                                 <ReactEChartsCore
                                     echarts={echarts}
                                     option={be_base_compaction_score}
                                     notMerge={true}
                                     lazyUpdate={true}
-                                    style={{ height: 340, width: '100%',top:'-20px' }}
+                                    style={{ height: 340, width: '100%', top: '-20px' }}
                                 />
                             </Row>
                             <Row style={{ height: 340, width: 'calc(100% / 2)' }}>
-                                <h4 style={{ marginLeft: '25px' }}>{ t`IncrementalDataVersionConsolidation`}</h4>
+                                <h4 style={{ marginLeft: '25px' }}>{t`IncrementalDataVersionConsolidation`}</h4>
                                 <ReactEChartsCore
                                     echarts={echarts}
                                     option={be_cumu_compaction_score}
                                     notMerge={true}
                                     lazyUpdate={true}
-                                    style={{ height: 340,width: '100%',top:'-20px' }}
+                                    style={{ height: 340, width: '100%', top: '-20px' }}
                                 />
                             </Row>
                         </Row>
@@ -329,4 +334,3 @@ export function Monitor() {
         </div>
     );
 }
-export default Monitor;

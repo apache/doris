@@ -18,6 +18,7 @@
 package org.apache.doris.stack;
 
 import org.apache.doris.stack.service.config.SettingService;
+import org.apache.doris.stack.service.impl.ServerProcessImpl;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.service.user.UserService;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,9 @@ public class StartManagerRunner implements CommandLineRunner {
 
     @Autowired
     private UserService userService;
+
+    @Autowired
+    private ServerProcessImpl serverProcess;
 
     @Override
     public void run(String... args) {

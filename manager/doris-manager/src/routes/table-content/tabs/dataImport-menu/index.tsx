@@ -20,7 +20,6 @@
 import React from 'react';
 import { Menu, Dropdown, Button } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import { useHistory } from 'react-router-dom';
 import { FileWordOutlined, CloudServerOutlined } from '@ant-design/icons';
 import styles from '../tabs.module.less';
@@ -32,7 +31,7 @@ const getMenu = (history: any, props: any) => {
                     style={{ padding: '10px 25px', textAlign: 'center', color: '#757272' }}
                     onClick={() => {
                         history.push({
-                            pathname: `/${DEFAULT_NAMESPACE_ID}/local-import/${localStorage.table_id}`,
+                            pathname: `/local-import/${localStorage.table_id}`,
                         });
                     }}
                 >
@@ -45,7 +44,7 @@ const getMenu = (history: any, props: any) => {
                     style={{ padding: '10px 25px', textAlign: 'center', color: '#757272' }}
                     onClick={() => {
                         history.push({
-                            pathname: `/${DEFAULT_NAMESPACE_ID}/system-import/${localStorage.table_id}`,
+                            pathname: `/system-import/${localStorage.table_id}`,
                         });
                     }}
                 >

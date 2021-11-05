@@ -72,6 +72,8 @@ public class UserInfo {
      */
     private Integer spaceId;
 
+    private String spaceName;
+
     private Integer collectionId;
 
     /**
@@ -238,6 +240,18 @@ public class UserInfo {
     @JSONField(name = "space_id")
     public void setSpaceId(Integer spaceId) {
         this.spaceId = spaceId;
+    }
+
+    @JsonProperty("space_name")
+    @JSONField(name = "space_name")
+    public String getSpaceName() {
+        return spaceName;
+    }
+
+    @JsonProperty("space_name")
+    @JSONField(name = "space_name")
+    public void setSpaceName(String spaceName) {
+        this.spaceName = spaceName;
     }
 
     @JsonProperty("space_complete")

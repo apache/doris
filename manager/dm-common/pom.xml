@@ -10,6 +10,6 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>dm-common</artifactId>
-    <packaging>jar</packaging>
+<!--    <packaging>jar</packaging>-->
 
 </project>

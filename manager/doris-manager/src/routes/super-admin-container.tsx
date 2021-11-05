@@ -16,15 +16,14 @@
 // under the License.
 
 import React, { lazy } from 'react';
-import { Redirect, Route, Router, Switch } from 'react-router-dom';
 import { Header } from '@src/components/header/header';
 import { Layout } from 'antd';
+import { Redirect, Route, Router, Switch } from 'react-router-dom';
+import SpaceNew from './super-admin/space/new-space/new-space';
+import SpaceList from './super-admin/space/list/list';
+import SpaceDetail from './super-admin/space/detail/space-detail';
 
-const SpaceList = lazy(() => import('./space/list'));
-const SpaceNew = lazy(() => import('./space/index'));
-const SpaceCheck = lazy(() => import('./space/space-check'));
-
-class AdminContainer extends React.Component<any, {}> {
+class SuperAdminContainer extends React.Component<any, {}> {
     constructor(props: any) {
         super(props);
     }
@@ -36,10 +35,10 @@ class AdminContainer extends React.Component<any, {}> {
                 <Header></Header>
                 <Switch>
                     {/* 空间 */}
-                    <Route path="/space/list" component={SpaceList} />
-                    <Route path="/space/check/:spaceId" component={SpaceCheck} />
-                    <Route path="/space/new" component={SpaceNew} />
-                    <Redirect to="/space/list" />
+                    <Route path="/super-admin/space/list" component={SpaceList} />
+                    <Route path="/super-admin/space/detail/:spaceId" component={SpaceDetail} />
+                    <Route path="/super-admin/space/new" component={SpaceNew} />
+                    <Redirect to="/super-admin/space/list" />
                 </Switch>
               </Layout>
                 
@@ -48,4 +47,4 @@ class AdminContainer extends React.Component<any, {}> {
     }
 }
 
-export default AdminContainer;
+export default SuperAdminContainer;

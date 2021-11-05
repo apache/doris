@@ -14,15 +14,23 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+/** @format */
 
-import { getDefaultPageSize } from './utils/utils';
-import version from '../version.json';
+export interface GetMetaInfoRequestParams {
+    nsId: string;
+}
+export interface MetaInfoResponse {
+    beCount: number;
+    dbCount: number;
+    diskOccupancy: number;
+    feCount: number;
+    remainDisk: number;
+    tblCount: number;
+}
+export interface Space {
+    name: string;
+    description: string;
+    id: string;
+}
 
-export const TABLE_DELAY = 150;
-export const PAGESIZE_OPTIONS = ['10', '20', '50', '100', '200'];
-export const PAGINATION = {
-    current: 1,
-    pageSize: getDefaultPageSize(),
-    // total: 0
-};
-export const VERSION = `v${version.version}`;
+export type IRequiredMark = boolean | 'optional';

@@ -26,22 +26,27 @@ echo "build doris manager web end"
 
 cd ../
 echo "copy doris manager web resources to server"
-mkdir -p manager-server/src/main/resources/static
-cp -r doris-manager/dist/* manager-server/src/main/resources/static/
+rm -rf manager-server/src/main/resources/web-resource
+mv doris-manager/dist manager-server/src/main/resources/web-resource
 echo "copy doris manager web resources to server end"
 
 echo "build doris manager server start"
 set -e
-rm -rf output
-rm -rf output.tar.gz
-mkdir -p output
 mvn clean install
-mv manager-server/target/manager-server-1.0.0.jar output/doris-manager.jar
-cp -r conf output/
-cp -r manager-bin/* output/
+echo "build doris manager server end"
+
+echo "copy to output package start"
+rm -rf output
+rm -rf doris-manager-1.0.0.tar.gz
+mkdir -p output
+mkdir -p output/server/lib
+mv manager-server/target/manager-server-1.0.0.jar output/server/lib/doris-manager.jar
+cp -r conf output/server/
+cp -r manager-bin output/
+mv output/manager-bin output/server/bin
+cp -r dm-agent/src/main/resources/agent output/
 mkdir -p output/agent/lib
 mv dm-agent/target/dm-agent-1.0.0.jar output/agent/lib/dm-agent.jar
-cp -r manager-server/src/main/resources/static output/
-
-cp -r manager-server/src/main/resources output/
-tar -zcvf output.tar.gz output/
+cp -r manager-server/src/main/resources/web-resource output/server/
+tar -zcvf doris-manager-1.0.0.tar.gz output/
+echo "copy to output package end"

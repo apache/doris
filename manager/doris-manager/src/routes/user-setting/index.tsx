@@ -23,7 +23,7 @@ import { RequiredMark } from 'antd/lib/form/Form';
 import { UserSettingAPI } from './user.api';
 const { TabPane } = Tabs;
 import { useTranslation } from 'react-i18next';
-function NotFound() {
+function UserSetting() {
     useEffect(() => {
         getCurrentInfo();
     }, []);
@@ -221,4 +221,4 @@ function NotFound() {
         </div>
     );
 }
-export default NotFound;
+export default UserSetting;

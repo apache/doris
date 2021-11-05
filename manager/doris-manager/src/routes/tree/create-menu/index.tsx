@@ -22,7 +22,6 @@ import styles from './create.module.less';
 // import CSSModules from 'react-css-modules';
 import { Menu, Dropdown, Button, Space } from 'antd';
 import { TableOutlined, HddOutlined, PlusOutlined } from '@ant-design/icons';
-import { DEFAULT_NAMESPACE_ID } from '@src/config';
 import { useHistory } from 'react-router-dom';
 import DatabaseModal from './databaseModal';
 const getMenu = (history: any, setIsShow: any) => {
@@ -40,7 +39,7 @@ const getMenu = (history: any, setIsShow: any) => {
             </Menu.Item>
             <Menu.Item
                 onClick={() => {
-                    history.push(`/${DEFAULT_NAMESPACE_ID}/new-table`);
+                    history.push(`/new-table`);
                 }}
             >
                 <a style={{ padding: '15px 0', textAlign: 'center', color: '#757272' }}>
