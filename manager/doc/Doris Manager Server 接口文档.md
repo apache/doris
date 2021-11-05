@@ -579,16 +579,18 @@
 > |code  |String | 结果状态。0：正常  |
 > |data.id |int | 任务ID |
 > |data.processId |int | 任务所属流程ID |
-> |data.host |Date | 任务开始时间 |
-> |data.processType |Date | 安装类型      |
+> |data.host |Date | 任务执行host |
+> |data.processType |String | 安装类型      |
 > |data.taskType |String | 任务类型 |
-> |data.status |int | 任务返回状态。0：正常 |
-> |data.status |int | 任务返回状态。0：正常 |
-> |data.status |int | 任务返回状态。0：正常 |
+> |data.status |int | 任务返回状态。 |
+> |data.startTime |Date | 任务开始时间 |
+> |data.endTime |Date | 任务结束时间 |
+> |data.result |String | 任务返回结果 |
+> |data.finish |String | 任务是否执行成功。YES NO|
 
 **接口示例**
 
-> 地址：http://localhost:9601/api/process/task/result/9
+> 地址：http://localhost:9601/api/process/task/info/9
 
 ```
 > 返回参数：
@@ -597,14 +599,17 @@
     "msg": "success",
     "code": 0,
     "data": {
-        "taskResult": {
-            "taskId": "82b1fbc44b754a9eaf097c9bf4aee074",
-            "submitTime": "2021-11-02 09:41:49",
-            "startTime": "2021-11-02 09:41:49",
-            "endTime": "2021-11-02 09:41:49",
-            "taskState": "FINISHED",
-            "retCode": 0
-        }
+        "id": 1,
+        "processId": 1,
+        "host": "10.220.147.155",
+        "processType": "INSTALL_AGENT",
+        "taskType": "INSTALL_AGENT",
+        "status": "SUCCESS",
+        "startTime": "2021-11-05T10:33:23.000+00:00",
+        "endTime": "2021-11-05T10:33:26.000+00:00",
+        "executorId": null,
+        "result": "SUCCESS",
+        "finish": "YES"
     }
 }
 ```

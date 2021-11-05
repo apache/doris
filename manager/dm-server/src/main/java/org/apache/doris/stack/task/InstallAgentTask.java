@@ -78,9 +78,10 @@ public class InstallAgentTask extends AbstractTask {
      * start agent
      */
     private void startAgent(AgentInstall agentInstall) {
-        String command = "sh " + agentInstall.getInstallDir() + File.separator + AGENT_START_SCRIPT + " --server " + getServerAddr() + " --agent %s";
+        String agentHome = agentInstall.getInstallDir() + File.separator + "agent";
+        String command = "cd %s && sh %s  --server %s --agent %s";
         File sshKeyFile = buildSshKeyFile();
-        String cmd = String.format(command, agentInstall.getHost());
+        String cmd = String.format(command, agentHome, AGENT_START_SCRIPT, getServerAddr(), agentInstall.getHost());
         SSH ssh = new SSH(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), cmd);
         Integer run = ssh.run();
