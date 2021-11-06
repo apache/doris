@@ -537,7 +537,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, this);
+            outFileClause.analyze(analyzer, resultExprs);
         }
     }
 

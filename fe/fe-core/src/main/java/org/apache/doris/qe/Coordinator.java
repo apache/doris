@@ -1222,21 +1222,8 @@ public class Coordinator {
         }
 
         if (planFragment.hasColocatePlanNode()) {
+            colocateFragmentIds.add(planFragment.getId().asInt());
             return true;
-        }
-
-        if (node instanceof HashJoinNode) {
-            HashJoinNode joinNode = (HashJoinNode) node;
-            if (joinNode.isColocate()) {
-                colocateFragmentIds.add(joinNode.getFragmentId().asInt());
-                return true;
-            }
-        }
-
-        for (PlanNode childNode : node.getChildren()) {
-            if (childNode.getFragmentId().asInt() == planFragment.getId().asInt() && isColocateFragment(planFragment, childNode)) {
-                return true;
-            }
         }
 
         return false;
