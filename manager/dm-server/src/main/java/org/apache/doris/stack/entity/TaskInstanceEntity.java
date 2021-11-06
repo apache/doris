@@ -76,7 +76,7 @@ public class TaskInstanceEntity {
     @Column(name = "executor_id")
     private String executorId;
 
-    @Column(name = "result")
+    @Column(name = "result", length = 1024)
     private String result;
 
     @Enumerated(EnumType.ORDINAL)

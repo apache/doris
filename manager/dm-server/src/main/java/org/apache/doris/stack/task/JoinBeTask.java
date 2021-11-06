@@ -59,7 +59,7 @@ public class JoinBeTask extends AbstractTask {
             throw new JdbcException("Failed to get fe's jdbc connection");
         }
 
-        String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND %s:%s";
+        String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND \"%s:%s\"";
         String addBe = String.format(addBeSqlFormat, requestParams.getBeHost(), beHeatPort);
         try {
             JdbcUtil.execute(conn, addBe);
