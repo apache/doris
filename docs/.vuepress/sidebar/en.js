@@ -426,6 +426,7 @@ module.exports = [
               "bitmap_and_not_count",
               "bitmap_subset_in_range",
               "bitmap_subset_limit",
+              "sub_bitmap",
               "bitmap_to_string",
               "bitmap_union",
               "bitmap_xor",
