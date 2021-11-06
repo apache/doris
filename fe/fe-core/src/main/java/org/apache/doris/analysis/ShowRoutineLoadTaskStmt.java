@@ -145,4 +145,9 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
     public static List<String> getTitleNames() {
         return TITLE_NAMES;
     }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }
