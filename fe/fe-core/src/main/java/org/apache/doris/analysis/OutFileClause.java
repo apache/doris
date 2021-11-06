@@ -158,7 +158,7 @@ public class OutFileClause {
         return schema;
     }
 
-    private void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer, List<Expr> resultExprs) throws UserException {
         if (isAnalyzed) {
             // If the query stmt is rewritten, the whole stmt will be analyzed again.
             // But some of fields in this OutfileClause has been changed,
@@ -187,13 +187,9 @@ public class OutFileClause {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
         }
         isAnalyzed = true;
-    }
-
-    public void analyze(Analyzer analyzer, SelectStmt stmt) throws UserException {
-        analyze(analyzer);
 
         if (isParquetFormat()) {
-            analyzeForParquetFormat(stmt.getResultExprs());
+            analyzeForParquetFormat(resultExprs);
         }
     }
 

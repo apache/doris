@@ -258,6 +258,8 @@ public class SetOperationStmt extends QueryStmt {
         setOpsResultExprs_ = Expr.cloneList(resultExprs);
         if (evaluateOrderBy) createSortTupleInfo(analyzer);
         baseTblResultExprs = resultExprs;
+
+        if (hasOutFileClause()) outFileClause.analyze(analyzer, resultExprs);
     }
 
     /**
