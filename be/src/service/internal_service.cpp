@@ -315,7 +315,7 @@ void PInternalServiceImpl<T>::apply_filter(::google::protobuf::RpcController* co
     VLOG_NOTICE << "rpc apply_filter recv";
     Status st = _exec_env->fragment_mgr()->apply_filter(request, attachment.to_string().data());
     if (!st.ok()) {
-        LOG(WARNING) << "apply filter meet error" << st.to_string();
+        LOG(WARNING) << "apply filter meet error: " << st.to_string();
     }
     st.to_protobuf(response->mutable_status());
 }

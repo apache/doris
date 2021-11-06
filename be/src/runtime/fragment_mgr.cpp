@@ -373,7 +373,11 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
         try {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus: " << e.what();
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: "
+                         << print_id(_query_id) << ", instance id: "
+                         << print_id(_fragment_instance_id)
+                         << " to " << _coord_addr
+                         << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -822,7 +826,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
             VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id");
+            return Status::InvalidArgument("fragment-id: " + fragment_instance_id.to_string());
         }
         fragment_state = iter->second;
     }
