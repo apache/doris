@@ -751,7 +751,64 @@ TEST_F(BitmapFunctionsTest, bitmap_subset_in_range) {
 
     res = BitmapFunctions::bitmap_subset_in_range(ctx, bitmap_src, BigIntVal::null(), BigIntVal::null());
     ASSERT_TRUE(res.is_null);
+}
 
+TEST_F(BitmapFunctionsTest, sub_bitmap) {
+    // normal
+    BitmapValue bitmap1({0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,100,200,500});
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+
+    StringVal res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(6));
+    BitmapValue bitmap2({30,31,32,33,100,200});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap2));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(100));
+    BitmapValue bitmap3({30,31,32,33,100,200,500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap3));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(INT64_MAX));
+    BitmapValue bitmap4({30,31,32,33,100,200,500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap4));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(0), BigIntVal(2));
+    BitmapValue bitmap5({0,1});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap5));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-1), BigIntVal(2));
+    BitmapValue bitmap6({500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap6));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-7), BigIntVal(6));
+    BitmapValue bitmap7({30,31,32,33,100,200});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap7));
+
+    // null
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(0), BigIntVal(0));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(100), BigIntVal(6));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-100), BigIntVal(6));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(INT64_MIN));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, StringVal::null(), BigIntVal(1), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal::null(), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(10), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+
+    // empty
+    BitmapValue bitmap0;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap0);
+    res = BitmapFunctions::sub_bitmap(ctx, empty_str, BigIntVal(0), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_subset_limit) {
