@@ -1489,6 +1489,32 @@ public:
                 break;
             }
         }
+	return count;
+    }
+
+    /**
+     * Returns the bitmap elements, starting from the offset position.
+     * The number of returned elements is limited by the cardinality_limit parameter.
+     * Analog of the substring string function, but for bitmap.
+     */
+    int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
+        if (std::abs(offset) >= _bitmap.cardinality()) {
+            return 0;
+        }
+        int64_t abs_offset = offset;
+        if (offset < 0) {
+            abs_offset = _bitmap.cardinality() + offset;
+        }
+
+        int64_t count = 0;
+        int64_t offset_count = 0;
+        auto it = _bitmap.begin();
+        for (;it != _bitmap.end() && offset_count < abs_offset; ++it) {
+            ++offset_count;
+        }
+        for (;it != _bitmap.end() && count < limit; ++it, ++count) {
+            ret_bitmap->add(*it);
+        }
         return count;
     }
 
