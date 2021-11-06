@@ -90,9 +90,9 @@ Here I am performing the compilation of Datax into a tar package, which is not t
 mvn -U clean package assembly:assembly -Dmaven.test.skip=true
 ```
 
-![image-20210903132250723](/images/datax/image-20210903132250723.png)
+![image-20210903132250723](/images/image-20210903132250723.png)
 
-![image-20210903132539511](/images/datax/image-20210903132539511.png)
+![image-20210903132539511](/images/image-20210903132539511.png)
 
 After the compilation is complete, the tar package is in the `Datax/target` directory. You can copy the tar package to the place you need. Here I am directly performing the test in datax. Because the python version is 3.x version, you need to The three files in the bin directory are replaced with other versions of python 3. You can download this from the following address:
 
@@ -244,7 +244,7 @@ python bin/datax.py doris.json
 
 Then you can see the execution result:
 
-![image-20210903134043421](/images/datax/image-20210903134043421.png)
+![image-20210903134043421](/images/image-20210903134043421.png)
 
 Then go to the Doris database to check your table, the data has been imported, and the task execution is over
 
