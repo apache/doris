@@ -17,18 +17,19 @@
 
 package org.apache.doris.stack.task;
 
-import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.bean.SpringApplicationContext;
 import org.apache.doris.stack.constants.Constants;
+import org.apache.doris.stack.exceptions.JdbcException;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.BeJoin;
 import org.apache.doris.stack.runner.TaskContext;
-import org.apache.doris.stack.service.RestService;
+import org.apache.doris.stack.util.JdbcUtil;
 
-import java.util.Map;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.Properties;
 
 /**
@@ -39,29 +40,32 @@ public class JoinBeTask extends AbstractTask {
 
     private AgentRest agentRest;
 
-    private RestService restService;
-
     public JoinBeTask(TaskContext taskContext) {
         super(taskContext);
         this.agentRest = SpringApplicationContext.getBean(AgentRest.class);
-        this.restService = SpringApplicationContext.getBean(RestService.class);
     }
 
     @Override
     public void handle() {
         BeJoin requestParams = (BeJoin) taskContext.getRequestParams();
         String backendHost = requestParams.getBeHost();
-        Map<String, Integer> backends = Maps.newHashMap();
         Properties beConf = agentRest.roleConfig(backendHost, requestParams.getAgentPort(), ServiceRole.BE.name());
-        Integer beHeatPort = Integer.valueOf(beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT));
-        backends.put(backendHost, beHeatPort);
-        Map<String, Boolean> statusMap = restService.addBackends(backendHost, requestParams.getFeHttpPort(), backends, requestParams.getHeaders());
+        String beHeatPort = beConf.getProperty(Constants.KEY_BE_HEARTBEAT_PORT);
+        Connection conn = null;
+        try {
+            conn = JdbcUtil.getConnection(requestParams.getFeHost(), requestParams.getFeQueryPort());
+        } catch (SQLException e) {
+            log.error("get connection fail:", e);
+            throw new JdbcException("Failed to get fe's jdbc connection");
+        }
 
-        if (statusMap == null
-                || statusMap.get(backendHost) == null
-                || !statusMap.get(backendHost)) {
-            log.error("failed add backend: {}:{}", backendHost, beHeatPort);
-            throw new ServerException("failed add backend:" + backendHost);
+        String addBeSqlFormat = "ALTER SYSTEM ADD BACKEND %s:%s";
+        String addBe = String.format(addBeSqlFormat, requestParams.getBeHost(), beHeatPort);
+        try {
+            JdbcUtil.execute(conn, addBe);
+        } catch (SQLException e) {
+            log.error("Failed to add backend:{}:{}", requestParams.getBeHost(), beHeatPort, e);
+            throw new ServerException(e.getMessage());
         }
     }
 }

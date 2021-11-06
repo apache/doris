@@ -615,7 +615,57 @@
 ```
 
 
-#### 10.查看Agent上安装的角色列表
+#### 10.查看任务执行日志
+
+**接口功能**
+
+> 查看任务最近1MB日志
+
+**URL**
+
+> /api/process/task/log/{taskId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> GET
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |taskId    |true    |String   |任务id|
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.logPath |String | 任务日志路径 |
+> |data.log |String | 日志内容 |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/task/log/9
+
+```
+> 返回参数：
+​``` json
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "logPath": "/usr/local/doris/agent/log/task.log",
+        "log": "2021-11-05 19:01:38.434 [pool-2-thread-1] INFO  TASK_LOG - scriptCmd:/bin/sh /usr/local/doris/agent/bin/install_fe.sh  --installDir /usr"
+    }
+}
+```
+
+#### 11.查看Agent上安装的角色列表
 
 **接口功能**
 

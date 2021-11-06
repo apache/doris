@@ -20,7 +20,6 @@ package org.apache.doris.stack.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -70,8 +69,8 @@ import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.runner.TaskExecCallback;
 import org.apache.doris.stack.runner.TaskExecuteThread;
 import org.apache.doris.stack.service.AgentProcess;
-import org.apache.doris.stack.service.RestService;
 import org.apache.doris.stack.service.user.AuthenticationService;
+import org.apache.doris.stack.util.JdbcUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -80,9 +79,12 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -116,9 +118,6 @@ public class AgentProcessImpl implements AgentProcess {
 
     @Autowired
     private AuthenticationService authenticationService;
-
-    @Autowired
-    private RestService restService;
 
     @Override
     @Transactional
@@ -281,10 +280,10 @@ public class AgentProcessImpl implements AgentProcess {
     /**
      * get fe http port
      **/
-    public Integer getFeHttpPort(String host, Integer port) {
+    public Integer getFeQueryPort(String host, Integer port) {
         Properties feConf = agentRest.roleConfig(host, port, ServiceRole.FE.name());
         try {
-            Integer httpPort = Integer.valueOf(feConf.getProperty(Constants.KEY_FE_HTTP_PORT));
+            Integer httpPort = Integer.valueOf(feConf.getProperty(Constants.KEY_FE_QUERY_PORT));
             return httpPort;
         } catch (NumberFormatException e) {
             log.warn("get fe http port fail,return default port 8030");
@@ -313,18 +312,31 @@ public class AgentProcessImpl implements AgentProcess {
      */
     public String getLeaderFeHostPort(int clusterId, HttpServletRequest request) {
         AgentEntity aliveAgent = getAliveAgent(clusterId);
-        Integer httpPort = getFeHttpPort(aliveAgent.getHost(), aliveAgent.getPort());
-        Map<String, String> headers = Maps.newHashMap();
-        RestService.setAuthHeader(request, headers);
-        List<Map<String, String>> frontends = restService.frontends(aliveAgent.getHost(), httpPort, headers);
+        Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
+        //query leader fe
+        Connection conn = null;
+        PreparedStatement stmt = null;
+        ResultSet rs = null;
         String leaderFe = null;
-        for (Map<String, String> frontend : frontends) {
-            if (Boolean.valueOf(frontend.get("IsMaster"))) {
-                String ip = frontend.get("IP");
-                String editLogPort = frontend.get("EditLogPort");
-                leaderFe = ip + ":" + editLogPort;
-                break;
+        try {
+            conn = JdbcUtil.getConnection(aliveAgent.getHost(), queryPort);
+            stmt = conn.prepareStatement("SHOW FRONTENDS");
+            rs = stmt.executeQuery();
+            while (rs.next()) {
+                boolean isMaster = rs.getBoolean("IsMaster");
+                if (isMaster) {
+                    String ip = rs.getString("IP");
+                    String editLogPort = rs.getString("EditLogPort");
+                    leaderFe = ip + ":" + editLogPort;
+                    break;
+                }
             }
+        } catch (SQLException e) {
+            log.error("query show frontends fail", e);
+        } finally {
+            JdbcUtil.closeStmt(stmt);
+            JdbcUtil.closeRs(rs);
+            JdbcUtil.closeConn(conn);
         }
         if (StringUtils.isBlank(leaderFe)) {
             log.error("can not get leader fe");
@@ -356,26 +368,22 @@ public class AgentProcessImpl implements AgentProcess {
         processInstanceComponent.checkHasUnfinishProcess(userId, beJoinReq.getProcessId());
         boolean success = taskInstanceComponent.checkParentTaskSuccess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
-
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
-        Map<String, String> headers = Maps.newHashMap();
-        RestService.setAuthHeader(request, headers);
-        RestService.setPostHeader(headers);
 
         for (String be : beJoinReq.getHosts()) {
-            addBeToCluster(process.getId(), be, process.getClusterId(), headers);
+            addBeToCluster(process.getId(), be, process.getClusterId());
         }
     }
 
-    private void addBeToCluster(int processId, String be, int clusterId, Map<String, String> headers) {
+    private void addBeToCluster(int processId, String be, int clusterId) {
         int agentPort = agentPort(be);
         AgentEntity aliveAgent = getAliveAgent(clusterId);
-        Integer httpPort = getFeHttpPort(aliveAgent.getHost(), aliveAgent.getPort());
+        Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
         TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(processId, be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
         if (joinBeTask == null) {
             return;
         }
-        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, joinBeTask, new BeJoin(aliveAgent.getHost(), httpPort, be, agentPort, headers));
+        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, joinBeTask, new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort));
         ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
         Futures.addCallback(submit, new TaskExecCallback(taskContext));
     }

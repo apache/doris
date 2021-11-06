@@ -21,7 +21,6 @@ public class Constants {
 
     public static final String KEY_DORIS_AGENT_START_SCRIPT = "bin/agent_start.sh";
     public static final String KEY_FE_QUERY_PORT = "query_port";
-    public static final String KEY_FE_HTTP_PORT = "http_port";
     public static final String KEY_BE_HEARTBEAT_PORT = "heartbeat_service_port";
 
     public static final String DORIS_DEFAULT_QUERY_USER = "root";
