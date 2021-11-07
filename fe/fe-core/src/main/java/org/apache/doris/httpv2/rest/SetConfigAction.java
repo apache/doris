@@ -20,9 +20,8 @@ package org.apache.doris.httpv2.rest;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.ConfigBase.ConfField;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -39,10 +38,9 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -88,49 +86,20 @@ public class SetConfigAction extends RestBaseController {
 
         LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
 
-        Field[] fields = ConfigBase.confClass.getFields();
-        for (Field f : fields) {
-            // ensure that field has "@ConfField" annotation
-            ConfField anno = f.getAnnotation(ConfField.class);
-
-            if (anno == null) {
-                continue;
-            }
-
-            // ensure that field has property string
-            String confKey = anno.value().equals("") ? f.getName() : anno.value();
-            String[] confVals = configs.get(confKey);
-            if (confVals == null) {
-                continue;
-            }
-
-            if (confVals.length != 1) {
-                errConfigs.add(new ErrConfig(confKey, "", "No or multiple configuration values."));
-                continue;
-            }
-
-            if (!anno.mutable()) {
-                errConfigs.add(new ErrConfig(confKey, confVals[0], "Not support dynamic modification."));
-                continue;
-            }
-
-            if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
-                errConfigs.add(new ErrConfig(confKey, confVals[0], "Not support modification on non-master"));
-                continue;
-            }
-
+        for (Map.Entry<String, String[]> config : configs.entrySet()) {
+            String confKey = config.getKey();
+            String[] confValue = config.getValue();
             try {
-                ConfigBase.setConfigField(f, confVals[0]);
-            } catch (IllegalArgumentException e){
-                errConfigs.add(new ErrConfig(confKey, confVals[0], "Unsupported configuration value type."));
-                continue;
-            } catch (Exception e) {
-                LOG.warn("failed to set config {}:{}, {}", confKey, confVals[0], e.getMessage());
-                errConfigs.add(new ErrConfig(confKey, confVals[0], e.getMessage()));
-                continue;
+                if (confValue != null && confValue.length == 1) {
+                    ConfigBase.setMutableConfig(confKey, confValue[0]);
+                    setConfigs.put(confKey, confValue[0]);
+                } else {
+                    throw new DdlException("conf value size != 1");
+                }
+            } catch (DdlException e) {
+                LOG.warn("failed to set config {}:{}", confKey, Arrays.toString(confValue), e);
+                errConfigs.add(new ErrConfig(confKey, Arrays.toString(confValue), e.getMessage()));
             }
-
-            setConfigs.put(confKey, confVals[0]);
         }
 
         String persistMsg = "";
@@ -141,15 +110,6 @@ public class SetConfigAction extends RestBaseController {
             } catch (IOException e) {
                 LOG.warn("failed to persist config", e);
                 persistMsg = e.getMessage();
-            }
-        }
-
-        List<String> errConfigNames = errConfigs.stream().map(ErrConfig::getConfigName).collect(Collectors.toList());
-        for (String key : configs.keySet()) {
-            if (!setConfigs.containsKey(key) && !errConfigNames.contains(key)) {
-                String[] confVals = configs.get(key);
-                String confVal = confVals.length == 1 ? confVals[0] : "invalid value";
-                errConfigs.add(new ErrConfig(key, confVal, "invalid config"));
             }
         }
 
