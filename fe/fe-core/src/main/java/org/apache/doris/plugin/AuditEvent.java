@@ -198,7 +198,7 @@ public class AuditEvent {
 
         public static String getPeakMemory(long peakMemoryBytes) {
             Pair<Double, String> pair = DebugUtil.getByteUint(peakMemoryBytes);
-            return new Formatter().format("%.2f", pair.first) + pair.second;
+            return pair.first == 0 ? "" : (new Formatter().format("%.2f", pair.first) + pair.second);
         }
     }
 }
