@@ -402,7 +402,7 @@ under the License.
 
         ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
 
-    21. Modify Engine Type
+    21. Modify engine Type
 
         ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
         
