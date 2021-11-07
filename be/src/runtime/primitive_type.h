@@ -242,6 +242,10 @@ struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using CppType = float;
 };
 template <>
+struct PrimitiveTypeTraits<TYPE_TIME> {
+    using CppType = double;
+};
+template <>
 struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using CppType = double;
 };
