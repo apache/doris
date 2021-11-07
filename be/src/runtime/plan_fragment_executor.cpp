@@ -83,6 +83,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
     _runtime_state->set_be_number(request.backend_num);
+    _runtime_state->set_backend_id(request.backend_id);
     if (request.__isset.import_label) {
         _runtime_state->set_import_label(request.import_label);
     }
@@ -342,6 +343,12 @@ void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
     _plan->collect_query_statistics(_query_statistics.get());
     _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
+    _collect_node_statistics();
+}
+
+void PlanFragmentExecutor::_collect_node_statistics() {
+    NodeStatistics* node_statistics = _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
+    node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
 }
 
 void PlanFragmentExecutor::report_profile() {

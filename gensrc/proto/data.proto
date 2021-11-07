@@ -20,11 +20,17 @@ syntax="proto2";
 package doris;
 option java_package = "org.apache.doris.proto";
 
+message PNodeStatistics {
+    required int64 node_id = 1;
+    optional int64 peak_memory_bytes = 2;
+}
+
 message PQueryStatistics {
     optional int64 scan_rows = 1;
     optional int64 scan_bytes = 2;
     optional int64 returned_rows = 3;
     optional int64 cpu_ms = 4;
+    repeated PNodeStatistics nodes_statistics = 5;
 }
 
 message PRowBatch {
