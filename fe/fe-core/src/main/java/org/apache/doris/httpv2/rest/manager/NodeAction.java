@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
@@ -54,7 +53,6 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -251,25 +249,20 @@ public class NodeAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
-        List<List<String>> results = Lists.newArrayList();
-        try {
-            List<List<String>> configs = ConfigBase.getConfigInfo(null);
-            // Sort all configs by config key.
-            Collections.sort(configs, Comparator.comparing(o -> o.get(0)));
+        List<List<String>> configs = ConfigBase.getConfigInfo(null);
+        // Sort all configs by config key.
+        configs.sort(Comparator.comparing(o -> o.get(0)));
 
-            // reorder the fields
-            for (List<String> config : configs) {
-                List<String> list = Lists.newArrayList();
-                list.add(config.get(0));
-                list.add(config.get(2));
-                list.add(config.get(4));
-                list.add(config.get(1));
-                list.add(config.get(3));
-                results.add(list);
-            }
-        } catch (DdlException e) {
-            LOG.warn(e);
-            return ResponseEntityBuilder.internalError(e.getMessage());
+        // reorder the fields
+        List<List<String>> results = Lists.newArrayList();
+        for (List<String> config : configs) {
+            List<String> list = Lists.newArrayList();
+            list.add(config.get(0));
+            list.add(config.get(2));
+            list.add(config.get(4));
+            list.add(config.get(1));
+            list.add(config.get(3));
+            results.add(list);
         }
         return results;
     }
