@@ -625,7 +625,9 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
-    // 1 bits for neg. 3 bits for type. 12bit for second
+    // NOTICE: it's dangerous if you want to modify the memory structure of datetime
+    // which will cause problem in serialization/deserialization of RowBatch.
+    // 1 bits for neg. 3 bits for type. 12bit for hour
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.
     uint16_t _hour : 12;
