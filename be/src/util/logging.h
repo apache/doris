@@ -137,7 +137,7 @@ private:
     std::string _message;
 
     struct Tags {
-        const std::string& key;
+        const std::string key;
         const std::string value;
         Tags* next;
 
