@@ -57,6 +57,8 @@ public:
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
     static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
                                           const StringVal& dst);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& src,
+                                      const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
 
     static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
@@ -106,6 +108,9 @@ public:
                                             const BigIntVal& range_start, const BigIntVal& range_end);
     static StringVal bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
                                          const BigIntVal& range_start, const BigIntVal& cardinality_limit);
+    static StringVal sub_bitmap(FunctionContext* ctx, const StringVal& src,
+                                const BigIntVal& offset, const BigIntVal& cardinality_limit);
+
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

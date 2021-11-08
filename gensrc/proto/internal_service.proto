@@ -387,6 +387,35 @@ message PConstantExprResult {
     map<string, PExprResultMap> expr_result_map = 2;
 };
 
+message PCheckRPCChannelRequest {
+    optional bytes data = 1;
+    optional uint32 size = 2;
+    optional string md5 = 3;
+};
+
+message PCheckRPCChannelResponse {
+    required PStatus status = 1;
+};
+
+message PResetRPCChannelRequest {
+    required bool all = 1;
+    repeated string endpoints = 2;
+};
+
+message PResetRPCChannelResponse {
+    required PStatus status = 1;
+    repeated string channels = 2;
+};
+
+message PHandShakeRequest {
+    optional string hello = 1;
+}
+
+message PHandShakeResponse {
+    optional PStatus status = 1;
+    optional string hello = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -406,5 +435,8 @@ service PBackendService {
     rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
     rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
     rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
+    rpc reset_rpc_channel(PResetRPCChannelRequest) returns (PResetRPCChannelResponse);
+    rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
 };
 

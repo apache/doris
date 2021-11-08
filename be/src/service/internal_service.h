@@ -105,6 +105,16 @@ public:
     void fold_constant_expr(google::protobuf::RpcController* controller,
                             const PConstantExprRequest* request, PConstantExprResult* response,
                             google::protobuf::Closure* done) override;
+    void check_rpc_channel(google::protobuf::RpcController* controller,
+                           const PCheckRPCChannelRequest* request,
+                           PCheckRPCChannelResponse* response,
+                           google::protobuf::Closure* done) override;
+    void reset_rpc_channel(google::protobuf::RpcController* controller,
+                           const PResetRPCChannelRequest* request,
+                           PResetRPCChannelResponse* response,
+                           google::protobuf::Closure* done) override;
+    void hand_shake(google::protobuf::RpcController* controller, const PHandShakeRequest* request,
+                    PHandShakeResponse* response, google::protobuf::Closure* done) override;
 
 private:
     Status _exec_plan_fragment(const std::string& s_request, bool compact);

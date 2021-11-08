@@ -1456,3 +1456,9 @@ Increasing this value can reduce the number of calls to read remote data, but it
 * Default value: 1000000
 
 The default value is currently only an empirical value, and may need to be modified according to actual scenarios. Increasing this value can cache more segments and avoid some IO. Decreasing this value will reduce memory usage.
+
+### `auto_refresh_brpc_channel`
+
+* Type: bool
+* Description: When obtaining a brpc connection, judge the availability of the connection through hand_shake rpc, and re-establish the connection if it is not available 。
+* Default value: false

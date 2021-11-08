@@ -58,7 +58,7 @@ public class AdminSetConfigStmtTest {
         String stmt = "admin set frontend config(\"unknown_config\" = \"unknown\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) UtFrameUtils.parseAndAnalyzeStmt(stmt, connectContext);
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = Config 'unknown_config' does not exist or is not mutable");
+        expectedEx.expectMessage("errCode = 2, detailMessage = Config 'unknown_config' does not exist");
         Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt);
     }
 
