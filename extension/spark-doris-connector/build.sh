@@ -30,6 +30,7 @@ ROOT=`cd "$ROOT"; pwd`
 
 
 export DORIS_HOME=${ROOT}/../../
+export PATH=/var/local/thirdparty/installed/bin:$PATH:
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then

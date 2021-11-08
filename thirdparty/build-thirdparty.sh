@@ -256,8 +256,6 @@ build_thrift() {
     fi
 
     make -j $PARALLEL && make install
-    # Create soft link under `/usr/bin`
-    ln -s /var/local/thirdparty/installed/bin/thrift /usr/bin/thrift
 }
 
 # protobuf
