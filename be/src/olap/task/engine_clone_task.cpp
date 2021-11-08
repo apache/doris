@@ -171,10 +171,9 @@ OLAPStatus EngineCloneTask::_do_clone() {
                                     << _clone_req.schema_hash;
             string header_path = TabletMeta::construct_header_file_path(
                     schema_hash_path_stream.str(), _clone_req.tablet_id);
-            OLAPStatus reset_id_status = TabletMeta::reset_tablet_uid(header_path);
-            // reset_replica_id here. before load tablet to tablet_manager
-            OLAPStatus reset_replica_id_status = TabletMeta::reset_tablet_replica_id(header_path, replica_id);
-            if (reset_id_status != OLAP_SUCCESS || reset_replica_id_status != OLAP_SUCCESS) {
+            // reset_replica_id and tablet_uid here. before load tablet to tablet_manager
+            OLAPStatus reset_status = TabletMeta::reset_tablet_replica_id_and_uid(header_path, replica_id);
+            if (reset_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "errors while set tablet uid or replica id: '" << header_path;
                 _error_msgs->push_back("errors while set tablet uid/replica_id.");
                 status = DORIS_ERROR;

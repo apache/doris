@@ -250,7 +250,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const string& header_file) {
     return res;
 }
 
-OLAPStatus TabletMeta::reset_tablet_replica_id(const string& header_file, int64_t replica_id) {
+OLAPStatus TabletMeta::reset_tablet_replica_id_and_uid(const string& header_file, int64_t replica_id) {
     OLAPStatus res = OLAP_SUCCESS;
     TabletMeta tmp_tablet_meta;
     if ((res = tmp_tablet_meta.create_from_file(header_file)) != OLAP_SUCCESS) {
@@ -261,6 +261,7 @@ OLAPStatus TabletMeta::reset_tablet_replica_id(const string& header_file, int64_
     TabletMetaPB tmp_tablet_meta_pb;
     tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
     tmp_tablet_meta_pb.set_replica_id(replica_id);
+    *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(header_file, tmp_tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet meta pb to "
