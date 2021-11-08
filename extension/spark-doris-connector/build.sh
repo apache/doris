@@ -48,6 +48,7 @@ if ! ${MVN_CMD} --version; then
     exit 1
 fi
 export MVN_CMD
+rm -rf output/
 if [ $1 == 3 ]
 then
    ${MVN_CMD} clean package -f pom_3.0.xml
@@ -58,9 +59,7 @@ then
 fi
 
 mkdir -p output/
-cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-javadoc.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-sources.jar ./output/
+cp target/doris-spark*.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Spark-Doris-Connector"
