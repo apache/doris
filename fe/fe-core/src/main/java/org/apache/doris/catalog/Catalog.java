@@ -93,6 +93,7 @@ import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -3254,7 +3255,6 @@ public class Catalog {
         // create partition outside db lock
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
-
         // check replica quota if this operation done
         long indexNum = indexIdToMeta.size();
         long bucketNum = distributionInfo.getBucketNum();
@@ -3281,7 +3281,8 @@ public class Catalog {
                     tabletIdSet, olapTable.getCopiedIndexes(),
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
-                    singlePartitionDesc.getTabletType()
+                    singlePartitionDesc.getTabletType(),
+                    olapTable.getDataSortInfo()
             );
 
             // check again
@@ -3512,7 +3513,8 @@ public class Catalog {
                                                  List<Index> indexes,
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
-                                                 TTabletType tabletType) throws DdlException {
+                                                 TTabletType tabletType,
+                                                 DataSortInfo dataSortInfo)throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3579,7 +3581,8 @@ public class Catalog {
                             countDownLatch,
                             indexes,
                             isInMemory,
-                            tabletType);
+                            tabletType,
+                            dataSortInfo);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3687,6 +3690,20 @@ public class Catalog {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = stmt.getProperties();
+
+        // get storage format
+        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
+        try {
+            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setStorageFormat(storageFormat);
+
+        // check data sort properties
+        DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
+                keysDesc.keysColumnSize(), storageFormat);
+        olapTable.setDataSortInfo(dataSortInfo);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -3828,15 +3845,6 @@ public class Catalog {
         }
         Preconditions.checkNotNull(versionInfo);
 
-        // get storage format
-        TStorageFormat storageFormat = TStorageFormat.V2; // default is segment v2
-        try {
-            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setStorageFormat(storageFormat);
-
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<>();
@@ -3868,7 +3876,7 @@ public class Catalog {
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType);
+                        isInMemory, storageFormat, tabletType, olapTable.getDataSortInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3918,7 +3926,7 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()));
+                            partitionInfo.getTabletType(entry.getValue()), olapTable.getDataSortInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4233,6 +4241,11 @@ public class Catalog {
             // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));
+            }
+
+            // only display z-order sort info
+            if (olapTable.isZOrderSort()) {
+                sb.append(olapTable.getDataSortInfo().getProperties());
             }
 
             // in memory
@@ -6761,7 +6774,8 @@ public class Catalog {
                         copiedTbl.getCopiedIndexes(),
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
-                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId));
+                        copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getDataSortInfo());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {
