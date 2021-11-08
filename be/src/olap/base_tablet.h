@@ -149,6 +149,7 @@ inline void BaseTablet::set_creation_time(int64_t creation_time) {
 inline bool BaseTablet::equal(int64_t id, int32_t hash, int64_t r_id) {
     // For compatibility with older data, there is no replica id in the old version of the tablet meta
     // For new data with replica_id in the meta, there are some tasks that do not need to check the replica_id
+    // Only check replica_id in creat/drop/clone tablet tasks
     return (tablet_id() == id) && ((replica_id() == 0 || r_id == 0) ? true : (replica_id() == r_id)) && (schema_hash() == hash);
 }
 

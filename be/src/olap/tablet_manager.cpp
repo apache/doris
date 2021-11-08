@@ -167,7 +167,9 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, TReplicaId r
         res = OLAP_ERR_ENGINE_INSERT_OLD_TABLET;
     }
     LOG(WARNING) << "add duplicated tablet. force=" << force << ", res=" << res
-                 << ", tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+                 << ", tablet_id=" << tablet_id 
+                 << ", replica_id=" << replica_id
+                 << ", schema_hash=" << schema_hash
                  << ", old_version=" << old_version << ", new_version=" << new_version
                  << ", old_time=" << old_time << ", new_time=" << new_time
                  << ", old_tablet_path=" << existed_tablet->tablet_path()
@@ -229,7 +231,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
-    int64_t replica_id = request.replica_id;
+    int64_t replica_id = request.__isset.replica_id ? request.replica_id : 0;
     int32_t schema_hash = request.tablet_schema.schema_hash;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
               << ", replica_id=" << replica_id << ", schema_hash=" << schema_hash;
@@ -261,12 +263,15 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     // If the CreateTabletReq has base_tablet_id then it is a alter-tablet request
     if (request.__isset.base_tablet_id && request.base_tablet_id > 0) {
         is_schema_change = true;
-        base_tablet = _get_tablet_unlocked(request.base_tablet_id, request.base_schema_hash);
+        int64_t base_replica_id = request.__isset.base_replica_id ? request.base_replica_id : 0;
+        base_tablet = _get_tablet_unlocked(request.base_tablet_id, request.base_schema_hash, base_replica_id);
         if (base_tablet == nullptr) {
             LOG(WARNING) << "fail to create tablet(change schema), base tablet does not exist. "
                          << "new_tablet_id=" << tablet_id << ", new_schema_hash=" << schema_hash
+                         << ", new_replica_id=" << replica_id
                          << ", base_tablet_id=" << request.base_tablet_id
-                         << ", base_schema_hash=" << request.base_schema_hash;
+                         << ", base_schema_hash=" << request.base_schema_hash
+                         << ", base_replica_id=" << base_replica_id;
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return OLAP_ERR_TABLE_CREATE_META_ERROR;
         }
@@ -311,7 +316,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     TRACE("create tablet meta");
 
     int64_t new_tablet_id = request.tablet_id;
-    int64_t new_replica_id = request.replica_id;
+    int64_t new_replica_id = request.__isset.replica_id ? request.replica_id : 0;
     int32_t new_schema_hash = request.tablet_schema.schema_hash;
 
     // should remove the tablet's pending_id no matter create-tablet success or not
@@ -482,7 +487,9 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId 
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id, schema_hash, replica_id);
     if (to_drop_tablet == nullptr) {
         LOG(WARNING) << "fail to drop tablet because it does not exist. "
-                     << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+                     << "tablet_id=" << tablet_id 
+                     << ", replica_id=" << replica_id
+                     << ", schema_hash=" << schema_hash;
         return OLAP_SUCCESS;
     }
 
@@ -864,14 +871,16 @@ OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     DorisMetrics::instance()->report_tablet_requests_total->increment(1);
     LOG(INFO) << "begin to process report tablet info."
               << "tablet_id=" << tablet_info->tablet_id
+              << "replica_id=" << tablet_info->replica_id
               << ", schema_hash=" << tablet_info->schema_hash;
 
     OLAPStatus res = OLAP_SUCCESS;
 
-    TabletSharedPtr tablet = get_tablet(tablet_info->tablet_id, tablet_info->schema_hash);
+    TabletSharedPtr tablet = get_tablet(tablet_info->tablet_id, tablet_info->schema_hash, tablet_info->replica_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. "
-                     << " tablet=" << tablet_info->tablet_id
+                     << " tablet_id=" << tablet_info->tablet_id
+                     << " replica_id=" << tablet_info->replica_id
                      << " schema_hash=" << tablet_info->schema_hash;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
@@ -1394,7 +1403,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
         }
     }
 
-    VLOG_NOTICE << "fail to get tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+    VLOG_NOTICE << "fail to get tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id << ", schema_hash=" << schema_hash;
     // Return nullptr tablet if fail
     TabletSharedPtr tablet;
     return tablet;

@@ -371,10 +371,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             ++_s_report_version;
-            TReplicaId replica_id = 0;
-            if (create_tablet_req.__isset.replica_id) {
-                replica_id = create_tablet_req.replica_id;
-            }
+            TReplicaId replica_id = create_tablet_req.__isset.replica_id ? create_tablet_req.replica_id : 0;
             // get path hash of the created tablet
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                     create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash, replica_id);
@@ -387,6 +384,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.row_count = 0;
             tablet_info.data_size = 0;
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.replica_id = tablet->replica_id();
             finish_tablet_infos.push_back(tablet_info);
         }
         TRACE("StorageEngine create tablet finish, status: $0", create_status);
@@ -429,10 +427,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         std::vector<string> error_msgs;
         TStatus task_status;
         string err;
-        TReplicaId replica_id = 0;
-        if (drop_tablet_req.__isset.replica_id) {
-            replica_id = drop_tablet_req.replica_id;
-        }
+        TReplicaId replica_id = drop_tablet_req.__isset.replica_id ? drop_tablet_req.replica_id : 0;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, replica_id, false, &err);
         if (dropped_tablet != nullptr) {
@@ -850,12 +845,8 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
         TStatus task_status;
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
-            TReplicaId replica_id = 0;
-            if (tablet_meta_info.__isset.replica_id) {
-                replica_id = tablet_meta_info.replica_id;
-            }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash, replica_id);
+                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
             if (tablet == nullptr) {
                 LOG(WARNING) << "could not find tablet when update partition id"
                              << " tablet_id=" << tablet_meta_info.tablet_id
@@ -919,10 +910,7 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         DorisMetrics::instance()->clone_requests_total->increment(1);
         LOG(INFO) << "get clone task. signature:" << agent_task_req.signature;
 
-        TReplicaId replica_id = 0;
-        if (clone_req.__isset.replica_id) {
-            replica_id = clone_req.replica_id;
-        }
+        TReplicaId replica_id = clone_req.__isset.replica_id ? clone_req.replica_id : 0;
         // check tablet with the same tabletId existance, if exist, set tablet in clone mode
         TabletSharedPtr exist_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 clone_req.tablet_id, clone_req.schema_hash, replica_id);

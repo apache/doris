@@ -79,10 +79,12 @@ OLAPStatus EngineCloneTask::_do_clone() {
     // not null +  not null            +  the same version tablet exist, need repair.   +  false
     // not null +  null                +  can not exist this case                       +  -----
  
-    // Check local tablet exist or not
+    // Check local tablet exist or not, get replica with cheking replica_id
+    TReplicaId replica_id = _clone_req.__isset.replica_id ? _clone_req.replica_id : 0;
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            _clone_req.tablet_id, _clone_req.schema_hash, _clone_req.replica_id);
-    // for tablet with same tablet id, but diff replica id
+            _clone_req.tablet_id, _clone_req.schema_hash, replica_id);
+
+    // For tablet with same tablet id, but diff replica id. Get tablet without checking replica_id
     TabletSharedPtr old_version_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             _clone_req.tablet_id, _clone_req.schema_hash);
     bool is_new_tablet = tablet == nullptr;
@@ -118,6 +120,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
         LOG(INFO) << "tablet exist with number of missing version: " << missed_versions.size()
                   << ", try to incremental clone succeed: " << allow_incremental_clone
                   << ", signature: " << _signature << ", tablet id: " << _clone_req.tablet_id
+                  << ", replica id: " << replica_id
                   << ", schema hash: " << _clone_req.schema_hash
                   << ", clone version: " << _clone_req.committed_version
                   << ", download snapshot: " << status;
@@ -170,7 +173,7 @@ OLAPStatus EngineCloneTask::_do_clone() {
                     schema_hash_path_stream.str(), _clone_req.tablet_id);
             OLAPStatus reset_id_status = TabletMeta::reset_tablet_uid(header_path);
             // reset_replica_id here. before load tablet to tablet_manager
-            OLAPStatus reset_replica_id_status = TabletMeta::reset_tablet_replica_id(header_path, _clone_req.replica_id);
+            OLAPStatus reset_replica_id_status = TabletMeta::reset_tablet_replica_id(header_path, replica_id);
             if (reset_id_status != OLAP_SUCCESS || reset_replica_id_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "errors while set tablet uid or replica id: '" << header_path;
                 _error_msgs->push_back("errors while set tablet uid/replica_id.");
@@ -178,15 +181,15 @@ OLAPStatus EngineCloneTask::_do_clone() {
             } else {
                 OLAPStatus load_header_status;
                 if (old_version_tablet != nullptr) {
-                    // drop old version tablet first, then add new tablet
+                    // drop old version tablet first(force = true), then add new tablet
                     load_header_status = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
                                 store, _clone_req.tablet_id, _clone_req.schema_hash,
-                                schema_hash_path_stream.str(), true);
+                                schema_hash_path_stream.str(), true /*force*/);
                 } else {
                     // just create and add a new tablet 
                     load_header_status = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
                                 store, _clone_req.tablet_id, _clone_req.schema_hash,
-                                schema_hash_path_stream.str(), false);
+                                schema_hash_path_stream.str(), false /*force*/);
                 }
                         
                 if (load_header_status != OLAP_SUCCESS) {
@@ -232,13 +235,16 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
     // Get clone tablet info
     if (status == DORIS_SUCCESS || status == DORIS_CREATE_TABLE_EXIST) {
         TTabletInfo tablet_info;
+        int64_t replica_id = _clone_req.__isset.replica_id ? _clone_req.replica_id : 0;
         tablet_info.__set_tablet_id(_clone_req.tablet_id);
+        tablet_info.__set_replica_id(replica_id);
         tablet_info.__set_schema_hash(_clone_req.schema_hash);
         OLAPStatus get_tablet_info_status =
                 StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info);
         if (get_tablet_info_status != OLAP_SUCCESS) {
             LOG(WARNING) << "clone success, but get tablet info failed."
                          << " tablet id: " << _clone_req.tablet_id
+                         << " replica id: " << replica_id
                          << " schema hash: " << _clone_req.schema_hash
                          << " signature: " << _signature;
             _error_msgs->push_back("clone success, but get tablet info failed.");
@@ -246,6 +252,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
         } else if (_clone_req.__isset.committed_version &&
                    tablet_info.version < _clone_req.committed_version) {
             LOG(WARNING) << "failed to clone tablet. tablet_id:" << _clone_req.tablet_id
+                         << ", replica_id:" << replica_id
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
                          << ", expected_version: " << _clone_req.committed_version;
@@ -256,11 +263,12 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                 // if not, maybe this is a stale remaining table which is waiting for drop.
                 // we drop it.
                 LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
+                             << ", replica_id:" << replica_id
                              << ", schema_hash:" << _clone_req.schema_hash
                              << ", signature:" << _signature << ", version:" << tablet_info.version
                              << ", expected_version: " << _clone_req.committed_version;
                 OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                        _clone_req.tablet_id, _clone_req.replica_id, _clone_req.schema_hash);
+                        _clone_req.tablet_id, replica_id, _clone_req.schema_hash);
                 if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                     // just log
                     LOG(WARNING) << "drop stale cloned table failed! tablet id: "
@@ -270,6 +278,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
             status = DORIS_ERROR;
         } else {
             LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
+                      << ", replica_id:" << replica_id
                       << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
                       << ", version:" << tablet_info.version;
             _tablet_infos->push_back(tablet_info);
@@ -346,7 +355,9 @@ AgentStatus EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir, con
         if (status == DORIS_SUCCESS) {
             // change all rowset ids because they maybe its id same with local rowset
             auto olap_st = SnapshotManager::instance()->convert_rowset_ids(
-                    local_path, _clone_req.tablet_id, _clone_req.replica_id, _clone_req.schema_hash);
+                    local_path, _clone_req.tablet_id, 
+                    _clone_req.__isset.replica_id ? _clone_req.replica_id : 0, 
+                    _clone_req.schema_hash);
             if (olap_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to convert rowset ids, path=" << local_path
                              << ", tablet_id=" << _clone_req.tablet_id

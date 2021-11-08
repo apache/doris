@@ -39,7 +39,8 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
                               const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                               TabletMetaSharedPtr* tablet_meta) {
     tablet_meta->reset(new TabletMeta(
-            request.table_id, request.partition_id, request.tablet_id, request.replica_id,
+            request.table_id, request.partition_id, request.tablet_id,
+            request.__isset.replica_id ? request.replica_id : 0,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK));

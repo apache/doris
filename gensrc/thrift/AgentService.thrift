@@ -86,6 +86,7 @@ struct TCreateTabletReq {
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
     15: optional Types.TReplicaId replica_id
+    16: optional Types.TReplicaId base_replica_id
 }
 
 struct TDropTabletReq {
@@ -278,7 +279,6 @@ struct TTabletMetaInfo {
     3: optional Types.TPartitionId partition_id
     4: optional TTabletMetaType meta_type
     5: optional bool is_in_memory
-    6: optional Types.TReplicaId replica_id
 }
 
 struct TUpdateTabletMetaInfoReq {
