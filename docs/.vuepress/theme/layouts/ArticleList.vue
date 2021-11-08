@@ -24,7 +24,7 @@ under the License.
       <div class="article-list">
         <article class="article-item" v-for="item in currentArticleList" :key="item.key">
           <header class="article-item-title">
-            <router-link :to="item.path" class="nav-link">{{item.title}}</router-link>
+            <router-link :to="item.path" class="nav-link">{{item.frontmatter.title}}</router-link>
           </header>
           <p class="article-item-summary">{{item.frontmatter.description}}</p>
           <footer>
