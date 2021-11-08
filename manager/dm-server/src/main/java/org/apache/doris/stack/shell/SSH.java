@@ -37,7 +37,7 @@ public class SSH extends BaseCommand {
         this.sshPort = sshPort;
         this.sshKeyFile = sshKeyFile;
         this.host = host;
-        this.command = command;
+        this.command = "\"" + command + "\"";
     }
 
     protected void buildCommand() {
