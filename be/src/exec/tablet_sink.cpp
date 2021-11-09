@@ -145,8 +145,8 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
-        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info->host,
-                                                                  _node_info->brpc_port)) {
+        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info.host,
+                                                                  _node_info.brpc_port)) {
             ExecEnv::GetInstance()->brpc_stub_cache()->erase(_open_closure->cntl.remote_side());
         }
         std::stringstream ss;
