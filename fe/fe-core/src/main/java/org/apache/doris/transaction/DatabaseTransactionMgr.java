@@ -717,7 +717,7 @@ public class DatabaseTransactionMgr {
            }
         }
 
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        List<Table> tableList = db.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
         MetaLockUtils.writeLockTables(tableList);
         try {
             boolean hasError = false;
