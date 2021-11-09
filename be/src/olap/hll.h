@@ -33,7 +33,7 @@ class Slice;
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICIT_INT64_NUM = 160;
-const static int HLL_EXPLICIT_INT64_NUM_DOUBLE = HLL_EXPLICIT_INT64_NUM*2;
+const static int HLL_EXPLICIT_INT64_NUM_DOUBLE = HLL_EXPLICIT_INT64_NUM * 2;
 const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
