@@ -17,10 +17,11 @@
 
 #include "olap_scanner.h"
 
-#include <cstring>
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "common/utils.h"
+#include "exprs/expr_context.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -38,8 +39,7 @@
 namespace doris {
 
 OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                         bool need_agg_finalize, const TPaloScanRange& scan_range,
-                         const std::vector<OlapScanRange*>& key_ranges)
+                         bool need_agg_finalize, const TPaloScanRange& scan_range)
         : _runtime_state(runtime_state),
           _parent(parent),
           _tuple_desc(parent->_tuple_desc),
@@ -52,7 +52,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _need_agg_finalize(need_agg_finalize),
           _tuple_idx(parent->_tuple_idx),
           _direct_conjunct_size(parent->_direct_conjunct_size),
-          _reader(new Reader()),
+          _reader(new TupleReader),
           _version(-1),
           _mem_tracker(MemTracker::CreateTracker(
                   runtime_state->fragment_mem_tracker()->limit(), "OlapScanner",
@@ -164,8 +164,8 @@ Status OlapScanner::_init_params(
             continue;
         }
 
-        _params.range = (key_range->begin_include ? "ge" : "gt");
-        _params.end_range = (key_range->end_include ? "le" : "lt");
+        _params.start_key_include = key_range->begin_include;
+        _params.end_key_include = key_range->end_include;
 
         _params.start_key.push_back(key_range->begin_scan_range);
         _params.end_key.push_back(key_range->end_scan_range);
@@ -183,6 +183,7 @@ Status OlapScanner::_init_params(
              _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
+
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
@@ -292,6 +293,10 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             _convert_row_to_tuple(tuple);
             if (VLOG_ROW_IS_ON) {
                 VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
+            }
+
+            if (_num_rows_read % RELEASE_CONTEXT_COUNTER == 0) {
+                ExprContext::free_local_allocations(_conjunct_ctxs);
             }
 
             // 3.4 Set tuple to RowBatch(not committed)
@@ -444,7 +449,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_OBJECT:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;

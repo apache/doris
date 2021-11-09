@@ -84,7 +84,7 @@ Currently we only support routine load from the Kafka system. This section detai
 ### Usage restrictions
 
 1. Support unauthenticated Kafka access and Kafka clusters certified by SSL.
-2. The supported message format is csv text format. Each message is a line, and the end of the line does not contain a ** line break.
+2. The supported message format is csv text or json format. Each message is a line in csv format, and the end of the line does not contain a ** line break.
 3. Only Kafka 0.10.0.0 or above is supported.
 
 ### Create a routine load task
@@ -207,7 +207,7 @@ Accessing the SSL-certified Kafka cluster requires the user to provide a certifi
     CREATE FILE "ca.pem" PROPERTIES("url" = "https://example_url/kafka-key/ca.pem", "catalog" = "kafka");
     CREATE FILE "client.key" PROPERTIES("url" = "https://example_urlkafka-key/client.key", "catalog" = "kafka");
     CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
-```
+    ```
 
 2. Create a routine load job
 
@@ -231,7 +231,7 @@ Accessing the SSL-certified Kafka cluster requires the user to provide a certifi
 
 > Doris accesses Kafka clusters via Kafka's C++ API `librdkafka`. The parameters supported by `librdkafka` can be found.
 >
-> `https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md`
+> <https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md>
 
 ### Viewing the status of the load job
 
@@ -243,7 +243,7 @@ You can only view tasks that are currently running, and tasks that have ended an
 
 ### Alter job
 
-Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md).
+Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data%20Manipulation/alter-routine-load.md).
 
 ### Job Control
 

@@ -137,6 +137,28 @@ const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 
+constexpr size_t const_length(const char* str) {
+    return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
+}
+
+constexpr size_t max_char_length(const char* const* name, size_t end) {
+    size_t res = 0;
+    for (int i = 0; i < end; ++i) {
+        res = std::max(const_length(name[i]), res);
+    }
+    return res;
+}
+
+static constexpr const char* s_month_name[] = {
+        "",     "January", "February",  "March",   "April",    "May",      "June",
+        "July", "August",  "September", "October", "November", "December", NULL};
+
+static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
+                                             "Friday", "Saturday", "Sunday",    NULL};
+
+static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
+static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
+
 uint8_t mysql_week_mode(uint32_t mode);
 
 class DateTimeValue {
@@ -153,7 +175,7 @@ public:
               _day(0),
               _microsecond(0) {}
 
-    DateTimeValue(int64_t t) { from_date_int64(t); }
+    explicit DateTimeValue(int64_t t) { from_date_int64(t); }
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
         uint32_t minute, uint32_t second, uint32_t microsecond);
@@ -241,6 +263,8 @@ public:
     // TIME:  format 'hh:mm:ss.xxxxxx'
     // DATE:  format 'YYYY-MM-DD'
     // DATETIME:  format 'YYYY-MM-DD hh:mm:ss.xxxxxx'
+    int32_t to_buffer(char* buffer) const;
+
     char* to_string(char* to) const;
 
     // Convert this datetime value to string by the format string
@@ -254,6 +278,68 @@ public:
         uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
 
     static bool check_date(uint32_t year, uint32_t month, uint32_t day);
+
+    // compute the diff between two datetime value
+    template <TimeUnit unit>
+    static int64_t datetime_diff(const DateTimeValue& ts_value1, const DateTimeValue& ts_value2) {
+        switch (unit) {
+        case YEAR: {
+            int year = (ts_value2.year() - ts_value1.year());
+            if (year > 0) {
+                year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) <
+                        0;
+            } else if (year < 0) {
+                year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) >
+                        0;
+            }
+            return year;
+        }
+        case MONTH: {
+            int month = (ts_value2.year() - ts_value1.year()) * 12 +
+                        (ts_value2.month() - ts_value1.month());
+            if (month > 0) {
+                month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+            } else if (month < 0) {
+                month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
+            }
+            return month;
+        }
+        case WEEK: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day / 7;
+        }
+        case DAY: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day;
+        }
+        case HOUR: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t hour = second / 60 / 60;
+            return hour;
+        }
+        case MINUTE: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t minute = second / 60;
+            return minute;
+        }
+        case SECOND: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            return second;
+        }
+        }
+        // Rethink the default return value
+        return 0;
+    }
 
     // Convert this value to uint64_t
     // Will check its type
@@ -278,11 +364,13 @@ public:
 
     int year() const { return _year; }
     int month() const { return _month; }
+    int quarter() const { return (_month - 1) / 3 + 1; }
     int day() const { return _day; }
     int hour() const { return _hour; }
     int minute() const { return _minute; }
     int second() const { return _second; }
     int microsecond() const { return _microsecond; }
+    int neg() const { return _neg; }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0 || _microsecond != 0;
@@ -309,6 +397,7 @@ public:
 
     // Weekday, from 0(Mon) to 6(Sun)
     inline uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    inline auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
     // WEEK_MONDAY_FIRST (0)
@@ -513,11 +602,11 @@ private:
     int64_t standardize_timevalue(int64_t value);
 
     // Used to convert to a string.
-    char* append_date_string(char* to) const;
-    char* append_time_string(char* to) const;
-    char* to_datetime_string(char* to) const;
-    char* to_date_string(char* to) const;
-    char* to_time_string(char* to) const;
+    char* append_date_buffer(char* to) const;
+    char* append_time_buffer(char* to) const;
+    char* to_datetime_buffer(char* to) const;
+    char* to_date_buffer(char* to) const;
+    char* to_time_buffer(char* to) const;
 
     // Used to convert to uint64_t
     int64_t to_datetime_int64() const;
@@ -536,6 +625,8 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
+    // NOTICE: it's dangerous if you want to modify the memory structure of datetime
+    // which will cause problem in serialization/deserialization of RowBatch.
     // 1 bits for neg. 3 bits for type. 12bit for hour
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.

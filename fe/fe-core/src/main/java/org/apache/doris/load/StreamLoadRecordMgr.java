@@ -272,7 +272,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     }
 
                     String fullDbName = ClusterNamespace.getFullName(cluster, streamLoadItem.getDb());
-                    Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(fullDbName);
                     if (db == null) {
                         String dbName = fullDbName;
                         if (Strings.isNullOrEmpty(streamLoadItem.getCluster())) {

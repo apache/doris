@@ -51,6 +51,12 @@ public class RangeUtils {
         }
     }
 
+    public static boolean checkIsTwoRangesIntersect(Range<PartitionKey> range1, Range<PartitionKey> range2) {
+        if (range2.isConnected(range1) && !range2.intersection(range1).isEmpty()) {
+            return true;
+        }
+        return false;
+    }
     /*
      * Pass only if the 2 range lists are exactly same
      * What is "exactly same"?

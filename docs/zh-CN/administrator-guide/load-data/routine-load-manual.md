@@ -84,7 +84,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 ### 使用限制
 
 1. 支持无认证的 Kafka 访问，以及通过 SSL 方式认证的 Kafka 集群。
-2. 支持的消息格式为 csv 文本格式。每一个 message 为一行，且行尾**不包含**换行符。
+2. 支持的消息格式为 csv, json 文本格式。csv 每一个 message 为一行，且行尾**不包含**换行符。
 3. 仅支持 Kafka 0.10.0.0(含) 以上版本。
 
 ### 创建例行导入任务
@@ -229,7 +229,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 > Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅
 >
-> `https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md`
+> <https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md>
 
 
 ### 查看导入作业状态
@@ -242,7 +242,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
 ### 修改作业属性
 
-用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看。或参阅 [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data Manipulation/alter-routine-load.md)。
+用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看。或参阅 [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data%20Manipulation/alter-routine-load.md)。
 
 ### 作业控制
 

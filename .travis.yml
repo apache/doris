@@ -35,7 +35,7 @@ before_script:
   - rm -rf site-repo
   
 script:
-  - npm run build
+  - travis_wait 30 npm run build
 
 after_success:
   - if [ "$TRAVIS_EVENT_TYPE" != "push" ]; then exit 0; fi

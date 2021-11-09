@@ -53,7 +53,7 @@ public class CacheBeProxy extends CacheProxy {
         try {
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance()
                     .updateCache(address, request);
-            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
             } else {
@@ -125,7 +125,7 @@ public class CacheBeProxy extends CacheProxy {
             request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
-            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
                 return true;

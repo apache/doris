@@ -471,7 +471,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         }
         TExtInPredicate ext_in_predicate;
         std::vector<TExtLiteral> in_pred_values;
-        InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
+        InPredicate* pred = static_cast<InPredicate*>(conjunct);
         ext_in_predicate.__set_is_not_in(pred->is_not_in());
         if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
             return false;
@@ -612,7 +612,8 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
     case TYPE_LARGEINT: {
         node_type = (TExprNodeType::LARGE_INT_LITERAL);
         TLargeIntLiteral large_int_literal;
-        large_int_literal.__set_value(LargeIntValue::to_string(*reinterpret_cast<__int128*>(value)));
+        large_int_literal.__set_value(
+                LargeIntValue::to_string(*reinterpret_cast<__int128*>(value)));
         literal->__set_large_int_literal(large_int_literal);
         break;
     }
@@ -645,7 +646,8 @@ bool EsScanNode::to_ext_literal(PrimitiveType slot_type, void* value, TExtLitera
     }
 
     case TYPE_CHAR:
-    case TYPE_VARCHAR: {
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
         node_type = (TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
         string_literal.__set_value((reinterpret_cast<StringValue*>(value))->debug_string());
@@ -762,7 +764,8 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
         int val_idx = cols_next_val_idx[i]++;
         switch (slot_desc->type().type) {
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             if (val_idx >= col.string_vals.size()) {
                 return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));
             }

@@ -25,12 +25,12 @@ import org.apache.doris.httpv2.rest.UploadAction;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -137,8 +137,8 @@ public class LoadSubmitter {
         }
 
         private Backend selectOneBackend() throws DdlException {
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
-                    1, true, false, SystemInfoService.DEFAULT_CLUSTER);
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                    1, true, false, SystemInfoService.DEFAULT_CLUSTER, null, null);
             if (backendIds == null) {
                 throw new DdlException("No alive backend");
             }

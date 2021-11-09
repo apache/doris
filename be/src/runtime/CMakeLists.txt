@@ -40,6 +40,7 @@ set(RUNTIME_FILES
     raw_value.cpp
     raw_value_ir.cpp
     result_sink.cpp
+    result_file_sink.cpp
     result_buffer_mgr.cpp
     result_writer.cpp
     row_batch.cpp

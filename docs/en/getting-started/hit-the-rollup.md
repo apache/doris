@@ -117,12 +117,14 @@ As shown in the figure above, the conditions of where and on in the query are pu
 +---------------+-------+--------------+------+-------+---------+-------+
 ```
 
-The prefix indexes of the three tables are
+The prefix indexes of the five tables are
 
 ```
 Base(k1 ,k2, k3, k4, k5, k6, k7)
 
-rollup_index1(k9), rollup_index2(k9)
+rollup_index1(k9)
+
+rollup_index2(k9)
 
 rollup_index3(k4, k5, k6, k1, k2, k3, k7)
 

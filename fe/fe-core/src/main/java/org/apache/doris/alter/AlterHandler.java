@@ -86,7 +86,11 @@ public abstract class AlterHandler extends MasterDaemon {
     }
     
     public AlterHandler(String name) {
-        super(name, FeConstants.default_scheduler_interval_millisecond);
+        this(name, FeConstants.default_scheduler_interval_millisecond);
+    }
+
+    public AlterHandler(String name, int scheduler_interval_millisecond) {
+        super(name, scheduler_interval_millisecond);
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {
@@ -302,41 +306,49 @@ public abstract class AlterHandler extends MasterDaemon {
         }
     }
 
-    public void replayInitJob(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayInitJob(db);
-        // add rollup job
-        addAlterJob(alterJob);
+    public void replayInitJob(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayInitJob(db);
+        } finally {
+            // add rollup job
+            addAlterJob(alterJob);
+        }
     }
     
-    public void replayFinishing(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayFinishing(db);
-        alterJob.setState(JobState.FINISHING);
-        // !!! the alter job should add to the cache again, because the alter job is deserialized from journal
-        // it is a different object compared to the cache
-        addAlterJob(alterJob);
+    public void replayFinishing(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayFinishing(db);
+        } finally {
+            alterJob.setState(JobState.FINISHING);
+            // !!! the alter job should add to the cache again, because the alter job is deserialized from journal
+            // it is a different object compared to the cache
+            addAlterJob(alterJob);
+        }
     }
 
-    public void replayFinish(AlterJob alterJob, Catalog catalog) {
-        Database db = catalog.getDb(alterJob.getDbId());
-        alterJob.replayFinish(db);
-        alterJob.setState(JobState.FINISHED);
-
-        jobDone(alterJob);
+    public void replayFinish(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
+        try {
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
+            alterJob.replayFinish(db);
+        } finally {
+            alterJob.setState(JobState.FINISHED);
+            jobDone(alterJob);
+        }
     }
 
-    public void replayCancel(AlterJob alterJob, Catalog catalog) {
+    public void replayCancel(AlterJob alterJob, Catalog catalog) throws MetaNotFoundException {
         removeAlterJob(alterJob.getTableId());
         alterJob.setState(JobState.CANCELLED);
-        Database db = catalog.getDb(alterJob.getDbId());
-        if (db != null) {
+        try {
             // we log rollup job cancelled even if db is dropped.
             // so check db != null here
+            Database db = catalog.getDbOrMetaException(alterJob.getDbId());
             alterJob.replayCancel(db);
+        } finally {
+            addFinishedOrCancelledAlterJob(alterJob);
         }
-
-        addFinishedOrCancelledAlterJob(alterJob);
     }
 
     @Override
@@ -405,12 +417,9 @@ public abstract class AlterHandler extends MasterDaemon {
      * In summary, we only need to update replica's version when replica's version is smaller than X
      */
     public void handleFinishAlterTask(AlterReplicaTask task) throws MetaNotFoundException {
-        Database db = Catalog.getCurrentCatalog().getDb(task.getDbId());
-        if (db == null) {
-            throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
 
-        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
+        OlapTable tbl = db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
         tbl.writeLock();
         try {
             Partition partition = tbl.getPartition(task.getPartitionId());

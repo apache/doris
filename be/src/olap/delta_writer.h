@@ -115,6 +115,9 @@ private:
     std::shared_ptr<MemTracker> _parent_mem_tracker;
     std::shared_ptr<MemTracker> _mem_tracker;
 
+    // The counter of number of segment flushed already.
+    int64_t _segment_counter = 0;
+
     SpinLock _lock;
 };
 

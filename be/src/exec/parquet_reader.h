@@ -52,12 +52,12 @@ class ParquetFile : public arrow::io::RandomAccessFile {
 public:
     ParquetFile(FileReader* file);
     virtual ~ParquetFile();
-    arrow::Status Read(int64_t nbytes, int64_t* bytes_read, void* buffer) override;
-    arrow::Status ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override;
-    arrow::Status GetSize(int64_t* size) override;
+    arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
+    arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
+    arrow::Result<int64_t> GetSize() override;
     arrow::Status Seek(int64_t position) override;
-    arrow::Status Read(int64_t nbytes, std::shared_ptr<arrow::Buffer>* out) override;
-    arrow::Status Tell(int64_t* position) const override;
+    arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override;
+    arrow::Result<int64_t> Tell() const override;
     arrow::Status Close() override;
     bool closed() const override;
 
@@ -95,7 +95,7 @@ private:
     std::shared_ptr<ParquetFile> _parquet;
 
     // parquet file reader object
-    std::shared_ptr<::arrow::RecordBatchReader> _rb_batch;
+    std::unique_ptr<::arrow::RecordBatchReader> _rb_batch;
     std::shared_ptr<arrow::RecordBatch> _batch;
     std::unique_ptr<parquet::arrow::FileReader> _reader;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;

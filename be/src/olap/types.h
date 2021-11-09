@@ -454,6 +454,10 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     using CppType = Slice;
 };
 template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_STRING> {
+    using CppType = Slice;
+};
+template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
     using CppType = Slice;
 };
@@ -591,7 +595,8 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
 
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
+        if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
+            src_type->type() == OLAP_FIELD_TYPE_STRING) {
             return arithmetic_convert_from_varchar<CppType>(dest, src);
         } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
             return numeric_convert_from_char<CppType>(dest, src);
@@ -866,7 +871,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         }
 
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
-            src_type->type() == OLAP_FIELD_TYPE_CHAR) {
+            src_type->type() == OLAP_FIELD_TYPE_CHAR ||
+            src_type->type() == OLAP_FIELD_TYPE_STRING) {
             if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
                 prepare_char_before_convert(src);
             }
@@ -969,9 +975,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
     }
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
-        if (value_len > OLAP_STRING_MAX_LENGTH) {
+        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << OLAP_STRING_MAX_LENGTH;
+                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -1042,6 +1048,55 @@ template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
+        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
+            LOG(WARNING) << "the len of value string is too long, len=" << value_len
+                         << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+
+        auto slice = reinterpret_cast<Slice*>(buf);
+        memory_copy(slice->data, scan_key.c_str(), value_len);
+        slice->size = value_len;
+        return OLAP_SUCCESS;
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+                                   MemPool* mem_pool) {
+        switch (src_type->type()) {
+        case OLAP_FIELD_TYPE_TINYINT:
+        case OLAP_FIELD_TYPE_SMALLINT:
+        case OLAP_FIELD_TYPE_INT:
+        case OLAP_FIELD_TYPE_BIGINT:
+        case OLAP_FIELD_TYPE_LARGEINT:
+        case OLAP_FIELD_TYPE_FLOAT:
+        case OLAP_FIELD_TYPE_DOUBLE:
+        case OLAP_FIELD_TYPE_DECIMAL: {
+            auto result = src_type->to_string(src);
+            auto slice = reinterpret_cast<Slice*>(dest);
+            slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
+            memcpy(slice->data, result.c_str(), result.size());
+            slice->size = result.size();
+            return OLAP_SUCCESS;
+        }
+        case OLAP_FIELD_TYPE_CHAR:
+            prepare_char_before_convert(src);
+            deep_copy(dest, src, mem_pool);
+            return OLAP_SUCCESS;
+        default:
+            return OLAP_ERR_INVALID_SCHEMA;
+        }
+    }
+
+    static void set_to_min(void* buf) {
+        auto slice = reinterpret_cast<Slice*>(buf);
+        slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
+    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+        size_t value_len = scan_key.length();
         if (value_len > OLAP_STRING_MAX_LENGTH) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
                          << ", max_len=" << OLAP_STRING_MAX_LENGTH;
@@ -1056,24 +1111,30 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
 
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) {
-        if (src_type->type() == OLAP_FIELD_TYPE_TINYINT ||
-            src_type->type() == OLAP_FIELD_TYPE_SMALLINT ||
-            src_type->type() == OLAP_FIELD_TYPE_INT || src_type->type() == OLAP_FIELD_TYPE_BIGINT ||
-            src_type->type() == OLAP_FIELD_TYPE_LARGEINT ||
-            src_type->type() == OLAP_FIELD_TYPE_FLOAT ||
-            src_type->type() == OLAP_FIELD_TYPE_DOUBLE ||
-            src_type->type() == OLAP_FIELD_TYPE_DECIMAL) {
+        switch (src_type->type()) {
+        case OLAP_FIELD_TYPE_TINYINT:
+        case OLAP_FIELD_TYPE_SMALLINT:
+        case OLAP_FIELD_TYPE_INT:
+        case OLAP_FIELD_TYPE_BIGINT:
+        case OLAP_FIELD_TYPE_LARGEINT:
+        case OLAP_FIELD_TYPE_FLOAT:
+        case OLAP_FIELD_TYPE_DOUBLE:
+        case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
             slice->size = result.size();
             return OLAP_SUCCESS;
-        } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
-            prepare_char_before_convert(src);
-            deep_copy(dest, src, mem_pool);
         }
-        return OLAP_ERR_INVALID_SCHEMA;
+        case OLAP_FIELD_TYPE_CHAR:
+            prepare_char_before_convert(src);
+        case OLAP_FIELD_TYPE_VARCHAR:
+            deep_copy(dest, src, mem_pool);
+            return OLAP_SUCCESS;
+        default:
+            return OLAP_ERR_INVALID_SCHEMA;
+        }
     }
 
     static void set_to_min(void* buf) {

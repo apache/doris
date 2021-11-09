@@ -50,7 +50,7 @@ public class ClusterBalanceProcDir implements ProcDirInterface {
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
         if (name.equals(CLUSTER_LOAD)) {
-            return new ClusterLoadStatByMedium();
+            return new ClusterLoadStatByTag();
         } else if (name.equals(WORKING_SLOTS)) {
             return new SchedulerWorkingSlotsProcDir();
         } else if (name.equals(SCHED_STAT)) {

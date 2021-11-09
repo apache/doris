@@ -44,9 +44,13 @@ OLAPStatus BetaRowset::init() {
     return OLAP_SUCCESS; // no op
 }
 
-// `use_cache` is ignored because beta rowset doesn't support fd cache now
-OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> parent) {
-    // Open all segments under the current rowset
+OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
+    // do nothing.
+    // the segments in this rowset will be loaded by calling load_segments() explicitly.
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
@@ -56,7 +60,7 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/, std::shared_ptr<MemTracker> p
                          << " : " << s.to_string();
             return OLAP_ERR_ROWSET_LOAD_FAILED;
         }
-        _segments.push_back(std::move(segment));
+        segments->push_back(std::move(segment));
     }
     return OLAP_SUCCESS;
 }
@@ -76,7 +80,7 @@ OLAPStatus BetaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_t
 }
 
 OLAPStatus BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count,
+                                   uint64_t request_block_row_count, size_t key_num,
                                    std::vector<OlapTuple>* ranges) {
     ranges->emplace_back(start_key.to_tuple());
     ranges->emplace_back(end_key.to_tuple());
@@ -108,7 +112,7 @@ OLAPStatus BetaRowset::remove() {
 }
 
 void BetaRowset::do_close() {
-    _segments.clear();
+    // do nothing.
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {

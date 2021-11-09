@@ -127,7 +127,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000;
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000
+                      << ", " << ctx->brief();
 
             // shutdown queue
             _queue.shutdown();
@@ -148,7 +149,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             if (left_bytes == ctx->max_batch_size) {
                 // nothing to be consumed, we have to cancel it, because
                 // we do not allow finishing stream load pipe without data
-                kafka_pipe->cancel();
+                kafka_pipe->cancel("no data");
                 return Status::Cancelled("Cancelled");
             } else {
                 DCHECK(left_bytes < ctx->max_batch_size);

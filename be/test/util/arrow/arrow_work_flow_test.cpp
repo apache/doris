@@ -298,6 +298,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     _tnode.csv_scan_node.__set_file_paths(file_paths);
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     Status status = scan_node.prepare(_state);
     ASSERT_TRUE(status.ok());
 

@@ -134,14 +134,6 @@ public:
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
 
-    // message for alter task
-    AlterTabletTaskSharedPtr alter_task();
-    void add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                        const std::vector<Version>& versions_to_alter,
-                        const AlterTabletType alter_type);
-    void delete_alter_task();
-    OLAPStatus set_alter_state(AlterTabletState state);
-
     // meta lock
     inline void obtain_header_rdlock() { _meta_lock.rdlock(); }
     inline void obtain_header_wrlock() { _meta_lock.wrlock(); }
@@ -166,7 +158,7 @@ public:
     inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
 
     // operation for compaction
-    bool can_do_compaction();
+    bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
     uint32_t calc_compaction_score(
             CompactionType compaction_type,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);

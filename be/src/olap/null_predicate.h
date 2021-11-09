@@ -30,7 +30,7 @@ class VectorizedRowBatch;
 
 class NullPredicate : public ColumnPredicate {
 public:
-    NullPredicate(uint32_t column_id, bool is_null,bool opposite = false);
+    NullPredicate(uint32_t column_id, bool is_null, bool opposite = false);
 
     virtual void evaluate(VectorizedRowBatch* batch) const override;
 
@@ -41,7 +41,7 @@ public:
     void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const override;
 
     virtual Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-                            uint32_t num_rows, Roaring* roaring) const override;
+                            uint32_t num_rows, roaring::Roaring* roaring) const override;
 
 private:
     bool _is_null; //true for null, false for not null

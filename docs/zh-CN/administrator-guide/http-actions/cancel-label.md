@@ -36,7 +36,7 @@ under the License.
         该命令用于cancel一个指定Label对应的事务，事务在Prepare阶段能够被成功cancel
 
     RETURN VALUES
-        执行完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
+        执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
         Status: 是否成功cancel
             Success: 成功cancel事务
             其他: cancel失败

@@ -35,10 +35,11 @@ class MemTable;
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
-    int64_t flush_time_ns = 0;
-    int64_t flush_count = 0;
-    int64_t flush_size_bytes = 0;
-    int64_t flush_disk_size_bytes = 0;
+    std::atomic_uint64_t flush_time_ns = 0;
+    std::atomic_uint64_t flush_count = 0;
+    std::atomic_uint64_t flush_size_bytes = 0;
+    std::atomic_uint64_t flush_disk_size_bytes = 0;
+    std::atomic_uint64_t flush_wait_time_ns = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -68,7 +69,7 @@ public:
     const FlushStatistic& get_stats() const { return _stats; }
 
 private:
-    void _flush_memtable(std::shared_ptr<MemTable> mem_table);
+    void _flush_memtable(std::shared_ptr<MemTable> mem_table, int64_t submit_task_time);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 

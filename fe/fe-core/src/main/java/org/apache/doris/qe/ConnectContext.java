@@ -28,17 +28,20 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.Set;
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -104,7 +107,8 @@ public class ConnectContext {
     protected Catalog catalog;
     protected boolean isSend;
 
-    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();;
+    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
+    ;
 
     protected String remoteIP;
 
@@ -115,6 +119,16 @@ public class ConnectContext {
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
+    // The resource tag is used to limit the node resources that the user can use for query.
+    // The default is empty, that is, unlimited.
+    // This property is obtained from UserProperty when the client connection is created.
+    // Only when the connection is created again, the new resource tags will be retrieved from the UserProperty
+    private Set<Tag> resourceTags = Sets.newHashSet();
+    // If set to true, the resource tags set in resourceTags will be used to limit the query resources.
+    // If set to false, the system will not restrict query resources.
+    private boolean isResourceTagsSet = false;
+
+    private String sqlHash;
 
     public static ConnectContext get() {
         return threadLocalInfo.get();
@@ -187,11 +201,6 @@ public class ConnectContext {
             }
             txnEntry = null;
         }
-    }
-
-    // Just for unit test
-    public void resetSessionVariables() {
-        sessionVariable = VariableMgr.newSessionVariable();
     }
 
     public long getStmtId() {
@@ -372,12 +381,7 @@ public class ConnectContext {
 
     public void setDatabase(String db) {
         currentDb = db;
-        Database database = Catalog.getCurrentCatalog().getDb(db);
-        if (database == null) {
-            currentDbId = -1;
-        } else {
-            currentDbId = database.getId();
-        }
+        currentDbId = Catalog.getCurrentCatalog().getDb(db).map(Database::getId).orElse(-1L);
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -417,6 +421,14 @@ public class ConnectContext {
 
     public void setCluster(String clusterName) {
         this.clusterName = clusterName;
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
+    }
+
+    public void setSqlHash(String sqlHash) {
+        this.sqlHash = sqlHash;
     }
 
     // kill operation with no protect.
@@ -474,9 +486,22 @@ public class ConnectContext {
         }
         return threadInfo;
     }
- 
+
+    public boolean isResourceTagsSet() {
+        return isResourceTagsSet;
+    }
+
+    public Set<Tag> getResourceTags() {
+        return resourceTags;
+    }
+
+    public void setResourceTags(Set<Tag> resourceTags) {
+        this.resourceTags = resourceTags;
+        this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    }
+
     public class ThreadInfo {
-        public List<String>  toRow(long nowMs) {
+        public List<String> toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));

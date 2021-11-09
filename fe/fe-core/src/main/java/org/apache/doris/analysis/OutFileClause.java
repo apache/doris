@@ -17,11 +17,14 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.HDFSStorage;
+import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
@@ -33,6 +36,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,6 +84,9 @@ public class OutFileClause {
     }
 
     public static final String LOCAL_FILE_PREFIX = "file:///";
+    private static final String S3_FILE_PREFIX = "S3://";
+    private static final String HDFS_FILE_PREFIX = "hdfs://";
+    private static final String HDFS_PROP_PREFIX = "hdfs.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -111,16 +118,20 @@ public class OutFileClause {
     private List<List<String>> schema = new ArrayList<>();
     private Map<String, String> fileProperties = new HashMap<>();
 
+    private boolean isAnalyzed = false;
+
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
         this.format = Strings.isNullOrEmpty(format) ? "csv" : format.toLowerCase();
         this.properties = properties;
+        this.isAnalyzed = false;
     }
 
     public OutFileClause(OutFileClause other) {
         this.filePath = other.filePath;
         this.format = other.format;
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
+        this.isAnalyzed = other.isAnalyzed;
     }
 
     public String getColumnSeparator() {
@@ -147,12 +158,16 @@ public class OutFileClause {
         return schema;
     }
 
-    private void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(Analyzer analyzer, List<Expr> resultExprs) throws UserException {
+        if (isAnalyzed) {
+            // If the query stmt is rewritten, the whole stmt will be analyzed again.
+            // But some of fields in this OutfileClause has been changed,
+            // such as `filePath`'s schema header has been removed.
+            // So OutfileClause does not support to be analyzed again.
+            return;
+        }
         analyzeFilePath();
 
-        if (Strings.isNullOrEmpty(filePath)) {
-            throw new AnalysisException("Must specify file in OUTFILE clause");
-        }
         switch (this.format) {
             case "csv":
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
@@ -171,13 +186,10 @@ public class OutFileClause {
         } else if (brokerDesc == null && !isLocalOutput) {
             throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
         }
-    }
-
-    public void analyze(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
-        analyze(analyzer);
+        isAnalyzed = true;
 
         if (isParquetFormat()) {
-            analyzeForParquetFormat(stmt.getResultExprs());
+            analyzeForParquetFormat(resultExprs);
         }
     }
 
@@ -232,9 +244,10 @@ public class OutFileClause {
                     break;
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/DECIMAL, should use byte_array, " +
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, " +
                                 "but the definition type of column " + i + " is " + type);
                     }
                     break;
@@ -272,6 +285,7 @@ public class OutFileClause {
                     break;
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                 case DECIMALV2:
                     column.add("byte_array");
                     break;
@@ -290,22 +304,27 @@ public class OutFileClause {
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed.");
+                throw new AnalysisException("Exporting results to local disk is not allowed." 
+                    + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
             }
             isLocalOutput = true;
             filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
         } else {
             isLocalOutput = false;
         }
+
+        if (Strings.isNullOrEmpty(filePath)) {
+            throw new AnalysisException("Must specify file in OUTFILE clause");
+        }
     }
 
-    private void analyzeProperties() throws AnalysisException {
+    private void analyzeProperties() throws UserException {
         if (properties == null || properties.isEmpty()) {
             return;
         }
 
         Set<String> processedPropKeys = Sets.newHashSet();
-        getBrokerProperties(processedPropKeys);
+        analyzeBrokerDesc(processedPropKeys);
 
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
             if (!isCsvFormat()) {
@@ -348,12 +367,27 @@ public class OutFileClause {
         }
     }
 
-    private void getBrokerProperties(Set<String> processedPropKeys) {
-        if (!properties.containsKey(PROP_BROKER_NAME)) {
+    /**
+     * The following two situations will generate the corresponding @brokerDesc:
+     * 1. broker: with broker name
+     * 2. s3: with s3 pattern path, without broker name
+     */
+    private void analyzeBrokerDesc(Set<String> processedPropKeys) throws UserException {
+        String brokerName = properties.get(PROP_BROKER_NAME);
+        StorageBackend.StorageType storageType;
+        if (properties.containsKey(PROP_BROKER_NAME)) {
+            processedPropKeys.add(PROP_BROKER_NAME);
+            storageType = StorageBackend.StorageType.BROKER;
+        } else if (filePath.toUpperCase().startsWith(S3_FILE_PREFIX)) {
+            brokerName = StorageBackend.StorageType.S3.name();
+            storageType = StorageBackend.StorageType.S3;
+        } else if (filePath.toUpperCase().startsWith(HDFS_FILE_PREFIX.toUpperCase())) {
+            brokerName = StorageBackend.StorageType.HDFS.name();
+            storageType = StorageBackend.StorageType.HDFS;
+            filePath = filePath.substring(HDFS_FILE_PREFIX.length() - 1);
+        } else {
             return;
         }
-        String brokerName = properties.get(PROP_BROKER_NAME);
-        processedPropKeys.add(PROP_BROKER_NAME);
 
         Map<String, String> brokerProps = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
@@ -362,10 +396,22 @@ public class OutFileClause {
             if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
                 brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
+            } else if (entry.getKey().toUpperCase().startsWith(S3Storage.S3_PROPERTIES_PREFIX)) {
+                brokerProps.put(entry.getKey(), entry.getValue());
+                processedPropKeys.add(entry.getKey());
+            } else if (entry.getKey().startsWith(HDFS_PROP_PREFIX)
+                    && storageType == StorageBackend.StorageType.HDFS) {
+                brokerProps.put(entry.getKey().substring(HDFS_PROP_PREFIX.length()), entry.getValue());
+                processedPropKeys.add(entry.getKey());
             }
         }
+        if (storageType == StorageBackend.StorageType.S3) {
+            S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
+        } else if (storageType == StorageBackend.StorageType.HDFS) {
+            HDFSStorage.checkHDFS(brokerProps);
+        }
 
-        brokerDesc = new BrokerDesc(brokerName, brokerProps);
+        brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
     }
 
     /**

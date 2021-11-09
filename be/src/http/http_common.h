@@ -50,6 +50,8 @@ static const std::string HTTP_FUNCTION_COLUMN = "function_column";
 static const std::string HTTP_SEQUENCE_COL = "sequence_col";
 static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 
+static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
+
 static const std::string HTTP_100_CONTINUE = "100-continue";
 
 } // namespace doris

@@ -127,7 +127,7 @@ void StorageEngine::_fd_cache_clean_callback() {
 #endif
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
-        interval = config::file_descriptor_cache_clean_interval;
+        interval = config::cache_clean_interval;
         if (interval <= 0) {
             OLAP_LOG_WARNING(
                     "config of file descriptor clean interval is illegal: [%d], "
@@ -136,7 +136,7 @@ void StorageEngine::_fd_cache_clean_callback() {
             interval = 3600;
         }
 
-        _start_clean_fd_cache();
+        _start_clean_cache();
     }
 }
 
@@ -174,7 +174,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         curr_interval = std::min(curr_interval, max_interval);
 
         // start clean trash and update usage.
-        OLAPStatus res = _start_trash_sweep(&usage);
+        OLAPStatus res = start_trash_sweep(&usage);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING(
                     "one or more errors occur when sweep trash."
@@ -333,6 +333,30 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
+            VLOG_CRITICAL << "compaction thread pool. num_threads: " << _compaction_thread_pool->num_threads()
+                      << ", num_threads_pending_start: " << _compaction_thread_pool->num_threads_pending_start()
+                      << ", num_active_threads: " << _compaction_thread_pool->num_active_threads()
+                      << ", max_threads: " << _compaction_thread_pool->max_threads()
+                      << ", min_threads: " << _compaction_thread_pool->min_threads()
+                      << ", num_total_queued_tasks: " << _compaction_thread_pool->get_queue_size();
+
+            if(_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
+                int old_max_threads = _compaction_thread_pool->max_threads();
+                Status status = _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool max_threads from "
+                              << old_max_threads << " to " << config::max_compaction_threads;
+                }
+            }
+            if(_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
+                int old_min_threads = _compaction_thread_pool->min_threads();
+                Status status = _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool min_threads from "
+                              << old_min_threads << " to " << config::max_compaction_threads;
+                }
+            }
+
             bool check_score = false;
             int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {

@@ -115,19 +115,19 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(50000L);
+                    catalog.getDbNullable(50000L);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:testDb");
+                    catalog.getDbNullable("testCluster:testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:emptyDb");
+                    catalog.getDbNullable("testCluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
@@ -234,11 +234,11 @@ public class AccessTestUtil {
 
         new Expectations(db) {
             {
-                db.getTable("testTable");
+                db.getTableNullable("testTable");
                 minTimes = 0;
                 result = olapTable;
 
-                db.getTable("emptyTable");
+                db.getTableNullable("emptyTable");
                 minTimes = 0;
                 result = null;
 
@@ -281,15 +281,15 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.getDb("testCluster:testDb");
+                    catalog.getDbNullable("testCluster:testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:emptyDb");
+                    catalog.getDbNullable("testCluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
@@ -301,7 +301,7 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");
 
-                    catalog.getDb("emptyCluster");
+                    catalog.getDbNullable("emptyCluster");
                     minTimes = 0;
                     result = null;
                 }
@@ -388,7 +388,7 @@ public class AccessTestUtil {
         return analyzer;
     }
 
-    public static Analyzer fetchTableAnalyzer() {
+    public static Analyzer fetchTableAnalyzer() throws AnalysisException {
         Column column1 = new Column("k1", PrimitiveType.VARCHAR);
         Column column2 = new Column("k2", PrimitiveType.VARCHAR);
         Column column3 = new Column("k3", PrimitiveType.VARCHAR);
@@ -449,11 +449,11 @@ public class AccessTestUtil {
 
         new Expectations(db) {
             {
-                db.getTable("t");
+                db.getTableNullable("t");
                 minTimes = 0;
                 result = table;
 
-                db.getTable("emptyTable");
+                db.getTableNullable("emptyTable");
                 minTimes = 0;
                 result = null;
 
@@ -484,7 +484,7 @@ public class AccessTestUtil {
                 minTimes = 0;
                 result = "testDb";
 
-                analyzer.getTable((TableName) any);
+                analyzer.getTableOrAnalysisException((TableName) any);
                 minTimes = 0;
                 result = table;
 

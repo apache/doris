@@ -172,4 +172,7 @@ under the License.
 | 5072       | The dynamic partition copy value is not a valid number |
 | 5073       | The original created table stmt is empty   |
 | 5074       | Create historical dynamic partition parameters: create_history_partition is invalid, what is expected is: true or false |
-
+| 5076       | The specified dynamic partition reserved_history_periods is null or empty                          |
+| 5077       | The specified dynamic partition reserved_history_periods is invalid                           |
+| 5078       | The length of specified dynamic partition reserved_history_periods must have pairs of date value              |
+| 5079       | The specified dynamic partition reserved_history_periods' first date is larger than the second one           |

@@ -46,7 +46,7 @@ public:
                                          int segment_id);
 
     OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count,
+                           uint64_t request_block_row_count, size_t key_num,
                            std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
@@ -64,6 +64,8 @@ public:
 
     bool check_file_exist() override;
 
+    OLAPStatus load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+
 protected:
     BetaRowset(const TabletSchema* schema, std::string rowset_path,
                RowsetMetaSharedPtr rowset_meta);
@@ -71,14 +73,13 @@ protected:
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent) override;
+    OLAPStatus do_load(bool use_cache) override;
 
     void do_close() override;
 
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
-    std::vector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris

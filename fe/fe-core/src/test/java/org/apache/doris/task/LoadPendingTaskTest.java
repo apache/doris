@@ -93,11 +93,11 @@ public class LoadPendingTaskTest {
         // mock catalog
         new Expectations(catalog) {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -122,7 +122,7 @@ public class LoadPendingTaskTest {
         String cluster = Config.dpp_default_cluster;
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         table.setBaseIndexId(0L);
         Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());

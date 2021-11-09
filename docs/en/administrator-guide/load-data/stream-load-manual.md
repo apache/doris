@@ -63,6 +63,10 @@ Users submit import commands through HTTP protocol. If submitted to FE, FE forwa
 
 The final result of the import is returned to the user by Coordinator BE.
 
+## Support data format
+
+Currently Stream Load supports two data formats: CSV (text) and JSON
+
 ## Basic operations
 ### Create a Load
 
@@ -104,7 +108,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 
 + column_separator
-    
+  
     Used to specify the column separator in the load file. The default is `\t`. If it is an invisible character, you need to add `\x` as a prefix and hexadecimal to indicate the separator.
 
     For example, the separator `\x01` of the hive file needs to be specified as `-H "column_separator:\x01"`.
@@ -112,7 +116,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
     You can use a combination of multiple characters as the column separator.
 
 + line_delimiter
-   
+  
    Used to specify the line delimiter in the load file. The default is `\n`.
 
    You can use a combination of multiple characters as the column separator.
@@ -146,8 +150,12 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 	The function transformation configuration of data to be imported includes the sequence change of columns and the expression transformation, in which the expression transformation method is consistent with the query statement.
 
 	```
-	Examples of column order transformation: There are two columns of original data, and there are also two columns (c1, c2) in the table at present. But the first column of the original file corresponds to the C2 column of the target table, while the second column of the original file corresponds to the C1 column of the target table, which is written as follows:
-	columns: c2,c1
+	Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present. 
+	when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
+	columns: dst_c1, dst_c2, dst_c3
+	
+	when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
+	columns: dst_c2, dst_c3, dst_c1
 	
 	Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
 	columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
@@ -324,4 +332,21 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 
 		To sort out the possible methods mentioned above: Search FE Master's log with Label to see if there are two ``redirect load action to destination = ``redirect load action to destination cases in the same Label. If so, the request is submitted repeatedly by the Client side.
 
-		It is suggested that the user calculate the approximate import time according to the data quantity of the current request, and change the request time-out time of the Client end according to the import time-out time, so as to avoid the request being submitted by the Client end many times.
+		It is recommended that the user calculate the approximate import time based on the amount of data currently requested, and change the request overtime on the client side to a value greater than the import timeout time according to the import timeout time to avoid multiple submissions of the request by the client side.
+		
+	3. Connection reset abnormal
+	
+	  In the community version 0.14.0 and earlier versions, the connection reset exception occurred after Http V2 was enabled, because the built-in web container is tomcat, and Tomcat has pits in 307 (Temporary Redirect). There is a problem with the implementation of this protocol. All In the case of using Stream load to import a large amount of data, a connect reset exception will occur. This is because tomcat started data transmission before the 307 jump, which resulted in the lack of authentication information when the BE received the data request. Later, changing the built-in container to Jetty solved this problem. If you encounter this problem, please upgrade your Doris or disable Http V2 (`enable_http_server_v2=false`).
+	
+	  After the upgrade, also upgrade the http client version of your program to `4.5.13`，Introduce the following dependencies in your pom.xml file
+	
+	  ```xml
+	      <dependency>
+	        <groupId>org.apache.httpcomponents</groupId>
+	        <artifactId>httpclient</artifactId>
+	        <version>4.5.13</version>
+	      </dependency>
+	  ```
+	
+	  
+

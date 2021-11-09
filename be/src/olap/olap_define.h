@@ -51,14 +51,20 @@ static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
-static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
+static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
+
+// the max length supported for string type 2GB
+static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
+
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
-using StringLengthType = uint16_t;
+using StringLengthType = uint32_t;
+using VarcharLengthType = uint16_t;
 static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
+static const uint16_t OLAP_VARCHAR_MAX_BYTES = sizeof(VarcharLengthType);
 // the max bytes for stored array length
 static const uint16_t OLAP_ARRAY_MAX_BYTES = OLAP_ARRAY_MAX_LENGTH;
 
@@ -173,6 +179,7 @@ enum OLAPStatus {
     OLAP_ERR_TOO_MANY_VERSION = -235,
     OLAP_ERR_NOT_INITIALIZED = -236,
     OLAP_ERR_ALREADY_CANCELLED = -237,
+    OLAP_ERR_TOO_MANY_SEGMENTS = -238,
 
     // CommandExecutor
     // [-300, -400)

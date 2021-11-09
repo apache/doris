@@ -21,12 +21,17 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QueryStatisticsItem;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
 
 import java.io.File;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.AfterClass;
@@ -42,7 +47,7 @@ public class ColocatePlanTest {
     @BeforeClass
     public static void setUp() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir, 2);
+        UtFrameUtils.createDorisCluster(runningDir, 2);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
@@ -60,6 +65,13 @@ public class ColocatePlanTest {
                 + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
+                + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
+                + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
+        CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils.
+                parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
+        Catalog.getCurrentCatalog().createTable(createMultiTableStmt);
     }
 
     @AfterClass
@@ -137,4 +149,41 @@ public class ColocatePlanTest {
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertFalse(plan1.contains(COLOCATE_ENABLE));
     }
+
+    // check colocate add scan range
+    // Fix #6726
+    // 1. colocate agg node
+    // 2. scan node with two tablet one instance
+    @Test
+    public void sqlAggWithColocateTable() throws Exception {
+        String sql = "select k1, k2, count(*) from db1.test_multi_partition where k2 = 1 group by k1, k2";
+        StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
+        Planner planner = executor.planner();
+        Coordinator coordinator = Deencapsulation.getField(executor, "coord");
+        List<ScanNode> scanNodeList = planner.getScanNodes();
+        Assert.assertEquals(scanNodeList.size(), 1);
+        Assert.assertTrue(scanNodeList.get(0) instanceof OlapScanNode);
+        OlapScanNode olapScanNode = (OlapScanNode) scanNodeList.get(0);
+        Assert.assertEquals(olapScanNode.getSelectedPartitionIds().size(), 2);
+        long selectedTablet = Deencapsulation.getField(olapScanNode, "selectedTabletsNum");
+        Assert.assertEquals(selectedTablet, 2);
+
+        List<QueryStatisticsItem.FragmentInstanceInfo> instanceInfo = coordinator.getFragmentInstanceInfos();
+        Assert.assertEquals(instanceInfo.size(), 2);
+    }
+
+    @Test
+    public void checkColocatePlanFragment() throws Exception {
+        String sql = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
+        StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
+        Planner planner = executor.planner();
+        Coordinator coordinator = Deencapsulation.getField(executor, "coord");
+        boolean isColocateFragment0 = Deencapsulation.invoke(coordinator, "isColocateFragment",
+                planner.getFragments().get(1), planner.getFragments().get(1).getPlanRoot());
+        Assert.assertFalse(isColocateFragment0);
+        boolean isColocateFragment1 = Deencapsulation.invoke(coordinator, "isColocateFragment",
+                planner.getFragments().get(2), planner.getFragments().get(2).getPlanRoot());
+        Assert.assertTrue(isColocateFragment1);
+    }
+
 }

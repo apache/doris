@@ -115,7 +115,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH // ENGINE必须是Elasticsearch
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 
 "user" = "root",
@@ -139,7 +139,7 @@ PROPERTIES (
 *  **ENGINE**必须是 **Elasticsearch**
 
 ##### 过滤条件下推
-`Doris On ES`一个重要的功能就是过滤条件的下推: 过滤条件下推给ES，这样只有真正满足条件的数据才会被返回，能够显著的提高查询性能和降低Doris和Elasticsearch的CPU、memory、IO利用率
+`Doris On ES`一个重要的功能就是过滤条件的下推: 过滤条件下推给ES，这样只有真正满足条件的数据才会被返回，能够显著的提高查询性能和降低Doris和Elasticsearch的CPU、memory、IO使用量
 
 下面的操作符(Operators)会被优化成如下ES Query:
 
@@ -184,7 +184,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",
@@ -225,7 +225,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",
@@ -337,7 +337,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",
@@ -366,7 +366,7 @@ CREATE EXTERNAL TABLE `test` (
 ) ENGINE=ELASTICSEARCH
 PROPERTIES (
 "hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
-"index" = "test”,
+"index" = "test",
 "type" = "doc",
 "user" = "root",
 "password" = "root",

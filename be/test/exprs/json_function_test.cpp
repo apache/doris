@@ -26,11 +26,11 @@
 #include <string>
 
 #include "common/object_pool.h"
+#include "exprs/anyval_util.h"
 #include "exprs/json_functions.h"
 #include "runtime/runtime_state.h"
 #include "util/logging.h"
 #include "util/stopwatch.hpp"
-
 namespace doris {
 
 // mock
@@ -104,6 +104,71 @@ TEST_F(JsonFunctionTest, string) {
     rapidjson::Writer<rapidjson::StringBuffer> writer5_3(buf5_3);
     res5_3->Accept(writer5_3);
     ASSERT_EQ(std::string(buf5_3.GetString()), "205705999");
+}
+
+TEST_F(JsonFunctionTest, json_quote) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(StringVal::null(), JsonFunctions::json_quote(context, StringVal::null()));
+
+    doris_udf::StringVal res1 = JsonFunctions::json_quote(context, StringVal("null"));
+    ASSERT_EQ(std::string("\"null\""), std::string((char*)res1.ptr, res1.len));
+
+    doris_udf::StringVal res2 = JsonFunctions::json_quote(context, StringVal("[1, 2, 3]"));
+    ASSERT_EQ(std::string("\"[1, 2, 3]\""), std::string((char*)res2.ptr, res2.len));
+
+    doris_udf::StringVal res3 = JsonFunctions::json_quote(context, StringVal("\n\b\r\t"));
+    ASSERT_EQ(std::string("\"\\n\\b\\r\\t\""), std::string((char*)res3.ptr, res3.len));
+
+    doris_udf::StringVal res4 = JsonFunctions::json_quote(context, StringVal("\""));
+    ASSERT_EQ(std::string("\"\\\"\""), std::string((char*)res4.ptr, res4.len));
+
+    doris_udf::StringVal json_str= {""};
+    doris_udf::StringVal res5 = JsonFunctions::json_quote(context, json_str);
+    ASSERT_EQ(std::string("\"\""), std::string((char*)res5.ptr, res5.len));
+    delete context;
+}
+
+TEST_F(JsonFunctionTest, json_array) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    doris_udf::StringVal json_str1[2] = {"[1,2,3]", "5"};
+    doris_udf::StringVal res1 = JsonFunctions::json_array(context, 2, json_str1);
+    ASSERT_EQ(std::string("[\"[1,2,3]\"]"), std::string((char*)res1.ptr, res1.len));
+
+    doris_udf::StringVal json_str2[4] = {"1", "abc", "null", "250"};
+    doris_udf::StringVal res2 = JsonFunctions::json_array(context, 4, json_str2);
+    ASSERT_EQ(std::string("[1,\"abc\",null]"), std::string((char*)res2.ptr, res2.len));
+
+    doris_udf::StringVal json_str3[1]= {""};
+    doris_udf::StringVal res3 = JsonFunctions::json_array(context, 1, json_str3);
+    ASSERT_EQ(std::string("[]"), std::string((char*)res3.ptr, res3.len));
+
+    doris_udf::StringVal json_str4[2]= {"null","0"};
+    doris_udf::StringVal res4 = JsonFunctions::json_array(context, 2, json_str4);
+    ASSERT_EQ(std::string("[null]"), std::string((char*)res4.ptr, res4.len));
+    delete context;
+}
+
+TEST_F(JsonFunctionTest, json_object) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    doris_udf::StringVal json_str1[3] = {"id", "87", "52"};
+    doris_udf::StringVal res1 = JsonFunctions::json_object(context, 3, json_str1);
+    ASSERT_EQ(std::string("{\"id\":87}"), std::string((char*)res1.ptr, res1.len));
+
+    doris_udf::StringVal json_str2[5] = {"name", "Jack", "score", "[87,98,90]", "5555"};
+    doris_udf::StringVal res2 = JsonFunctions::json_object(context, 5, json_str2);
+    ASSERT_EQ(std::string("{\"name\":\"Jack\",\"score\":\"[87,98,90]\"}"),
+              std::string((char*)res2.ptr, res2.len));
+
+    doris_udf::StringVal json_str3[3] = {"key", "null","50"};
+    doris_udf::StringVal res3 = JsonFunctions::json_object(context, 3, json_str3);
+    ASSERT_EQ(std::string("{\"key\":null}"), std::string((char*)res3.ptr, res3.len));  
+
+    doris_udf::StringVal json_str4[1]= {""};
+    doris_udf::StringVal res4 = JsonFunctions::json_object(context, 1, json_str4);
+    ASSERT_EQ(std::string("{}"), std::string((char*)res4.ptr, res4.len));        
+    delete context;
 }
 
 TEST_F(JsonFunctionTest, int) {

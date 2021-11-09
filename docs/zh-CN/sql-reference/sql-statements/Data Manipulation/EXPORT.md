@@ -57,6 +57,7 @@ under the License.
           [PROPERTIES ("key"="value", ...)]
         
           可以指定如下参数：
+            label: 指定一个自定义作业标识。后续可以使用这个标识查看作业状态。
             column_separator: 指定导出的列分隔符，默认为\t。支持不可见字符，比如 '\x07'。
             column: 指定待导出的列，使用英文逗号隔开，如果不填这个参数默认是导出表的所有列。
             line_delimiter: 指定导出的行分隔符，默认为\n。支持不可见字符，比如 '\x07'。
@@ -81,8 +82,8 @@ under the License.
     2. 将 testTbl 表中的分区p1,p2导出到 hdfs 上
         EXPORT TABLE testTbl PARTITION (p1,p2) TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
     
-    3. 将 testTbl 表中的所有数据导出到 hdfs 上，以","作为列分隔符
-        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+    3. 将 testTbl 表中的所有数据导出到 hdfs 上，以","作为列分隔符，并指定label
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
     
     4. 将 testTbl 表中 k1 = 1 的行导出到 hdfs 上。
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");

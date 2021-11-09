@@ -563,4 +563,10 @@ public class Replica implements Writable {
     public long getWatermarkTxnId() {
         return watermarkTxnId;
     }
+
+    public boolean isAlive() {
+        return getState() != ReplicaState.CLONE
+                && getState() != ReplicaState.DECOMMISSION
+                && !isBad();
+    }
 }

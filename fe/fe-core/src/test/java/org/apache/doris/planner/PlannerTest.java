@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -47,7 +48,7 @@ public class PlannerTest {
 
     @BeforeClass
     public static void setUp() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
@@ -60,6 +61,11 @@ public class PlannerTest {
 
         createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
                 + "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        createTblStmtStr = "create table db1.tbl3 (k1 date, k2 varchar(128) NULL, k3 varchar(5000) NULL) "
+                + "DUPLICATE KEY(k1, k2, k3) distributed by hash(k1) buckets 1 properties ('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -251,6 +257,28 @@ public class PlannerTest {
                 .getPlanRoot().getChild(0) instanceof AggregationNode);
         Assert.assertTrue(fragments10.get(0).getPlanRoot()
                 .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
+
+        String sql11 = "SELECT a.x FROM\n" +
+                "(SELECT '01' x) a \n" +
+                "INNER JOIN\n" +
+                "(SELECT '01' x UNION all SELECT '02') b";
+        StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
+        stmtExecutor11.execute();
+        Planner planner11 = stmtExecutor11.planner();
+        SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode11.getMaterializedConstExprLists_().size());
+
+        String sql12 = "SELECT a.x \n" +
+                "FROM (SELECT '01' x) a \n" +
+                "INNER JOIN \n" +
+                "(SELECT k1 from db1.tbl1 \n" +
+                "UNION all \n" +
+                "SELECT k1 from db1.tbl1) b;";
+        StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
+        stmtExecutor12.execute();
+        Planner planner12 = stmtExecutor12.planner();
+        SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
+        Assert.assertEquals(2, setNode12.getMaterializedResultExprLists_().size());
     }
 
     @Test
@@ -327,7 +355,7 @@ public class PlannerTest {
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
         String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(true, false));
-        Assert.assertEquals(3, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "nullIndicatorBit=0"));
     }
 
     @Test
@@ -337,5 +365,33 @@ public class PlannerTest {
         stmtExecutor.execute();
         Assert.assertNotNull(stmtExecutor.planner());
     }
+
+    @Test
+    public void testAnalyticSortNodeLeftJoin() throws Exception {
+        String sql = "SELECT a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n" +
+                "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n" +
+                "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
+                "ON t.k1 = a.k1 AND t.k3 = a.k3\n" +
+                "GROUP BY a.k1, a.k3";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Assert.assertNotNull(stmtExecutor.planner());
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        Assert.assertTrue(fragments.size() > 0);
+        PlanNode node = fragments.get(0).getPlanRoot().getChild(0);
+        Assert.assertTrue(node.getChildren().size() > 0);
+        Assert.assertTrue(node instanceof SortNode);
+        SortNode sortNode = (SortNode) node;
+        List<Expr> tupleExprs = sortNode.resolvedTupleExprs;
+        List<Expr> sortTupleExprs = sortNode.getSortInfo().getSortTupleSlotExprs();
+        for (Expr expr : tupleExprs) {
+            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
+        }
+        for (Expr expr : sortTupleExprs) {
+            expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
+        }
+    }
+
 
 }

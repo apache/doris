@@ -59,9 +59,8 @@ arrow::Status ParquetOutputStream::Write(const void* data, int64_t nbytes) {
     return arrow::Status::OK();
 }
 
-arrow::Status ParquetOutputStream::Tell(int64_t* position) const {
-    *position = _cur_pos;
-    return arrow::Status::OK();
+arrow::Result<int64_t> ParquetOutputStream::Tell() const {
+    return _cur_pos;
 }
 
 arrow::Status ParquetOutputStream::Close() {
@@ -356,7 +355,8 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 break;
             }
             case TYPE_CHAR:
-            case TYPE_VARCHAR: {
+            case TYPE_VARCHAR:
+            case TYPE_STRING: {
                 if (_str_schema[index][1] != "byte_array") {
                     std::stringstream ss;
                     ss << "project field type is char/varchar, should use byte_array, but the "
@@ -393,16 +393,11 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 if (item != nullptr) {
                     const DecimalV2Value decimal_val(
                             reinterpret_cast<const PackedInt128*>(item)->value);
-                    std::string decimal_str;
+                    char decimal_buffer[MAX_DECIMAL_WIDTH];
                     int output_scale = _output_expr_ctxs[index]->root()->output_scale();
-                    if (output_scale > 0 && output_scale <= 30) {
-                        decimal_str = decimal_val.to_string(output_scale);
-                    } else {
-                        decimal_str = decimal_val.to_string();
-                    }
                     parquet::ByteArray value;
-                    value.ptr = reinterpret_cast<const uint8_t*>(&decimal_str);
-                    value.len = decimal_str.length();
+                    value.ptr = reinterpret_cast<const uint8_t*>(decimal_buffer);
+                    value.len = decimal_val.to_buffer(decimal_buffer, output_scale);
                     col_writer->WriteBatch(1, nullptr, nullptr, &value);
                 } else {
                     parquet::ByteArray value;

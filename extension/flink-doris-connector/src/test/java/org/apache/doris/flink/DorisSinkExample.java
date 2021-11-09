@@ -48,7 +48,9 @@ public class DorisSinkExample {
                         "  'fenodes' = 'FE_IP:8030',\n" +
                         "  'table.identifier' = 'db.table',\n" +
                         "  'username' = 'root',\n" +
-                        "  'password' = ''\n" +
+                        "  'password' = '',\n" +
+                        "  'sink.properties.format' = 'json',\n" +
+                        "  'sink.properties.strip_outer_array' = 'true'\n" +
                         ")");
 
         tEnv.executeSql("INSERT INTO doris_test_sink select name,age from doris_test");

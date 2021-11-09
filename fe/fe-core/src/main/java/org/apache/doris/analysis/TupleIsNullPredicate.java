@@ -57,6 +57,14 @@ public class TupleIsNullPredicate extends Predicate {
     protected boolean isConstantImpl() { return false; }
 
     @Override
+    public boolean isBoundByTupleIds(List<TupleId> tids) {
+        for (TupleId tid: tids) {
+            if (tupleIds.contains(tid)) return true;
+        }
+        return false;
+    }
+
+    @Override
     public Expr clone() {
         return new TupleIsNullPredicate(this);
     }

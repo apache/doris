@@ -75,7 +75,7 @@ public class ListPartitionInfo extends PartitionInfo{
                 partitionKeys.add(partitionKey);
             }
         } catch (AnalysisException e) {
-            throw new DdlException("Invalid list value format： " + e.getMessage());
+            throw new DdlException("Invalid list value format: " + e.getMessage());
         }
         return new ListPartitionItem(partitionKeys);
     }

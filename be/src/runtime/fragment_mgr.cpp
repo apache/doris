@@ -187,8 +187,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
-          _timeout_second(-1),
           _set_rsc_info(false),
+          _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
@@ -248,7 +248,7 @@ Status FragmentExecState::cancel_before_execute() {
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel("Execution aborted before start");
     }
     return Status::OK();
 }
@@ -261,7 +261,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
     }
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
     }
     return Status::OK();
 }
@@ -373,7 +373,11 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
         try {
             coord->reportExecStatus(res, params);
         } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus: " << e.what();
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: "
+                         << print_id(_query_id) << ", instance id: "
+                         << print_id(_fragment_instance_id)
+                         << " to " << _coord_addr
+                         << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -562,7 +566,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         } else {
             // This may be a first fragment request of the query.
             // Create the query fragments context.
-            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host));
+            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host, _exec_env));
             fragments_ctx->query_id = params.params.query_id;
             RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                                   &(fragments_ctx->desc_tbl)));
@@ -577,6 +581,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
             if (params.__isset.query_options) {
                 fragments_ctx->timeout_second = params.query_options.query_timeout;
+                if (params.query_options.__isset.resource_limit) {
+                    fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+                }
             }
 
             {
@@ -607,6 +614,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     {
         std::lock_guard<std::mutex> lock(_lock);
         _fragment_map.insert(std::make_pair(params.params.fragment_instance_id, exec_state));
+        _cv.notify_all();
     }
 
     auto st = _thread_pool->submit_func(
@@ -743,11 +751,12 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
         selected_columns->emplace_back(std::move(col));
     }
 
-    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: "
-              << apache::thrift::ThriftDebugString(t_query_plan_info);
+    VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
+               << apache::thrift::ThriftDebugString(t_query_plan_info);
     // assign the param used to execute PlanFragment
     TExecPlanFragmentParams exec_fragment_params;
     exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
+    exec_fragment_params.__set_is_simplified_param(false);
     exec_fragment_params.__set_fragment(t_query_plan_info.plan_fragment);
     exec_fragment_params.__set_desc_tbl(t_query_plan_info.desc_tbl);
 
@@ -807,14 +816,21 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
     std::shared_ptr<FragmentExecState> fragment_state;
 
     {
-        std::lock_guard<std::mutex> lock(_lock);
+        std::unique_lock<std::mutex> lock(_lock);
+        if (!_fragment_map.count(tfragment_instance_id)) {
+            VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
+            _cv.wait_for(lock, std::chrono::milliseconds(1000),
+                         [&] { return _fragment_map.count(tfragment_instance_id); });
+        }
+
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
-            LOG(WARNING) << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id");
+            VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
+            return Status::InvalidArgument("fragment-id: " + fragment_instance_id.to_string());
         }
         fragment_state = iter->second;
     }
+
     DCHECK(fragment_state != nullptr);
     RuntimeFilterMgr* runtime_filter_mgr =
             fragment_state->executor()->runtime_state()->runtime_filter_mgr();

@@ -63,7 +63,7 @@ public class RowBatch {
             this.cols = new ArrayList<>(colCount);
         }
 
-        public  List<Object> getCols() {
+        public List<Object> getCols() {
             return cols;
         }
 
@@ -87,13 +87,13 @@ public class RowBatch {
         return rowBatch;
     }
 
-    public RowBatch(TScanBatchResult nextResult, Schema schema){
+    public RowBatch(TScanBatchResult nextResult, Schema schema) {
         this.schema = schema;
         this.rootAllocator = new RootAllocator(Integer.MAX_VALUE);
         this.arrowStreamReader = new ArrowStreamReader(
                 new ByteArrayInputStream(nextResult.getRows()),
                 rootAllocator
-                );
+        );
         this.offsetInRowBatch = 0;
     }
 
@@ -243,7 +243,7 @@ public class RowBatch {
                                 continue;
                             }
                             BigDecimal value = decimalVector.getObject(rowIndex).stripTrailingZeros();
-                            addValueToRow(rowIndex, DecimalData.fromBigDecimal(value,value.precision(),value.scale()));
+                            addValueToRow(rowIndex, DecimalData.fromBigDecimal(value, value.precision(), value.scale()));
                         }
                         break;
                     case "DATE":
