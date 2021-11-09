@@ -104,6 +104,8 @@ public:
         deep_copy(desc, data, offset, false);
     }
 
+    void deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs, int version);
+
     // Materialize this by evaluating the expressions in materialize_exprs
     // over the specified 'row'. 'pool' is used to allocate var-length data.
     // (Memory for this tuple itself must already be allocated.)

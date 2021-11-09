@@ -252,6 +252,94 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, boo
     }
 }
 
+void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs, int version) {
+    if (version == 0) {
+        deep_copy(desc, data, offset, convert_ptrs);
+        return;
+    } else {
+        Tuple *dst = reinterpret_cast<Tuple *>(*data);
+        memory_copy(dst, this, desc.byte_size());
+        *data += desc.byte_size();
+        *offset += desc.byte_size();
+
+        // convert old version datetimevalue to datetimevaluev2
+        for (auto slot_desc : desc.no_string_slots()) {
+            DCHECK(!slot_desc->type().is_string_type());
+            if (!dst->is_null(slot_desc->null_indicator_offset()) && slot_desc->type().is_date_type()) {
+                auto date_time_value_old = dst->get_datetime_slot(slot_desc->tuple_offset());
+                DateTimeValueV2 new_date_time(date_time_value_old);
+                memory_copy((void*)date_time_value_old, (const void*)(&new_date_time), sizeof(DateTimeValue));
+            }
+        }
+
+        for (auto slot_desc : desc.string_slots()) {
+            DCHECK(slot_desc->type().is_string_type());
+            if (!dst->is_null(slot_desc->null_indicator_offset())) {
+                StringValue *string_v = dst->get_string_slot(slot_desc->tuple_offset());
+                memory_copy(*data, string_v->ptr, string_v->len);
+                string_v->ptr = (convert_ptrs ? reinterpret_cast<char *>(*offset) : *data);
+                *data += string_v->len;
+                *offset += string_v->len;
+            }
+        }
+
+        // copy collection slots
+        for (auto slot_desc : desc.collection_slots()) {
+            DCHECK(slot_desc->type().is_collection_type());
+            if (dst->is_null(slot_desc->null_indicator_offset())) {
+                continue;
+            }
+            // get cv to copy elements
+            CollectionValue *cv = dst->get_collection_slot(slot_desc->tuple_offset());
+            const TypeDescriptor &item_type = slot_desc->type().children.at(0);
+
+            int coll_byte_size = cv->length() * item_type.get_slot_size();
+            int nulls_size = cv->length() * sizeof(bool);
+
+            // copy null_sign
+            memory_copy(*data, cv->null_signs(), nulls_size);
+            // copy data
+            memory_copy(*data + nulls_size, cv->data(), coll_byte_size);
+
+            if (!item_type.is_string_type()) {
+                cv->set_null_signs(convert_ptrs ? reinterpret_cast<bool *>(*offset)
+                                                : reinterpret_cast<bool *>(*data));
+                cv->set_data(convert_ptrs ? reinterpret_cast<char *>(*offset + nulls_size)
+                                          : *data + nulls_size);
+                *data += coll_byte_size + nulls_size;
+                *offset += coll_byte_size + nulls_size;
+                continue;
+            }
+
+            // when item is string type, copy every item
+            char *base_data = *data;
+            int base_offset = *offset;
+
+            *data += coll_byte_size + nulls_size;
+            *offset += coll_byte_size + nulls_size;
+
+            for (int i = 0; i < cv->length(); ++i) {
+                int item_offset = nulls_size + i * item_type.get_slot_size();
+                if (cv->is_null_at(i)) {
+                    continue;
+                }
+                StringValue *dst_item_v = reinterpret_cast<StringValue *>(base_data + item_offset);
+                if (dst_item_v->len != 0) {
+                    memory_copy(*data, dst_item_v->ptr, dst_item_v->len);
+                    dst_item_v->ptr = (convert_ptrs ? reinterpret_cast<char *>(*offset) : *data);
+                    *data += dst_item_v->len;
+                    *offset += dst_item_v->len;
+                }
+            }
+            // assgin new null_sign and data location
+            cv->set_null_signs(convert_ptrs ? reinterpret_cast<bool *>(base_offset)
+                                            : reinterpret_cast<bool *>(base_data));
+            cv->set_data(convert_ptrs ? reinterpret_cast<char *>(base_offset + nulls_size)
+                                      : base_data + nulls_size);
+        }
+    }
+}
+
 template <bool collect_string_vals>
 void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
                               const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,

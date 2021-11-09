@@ -182,7 +182,8 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
           _num_null_bytes(tdesc.numNullBytes),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _has_datetime_slots(false) {
     if (false == tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
@@ -198,7 +199,8 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
           _num_null_bytes(pdesc.num_null_bytes()),
           _num_materialized_slots(0),
           _slots(),
-          _has_varlen_slots(false) {
+          _has_varlen_slots(false),
+          _has_datetime_slots(false) {
     if (!pdesc.has_num_null_slots()) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
@@ -219,7 +221,8 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
         } else if (slot->type().is_collection_type()) {
             _collection_slots.push_back(slot);
             _has_varlen_slots = true;
-        } else {
+        }  else {
+            _has_datetime_slots |= slot->type().is_date_type();
             _no_string_slots.push_back(slot);
         }
     }
@@ -294,12 +297,14 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TT
 
     init_tuple_idx_map();
     init_has_varlen_slots();
+    init_has_datetime_slots();
 }
 
 RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
+    init_has_datetime_slots();
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -315,6 +320,7 @@ RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescrip
                                    rhs_row_desc._tuple_idx_nullable_map.end());
     init_tuple_idx_map();
     init_has_varlen_slots();
+    init_has_datetime_slots();
 }
 
 void RowDescriptor::init_tuple_idx_map() {
@@ -335,6 +341,16 @@ void RowDescriptor::init_has_varlen_slots() {
     for (int i = 0; i < _tuple_desc_map.size(); ++i) {
         if (_tuple_desc_map[i]->has_varlen_slots()) {
             _has_varlen_slots = true;
+            break;
+        }
+    }
+}
+
+void RowDescriptor::init_has_datetime_slots() {
+    _has_datetime_slots = false;
+    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
+        if (_tuple_desc_map[i]->has_datetime_slots()) {
+            _has_datetime_slots = true;
             break;
         }
     }

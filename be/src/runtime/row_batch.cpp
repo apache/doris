@@ -116,6 +116,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
         memcpy(tuple_data, input_batch.tuple_data().c_str(), input_batch.tuple_data().size());
     }
 
+    bool convert_to_old_datetime = !input_batch.has_version() || input_batch.version() == 1;
     // convert input_batch.tuple_offsets into pointers
     int tuple_idx = 0;
     for (auto offset : input_batch.tuple_offsets()) {
@@ -127,7 +128,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     }
 
     // Check whether we have slots that require offset-to-pointer conversion.
-    if (!_row_desc.has_varlen_slots()) {
+    if (!_row_desc.has_varlen_slots() && !_row_desc.has_datetime_slots()) {
         return;
     }
     const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
@@ -140,12 +141,23 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
         TupleRow* row = get_row(i);
         std::vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty()) {
+            if ((*desc)->string_slots().empty() && (*desc)->collection_slots().empty() && !(*desc)->has_datetime_slots()) {
                 continue;
             }
             Tuple* tuple = row->get_tuple(j);
             if (tuple == nullptr) {
                 continue;
+            }
+
+            if (convert_to_old_datetime) {
+                for (auto slot : (*desc)->no_string_slots()) {
+                    DCHECK(!slot->type().is_string_type());
+                    if (!tuple->is_null(slot->null_indicator_offset()) && slot->type().is_date_type()) {
+                        auto new_date_time = (DateTimeValueV2 *) tuple->get_datetime_slot(slot->tuple_offset());
+                        DateTimeValue v1(new_date_time);
+                        memcpy((void *) (new_date_time), (const void *) (&v1), sizeof(DateTimeValue));
+                    }
+                }
             }
 
             for (auto slot : (*desc)->string_slots()) {
@@ -264,7 +276,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     }
 
     // Check whether we have slots that require offset-to-pointer conversion.
-    if (!_row_desc.has_varlen_slots()) {
+    if (!_row_desc.has_varlen_slots() && !_row_desc.has_datetime_slots()) {
         return;
     }
     const std::vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
@@ -438,8 +450,11 @@ size_t RowBatch::serialize(TRowBatch* output_batch) {
 }
 
 size_t RowBatch::serialize(PRowBatch* output_batch) {
+    int version = config::send_row_batch_with_old_datetime_mem_layout ? 0 : 1;
+
     // num_rows
     output_batch->set_num_rows(_num_rows);
+    output_batch->set_version(version);
     // row_tuples
     _row_desc.to_protobuf(output_batch->mutable_row_tuples());
     // tuple_offsets: must clear before reserve
@@ -468,7 +483,7 @@ size_t RowBatch::serialize(PRowBatch* output_batch) {
             }
             // Record offset before creating copy (which increments offset and tuple_data)
             output_batch->mutable_tuple_offsets()->Add(offset);
-            row->get_tuple(j)->deep_copy(**desc, &tuple_data, &offset, /* convert_ptrs */ true);
+            row->get_tuple(j)->deep_copy(**desc, &tuple_data, &offset, /* convert_ptrs */ true, version);
             DCHECK_LE(offset, size);
         }
     }

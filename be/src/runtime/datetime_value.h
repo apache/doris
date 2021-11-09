@@ -33,6 +33,8 @@
 
 namespace doris {
 
+class DateTimeValueV2;
+
 enum TimeUnit {
     MICROSECOND,
     SECOND,
@@ -174,6 +176,8 @@ public:
               _month(0),
               _day(0),
               _microsecond(0) {}
+
+    DateTimeValue(DateTimeValueV2* value);
 
     explicit DateTimeValue(int64_t t) { from_date_int64(t); }
 
@@ -653,6 +657,8 @@ private:
 
     // RE2 obj is thread safe
     static RE2 time_zone_offset_format_reg;
+
+    friend class DateTimeValueV2;
 };
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
@@ -661,6 +667,33 @@ std::size_t operator-(const DateTimeValue& v1, const DateTimeValue& v2);
 std::ostream& operator<<(std::ostream& os, const DateTimeValue& value);
 
 std::size_t hash_value(DateTimeValue const& value);
+
+struct DateTimeValueV2 {
+    // 1 bits for neg. 3 bits for type. 12bit for second
+    uint16_t _neg : 1;  // Used for time value.
+    uint16_t _type : 3; // Which type of this value.
+    uint16_t _second : 12;
+    uint8_t _minute;
+    uint8_t _hour;
+    uint8_t _day;
+    uint8_t _month;
+    uint16_t _year;
+    uint64_t _microsecond;
+
+    DateTimeValueV2(DateTimeValue* value) {
+        _neg = value->_neg;
+        _type = value->_type;
+        _second = value->_second;
+        _minute = value->_minute;
+        _hour = value->_hour;
+        _day = value->_day;
+        _month = value->_month;
+        _year = value->_year;
+        _microsecond = value->_microsecond;
+    }
+
+    friend class DateTimeValue;
+};
 
 } // namespace doris
 

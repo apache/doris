@@ -256,6 +256,9 @@ public:
     bool has_varlen_slots() const {
         { return _has_varlen_slots; }
     }
+
+    bool has_datetime_slots() const { return _has_datetime_slots; }
+
     const TableDescriptor* table_desc() const { return _table_desc; }
 
     static bool is_var_length(const std::vector<TupleDescriptor*>& descs) {
@@ -301,6 +304,8 @@ private:
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
     bool _has_varlen_slots;
+
+    bool _has_datetime_slots;
 
     TupleDescriptor(const TTupleDescriptor& tdesc);
     TupleDescriptor(const PTupleDescriptor& tdesc);
@@ -355,7 +360,8 @@ public:
             : _tuple_desc_map(desc._tuple_desc_map),
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
-              _has_varlen_slots(desc._has_varlen_slots) {
+              _has_varlen_slots(desc._has_varlen_slots),
+              _has_datetime_slots(desc._has_datetime_slots) {
         _num_materialized_slots = 0;
         _num_null_slots = 0;
         std::vector<TupleDescriptor*>::const_iterator it = desc._tuple_desc_map.begin();
@@ -401,6 +407,9 @@ public:
     // Return true if any Tuple has variable length slots.
     bool has_varlen_slots() const { return _has_varlen_slots; }
 
+    // Return true if any Tuple has date/datetime slots.
+    bool has_datetime_slots() const { return _has_datetime_slots; }
+
     // Return descriptors for all tuples in this row, in order of appearance.
     const std::vector<TupleDescriptor*>& tuple_descriptors() const { return _tuple_desc_map; }
 
@@ -434,6 +443,9 @@ private:
     // Initializes _has_varlen_slots during c'tor using the _tuple_desc_map.
     void init_has_varlen_slots();
 
+    // Initializes _has_datetime_slots during c'tor using the _tuple_desc_map.
+    void init_has_datetime_slots();
+
     // map from position of tuple w/in row to its descriptor
     std::vector<TupleDescriptor*> _tuple_desc_map;
 
@@ -445,6 +457,9 @@ private:
 
     // Provide quick way to check if there are variable length slots.
     bool _has_varlen_slots;
+
+    // Provide quick way to check if there are datetime slots.
+    bool _has_datetime_slots;
 
     int _num_materialized_slots;
     int _num_null_slots;

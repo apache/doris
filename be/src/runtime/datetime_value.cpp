@@ -65,6 +65,18 @@ bool DateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uin
     return time || check_date(year, month, day);
 }
 
+DateTimeValue::DateTimeValue(DateTimeValueV2* value) {
+    _neg = value->_neg;
+    _type = value->_type;
+    _second = value->_second;
+    _minute = value->_minute;
+    _hour = value->_hour;
+    _day = value->_day;
+    _month = value->_month;
+    _year = value->_year;
+    _microsecond = value->_microsecond;
+}
+
 bool DateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
     if (month != 0 && month <= 12 && day > s_days_in_month[month]) {
         // Feb 29 in leap year is valid.
