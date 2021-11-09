@@ -49,13 +49,6 @@ public class PredicatePushDown {
     }
 
     private static void predicateFromLeftSidePropagatesToRightSide(ScanNode scanNode, Analyzer analyzer) {
-        List<Expr> unassignedRightSideConjuncts = analyzer.getUnassignedConjuncts(scanNode);
-        // push down all predicate to hive scan node to filter files
-        if (scanNode instanceof HiveScanNode) {
-            scanNode.addConjuncts(unassignedRightSideConjuncts);
-            analyzer.markConjunctsAssigned(unassignedRightSideConjuncts);
-            return;
-        }
         List<TupleId> tupleIdList = scanNode.getTupleIds();
         if (tupleIdList.size() != 1) {
             LOG.info("The predicate pushdown is not reflected "
@@ -64,6 +57,7 @@ public class PredicatePushDown {
             return;
         }
         TupleId rightSideTuple = tupleIdList.get(0);
+        List<Expr> unassignedRightSideConjuncts = analyzer.getUnassignedConjuncts(scanNode);
         List<Expr> eqJoinPredicates = analyzer.getEqJoinConjuncts(rightSideTuple);
         if (eqJoinPredicates != null) {
             List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());

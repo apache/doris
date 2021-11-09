@@ -47,7 +47,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 
-public class HiveScanNode extends BrokerScanNode{
+public class HiveScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(HiveScanNode.class);
 
     private static final String HIVE_DEFAULT_COLUMN_SEPARATOR = "\001";
@@ -106,16 +106,14 @@ public class HiveScanNode extends BrokerScanNode{
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-        initHiveTblProperties();
-        if (partitionKeys.size() > 0) {
-            extractHivePartitionPredicate(analyzer);
-        }
-        analyzeColumnFromPath();
         super.init(analyzer);
     }
 
     @Override
     protected void initFileGroup() throws UserException {
+        initHiveTblProperties();
+        analyzeColumnFromPath();
+
         HiveTable hiveTable = (HiveTable) desc.getTable();
         fileGroups = Lists.newArrayList(
                 new BrokerFileGroup(hiveTable,
@@ -146,9 +144,8 @@ public class HiveScanNode extends BrokerScanNode{
 
     /**
      * Extracts partition predicate from SelectStmt.whereClause that can be pushed down to Hive
-     * @param analyzer
      */
-    private void extractHivePartitionPredicate(Analyzer analyzer) throws DdlException {
+    private void extractHivePartitionPredicate() throws DdlException {
         ListIterator<Expr> it = conjuncts.listIterator();
         while (it.hasNext()) {
             ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
@@ -177,6 +174,9 @@ public class HiveScanNode extends BrokerScanNode{
 
     @Override
     protected void getFileStatus() throws UserException {
+        if (partitionKeys.size() > 0) {
+            extractHivePartitionPredicate();
+        }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,
                 fileStatuses, remoteHiveTable);
