@@ -20,6 +20,7 @@
 #include <filesystem>
 
 #include "common/logging.h"
+#include "service/backend_options.h"
 
 namespace doris {
 const static std::string FS_KEY = "fs.defaultFS";
