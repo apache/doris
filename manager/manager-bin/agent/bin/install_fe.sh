@@ -16,6 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+source /etc/profile
+source ~/.bash_profile
+
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
