@@ -242,10 +242,10 @@ private:
 
     void _start_clean_cache();
 
-    // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
-    // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
-    // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
-    // 重新加载数据。
+    // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
+    // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
+    // When the disk status is unusable, but the unused logo is not detected, you need to download it from root_path
+    // Reload the data.
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
@@ -265,7 +265,7 @@ private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
                 : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
-        uint32_t nice; // 优先度
+        uint32_t nice; // priority
         int64_t tablet_id;
         uint32_t disk_index = -1;
     };
