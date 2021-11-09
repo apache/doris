@@ -32,7 +32,7 @@ import java.util.List;
 public class SyncChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(SyncChecker.class);
 
-    private SyncJobManager syncJobManager;
+    private final SyncJobManager syncJobManager;
 
     public SyncChecker(SyncJobManager syncJobManager) {
         super("sync checker", Config.sync_checker_interval_second * 1000L);
@@ -73,5 +73,7 @@ public class SyncChecker extends MasterDaemon {
                 job.cancel(msgType, exception.getMessage());
             }
         }
+
+        this.syncJobManager.cleanOldSyncJobs();
     }
 }
