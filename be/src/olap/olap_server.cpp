@@ -100,6 +100,9 @@ Status StorageEngine::start_bg_threads() {
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
+            if (data_dir->is_remote()) {
+                continue;
+            }
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
@@ -491,6 +494,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                             ? copied_cumu_map[data_dir]
                             : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
+            if (data_dir->is_remote()) {
+                continue;
+            }
             if (tablet != nullptr) {
                 if (need_pick_tablet) {
                     tablets_compaction.emplace_back(tablet);

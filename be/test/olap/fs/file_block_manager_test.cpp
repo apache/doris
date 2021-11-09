@@ -56,7 +56,7 @@ TEST_F(FileBlockManagerTest, NormalTest) {
 
     std::unique_ptr<fs::WritableBlock> wblock;
     std::string fname = kBlockManagerDir + "/test_file";
-    fs::CreateBlockOptions wblock_opts({fname});
+    fs::CreateBlockOptions wblock_opts(fname);
     Status st = fbm->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
@@ -64,8 +64,10 @@ TEST_F(FileBlockManagerTest, NormalTest) {
     wblock->append(data);
     wblock->close();
 
+    FilePathDesc path_desc;
+    path_desc.filepath = fname;
     std::unique_ptr<fs::ReadableBlock> rblock;
-    st = fbm->open_block(fname, &rblock);
+    st = fbm->open_block(path_desc, &rblock);
     uint64_t file_size = 0;
     ASSERT_TRUE(rblock->size(&file_size).ok());
     ASSERT_EQ(data.size(), file_size);

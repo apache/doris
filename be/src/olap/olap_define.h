@@ -79,6 +79,7 @@ enum OLAPDataVersion {
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
+static const std::string TABLET_UID = "/tablet_uid";
 static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";

@@ -28,13 +28,10 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <filesystem>
-#include <boost/interprocess/sync/file_lock.hpp>
-#include <fstream>
 #include <set>
 #include <sstream>
 
-#include "env/env.h"
+#include "env/env_util.h"
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
@@ -66,9 +63,11 @@ static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-                 TStorageMedium::type storage_medium, TabletManager* tablet_manager,
-                 TxnManager* txn_manager)
+                 TStorageMedium::type storage_medium, const std::string& remote_path,
+                 TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path(path),
+          _remote_path(remote_path),
+          _path_desc(path),
           _capacity_bytes(capacity_bytes),
           _available_bytes(0),
           _disk_capacity_bytes(0),
@@ -77,9 +76,13 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _tablet_manager(tablet_manager),
           _txn_manager(txn_manager),
           _cluster_id(-1),
+          _cluster_id_incomplete(false),
           _to_be_deleted(false),
           _current_shard(0),
           _meta(nullptr) {
+    _env = Env::get_env(storage_medium);
+    _path_desc.storage_medium = storage_medium;
+    _path_desc.remote_path = remote_path;
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
@@ -97,7 +100,7 @@ DataDir::~DataDir() {
 }
 
 Status DataDir::init() {
-    if (!FileUtils::check_exist(_path)) {
+    if (!Env::Default()->path_exists(_path).ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::IOError(strings::Substitute("opendir failed, path=$0", _path)),
                 "check file exist failed");
@@ -106,7 +109,6 @@ Status DataDir::init() {
     RETURN_NOT_OK_STATUS_WITH_WARN(update_capacity(), "update_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_cluster_id(), "_init_cluster_id failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity(), "_init_capacity failed");
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_file_system(), "_init_file_system failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
 
     _is_used = true;
@@ -120,151 +122,74 @@ void DataDir::stop_bg_worker() {
 }
 
 Status DataDir::_init_cluster_id() {
-    std::string cluster_id_path = _path + CLUSTER_ID_PREFIX;
-    if (access(cluster_id_path.c_str(), F_OK) != 0) {
-        int fd = open(cluster_id_path.c_str(), O_RDWR | O_CREAT,
-                      S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-        if (fd < 0 || close(fd) < 0) {
-            RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                                                   "failed to create cluster id file $0, err=$1",
-                                                   cluster_id_path, errno_to_string(errno))),
-                                           "create file failed");
+    FilePathDescStream path_desc_s;
+    path_desc_s << _path_desc << CLUSTER_ID_PREFIX;
+    FilePathDesc cluster_id_path_desc = path_desc_s.path_desc();
+    RETURN_IF_ERROR(read_cluster_id(Env::Default(), cluster_id_path_desc.filepath, &_cluster_id));
+    if (_cluster_id == -1) {
+        _cluster_id_incomplete = true;
+    }
+    if (is_remote()) {
+        int32_t remote_cluster_id;
+        RETURN_IF_ERROR(read_cluster_id(_env, cluster_id_path_desc.remote_path, &remote_cluster_id));
+        if (remote_cluster_id == -1) {
+            _cluster_id_incomplete = true;
+        }
+        if (remote_cluster_id != -1 && _cluster_id != -1 && _cluster_id != remote_cluster_id) {
+            return Status::InternalError(strings::Substitute(
+                    "cluster id $0 is not equal with remote cluster id $1",
+                    _cluster_id, remote_cluster_id));
+        }
+        if (_cluster_id == -1) {
+            _cluster_id = remote_cluster_id;
         }
     }
-
-    // obtain lock of all cluster id paths
-    FILE* fp = NULL;
-    fp = fopen(cluster_id_path.c_str(), "r+b");
-    if (fp == NULL) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
-                "open file failed");
-    }
-
-    int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
-    if (lock_res < 0) {
-        fclose(fp);
-        fp = NULL;
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("failed to flock cluster id file $0", cluster_id_path)),
-                "flock file failed");
-    }
-
-    // obtain cluster id of all root paths
-    auto st = _read_cluster_id(cluster_id_path, &_cluster_id);
-    fclose(fp);
-    return st;
+    return Status::OK();
 }
 
-Status DataDir::_read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id) {
-    int32_t tmp_cluster_id = -1;
-
-    std::fstream fs(cluster_id_path.c_str(), std::fstream::in);
-    if (!fs.is_open()) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(
-                        strings::Substitute("failed to open cluster id file $0", cluster_id_path)),
-                "open file failed");
-    }
-
-    fs >> tmp_cluster_id;
-    fs.close();
-
-    if (tmp_cluster_id == -1 && (fs.rdstate() & std::fstream::eofbit) != 0) {
+Status DataDir::read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id) {
+    std::unique_ptr<RandomAccessFile> input_file;
+    Status exist_status = env->path_exists(cluster_id_path);
+    if (exist_status.ok()) {
+        Status status = env->new_random_access_file(cluster_id_path, &input_file);
+        RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("open file failed: $0, err=$1",
+                                                                   cluster_id_path, status.to_string()));
+        std::string content;
+        RETURN_IF_ERROR(input_file->read_all(&content));
+        if (content.size() > 0) {
+            *cluster_id = std::stoi(content);
+        } else {
+            *cluster_id = -1;
+        }
+    } else if (exist_status.is_not_found()) {
         *cluster_id = -1;
-    } else if (tmp_cluster_id >= 0 && (fs.rdstate() & std::fstream::eofbit) != 0) {
-        *cluster_id = tmp_cluster_id;
     } else {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::Corruption(strings::Substitute(
-                        "cluster id file $0 is corrupt. [id=$1 eofbit=$2 failbit=$3 badbit=$4]",
-                        cluster_id_path, tmp_cluster_id, fs.rdstate() & std::fstream::eofbit,
-                        fs.rdstate() & std::fstream::failbit, fs.rdstate() & std::fstream::badbit)),
-                "file content is error");
+        RETURN_NOT_OK_STATUS_WITH_WARN(exist_status, strings::Substitute("check exist failed: $0, err=$1",
+                                                                         cluster_id_path, exist_status.to_string()));
     }
     return Status::OK();
 }
 
 Status DataDir::_init_capacity() {
-    std::filesystem::path boost_path = _path;
-    int64_t disk_capacity = std::filesystem::space(boost_path).capacity;
+    int64_t capacity = -1;
+    int64_t available = -1;
+    RETURN_NOT_OK_STATUS_WITH_WARN(Env::Default()->get_space_info(_path, &capacity, &available),
+                                   strings::Substitute("get_space_info failed: $0", _path));
     if (_capacity_bytes == -1) {
-        _capacity_bytes = disk_capacity;
-    } else if (_capacity_bytes > disk_capacity) {
+        _capacity_bytes = capacity;
+    } else if (_capacity_bytes > capacity) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::InvalidArgument(strings::Substitute(
                         "root path $0's capacity $1 should not larger than disk capacity $2", _path,
-                        _capacity_bytes, disk_capacity)),
+                        _capacity_bytes, capacity)),
                 "init capacity failed");
     }
 
     std::string data_path = _path + DATA_PREFIX;
-    if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
+    Status exist_status = Env::Default()->path_exists(data_path);
+    if (!exist_status.ok() && (!exist_status.is_not_found() || !Env::Default()->create_dirs(data_path).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
-                                               "failed to create data root path $0", data_path)),
-                                       "check_exist failed");
-    }
-
-    return Status::OK();
-}
-
-Status DataDir::_init_file_system() {
-    struct stat s;
-    if (stat(_path.c_str(), &s) != 0) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("stat file $0 failed, err=$1", _path,
-                                                    errno_to_string(errno))),
-                "stat file failed");
-    }
-
-    dev_t mount_device;
-    if ((s.st_mode & S_IFMT) == S_IFBLK) {
-        mount_device = s.st_rdev;
-    } else {
-        mount_device = s.st_dev;
-    }
-
-    FILE* mount_tablet = nullptr;
-    if ((mount_tablet = setmntent(kMtabPath, "r")) == NULL) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("setmntent file $0 failed, err=$1", _path,
-                                                    errno_to_string(errno))),
-                "setmntent file failed");
-    }
-
-    bool is_find = false;
-    struct mntent* mount_entry = NULL;
-    struct mntent ent;
-    char buf[1024];
-    while ((mount_entry = getmntent_r(mount_tablet, &ent, buf, sizeof(buf))) != NULL) {
-        if (strcmp(_path.c_str(), mount_entry->mnt_dir) == 0 ||
-            strcmp(_path.c_str(), mount_entry->mnt_fsname) == 0) {
-            is_find = true;
-            break;
-        }
-
-        if (stat(mount_entry->mnt_fsname, &s) == 0 && s.st_rdev == mount_device) {
-            is_find = true;
-            break;
-        }
-
-        if (stat(mount_entry->mnt_dir, &s) == 0 && s.st_dev == mount_device) {
-            is_find = true;
-            break;
-        }
-    }
-
-    endmntent(mount_tablet);
-
-    if (!is_find) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute("file system $0 not found", _path)),
-                "find file system failed");
-    }
-
-    _file_system = mount_entry->mnt_fsname;
+                "failed to create data root path $0", data_path)), "create_dirs failed");
 
     return Status::OK();
 }
@@ -291,25 +216,34 @@ Status DataDir::_init_meta() {
 }
 
 Status DataDir::set_cluster_id(int32_t cluster_id) {
-    if (_cluster_id != -1) {
-        if (_cluster_id == cluster_id) {
-            return Status::OK();
-        }
+    if (_cluster_id != -1 && _cluster_id != cluster_id) {
         LOG(ERROR) << "going to set cluster id to already assigned store, cluster_id="
                    << _cluster_id << ", new_cluster_id=" << cluster_id;
         return Status::InternalError("going to set cluster id to already assigned store");
     }
-    return _write_cluster_id_to_path(_cluster_id_path(), cluster_id);
+    if (!_cluster_id_incomplete) {
+        return Status::OK();
+    }
+    FilePathDescStream path_desc_s;
+    path_desc_s << _path_desc << CLUSTER_ID_PREFIX;
+    return _write_cluster_id_to_path(path_desc_s.path_desc(), cluster_id);
 }
 
-Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
-    std::fstream fs(path.c_str(), std::fstream::out);
-    if (!fs.is_open()) {
-        LOG(WARNING) << "fail to open cluster id path. path=" << path;
-        return Status::InternalError("IO Error");
+Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t cluster_id) {
+    std::stringstream cluster_id_ss;
+    cluster_id_ss << cluster_id;
+    std::unique_ptr<WritableFile> wfile;
+    if (!Env::Default()->path_exists(path_desc.filepath).ok()) {
+        RETURN_IF_ERROR(env_util::write_string_to_file_sync(Env::Default(), Slice(cluster_id_ss.str()), path_desc.filepath));
     }
-    fs << cluster_id;
-    fs.close();
+    if (_env->is_remote_env()) {
+        Status exist_status = _env->path_exists(path_desc.remote_path);
+        if (exist_status.is_not_found()) {
+            RETURN_IF_ERROR(env_util::write_string_to_file_sync(_env, Slice(cluster_id_ss.str()), path_desc.remote_path));
+        } else {
+            RETURN_IF_ERROR(exist_status);
+        }
+    }
     return Status::OK();
 }
 
@@ -330,7 +264,6 @@ void DataDir::health_check() {
 OLAPStatus DataDir::_read_and_write_test_file() {
     std::string test_file = _path + kTestFilePath;
     return read_write_test_file(test_file);
-    ;
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {
@@ -343,10 +276,8 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     }
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    if (!FileUtils::check_exist(shard_path)) {
-        RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
-                                  "fail to create path. path=" + shard_path);
-    }
+    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
+                              "fail to create path. path=" + shard_path);
 
     *shard = next_shard;
     return OLAP_SUCCESS;
@@ -805,7 +736,7 @@ void DataDir::perform_path_scan() {
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (FileUtils::check_exist(path)) {
+    if (_env->path_exists(path).ok()) {
         LOG(INFO) << "collect garbage dir path: " << path;
         WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
@@ -817,19 +748,13 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 }
 
 Status DataDir::update_capacity() {
-    try {
-        std::filesystem::path path_name(_path);
-        std::filesystem::space_info path_info = std::filesystem::space(path_name);
-        _available_bytes = path_info.available;
-        if (_disk_capacity_bytes == 0) {
-            // disk capacity only need to be set once
-            _disk_capacity_bytes = path_info.capacity;
-        }
-    } catch (std::filesystem::filesystem_error& e) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(strings::Substitute(
-                        "get path $0 available capacity failed, error=$1", _path, e.what())),
-                "std::filesystem::space failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_env->get_space_info(_path, &_disk_capacity_bytes, &_available_bytes),
+                                   strings::Substitute("get_space_info failed: $0", _path));
+    if (_disk_capacity_bytes < 0) {
+        _disk_capacity_bytes = _capacity_bytes;
+    }
+    if (_available_bytes < 0) {
+        _available_bytes = _capacity_bytes;
     }
 
     disks_total_capacity->set_value(_disk_capacity_bytes);

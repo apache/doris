@@ -48,7 +48,7 @@ TEST(ZipUtilTest, basic) {
 
     char f[11];
     Slice slice(f, 11);
-    file->read_at(0, slice);
+    file->read_at(0, &slice);
 
     ASSERT_EQ("hello world", slice.to_string());
 
@@ -77,7 +77,7 @@ TEST(ZipUtilTest, dir) {
 
     char f[4];
     Slice slice(f, 4);
-    file->read_at(0, slice);
+    file->read_at(0, &slice);
 
     ASSERT_EQ("test", slice.to_string());
 
