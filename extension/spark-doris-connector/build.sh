@@ -61,6 +61,7 @@ if [ $# == 0 ]; then
     usage
 fi
 
+rm -rf output/
 
 if [ "$1"x == "3x" ]
 then
@@ -72,9 +73,7 @@ then
 fi
 
 mkdir -p output/
-cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-javadoc.jar ./output/
-cp target/doris-spark-1.0.0-SNAPSHOT-sources.jar ./output/
+cp target/doris-spark-*.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Spark-Doris-Connector"
