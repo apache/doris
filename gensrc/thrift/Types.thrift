@@ -46,6 +46,7 @@ enum TStorageType {
 enum TStorageMedium {
     HDD,
     SSD,
+    S3,
 }
 
 enum TVarType {

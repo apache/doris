@@ -14,6 +14,7 @@
 
 #include "common/status.h"
 #include "util/slice.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -21,6 +22,7 @@ class RandomAccessFile;
 class RandomRWFile;
 class WritableFile;
 class SequentialFile;
+struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
 struct RandomRWFileOptions;
@@ -44,6 +46,7 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
+    static Env* get_env(TStorageMedium::type storage_medium);
 
     // Create a brand new sequentially-readable file with the specified name.
     // On success, stores a pointer to the new file in *result and returns OK.
@@ -100,7 +103,7 @@ public:
     //                  the calling process does not have permission to determine
     //                  whether this file exists, or if the path is invalid.
     //         IOError if an IO Error was encountered
-    virtual Status path_exists(const std::string& fname) = 0;
+    virtual Status path_exists(const std::string& fname, bool is_dir = false) = 0;
 
     // Store in *result the names of the children of the specified directory.
     // The names are relative to "dir".
@@ -161,11 +164,92 @@ public:
 
     // Store the last modification time of fname in *file_mtime.
     virtual Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) = 0;
+
+    // copy path from src to target.
+    virtual Status copy_path(const std::string& src, const std::string& target) = 0;
     // Rename file src to target.
     virtual Status rename_file(const std::string& src, const std::string& target) = 0;
+    // Rename dir src to target.
+    virtual Status rename_dir(const std::string& src, const std::string& target) = 0;
 
     // create a hard-link
     virtual Status link_file(const std::string& /*old_path*/, const std::string& /*new_path*/) = 0;
+
+    // get space info for local and remote system
+    virtual Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) = 0;
+
+    virtual bool is_remote_env() = 0;
+
+    // Create directory of dir_path,
+    // This function will create directory recursively,
+    // if dir's parent directory doesn't exist
+    //
+    // RETURNS:
+    //  Status::OK()      if create directory success or directory already exists
+    virtual Status create_dirs(const std::string& dirname) = 0;
+};
+
+struct FilePathDesc {
+    FilePathDesc(const std::string& path) {
+        filepath = path;
+    }
+    FilePathDesc() {}
+    TStorageMedium::type storage_medium = TStorageMedium::HDD;
+    std::string filepath;
+    std::string remote_path;
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "local_path: " << filepath;
+        if (!remote_path.empty()) {
+            ss << ", remote_path: " << remote_path;
+        }
+        return ss.str();
+    }
+};
+
+class FilePathDescStream {
+public:
+    FilePathDescStream& operator<<(const FilePathDesc& val) {
+        _filepath_stream << val.filepath;
+        _remote_path_stream << val.remote_path;
+        _storage_medium = val.storage_medium;
+        return *this;
+    }
+    FilePathDescStream& operator<<(const std::string& val) {
+        _filepath_stream << val;
+        _remote_path_stream << val;
+        return *this;
+    }
+    FilePathDescStream& operator<<(uint64_t val) {
+        _filepath_stream << val;
+        _remote_path_stream << val;
+        return *this;
+    }
+    FilePathDescStream& operator<<(int64_t val) {
+        _filepath_stream << val;
+        _remote_path_stream << val;
+        return *this;
+    }
+    FilePathDescStream& operator<<(uint32_t val) {
+        _filepath_stream << val;
+        _remote_path_stream << val;
+        return *this;
+    }
+    FilePathDescStream& operator<<(int32_t val) {
+        _filepath_stream << val;
+        _remote_path_stream << val;
+        return *this;
+    }
+    FilePathDesc path_desc() {
+        FilePathDesc path_desc(_filepath_stream.str());
+        path_desc.storage_medium = _storage_medium;
+        path_desc.remote_path = _remote_path_stream.str();
+        return path_desc;
+    }
+private:
+    TStorageMedium::type _storage_medium = TStorageMedium::HDD;
+    std::stringstream _filepath_stream;
+    std::stringstream _remote_path_stream;
 };
 
 struct RandomAccessFileOptions {
@@ -231,7 +315,7 @@ public:
     // possible to read exactly 'length' bytes, an IOError is returned.
     //
     // Safe for concurrent use by multiple threads.
-    virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
+    virtual Status read_at(uint64_t offset, const Slice* result) const = 0;
 
     // Reads up to the "results" aggregate size, based on each Slice's "size",
     // from the file starting at 'offset'. The Slices must point to already-allocated
@@ -244,7 +328,10 @@ public:
     // possible to read exactly 'length' bytes, an IOError is returned.
     //
     // Safe for concurrent use by multiple threads.
-    virtual Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const = 0;
+    virtual Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const = 0;
+
+    // read all data from this file
+    virtual Status read_all(std::string* content) const = 0;
 
     // Return the size of this file
     virtual Status size(uint64_t* size) const = 0;
@@ -315,7 +402,7 @@ public:
     RandomRWFile() {}
     virtual ~RandomRWFile() {}
 
-    virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
+    virtual Status read_at(uint64_t offset, const Slice* result) const = 0;
 
     virtual Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const = 0;
 
