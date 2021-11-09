@@ -58,7 +58,8 @@ Status HDFSWriter::open() {
         int ret = hdfsCreateDirectory(_hdfs_fs, hdfs_dir.c_str());
         if (ret != 0) {
             std::stringstream ss;
-            ss << "create dir failed. namenode: " << _namenode << " path: " << hdfs_dir
+            ss << "create dir failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                    << " namenode: " << _namenode << " path: " << hdfs_dir
                     << ", err: " << strerror(errno);
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
@@ -68,7 +69,8 @@ Status HDFSWriter::open() {
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_WRONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
-        ss << "open file failed. namenode:" << _namenode << " path:" << _path
+        ss << "open file failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << " namenode:" << _namenode << " path:" << _path
                 << ", err: " << strerror(errno);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -85,7 +87,8 @@ Status HDFSWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len
     int32_t result = hdfsWrite(_hdfs_fs, _hdfs_file, buf, buf_len);
     if (result < 0) {
         std::stringstream ss;
-        ss << "write file failed. namenode:" << _namenode << " path:" << _path
+        ss << "write file failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << "namenode:" << _namenode << " path:" << _path
                 << ", err: " << strerror(errno);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -111,8 +114,9 @@ Status HDFSWriter::close() {
     int result = hdfsFlush(_hdfs_fs, _hdfs_file);
     if (result == -1) {
         std::stringstream ss;
-        ss << "failed to flush hdfs file. namenode:" << _namenode << " path:" << _path
-                << ", err: " << strerror(errno);;
+        ss << "failed to flush hdfs file. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << "namenode:" << _namenode << " path:" << _path
+                << ", err: " << strerror(errno);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
