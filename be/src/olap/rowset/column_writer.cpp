@@ -309,11 +309,11 @@ uint64_t ColumnWriter::estimate_buffered_memory() {
     return result;
 }
 
-// 删去is_present_stream使用的positions:
-//  * OutStream使用2个
-//  * ByteRunLength 使用1个
-//  * BitRunLength 使用1个
-// 一共删去4个
+// Delete the positions used by is_present_stream:
+// * OutStream uses 2
+// * ByteRunLength uses 1
+// * BitRunLength uses 1
+// Delete 4 in total
 void ColumnWriter::_remove_is_present_positions() {
     for (uint32_t i = 0; i < _index.entry_size(); i++) {
         PositionEntryWriter* entry = _index.mutable_entry(i);
@@ -337,7 +337,7 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
 
     char* index_buf = NULL;
     // char* index_statistic_buf = NULL;
-    // 写index的pb
+    // Write index pb
     size_t pb_size = _index.output_size();
     index_buf = new (std::nothrow) char[pb_size];
     ColumnMessage* column = NULL;
@@ -377,8 +377,8 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
         }
     }
 
-    // 在Segment头中记录一份Schema信息
-    // 这样使得修改表的Schema后不影响对已存在的Segment中的数据读取
+    // Record a Schema information in the Segment header
+    // This makes it not affect the reading of the data in the existing segment after modifying the schema of the table
     column = header->add_column();
     column->set_name(_column.name());
     column->set_type(TabletColumn::get_string_by_field_type(_column.type()));
@@ -404,7 +404,7 @@ void ColumnWriter::record_position() {
     }
 }
 
-// 默认返回DIRECT, String类型的可能返回Dict
+// The default returns DIRECT, String type may return Dict
 void ColumnWriter::save_encoding(ColumnEncodingMessage* encoding) {
     encoding->set_kind(ColumnEncodingMessage::DIRECT);
 }
@@ -614,7 +614,7 @@ OLAPStatus VarStringColumnWriter::_finalize_dict_encoding() {
 
     uint32_t block_id = 0;
 
-    // 假设一共有n个id。（总记录数）
+    // Suppose there are n ids in total. (total)
     for (uint32_t i = 0; i <= _string_id.size(); i++) {
         while (block_id < _block_row_count.size() - 1 && i == _block_row_count[block_id]) {
             _id_writer->get_position(index()->mutable_entry(block_id), false);
@@ -642,8 +642,8 @@ OLAPStatus VarStringColumnWriter::_finalize_direct_encoding() {
 #if 0
 
     for (uint32_t i = 0; i <= _string_id.size(); i++) {
-        // 与其他类型不同，string的record position会向_block_row_count写入条目
-        // 而其他类型在下一次调用create_index_row_entry之前是没有影响的。
+        //Unlike other types, the record position of string will write entries to _block_row_count
+        // Other types have no effect until the next call to create_index_row_entry.
         while (block_id < _block_row_count.size() - 1 &&
                 i == _block_row_count[block_id]) {
             _data_stream->get_position(index()->mutable_entry(block_id));
@@ -694,14 +694,14 @@ OLAPStatus VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
         }
     }
 
-    // 已经完成Index的补写, ColumnWriter::finalize会写入header
+    // The index's supplementary writing has been completed, ColumnWriter::finalize will write the header
     res = ColumnWriter::finalize(header);
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to finalize ColumnWriter.");
         return res;
     }
 
-    // id_writer其实用到了data_stream, 重复flush一下没有关系
+    // id_writer is practical to data_stream, it doesn't matter if you repeat flush
     if (OLAP_SUCCESS != _length_writer->flush() || OLAP_SUCCESS != _id_writer->flush() ||
         OLAP_SUCCESS != _dict_stream->flush() || OLAP_SUCCESS != _data_stream->flush()) {
         OLAP_LOG_WARNING("fail to flush stream.");
@@ -725,9 +725,9 @@ void VarStringColumnWriter::save_encoding(ColumnEncodingMessage* encoding) {
     }
 }
 
-// 和其他的Writer不同, 只有到finalize的时候才真正向Stream写入数据,
-// 所以无法记录流的位置, 为此在记录每个block写入的数据条数, 在finalize时
-// 利用该信息向Index中追加stream的位置信息
+// Unlike other Writer, data is written to Stream only when it is finalized.
+// So it is impossible to record the position of the stream. For this reason, record the number of data written in each block, and when finalize
+// Use this information to add stream location information to Index
 void VarStringColumnWriter::record_position() {
     ColumnWriter::record_position();
     _block_row_count.push_back(_string_id.size());
