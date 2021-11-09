@@ -18,6 +18,7 @@
 package org.apache.doris.stack.task;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.ServiceRole;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.bean.SpringApplicationContext;
@@ -30,6 +31,7 @@ import org.apache.doris.stack.util.JdbcUtil;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLSyntaxErrorException;
 import java.util.Properties;
 
 /**
@@ -38,6 +40,7 @@ import java.util.Properties;
 @Slf4j
 public class JoinBeTask extends AbstractTask {
 
+    private final String BE_EXIST_MSG = "Same backend already exists";
     private AgentRest agentRest;
 
     public JoinBeTask(TaskContext taskContext) {
@@ -64,6 +67,12 @@ public class JoinBeTask extends AbstractTask {
         try {
             JdbcUtil.execute(conn, addBe);
         } catch (SQLException e) {
+            if (e instanceof SQLSyntaxErrorException
+                    && StringUtils.isNotBlank(e.getMessage())
+                    && e.getMessage().contains(BE_EXIST_MSG)) {
+                log.info("backend already add,response:{}", e.getMessage());
+                return;
+            }
             log.error("Failed to add backend:{}:{}", requestParams.getBeHost(), beHeatPort, e);
             throw new ServerException(e.getMessage());
         }

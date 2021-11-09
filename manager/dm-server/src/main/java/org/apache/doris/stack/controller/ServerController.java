@@ -24,6 +24,8 @@ import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.model.request.AgentCommon;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
+import org.apache.doris.stack.model.request.TestConnectionReq;
+import org.apache.doris.stack.model.response.TestConnectionResp;
 import org.apache.doris.stack.service.ServerProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -34,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 @Api(tags = "Server API")
 @RestController
@@ -53,6 +56,17 @@ public class ServerController {
                                 @RequestBody AgentInstallReq agentInstallReq) throws Exception {
         int processId = serverProcess.installAgent(request, response, agentInstallReq);
         return RResult.success(processId);
+    }
+
+    /**
+     * Test server connectivity
+     */
+    @ApiOperation(value = "test host connection")
+    @RequestMapping(value = "/test", method = RequestMethod.POST)
+    public RResult testConnection(HttpServletRequest request, HttpServletResponse response,
+                                  @RequestBody TestConnectionReq testConReq) {
+        List<TestConnectionResp> result = serverProcess.testConnection(request, response, testConReq);
+        return RResult.success(result);
     }
 
     /**

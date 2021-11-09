@@ -19,6 +19,7 @@ package org.apache.doris.stack.component;
 
 import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.dao.ProcessInstanceRepository;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
@@ -41,6 +42,16 @@ public class ProcessInstanceComponent {
     public int saveProcess(ProcessInstanceEntity processInstance) {
         checkHasUnfinishProcess(processInstance.getUserId(), -1);
         return processInstanceRepository.save(processInstance).getId();
+    }
+
+    /**
+     * check process is finished
+     */
+    public void checkProcessFinish(int processId) {
+        ProcessInstanceEntity processEntity = processInstanceRepository.getById(processId);
+        if (Flag.YES.equals(processEntity.getFinish())) {
+            throw new ServerException("install process " + processId + "is already finish");
+        }
     }
 
     public void checkHasUnfinishProcess(int userId, int processId) {

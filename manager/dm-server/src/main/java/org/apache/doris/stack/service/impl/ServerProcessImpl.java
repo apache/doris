@@ -18,11 +18,13 @@
 package org.apache.doris.stack.service.impl;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.component.AgentComponent;
@@ -40,16 +42,20 @@ import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.model.AgentInstall;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
+import org.apache.doris.stack.model.request.TestConnectionReq;
+import org.apache.doris.stack.model.response.TestConnectionResp;
 import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.runner.TaskExecCallback;
 import org.apache.doris.stack.runner.TaskExecuteThread;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
+import org.apache.doris.stack.shell.SSH;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.io.File;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -105,6 +111,30 @@ public class ServerProcessImpl implements ServerProcess {
             log.info("host {} installing agent.", host);
         }
         return processId;
+    }
+
+    @Override
+    public List<TestConnectionResp> testConnection(HttpServletRequest request, HttpServletResponse response, TestConnectionReq testConReq) {
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(testConReq.getHosts()), "host is empty!");
+        String checkJavaHome = "java -version && echo $JAVA_HOME";
+        File sshKeyFile = SSH.buildSshKeyFile();
+        SSH.writeSshKeyFile(testConReq.getSshKey(), sshKeyFile);
+        List<TestConnectionResp> result = Lists.newArrayList();
+        for (String host : testConReq.getHosts()) {
+            TestConnectionResp testResp = new TestConnectionResp();
+            testResp.setHost(host);
+            SSH ssh = new SSH(testConReq.getUser(), testConReq.getSshPort(),
+                    sshKeyFile.getAbsolutePath(), host, checkJavaHome);
+            if (ssh.run()) {
+                testResp.setStatus(true);
+            } else {
+                String errorResponse = ssh.getErrorResponse();
+                testResp.setStatus(false);
+                testResp.setErrorResponse(errorResponse);
+            }
+            result.add(testResp);
+        }
+        return result;
     }
 
     @Override

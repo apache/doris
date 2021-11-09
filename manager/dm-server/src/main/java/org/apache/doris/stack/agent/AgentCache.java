@@ -48,7 +48,7 @@ public class AgentCache {
     private void loadAgents() {
         List<AgentEntity> agentEntities = agentComponent.queryAgentNodes(Lists.newArrayList());
         if (agentEntities != null && !agentEntities.isEmpty()) {
-            Map<String, AgentEntity> agentsMap = agentEntities.stream().collect(Collectors.toMap(AgentEntity::getHost, v -> v));
+            Map<String, AgentEntity> agentsMap = agentEntities.stream().collect(Collectors.toMap(AgentEntity::getHost, v -> v, (v1, v2) -> v1));
             hostAgentCache.putAll(agentsMap);
         }
     }

@@ -54,4 +54,5 @@ public interface ProcessTask {
      * fetch log
      */
     Object taskLog(int taskId);
+
 }

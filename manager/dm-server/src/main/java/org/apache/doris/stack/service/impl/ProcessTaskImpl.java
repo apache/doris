@@ -121,7 +121,7 @@ public class ProcessTaskImpl implements ProcessTask {
     @Override
     public void skipTask(int taskId) {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
-        Preconditions.checkNotNull("taskId {} not exist", taskId);
+        Preconditions.checkNotNull(taskEntity, "taskId " + taskId + " not exist");
         if (taskEntity.getStatus().typeIsFailure()) {
             taskEntity.setFinish(Flag.YES);
             taskInstanceRepository.save(taskEntity);

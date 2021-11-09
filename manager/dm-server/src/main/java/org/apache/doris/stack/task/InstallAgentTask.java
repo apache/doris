@@ -19,7 +19,6 @@ package org.apache.doris.stack.task;
 
 import com.google.common.base.Preconditions;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FileUtils;
 import org.apache.doris.stack.constant.EnvironmentDefine;
 import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.exceptions.ServerException;
@@ -31,15 +30,8 @@ import org.apache.doris.stack.shell.SSH;
 import org.springframework.boot.system.ApplicationHome;
 
 import java.io.File;
-import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * intall agent task
@@ -69,8 +61,8 @@ public class InstallAgentTask extends AbstractTask {
         log.info("doris manager home : {}", dorisManagerHome);
         String agentHome = dorisManagerHome + File.separator + "agent";
         Preconditions.checkNotNull(agentInstall.getHost(), "host is empty");
-        File sshKeyFile = buildSshKeyFile();
-        writeSshKeyFile(agentInstall.getSshKey(), sshKeyFile);
+        File sshKeyFile = SSH.buildSshKeyFile();
+        SSH.writeSshKeyFile(agentInstall.getSshKey(), sshKeyFile);
         scpFile(agentInstall, agentHome, agentInstall.getInstallDir());
     }
 
@@ -80,12 +72,11 @@ public class InstallAgentTask extends AbstractTask {
     private void startAgent(AgentInstall agentInstall) {
         String agentHome = agentInstall.getInstallDir() + File.separator + "agent";
         String command = "cd %s && sh %s  --server %s --agent %s";
-        File sshKeyFile = buildSshKeyFile();
+        File sshKeyFile = SSH.buildSshKeyFile();
         String cmd = String.format(command, agentHome, AGENT_START_SCRIPT, getServerAddr(), agentInstall.getHost());
         SSH ssh = new SSH(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), cmd);
-        Integer run = ssh.run();
-        if (run != 0) {
+        if (ssh.run()) {
             throw new ServerException("agent start failed");
         } else {
             log.info("agent start success");
@@ -97,53 +88,19 @@ public class InstallAgentTask extends AbstractTask {
      */
     private void scpFile(AgentInstall agentInstall, String localPath, String remotePath) {
         String checkFileExistCmd = "if test -e " + remotePath + "; then echo ok; else mkdir -p " + remotePath + " ;fi";
-        File sshKeyFile = buildSshKeyFile();
+        File sshKeyFile = SSH.buildSshKeyFile();
         //check remote dir exist
         SSH ssh = new SSH(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), checkFileExistCmd);
-        if (ssh.run() != 0) {
+        if (ssh.run()) {
             throw new ServerException("scp create remote dir failed");
         }
         SCP scp = new SCP(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), localPath, remotePath);
-        Integer run = scp.run();
-        if (run != 0) {
+        if (scp.run()) {
             log.error("scp agent package failed:{} to {}", localPath, remotePath);
             throw new ServerException("scp agent package failed");
         }
-    }
-
-    /**
-     * sshkey trans to file
-     */
-    private void writeSshKeyFile(String sshKey, File sshKeyFile) {
-        try {
-            if (sshKeyFile.exists()) {
-                sshKeyFile.delete();
-            }
-            FileUtils.writeStringToFile(sshKeyFile, sshKey, Charset.defaultCharset());
-        } catch (IOException e) {
-            log.error("build sshKey file failed:", e);
-            throw new ServerException("build sshKey file failed");
-        }
-    }
-
-    /**
-     * build sshkeyfile per request
-     */
-    private File buildSshKeyFile() {
-        File sshKeyFile = new File("conf", "sshkey");
-
-        // chmod ssh key file permission to 600
-        try {
-            Set<PosixFilePermission> permission = new HashSet<>();
-            permission.add(PosixFilePermission.OWNER_READ);
-            permission.add(PosixFilePermission.OWNER_WRITE);
-            Files.setPosixFilePermissions(Paths.get(sshKeyFile.getAbsolutePath()), permission);
-        } catch (IOException e) {
-            log.error("set ssh key file permission fail");
-        }
-        return sshKeyFile;
     }
 
     /**

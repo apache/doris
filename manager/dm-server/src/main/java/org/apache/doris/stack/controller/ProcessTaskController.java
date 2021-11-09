@@ -92,7 +92,7 @@ public class ProcessTaskController {
      */
     @ApiOperation(value = "Skip task when task fails")
     @RequestMapping(value = "/task/skip/{taskId}", method = RequestMethod.POST)
-    public RResult skipTask(@PathVariable(value = "taskId") int taskId) throws Exception {
+    public RResult skipTask(@PathVariable(value = "taskId") int taskId) {
         processTask.skipTask(taskId);
         return RResult.success();
     }
