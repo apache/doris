@@ -285,7 +285,6 @@ public class SyncJobManager implements Writable {
     public void cleanOldSyncJobs() {
         LOG.debug("begin to clean old sync jobs ");
         long currentTimeMs = System.currentTimeMillis();
-
         writeLock();
         try {
             Iterator<Map.Entry<Long, SyncJob>> iterator = idToSyncJob.entrySet().iterator();
@@ -302,7 +301,6 @@ public class SyncJobManager implements Writable {
                         dbIdToJobNameToSyncJobs.remove(syncJob.getDbId());
                     }
                     iterator.remove();
-
                     LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
                             .add("finishTimeMs", syncJob.getFinishTimeMs())
                             .add("currentTimeMs", currentTimeMs)

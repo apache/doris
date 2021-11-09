@@ -407,7 +407,7 @@ public class SyncJobManagerTest {
 
     @Test
     public void testCleanOldSyncJobs() {
-        CanalSyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
+        SyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
         // change sync job state to cancelled
         try {
             canalSyncJob.updateState(JobState.CANCELLED, false);
@@ -424,12 +424,12 @@ public class SyncJobManagerTest {
         Map<Long, Map<String, List<SyncJob>>> dbIdToJobNameToSyncJobs = Maps.newHashMap();
         Map<String, List<SyncJob>> jobNameToSyncJobs = Maps.newHashMap();
         jobNameToSyncJobs.put(jobName, Lists.newArrayList(canalSyncJob));
-        dbIdToJobNameToSyncJobs.put(jobId, jobNameToSyncJobs);
+        dbIdToJobNameToSyncJobs.put(dbId, jobNameToSyncJobs);
 
         Deencapsulation.setField(manager, "idToSyncJob", idToSyncJob);
         Deencapsulation.setField(manager, "dbIdToJobNameToSyncJobs", dbIdToJobNameToSyncJobs);
 
-        new Expectations() {
+        new Expectations(canalSyncJob) {
             {
                 canalSyncJob.isExpired(anyLong);
                 result = true;
