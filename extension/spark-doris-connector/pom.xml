@@ -26,7 +26,7 @@
 
     <groupId>org.apache</groupId>
     <artifactId>doris-spark</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-spark-${spark.version}_${scala.version}</version>
 
     <properties>
         <scala.version>2.11</scala.version>
