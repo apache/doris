@@ -26,12 +26,12 @@
 
 namespace doris {
 
-// 描述streamindex的格式
+// Describe the format of streamindex
 struct StreamIndexHeader {
-    uint64_t block_count;      // 本index中block的个数
-    uint32_t position_format;  // position的个数，每个长度为sizeof(uint32_t)
-    uint32_t statistic_format; // 统计信息格式，实际上就是OLAP_FIELD_TYPE_XXX
-    // 为OLAP_FIELD_TYPE_NONE时, 表示无索引
+    uint64_t block_count;      // The number of blocks in this index
+    uint32_t position_format;  // The number of positions, each length is sizeof(uint32_t)
+    uint32_t statistic_format; // The statistical information format is actually OLAP_FIELD_TYPE_XXX
+    // When it is OLAP_FIELD_TYPE_NONE, it means no index
     StreamIndexHeader()
             : block_count(0), position_format(0), statistic_format(OLAP_FIELD_TYPE_NONE) {}
 } __attribute__((packed));
@@ -39,16 +39,16 @@ struct StreamIndexHeader {
 // TODO: string type(char, varchar) has no columnar statistics at present.
 // when you want to add columnar statistics for string type,
 // don't forget to convert storage layout between disk and memory.
-// 处理列的统计信息，读写一体，也可以分开。
+// Processing column statistics, read and write in one, can also be separated.
 class ColumnStatistics {
 public:
     ColumnStatistics();
     ~ColumnStatistics();
 
-    // 初始化，需要给FieldType，用来初始化最大最小值
-    // 使用前必须首先初始化，否则无效
+    // Initialization, FieldType needs to be used to initialize the maximum and minimum values
+    // It must be initialized before use, otherwise it will be invalid
     OLAPStatus init(const FieldType& type, bool null_supported);
-    // 只是reset最大和最小值，将最小值设置为MAX，将最大值设置为MIN。
+    // Just reset the maximum and minimum values, set the minimum value to MAX, and the maximum value to MIN.
     void reset();
 
     template <typename CellType>
@@ -64,17 +64,17 @@ public:
         }
     }
 
-    // 合并，将另一个统计信息和入当前统计中
+    // Combine, merge another statistic information into the current statistic
     void merge(ColumnStatistics* other);
-    // 返回最大最小值“输出时”占用的内存，而“不是?
-    // ??当前结构占用的内存大小
+    // It returns the memory occupied by the maximum and minimum values "when outputting", and "isn't it?"
+    // ?? The size of the memory occupied by the current structure
     size_t size() const;
-    // 将最大最小值attach到给定的buffer上
+    // Attach the maximum and minimum values to the given buffer
     void attach(char* buffer);
-    // 将最大最小值输出到buffer中
+    // Output the maximum and minimum values to the buffer
     OLAPStatus write_to_buffer(char* buffer, size_t size);
 
-    // 属性
+    // Attributes
     const WrapperField* minimum() const { return _minimum; }
     const WrapperField* maximum() const { return _maximum; }
     std::pair<WrapperField*, WrapperField*> pair() const {
@@ -85,8 +85,9 @@ public:
 protected:
     WrapperField* _minimum;
     WrapperField* _maximum;
-    // 由于暂时不支持string的统计信息，为了方便直接定义长度
-    // 也可以每次都分配
+    // As the statistical information of string is not supported for the time being,
+    // the length is directly defined for convenience
+    // Can also be assigned every time
     bool _ignored;
     bool _null_supported;
 };
