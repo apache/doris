@@ -420,6 +420,8 @@ public:
     // Todo(kks): remove this method when 0.12 release
     static StringVal convert_format(doris_udf::FunctionContext* ctx, const StringVal& format);
 
+    static std::string convert_format(const std::string& format);
+
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);
 

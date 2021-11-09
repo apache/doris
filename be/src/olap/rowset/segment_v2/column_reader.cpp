@@ -154,14 +154,13 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(
-        CondColumn* cond_column, CondColumn* delete_condition,
-        std::unordered_set<uint32_t>* delete_partial_filtered_pages, RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
+                                                CondColumn* delete_condition,
+                                                RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition,
-                                        delete_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_condition, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
@@ -213,10 +212,8 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
     return cond->eval({min_value_container, max_value_container});
 }
 
-Status ColumnReader::_get_filtered_pages(
-        CondColumn* cond_column, CondColumn* delete_condition,
-        std::unordered_set<uint32_t>* delete_partial_filtered_pages,
-        std::vector<uint32_t>* page_indexes) {
+Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* delete_condition,
+                                         std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
     const std::vector<ZoneMapPB>& zone_maps = _zone_map_index->page_zone_maps();
     int32_t page_size = _zone_map_index->num_pages();
@@ -234,8 +231,6 @@ Status ColumnReader::_get_filtered_pages(
                     int state = delete_condition->del_eval({min_value.get(), max_value.get()});
                     if (state == DEL_SATISFIED) {
                         should_read = false;
-                    } else if (state == DEL_PARTIAL_SATISFIED) {
-                        delete_partial_filtered_pages->insert(i);
                     }
                 }
                 if (should_read) {
@@ -397,7 +392,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
     ColumnBlock* array_block = dst->column_block();
-    auto* array_batch = dynamic_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
+    auto* array_batch = static_cast<ArrayColumnVectorBatch*>(array_block->vector_batch());
 
     // 1. read n offsets
     ColumnBlock offset_block(array_batch->offsets(), nullptr);
@@ -530,13 +525,6 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
             }
         }
 
-        auto iter = _delete_partial_satisfied_pages.find(_page->page_index);
-        bool is_partial = iter != _delete_partial_satisfied_pages.end();
-        if (is_partial) {
-            dst->column_block()->set_delete_state(DEL_PARTIAL_SATISFIED);
-        } else {
-            dst->column_block()->set_delete_state(DEL_NOT_SATISFIED);
-        }
         // number of rows to be read from this page
         size_t nrows_in_page = std::min(remaining, _page->remaining());
         size_t nrows_to_read = nrows_in_page;
@@ -642,8 +630,8 @@ Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                       CondColumn* delete_condition,
                                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(
-                cond_column, delete_condition, &_delete_partial_satisfied_pages, row_ranges));
+        RETURN_IF_ERROR(
+                _reader->get_row_ranges_by_zone_map(cond_column, delete_condition, row_ranges));
     }
     return Status::OK();
 }
@@ -679,7 +667,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 ((Slice*)_mem_value)->data = string_buffer;
             } else if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
                        _type_info->type() == OLAP_FIELD_TYPE_HLL ||
-                       _type_info->type() == OLAP_FIELD_TYPE_OBJECT) {
+                       _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
+                       _type_info->type() == OLAP_FIELD_TYPE_STRING) {
                 int32_t length = _default_value.length();
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
                 memory_copy(string_buffer, _default_value.c_str(), length);

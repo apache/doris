@@ -50,7 +50,8 @@ enum TPlanNodeType {
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
   EXCEPT_NODE,
-  ODBC_SCAN_NODE
+  ODBC_SCAN_NODE,
+  TABLE_FUNCTION_NODE,
 }
 
 // phases of an execution node
@@ -342,6 +343,7 @@ struct TOlapScanNode {
   4: required bool is_preaggregation
   5: optional string sort_column
   6: optional Types.TKeysType keyType
+  7: optional string table_name
 }
 
 struct TEqJoinCondition {
@@ -652,6 +654,10 @@ struct TOlapRewriteNode {
     3: required Types.TTupleId output_tuple_id
 }
 
+struct TTableFunctionNode {
+    1: required Exprs.TExpr fnCallExpr
+}
+
 // This contains all of the information computed by the plan as part of the resource
 // profile that is needed by the backend to execute.
 struct TBackendResourceProfile {
@@ -668,7 +674,8 @@ struct TBackendResourceProfile {
 
 // The buffer size in bytes that is large enough to fit the largest row to be processed.
 // Set if the node allocates buffers for rows from the buffer pool.
-4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+// Deprecated after support string type
+4: optional i64 max_row_buffer_size = 4294967296  // 4G
 }
 
 enum TAssertion {
@@ -769,6 +776,10 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+
+  40: optional Exprs.TExpr vconjunct
+
+  41: optional TTableFunctionNode table_function_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

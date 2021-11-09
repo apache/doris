@@ -76,10 +76,14 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_LARGEINT:
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_STRING:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
         *result = std::make_shared<arrow::Decimal128Type>(27, 9);
+        break;
+    case TYPE_BOOLEAN:
+        *result = arrow::boolean();
         break;
     default:
         return Status::InvalidArgument(
@@ -128,6 +132,9 @@ Status convert_to_doris_type(const arrow::DataType& type, TSlotDescriptorBuilder
         break;
     case arrow::Type::DOUBLE:
         builder->type(TYPE_DOUBLE);
+        break;
+    case arrow::Type::BOOL:
+        builder->type(TYPE_BOOLEAN);
         break;
     default:
         return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
@@ -210,7 +217,8 @@ public:
             switch (primitive_type) {
             case TYPE_VARCHAR:
             case TYPE_CHAR:
-            case TYPE_HLL: {
+            case TYPE_HLL:
+            case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(cell_ptr);
                 if (string_val->len == 0) {
                     // 0x01 is a magic num, not useful actually, just for present ""
@@ -225,8 +233,8 @@ public:
             case TYPE_DATETIME: {
                 char buf[64];
                 const DateTimeValue* time_val = (const DateTimeValue*)(cell_ptr);
-                char* pos = time_val->to_string(buf);
-                ARROW_RETURN_NOT_OK(builder.Append(buf, pos - buf - 1));
+                int len = time_val->to_buffer(buf);
+                ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
             }
             case TYPE_LARGEINT: {
@@ -263,6 +271,22 @@ public:
             uint64 low = p_value->value;
             arrow::Decimal128 value(high, low);
             ARROW_RETURN_NOT_OK(builder.Append(value));
+        }
+        return builder.Finish(&_arrays[_cur_field_idx]);
+    }
+    // process boolean
+    arrow::Status Visit(const arrow::BooleanType& type) {
+        arrow::BooleanBuilder builder(_pool);
+        size_t num_rows = _batch.num_rows();
+        builder.Reserve(num_rows);
+        for (size_t i = 0; i < num_rows; ++i) {
+            bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
+            if (is_null) {
+                ARROW_RETURN_NOT_OK(builder.AppendNull());
+                continue;
+            }
+            auto cell_ptr = _cur_slot_ref->get_slot(_batch.get_row(i));
+            ARROW_RETURN_NOT_OK(builder.Append(*(bool*)cell_ptr));
         }
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
@@ -436,7 +460,6 @@ Status convert_to_row_batch(const arrow::RecordBatch& batch, const RowDescriptor
 }
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result) {
-    std::shared_ptr<arrow::io::BufferOutputStream> sink;
     // create sink memory buffer outputstream with the computed capacity
     int64_t capacity;
     arrow::Status a_st = arrow::ipc::GetRecordBatchSize(record_batch, &capacity);
@@ -445,22 +468,22 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         msg << "GetRecordBatchSize failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
-    a_st = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool(), &sink);
-    if (!a_st.ok()) {
+    auto sink_res = arrow::io::BufferOutputStream::Create(capacity, arrow::default_memory_pool());
+    if (!sink_res.ok()) {
         std::stringstream msg;
-        msg << "create BufferOutputStream failure, reason: " << a_st.ToString();
+        msg << "create BufferOutputStream failure, reason: " << sink_res.status().ToString();
         return Status::InternalError(msg.str());
     }
-    std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer;
+    std::shared_ptr<arrow::io::BufferOutputStream> sink = sink_res.ValueOrDie();
     // create RecordBatch Writer
-    a_st = arrow::ipc::RecordBatchStreamWriter::Open(sink.get(), record_batch.schema(),
-                                                     &record_batch_writer);
-    if (!a_st.ok()) {
+    auto res = arrow::ipc::MakeStreamWriter(sink.get(), record_batch.schema());
+    if (!res.ok()) {
         std::stringstream msg;
-        msg << "open RecordBatchStreamWriter failure, reason: " << a_st.ToString();
+        msg << "open RecordBatchStreamWriter failure, reason: " << res.status().ToString();
         return Status::InternalError(msg.str());
     }
     // write RecordBatch to memory buffer outputstream
+    std::shared_ptr<arrow::ipc::RecordBatchWriter> record_batch_writer = res.ValueOrDie();
     a_st = record_batch_writer->WriteRecordBatch(record_batch);
     if (!a_st.ok()) {
         std::stringstream msg;
@@ -468,14 +491,13 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         return Status::InternalError(msg.str());
     }
     record_batch_writer->Close();
-    std::shared_ptr<arrow::Buffer> buffer;
-    sink->Finish(&buffer);
-    if (!a_st.ok()) {
+    auto finish_res = sink->Finish();
+    if (!finish_res.ok()) {
         std::stringstream msg;
-        msg << "allocate result buffer failure, reason: " << a_st.ToString();
+        msg << "allocate result buffer failure, reason: " << finish_res.status().ToString();
         return Status::InternalError(msg.str());
     }
-    *result = buffer->ToString();
+    *result = finish_res.ValueOrDie()->ToString();
     // close the sink
     sink->Close();
     return Status::OK();

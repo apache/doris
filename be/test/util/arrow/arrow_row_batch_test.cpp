@@ -28,6 +28,7 @@
 #include <arrow/json/api.h>
 #include <arrow/json/test_common.h>
 #include <arrow/pretty_print.h>
+#include <arrow/result.h>
 
 #include "common/object_pool.h"
 #include "runtime/mem_tracker.h"
@@ -47,7 +48,8 @@ std::string test_str() {
 }
 
 void MakeBuffer(const std::string& data, std::shared_ptr<arrow::Buffer>* out) {
-    arrow::AllocateBuffer(arrow::default_memory_pool(), data.size(), out);
+    auto res = arrow::AllocateBuffer(data.size(), arrow::default_memory_pool());
+    *out = std::move(res.ValueOrDie());
     std::copy(std::begin(data), std::end(data), (*out)->mutable_data());
 }
 
@@ -60,9 +62,9 @@ TEST_F(ArrowRowBatchTest, PrettyPrint) {
             arrow::field("c1", arrow::int64()),
     });
 
-    std::shared_ptr<arrow::RecordBatch> record_batch;
-    auto arrow_st = arrow::json::ParseOne(parse_opts, buffer, &record_batch);
+    auto arrow_st = arrow::json::ParseOne(parse_opts, buffer);
     ASSERT_TRUE(arrow_st.ok());
+    std::shared_ptr<arrow::RecordBatch> record_batch = arrow_st.ValueOrDie();
 
     ObjectPool obj_pool;
     RowDescriptor* row_desc;

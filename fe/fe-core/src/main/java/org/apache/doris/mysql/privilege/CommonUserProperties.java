@@ -20,21 +20,36 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 
 import com.google.gson.annotations.SerializedName;
+
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Set;
 
 /**
  * Used in
  */
 public class CommonUserProperties implements Writable {
+    // The max connections allowed for a user on one FE
     @SerializedName("maxConn")
     private long maxConn = 100;
+    // The maximum total number of query instances that the user is allowed to send from this FE
     @SerializedName("maxQueryInstances")
     private long maxQueryInstances = -1;
+    @SerializedName("sqlBlockRules")
+    private String sqlBlockRules = "";
+    @SerializedName("cpuResourceLimit")
+    private int cpuResourceLimit = -1;
+    // The tag of the resource that the user is allowed to use
+    @SerializedName("resourceTags")
+    private Set<Tag> resourceTags = Sets.newHashSet();
+
+    private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
         return maxConn;
@@ -42,6 +57,14 @@ public class CommonUserProperties implements Writable {
 
     long getMaxQueryInstances() {
         return maxQueryInstances;
+    }
+
+    String getSqlBlockRules() {
+        return sqlBlockRules;
+    }
+    
+    String[] getSqlBlockRulesSplit() {
+        return sqlBlockRulesSplit;
     }
 
     void setMaxConn(long maxConn) {
@@ -52,9 +75,38 @@ public class CommonUserProperties implements Writable {
         this.maxQueryInstances = maxQueryInstances;
     }
 
+    void setSqlBlockRules(String sqlBlockRules) {
+        this.sqlBlockRules = sqlBlockRules;
+        setSqlBlockRulesSplit(sqlBlockRules);
+    }
+    
+    void setSqlBlockRulesSplit(String sqlBlockRules) {
+        // split
+        this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");
+    }
+
+    public int getCpuResourceLimit() {
+        return cpuResourceLimit;
+    }
+
+    public void setCpuResourceLimit(int cpuResourceLimit) {
+        this.cpuResourceLimit = cpuResourceLimit;
+    }
+
+    public void setResourceTags(Set<Tag> resourceTags) {
+        this.resourceTags = resourceTags;
+    }
+
+    public Set<Tag> getResourceTags() {
+        return resourceTags;
+    }
+
     public static CommonUserProperties read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
+        CommonUserProperties commonUserProperties = GsonUtils.GSON.fromJson(json, CommonUserProperties.class);
+        // trigger split
+        commonUserProperties.setSqlBlockRulesSplit(commonUserProperties.getSqlBlockRules());
+        return commonUserProperties;
     }
 
     @Override

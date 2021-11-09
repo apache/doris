@@ -91,6 +91,10 @@ public:
                       const ::doris::PPublishFilterRequest* request,
                       ::doris::PPublishFilterResponse* response,
                       ::google::protobuf::Closure* done) override;
+    void transmit_block(::google::protobuf::RpcController* controller,
+                        const ::doris::PTransmitDataParams* request,
+                        ::doris::PTransmitDataResult* response,
+                        ::google::protobuf::Closure* done) override;
 
     void send_data(google::protobuf::RpcController* controller, const PSendDataRequest* request,
                    PSendDataResult* response, google::protobuf::Closure* done);
@@ -101,9 +105,19 @@ public:
     void fold_constant_expr(google::protobuf::RpcController* controller,
                             const PConstantExprRequest* request, PConstantExprResult* response,
                             google::protobuf::Closure* done) override;
+    void check_rpc_channel(google::protobuf::RpcController* controller,
+                           const PCheckRPCChannelRequest* request,
+                           PCheckRPCChannelResponse* response,
+                           google::protobuf::Closure* done) override;
+    void reset_rpc_channel(google::protobuf::RpcController* controller,
+                           const PResetRPCChannelRequest* request,
+                           PResetRPCChannelResponse* response,
+                           google::protobuf::Closure* done) override;
+    void hand_shake(google::protobuf::RpcController* controller, const PHandShakeRequest* request,
+                    PHandShakeResponse* response, google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(const std::string& s_request);
+    Status _exec_plan_fragment(const std::string& s_request, bool compact);
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 

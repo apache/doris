@@ -22,7 +22,7 @@ import java.io.Serializable;
 /**
  * Doris read Options
  */
-public class DorisReadOptions  implements Serializable {
+public class DorisReadOptions implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
@@ -35,7 +35,7 @@ public class DorisReadOptions  implements Serializable {
     private Integer requestRetries;
     private Integer requestBatchSize;
     private Long execMemLimit;
-    private Integer  deserializeQueueSize;
+    private Integer deserializeQueueSize;
     private Boolean deserializeArrowAsync;
 
     public DorisReadOptions(String readFields, String filterQuery, Integer requestTabletSize, Integer requestConnectTimeoutMs, Integer requestReadTimeoutMs,
@@ -103,6 +103,10 @@ public class DorisReadOptions  implements Serializable {
         return new Builder();
     }
 
+    public static DorisReadOptions defaults(){
+        return DorisReadOptions.builder().build();
+    }
+
     /**
      * Builder of {@link DorisReadOptions}.
      */
@@ -117,7 +121,7 @@ public class DorisReadOptions  implements Serializable {
         private Integer requestRetries;
         private Integer requestBatchSize;
         private Long execMemLimit;
-        private Integer  deserializeQueueSize;
+        private Integer deserializeQueueSize;
         private Boolean deserializeArrowAsync;
 
 
@@ -177,8 +181,9 @@ public class DorisReadOptions  implements Serializable {
         }
 
         public DorisReadOptions build() {
-            return new DorisReadOptions(readFields,filterQuery,requestTabletSize,requestConnectTimeoutMs,requestReadTimeoutMs,requestQueryTimeoutS,requestRetries,requestBatchSize,execMemLimit,deserializeQueueSize,deserializeArrowAsync);
+            return new DorisReadOptions(readFields, filterQuery, requestTabletSize, requestConnectTimeoutMs, requestReadTimeoutMs, requestQueryTimeoutS, requestRetries, requestBatchSize, execMemLimit, deserializeQueueSize, deserializeArrowAsync);
         }
+
     }
 
 

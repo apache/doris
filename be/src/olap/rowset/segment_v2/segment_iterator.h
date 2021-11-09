@@ -47,7 +47,8 @@ class ColumnIterator;
 
 class SegmentIterator : public RowwiseIterator {
 public:
-    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema, std::shared_ptr<MemTracker> parent);
+    SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema,
+                    std::shared_ptr<MemTracker> parent);
     ~SegmentIterator() override;
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
@@ -95,7 +96,7 @@ private:
     // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
     std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
-    Roaring _row_bitmap;
+    roaring::Roaring _row_bitmap;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read

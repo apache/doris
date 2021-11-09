@@ -28,6 +28,7 @@ set -eo pipefail
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
+
 export DORIS_HOME=${ROOT}/../../
 
 # include custom environment variables
@@ -37,6 +38,7 @@ fi
 
 # check maven
 MVN_CMD=mvn
+
 if [[ ! -z ${CUSTOM_MVN} ]]; then
     MVN_CMD=${CUSTOM_MVN}
 fi
@@ -46,11 +48,32 @@ if ! ${MVN_CMD} --version; then
 fi
 export MVN_CMD
 
-${MVN_CMD} clean package
+usage() {
+  echo "
+  Eg.
+    $0 2            build with spark 2.x
+    $0 3            build with spark 3.x
+  "
+  exit 1
+}
 
+if [ $# == 0 ]; then
+    usage
+fi
+
+rm -rf output/
+
+if [ "$1"x == "3x" ]
+then
+   ${MVN_CMD} clean package -f pom_3.0.xml
+fi
+if [ "$1"x == "2x" ]
+then
+   ${MVN_CMD} clean package
+fi
 
 mkdir -p output/
-cp target/doris-spark-1.0.0-SNAPSHOT.jar ./output/
+cp target/doris-spark-*.jar ./output/
 
 echo "*****************************************"
 echo "Successfully build Spark-Doris-Connector"

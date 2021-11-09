@@ -626,7 +626,8 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
 
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_OBJECT:
-    case OLAP_FIELD_TYPE_HLL: {
+    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_STRING: {
         if (ColumnEncodingMessage::DIRECT == encode_kind) {
             reader = new (std::nothrow) VarStringColumnReader<StringColumnDirectReader>(
                     column_id, column_unique_id, column.length(), dictionary_size);

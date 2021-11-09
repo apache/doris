@@ -147,7 +147,7 @@ public class BrokerUtil {
                     fileStatuses.add(tBrokerFileStatus);
                 }
             } catch (TException e) {
-                LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
+                LOG.warn("Broker list path exception, path={}, address={}", path, address, e);
                 throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
             } finally {
                 returnClient(client, address, failed);
@@ -155,10 +155,15 @@ public class BrokerUtil {
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
             S3Storage s3 = new S3Storage(brokerDesc.getProperties());
             List<RemoteFile> rfiles = new ArrayList<>();
-            Status st = s3.list(path, rfiles, false);
-            if (!st.ok()) {
-                throw new UserException("S3 list path failed. path=" + path
-                    + ",msg=" + st.getErrMsg());
+            try {
+                Status st = s3.list(path, rfiles, false);
+                if (!st.ok()) {
+                    throw new UserException("S3 list path failed. path=" + path
+                            + ",msg=" + st.getErrMsg());
+                }
+            } catch (Exception e) {
+                LOG.warn("s3 list path exception, path={}", path, e);
+                throw new UserException("s3 list path exception. path=" + path + ", err: " + e.getMessage());
             }
             for (RemoteFile r : rfiles) {
                 if (r.isFile()) {

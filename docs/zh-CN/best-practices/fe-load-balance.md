@@ -191,7 +191,7 @@ MySQL [main]> show tables;
 #### 3.2.3 ProxySQL 配置后端 Doris FE
 
 
-使用 insert 语句添加主机到 mysql_servers 表中，其中：hostgroup_id 为10表示写组，为20表示读组，我们这里不需要读写分许，无所谓随便设置哪一个都可以。
+使用 insert 语句添加主机到 mysql_servers 表中，其中：hostgroup_id 为10表示写组，为20表示读组，我们这里不需要读写分离，无所谓随便设置哪一个都可以。
 
 ```sql
 [root@mysql-proxy ~]# mysql -uadmin -padmin -P6032 -h127.0.0.1

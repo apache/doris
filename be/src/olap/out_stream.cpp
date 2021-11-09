@@ -186,22 +186,22 @@ OLAPStatus OutStream::_spill() {
         return OLAP_SUCCESS;
     }
 
-    // 如果不压缩，直接读取current，注意output之后 current会被清空并设置为NULL
+    // If it is not compressed, read current directly. Note that current will be cleared and set to NULL after output
     if (_compressor == NULL) {
         _current->flip();
         _output_uncompress();
     } else {
-        // 如果需要压缩，
-        // current移动到head后边的位置，留出head的空间
+        //If compression is required,
+        // The current moves to the position behind the head, leaving space for the head
         _current->set_limit(_current->position());
         _current->set_position(sizeof(StreamHead));
 
-        // 分配compress和overflow，这两个buffer大小其实是一样的
+        //Allocate compress and overflow, the two buffer sizes are actually the same
         if (OLAP_SUCCESS != (res = _make_sure_output_buffer())) {
             return res;
         }
 
-        // 吧 current解压到compress和overflow
+        // Decompress current to compress and overflow
         uint64_t head_pos = _compressed->position();
         _compressed->set_position(head_pos + sizeof(StreamHead));
         bool smaller = false;
@@ -213,8 +213,8 @@ OLAPStatus OutStream::_spill() {
         }
 
         if (smaller) {
-            // 数据都压缩到_output和_overflow里, 重置_current
-            // 注意这种情况下，current并没有被释放，因为实际上输出的compress
+            // Data are compressed into _output and _overflow, reset _current
+            // Note that in this case, current is not released, because the compress actually output
             _current->set_position(sizeof(StreamHead));
             _current->set_limit(_current->capacity());
 
@@ -228,15 +228,14 @@ OLAPStatus OutStream::_spill() {
 
             _spilled_bytes += sizeof(StreamHead) + output_bytes;
         } else {
-            // 直接将_current输出
-
-            // 如果之前还有_compress, 先输出m_compress
-            // 注意此时一定没有_overflow
+             // directly output _current
+             // If there is _compress before, output m_compress first
+             // Note that there must be no _overflow at this time
             _compressed->set_position(head_pos);
 
             if (head_pos != 0) {
-                // 之前_compressed里有数据, 这种情况下先输出compressed,
-                // 此时_overflow一定是空的
+                // There was data in _compressed before, in this case, output compressed first,
+                // At this time _overflow must be empty 
                 _output_compressed();
             }
 
@@ -253,11 +252,11 @@ OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
     uint64_t remain = length;
 
     while (remain > 0) {
-        // 之所以扔进来，是因为在压缩的情况下，_current只会被创建一次
-        // 之后一直在复用，输出的是compress
-        // 而在未压缩的情况下，current会被放进列表，而无法复用，原因是
-        // 如果复用的话，会修改之前的内容，因此需要重新分配。
-        // 只分配一次那么第二块就会挂掉
+         // The reason why it was thrown in is because in the case of compression, _current will only be created once
+         // It has been multiplexing since then, and the output is compress
+         // In the case of uncompressed, current will be put into the list and cannot be reused. The reason is
+         // If it is reused, the previous content will be modified, so it needs to be redistributed.
+         // Only allocate once and the second block will hang up
         if (NULL == _current) {
             res = _create_new_input_buffer();
             if (OLAP_SUCCESS != res) {

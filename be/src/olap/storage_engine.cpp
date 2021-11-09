@@ -51,6 +51,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -331,7 +332,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos,
+OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                                 bool need_update) {
     OLAPStatus res = OLAP_SUCCESS;
     data_dir_infos->clear();
@@ -375,6 +376,20 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
               << " ms. tablet counter: " << tablet_count;
 
     return res;
+}
+
+int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_path) {
+    if (!std::filesystem::exists(file_path)) {
+        return 0;
+    }
+    if (!std::filesystem::is_directory(file_path)) {
+        return std::filesystem::file_size(file_path);
+    }
+    int64_t sum_size = 0;
+    for (const auto& it : std::filesystem::directory_iterator(file_path)) {
+        sum_size += get_file_or_directory_size(it.path());
+    }
+    return sum_size;
 }
 
 void StorageEngine::_start_disk_stat_monitor() {
@@ -500,19 +515,21 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
-    // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
-    std::lock_guard<std::mutex> l(_store_lock);
-    if (_store_map.empty()) {
-        return false;
-    }
-
-    for (auto& it : _store_map) {
-        ++total_root_path_num;
-        if (it.second->is_used()) {
-            continue;
+    {
+        // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
+        std::lock_guard<std::mutex> l(_store_lock);
+        if (_store_map.empty()) {
+            return false;
         }
-        it.second->clear_tablets(&tablet_info_vec);
-        ++unused_root_path_num;
+
+        for (auto& it : _store_map) {
+            ++total_root_path_num;
+            if (it.second->is_used()) {
+                continue;
+            }
+            it.second->clear_tablets(&tablet_info_vec);
+            ++unused_root_path_num;
+        }
     }
 
     if (too_many_disks_are_failed(unused_root_path_num, total_root_path_num)) {
@@ -613,21 +630,29 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-void StorageEngine::_start_clean_fd_cache() {
-    VLOG_TRACE << "start clean file descritpor cache";
+void StorageEngine::_start_clean_cache() {
     _file_cache->prune();
-    VLOG_TRACE << "end clean file descritpor cache";
+    SegmentLoader::instance()->prune();
 }
 
-OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
+OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
+
+    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
+    if(!l.try_lock()) {
+        LOG(INFO) << "trash and snapshot sweep is running.";
+        return res;
+    }
+
     LOG(INFO) << "start trash and snapshot sweep.";
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
     // the guard space should be lower than storage_flood_stage_usage_percent,
     // so here we multiply 0.9
-    const double guard_space = config::storage_flood_stage_usage_percent / 100.0 * 0.9;
+    // if ignore_guard is true, set guard_space to 0.
+    const double guard_space =
+            ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
     RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
                       "failed to get root path stat info when sweep trash.")
@@ -671,7 +696,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     }
 
     if (usage != nullptr) {
-        *usage = tmp_usage;
+        *usage = tmp_usage; // update usage
     }
 
     // clear expire incremental rowset, move deleted tablet to trash

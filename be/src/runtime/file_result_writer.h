@@ -18,6 +18,7 @@
 #pragma once
 
 #include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
 
@@ -31,6 +32,7 @@ class RuntimeProfile;
 class TupleRow;
 
 struct ResultFileOptions {
+    // deprecated
     bool is_local_file;
     std::string file_path;
     TFileFormatType::type file_format;
@@ -79,6 +81,13 @@ public:
                      const std::vector<ExprContext*>& output_expr_ctxs,
                      RuntimeProfile* parent_profile,
                      BufferControlBlock* sinker);
+    FileResultWriter(const ResultFileOptions* file_option,
+                     const TStorageBackendType::type storage_type,
+                     const TUniqueId fragment_instance_id,
+                     const std::vector<ExprContext*>& output_expr_ctxs,
+                     RuntimeProfile* parent_profile,
+                     BufferControlBlock* sinker,
+                     RowBatch* output_batch);
     virtual ~FileResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -104,6 +113,7 @@ private:
     // get next export file name
     Status _get_next_file_name(std::string* file_name);
     Status _get_success_file_name(std::string* file_name);
+    Status _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
     // close file writer, and if !done, it will create new writer for next file.
     // if only_close is true, this method will just close the file writer and return.
@@ -112,10 +122,14 @@ private:
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
     Status _send_result();
+    // save result into batch rather than send it
+    Status _fill_result_batch();
 
 private:
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
+    TStorageBackendType::type _storage_type;
+    TUniqueId _fragment_instance_id;
     const std::vector<ExprContext*>& _output_expr_ctxs;
 
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
@@ -151,7 +165,9 @@ private:
     // bytes of written data
     RuntimeProfile::Counter* _written_data_bytes = nullptr;
 
-    BufferControlBlock* _sinker;
+    // _sinker and _output_batch are not owned by FileResultWriter
+    BufferControlBlock* _sinker = nullptr;
+    RowBatch* _output_batch = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;
 };

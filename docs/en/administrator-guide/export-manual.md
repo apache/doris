@@ -106,17 +106,20 @@ PARTITION (p1,p2)
 TO "bos://bj-test-cmy/export/" 
 PROPERTIES
 (
+    "label"="mylabel",
     "column_separator"=",",
+    "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
     "timeout" = "3600"
 )
 WITH BROKER "hdfs"
 (
 	"username" = "user",
-	"password" = "passwd",
+	"password" = "passwd"
 );
 ```
 
+* `label`: The identifier of this export job. You can use this identifier to view the job status later.
 * `column_separator`: Column separator. The default is `\t`. Supports invisible characters, such as'\x07'.
 * `column`: columns to be exported, separated by commas, if this parameter is not filled in, all columns of the table will be exported by default.
 * `line_delimiter`: Line separator. The default is `\n`. Supports invisible characters, such as'\x07'.
@@ -128,6 +131,7 @@ After submitting a job, the job status can be imported by querying the `SHOW EXP
 
 ```
      JobId: 14008
+     Label: mylabel
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
@@ -141,6 +145,7 @@ FinishTime: 2019-06-25 17:08:34
 
 
 * JobId: The unique ID of the job
+* Label: Job identifier
 * State: Job status:
 	* PENDING: Jobs to be Scheduled
 	* EXPORTING: Data Export

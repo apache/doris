@@ -91,6 +91,7 @@ public class MetaReader {
             checksum = catalog.loadBrokers(dis, checksum);
             checksum = catalog.loadResources(dis, checksum);
             checksum = catalog.loadExportJob(dis, checksum);
+            checksum = catalog.loadSyncJobs(dis,checksum);
             checksum = catalog.loadBackupHandler(dis, checksum);
             checksum = catalog.loadPaloAuth(dis, checksum);
             // global transaction must be replayed before load jobs v2
@@ -101,6 +102,7 @@ public class MetaReader {
             checksum = catalog.loadSmallFiles(dis, checksum);
             checksum = catalog.loadPlugins(dis, checksum);
             checksum = catalog.loadDeleteHandler(dis, checksum);
+            checksum = catalog.loadSqlBlockRule(dis, checksum);
         }
 
         MetaFooter metaFooter = MetaFooter.read(imageFile);

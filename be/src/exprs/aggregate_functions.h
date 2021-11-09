@@ -41,9 +41,18 @@ public:
     // Initializes dst to NULL and sets dst->ptr to NULL.
     static void init_null_string(doris_udf::FunctionContext* c, doris_udf::StringVal* dst);
 
-    // Initializes dst to 0.
+    // Initializes dst to 0 and is_null = true.
     template <typename T>
     static void init_zero(doris_udf::FunctionContext*, T* dst);
+
+    // Initializes dst to 0 and is_null = true.
+    template <typename T>
+    static void init_zero_null(doris_udf::FunctionContext*, T* dst);
+
+    // Initializes dst to 0.
+    template <typename T>
+    static void init_zero_not_null(doris_udf::FunctionContext*, T* dst);
+
 
     template <typename SRC_VAL, typename DST_VAL>
     static void sum_remove(doris_udf::FunctionContext* ctx, const SRC_VAL& src, DST_VAL* dst);
@@ -64,6 +73,19 @@ public:
     static void count_star_update(doris_udf::FunctionContext*, doris_udf::BigIntVal* dst);
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
+
+    // Implementation of percentile
+    static void percentile_init(FunctionContext* ctx, StringVal* dst);
+
+    template <typename T>
+    static void percentile_update(FunctionContext* ctx, const T& src,
+                                    const DoubleVal& quantile, StringVal* dst);
+
+    static void percentile_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static StringVal percentile_serialize(FunctionContext* ctx, const StringVal& state_sv);
+
+    static DoubleVal percentile_finalize(FunctionContext* ctx, const StringVal& src);
 
     // Implementation of percentile_approx
     static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -127,9 +149,17 @@ public:
     template <typename SRC_VAL, typename DST_VAL>
     static void sum(doris_udf::FunctionContext*, const SRC_VAL& src, DST_VAL* dst);
 
+    // MinInit
+    template <typename T>
+    static void min_init(doris_udf::FunctionContext*, T* dst);
+
     // MinUpdate/MinMerge
     template <typename T>
     static void min(doris_udf::FunctionContext*, const T& src, T* dst);
+
+    // MaxInit
+    template <typename T>
+    static void max_init(doris_udf::FunctionContext*, T* dst);
 
     // MaxUpdate/MaxMerge
     template <typename T>

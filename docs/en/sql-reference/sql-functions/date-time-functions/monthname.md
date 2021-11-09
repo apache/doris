@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR MONTHNAME (DATE)'
+`VARCHAR MONTHNAME (DATE)`
 
 
 Month name corresponding to return date

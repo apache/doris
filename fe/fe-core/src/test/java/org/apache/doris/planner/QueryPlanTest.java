@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InformationFunction;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
@@ -46,15 +48,14 @@ import org.apache.doris.utframe.UtFrameUtils;
 import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
-
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
 
 public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
@@ -65,7 +66,7 @@ public class QueryPlanTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -400,6 +401,9 @@ public class QueryPlanTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");");
+
+        createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
+
     }
 
     @AfterClass
@@ -411,6 +415,10 @@ public class QueryPlanTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+    private static void createView(String sql) throws Exception {
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
     }
 
     @Test
@@ -1062,8 +1070,8 @@ public class QueryPlanTest {
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", true);
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("bucket_shuffle1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle1");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1076,8 +1084,8 @@ public class QueryPlanTest {
             }
         }
 
-        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        tbl = (OlapTable) db.getTable("bucket_shuffle2");
+        db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        tbl = (OlapTable) db.getTableOrMetaException("bucket_shuffle2");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1146,8 +1154,8 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1193,8 +1201,8 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
 
         // set data size and row count for the olap table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl = (OlapTable) db.getTable("jointest");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("jointest");
         for (Partition partition : tbl.getPartitions()) {
             partition.updateVisibleVersionAndVersionHash(2, 0);
             for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -1449,7 +1457,6 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
-
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
@@ -1698,4 +1705,98 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
     }
+
+    @Test
+    public void testNullColumnViewOrderBy() throws Exception{
+        FeConstants.runningUnitTest = true;
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "select * from tbl_null_column_view where add_column is not null;";
+        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString1.contains("EMPTYSET"));
+
+        String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        Assert.assertTrue(explainString2.contains("EMPTYSET"));
+    }
+
+    @Test
+    public void testCompoundPredicateWriteRule() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // false or e ==> e
+        String sql1 = "select * from test.test1 where 2=-2 OR query_time=0;";
+        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql1);
+        Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
+
+        //true or e ==> true
+        String sql2 = "select * from test.test1 where -5=-5 OR query_time=0;";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        Assert.assertTrue(!explainString2.contains("OR"));
+
+        //e or true ==> true
+        String sql3 = "select * from test.test1 where query_time=0 OR -5=-5;";
+        String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql3);
+        Assert.assertTrue(!explainString3.contains("OR"));
+
+        //e or false ==> e
+        String sql4 = "select * from test.test1 where -5!=-5 OR query_time=0;";
+        String explainString4 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql4);
+        Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
+
+
+        // true and e ==> e
+        String sql5 = "select * from test.test1 where -5=-5 AND query_time=0;";
+        String explainString5 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql5);
+        Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
+
+        // e and true ==> e
+        String sql6 = "select * from test.test1 where query_time=0 AND -5=-5;";
+        String explainString6 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql6);
+        Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
+
+        // false and e ==> false
+        String sql7 = "select * from test.test1 where -5!=-5 AND query_time=0;";
+        String explainString7 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql7);
+        Assert.assertTrue(!explainString7.contains("FALSE"));
+
+        // e and false ==> false
+        String sql8 = "select * from test.test1 where query_time=0 AND -5!=-5;";
+        String explainString8 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql8);
+        Assert.assertTrue(!explainString8.contains("FALSE"));
+
+        // (false or expr1) and (false or expr2) ==> expr1 and expr2
+        String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
+        String explainString9 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql9);
+        Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2, `stmt_id` = 2"));
+
+        // false or (expr and true) ==> expr
+        String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
+        String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
+        Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
+    }
+
+    @Test
+    public void testOutfile() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        Config.enable_outfile_to_local = true;
+        createTable("CREATE TABLE test.`outfile1` (\n" +
+                "  `date` date NOT NULL,\n" +
+                "  `road_code` int(11) NOT NULL DEFAULT \"-1\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`date`, `road_code`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`date`)\n" +
+                "(PARTITION v2x_ads_lamp_source_percent_statistic_20210929 VALUES [('2021-09-29'), ('2021-09-30')))\n" +
+                "DISTRIBUTED BY HASH(`road_code`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
+
+        // test after query rewrite, outfile still work
+        String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'" +
+                "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES (     \"column_separator\" = \",\",     \"line_delimiter\" = \"\\n\",     \"max_file_size\" = \"500MB\" );";
+        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
+    }
+
 }

@@ -241,7 +241,7 @@ public class FileSystemManager {
                 return null;
             }
             if (fileSystem.getDFSFileSystem() == null) {
-                logger.info("could not find file system for path " + path + " create a new one");
+                logger.info("create file system for new path: " + path);
                 UserGroupInformation ugi = null;
 
                 // create a new filesystem
@@ -271,7 +271,11 @@ public class FileSystemManager {
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
                         // different kerberos account has different file
-                        tmpFilePath = "/tmp/." + principal + "_" + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
+                        tmpFilePath ="/tmp/." +
+                                principal.replace('/', '_') +
+                                "_" + Long.toString(currentTime) +
+                                "_" + Integer.toString(randNumber);
+                        logger.info("create kerberos tmp file" + tmpFilePath);
                         FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
                         fileOutputStream.write(base64decodedBytes);
                         fileOutputStream.close();
@@ -398,7 +402,7 @@ public class FileSystemManager {
                 return null;
             }
             if (fileSystem.getDFSFileSystem() == null) {
-                logger.info("could not find file system for path " + path + " create a new one");
+                logger.info("create file system for new path " + path);
                 // create a new filesystem
                 Configuration conf = new Configuration();
                 conf.set(FS_S3A_ACCESS_KEY, accessKey);

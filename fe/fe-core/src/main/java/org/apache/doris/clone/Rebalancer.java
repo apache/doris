@@ -19,13 +19,15 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Table;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -45,7 +47,7 @@ import java.util.Map;
 public abstract class Rebalancer {
     // When Rebalancer init, the statisticMap is usually empty. So it's no need to be an arg.
     // Only use updateLoadStatistic() to load stats.
-    protected Map<String, ClusterLoadStatistic> statisticMap = new HashMap<>();
+    protected Table<String, Tag, ClusterLoadStatistic> statisticMap = HashBasedTable.create();
     protected TabletInvertedIndex invertedIndex;
     protected SystemInfoService infoService;
 
@@ -56,10 +58,9 @@ public abstract class Rebalancer {
 
     public List<TabletSchedCtx> selectAlternativeTablets() {
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
-        for (Map.Entry<String, ClusterLoadStatistic> entry : statisticMap.entrySet()) {
+        for (Table.Cell<String, Tag, ClusterLoadStatistic> entry : statisticMap.cellSet()) {
             for (TStorageMedium medium : TStorageMedium.values()) {
-                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getKey(),
-                        entry.getValue(), medium));
+                alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getValue(), medium));
             }
         }
         return alternativeTablets;
@@ -68,8 +69,7 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            String clusterName, ClusterLoadStatistic clusterStat, TStorageMedium medium);
-
+            ClusterLoadStatistic clusterStat, TStorageMedium medium);
 
     public void createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots,
                                   AgentBatchTask batchTask) throws SchedException {
@@ -90,7 +90,7 @@ public abstract class Rebalancer {
         return -1L;
     }
 
-    public void updateLoadStatistic(Map<String, ClusterLoadStatistic> statisticMap) {
+    public void updateLoadStatistic(Table<String, Tag, ClusterLoadStatistic> statisticMap) {
         this.statisticMap = statisticMap;
     }
 }

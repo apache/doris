@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "util/uid_util.h"
 #include "gutil/walltime.h"
 
 namespace doris {
@@ -86,6 +87,95 @@ private:
     }
 
     std::atomic<Aws::Utils::Logging::LogLevel> _log_level;
+};
+
+/// Wrap a glog stream and tag on the log. usage:
+///   TAG(LOG(INFO)).tag("query_id", queryId).log("here is an info for a query");
+///
+/// TAG is the macro to TaggableLogger, which use method tag(key, value) to add tags
+/// and log(fmt, ...) to flush and emit the log. Usually the tag key is determined,
+/// like "query_id", so we use specified tag methods more often, like query_id(id).
+/// You can add a new tag method if needed.
+///
+/// You can custom your tagged logging format in logconfig.cpp, the default is like
+/// "#message#|k1=v1|k2=v2". You can also custom all the tag names. For example, if
+/// you wish to use camelCase style, just set tag name constants like QUERY_ID to
+/// "queryId". The constants is also listed in logconfig.cpp.
+///
+/// The transfer from the variable of tag method to string is immediate. If a tagged
+/// logging has time-consuming to-string procedure and is logged to VLOG(10) which
+/// may not be processed, check VLOG_IS_ON(n) first.
+#define TAG doris::TaggableLogger
+
+class TaggableLogger {
+public:
+    TaggableLogger(std::ostream& _stream) : _stream(_stream), _tags(nullptr) {};
+
+    ~TaggableLogger() {
+        flush();
+    }
+
+    void flush();
+
+    TaggableLogger& log(std::string&& message) {
+        _message = std::move(message);
+        return *this;
+    }
+
+    inline TaggableLogger& tag(const std::string& key, const std::string& value) {
+        _tags = new Tags(key, value, _tags);
+        return *this;
+    }
+
+    inline TaggableLogger& tag(const std::string& key, std::string&& value) {
+        _tags = new Tags(key, std::move(value), _tags);
+        return *this;
+    }
+
+private:
+    std::ostream& _stream;
+    std::string _message;
+
+    struct Tags {
+        const std::string key;
+        const std::string value;
+        Tags* next;
+
+        Tags(const std::string& key, const std::string& value, Tags* next) : key(key), value(value), next(next) {}
+        Tags(const std::string& key, std::string&& value, Tags* next) : key(key), value(std::move(value)), next(next) {}
+    };
+
+    Tags* _tags;
+
+public:
+    // add tag method here
+    const static std::string QUERY_ID;
+
+    TaggableLogger& query_id(const std::string& query_id) {
+        return tag(QUERY_ID, query_id);
+    }
+
+    TaggableLogger& query_id(const TUniqueId& query_id) {
+        return tag(QUERY_ID, print_id(query_id));
+    }
+
+    TaggableLogger& query_id(const PUniqueId& query_id) {
+        return tag(QUERY_ID, print_id(query_id));
+    }
+
+    const static std::string INSTANCE_ID;
+
+    TaggableLogger& instance_id(const std::string& instance_id) {
+        return tag(INSTANCE_ID, instance_id);
+    }
+
+    TaggableLogger& instance_id(const TUniqueId& instance_id) {
+        return tag(INSTANCE_ID, print_id(instance_id));
+    }
+
+    TaggableLogger& instance_id(const PUniqueId& instance_id) {
+        return tag(INSTANCE_ID, print_id(instance_id));
+    }
 };
 
 } // namespace doris

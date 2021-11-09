@@ -34,6 +34,7 @@ Grammar:
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
+			[LABEL = "your_label"]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -57,6 +58,10 @@ Explain:
 4. Show the export task of specifying dB and job_id
     SHOW EXPORT FROM example_db WHERE ID = job_id;
 
+5. Show the export task of specifying dB and label
+    SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
+
 ## keyword
-SHOW,EXPORT
+
+	SHOW,EXPORT
 

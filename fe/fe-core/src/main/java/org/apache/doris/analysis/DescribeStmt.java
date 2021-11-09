@@ -109,15 +109,8 @@ public class DescribeStmt extends ShowStmt {
                                                 dbTableName.getTbl());
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbTableName.getDb());
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbTableName.getDb());
-        }
-
-        Table table = db.getTable(dbTableName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTableName.getTbl());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
+        Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {

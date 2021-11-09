@@ -26,7 +26,7 @@ under the License.
 
 # Flink Doris Connector
 
-Flink Doris Connector can support reading data stored in Doris through Flink.
+Flink Doris Connector can support read and write data stored in Doris through Flink.
 
 - You can map the `Doris` table to` DataStream` or `Table`.
 
@@ -35,11 +35,32 @@ Flink Doris Connector can support reading data stored in Doris through Flink.
 | Connector | Flink | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 1.11.2   | 0.13+  | 8    | 2.12  |
+| 1.0.0 | 1.13.x | 0.13.+ | 8 | 2.12 |
 
+**For Flink 1.13.x version adaptation issues**
+
+```xml
+     <properties>
+         <scala.version>2.12</scala.version>
+         <flink.version>1.11.2</flink.version>
+         <libthrift.version>0.9.3</libthrift.version>
+         <arrow.version>0.15.1</arrow.version>
+         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+         <doris.home>${basedir}/../../</doris.home>
+         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
+     </properties>
+```
+
+Just change the `flink.version` here to be the same as your Flink cluster version, and edit again
 
 ## Build and Install
 
 Execute following command in dir `extension/flink-doris-connector/`:
+
+**Notice:**
+
+1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
+2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
 
 ```bash
 sh build.sh
@@ -98,7 +119,7 @@ CREATE TABLE flink_doris_sink (
 INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 ```
 
-### DataStream
+### DataStreamSource
 
 ```scala
  Properties properties = new Properties();
@@ -108,6 +129,111 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
  properties.put("table.identifier","db.table");
  env.addSource(new DorisSourceFunction(new DorisStreamOptions(properties),new SimpleListDeserializationSchema())).print();
 ```
+
+### DataStreamSink
+
+```java
+// -------- sink with raw json string stream --------
+Properties pro = new Properties();
+pro.setProperty("format", "json");
+pro.setProperty("strip_outer_array", "true");
+env.fromElements( "{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+     .addSink(
+     	DorisSink.sink(
+            DorisReadOptions.builder().build(),
+         	DorisExecutionOptions.builder()
+                    .setBatchSize(3)
+                    .setBatchIntervalMs(0l)
+                    .setMaxRetries(3)
+                    .setStreamLoadProp(pro).build(),
+         	DorisOptions.builder()
+                    .setFenodes("FE_IP:8030")
+                    .setTableIdentifier("db.table")
+                    .setUsername("root")
+                    .setPassword("").build()
+     	));
+
+OR
+env.fromElements("{\"longitude\": \"116.405419\", \"city\": \"北京\", \"latitude\": \"39.916927\"}")
+    .addSink(
+    	DorisSink.sink(
+        	DorisOptions.builder()
+                    .setFenodes("FE_IP:8030")
+                    .setTableIdentifier("db.table")
+                    .setUsername("root")
+                    .setPassword("").build()
+    	));
+
+
+// -------- sink with RowData stream --------
+DataStream<RowData> source = env.fromElements("")
+    .map(new MapFunction<String, RowData>() {
+        @Override
+        public RowData map(String value) throws Exception {
+            GenericRowData genericRowData = new GenericRowData(3);
+            genericRowData.setField(0, StringData.fromString("北京"));
+            genericRowData.setField(1, 116.405419);
+            genericRowData.setField(2, 39.916927);
+            return genericRowData;
+        }
+    });
+
+String[] fields = {"city", "longitude", "latitude"};
+LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+
+source.addSink(
+    DorisSink.sink(
+        fields,
+        types,
+        DorisReadOptions.builder().build(),
+        DorisExecutionOptions.builder()
+            .setBatchSize(3)
+            .setBatchIntervalMs(0L)
+            .setMaxRetries(3)
+            .build(),
+        DorisOptions.builder()
+            .setFenodes("FE_IP:8030")
+            .setTableIdentifier("db.table")
+            .setUsername("root")
+            .setPassword("").build()
+    ));
+```
+
+### DataSetSink
+
+```java
+MapOperator<String, RowData> data = env.fromElements("")
+    .map(new MapFunction<String, RowData>() {
+        @Override
+        public RowData map(String value) throws Exception {
+            GenericRowData genericRowData = new GenericRowData(3);
+            genericRowData.setField(0, StringData.fromString("北京"));
+            genericRowData.setField(1, 116.405419);
+            genericRowData.setField(2, 39.916927);
+            return genericRowData;
+        }
+    });
+
+DorisOptions dorisOptions = DorisOptions.builder()
+    .setFenodes("FE_IP:8030")
+    .setTableIdentifier("db.table")
+    .setUsername("root")
+    .setPassword("").build();
+DorisReadOptions readOptions = DorisReadOptions.defaults();
+DorisExecutionOptions executionOptions = DorisExecutionOptions.defaults();
+
+LogicalType[] types = {new VarCharType(), new DoubleType(), new DoubleType()};
+String[] fiels = {"city", "longitude", "latitude"};
+
+DorisDynamicOutputFormat outputFormat =
+    new DorisDynamicOutputFormat(dorisOptions, readOptions, executionOptions, types, fiels);
+
+outputFormat.open(0, 1);
+data.output(outputFormat);
+outputFormat.close();
+```
+
+
 
 ### General
 
@@ -131,6 +257,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 | sink.batch.size                        | 100            | Maximum number of lines in a single write BE                                             |
 | sink.max-retries                        | 1            | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 1s            | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 1 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
+| sink.properties.*     | --               | The stream load parameters.eg:sink.properties.column_separator' = ','. Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /> Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
 
 
 ## Doris & Flink Column Type Mapping

@@ -55,7 +55,7 @@ public:
                       bool* flags) const override {};
 
     Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-                    uint32_t num_rows, Roaring* roaring) const override {
+                    uint32_t num_rows, roaring::Roaring* roaring) const override {
         return Status::OK();
     }
 

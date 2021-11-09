@@ -301,14 +301,8 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(tableName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR);
                 }
-                Database db = analyzer.getCatalog().getDb(dbName);
-                if (db == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-                }
-                Table table = db.getTable(tableName);
-                if (table == null) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-                }
+                Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+                Table table = db.getTableOrAnalysisException(tableName);
 
                 // check auth
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -385,7 +379,7 @@ public class SelectStmt extends QueryStmt {
         this.tableAliasGenerator = tableAliasGenerator;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (isAnalyzed()) {
             return;
         }
@@ -543,7 +537,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (hasOutFileClause()) {
-            outFileClause.analyze(analyzer, this);
+            outFileClause.analyze(analyzer, resultExprs);
         }
     }
 
@@ -697,6 +691,15 @@ public class SelectStmt extends QueryStmt {
                     analyzer.getUnassignedConjuncts(aggInfo.getResultTupleId().asList()));
             materializeSlots(analyzer, havingConjuncts);
             aggInfo.materializeRequiredSlots(analyzer, baseTblSmap);
+        }
+
+        // materialized all lateral view column and origin column
+        for (TableRef tableRef : fromClause_.getTableRefs()) {
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    lateralViewRef.materializeRequiredSlots();
+                }
+            }
         }
     }
 
@@ -1359,6 +1362,9 @@ public class SelectStmt extends QueryStmt {
                 registerExprId(ref.onClause);
                 exprMap.put(ref.onClause.getId().toString(), ref.onClause);
             }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().collectExprs(exprMap);
+            }
         }
 
         if (whereClause != null) {
@@ -1464,6 +1470,9 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             if (ref.onClause != null) {
                 ref.setOnClause(rewrittenExprMap.get(ref.onClause.getId().toString()));
+            }
+            if (ref instanceof InlineViewRef) {
+                ((InlineViewRef) ref).getViewStmt().putBackExprs(rewrittenExprMap);
             }
         }
 

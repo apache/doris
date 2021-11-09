@@ -65,6 +65,7 @@ add_library(Olap STATIC
     page_cache.cpp
     push_handler.cpp
     reader.cpp
+    tuple_reader.cpp
     row_block.cpp
     row_block2.cpp
     row_cursor.cpp
@@ -121,4 +122,5 @@ add_library(Olap STATIC
     task/engine_alter_tablet_task.cpp
     olap_snapshot_converter.cpp
     column_vector.cpp
+    segment_loader.cpp
 )

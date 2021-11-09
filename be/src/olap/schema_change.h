@@ -81,6 +81,7 @@ public:
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
     void release(RowBlock* row_block);
+    bool is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows);
 
 private:
     const TabletSchema& _tablet_schema;
@@ -219,14 +220,6 @@ private:
         DeleteHandler* delete_handler = nullptr;
         std::unordered_map<std::string, AlterMaterializedViewParam> materialized_params_map;
     };
-
-    // add alter task to base_tablet and new_tablet.
-    // add A->(B|C|...) relation chain to all of them.
-    OLAPStatus _add_alter_task(AlterTabletType alter_tablet_type, TabletSharedPtr base_tablet,
-                               TabletSharedPtr new_tablet,
-                               const std::vector<Version>& versions_to_be_changed);
-    OLAPStatus _save_alter_state(AlterTabletState state, TabletSharedPtr base_tablet,
-                                 TabletSharedPtr new_tablet);
 
     OLAPStatus _do_process_alter_tablet_v2(const TAlterTabletReqV2& request);
 

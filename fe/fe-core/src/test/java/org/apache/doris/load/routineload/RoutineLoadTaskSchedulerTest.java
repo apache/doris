@@ -95,7 +95,7 @@ public class RoutineLoadTaskSchedulerTest {
                 routineLoadManager.getClusterIdleSlotNum();
                 minTimes = 0;
                 result = 1;
-                routineLoadManager.checkTaskInJob((UUID) any);
+                routineLoadManager.checkTaskInJob((RoutineLoadTaskInfo) any);
                 minTimes = 0;
                 result = true;
 

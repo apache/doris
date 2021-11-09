@@ -47,6 +47,8 @@ ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
 ALTER SYSTEM DROP ALL BROKER broker_name
 9) Set up a Load error hub for centralized display of import error information
 ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
+10) Modify property of BE
+ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 
 Explain:
 1) Host can be hostname or IP address
@@ -114,6 +116,10 @@ ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 8. Delete the current load error hub
 ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 ("type"= "null");
+
+9. Modify BE resource tag
+
+ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
 
 ## keyword
 AGE,SYSTEM,BACKGROUND,BROKER,FREE

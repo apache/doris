@@ -82,7 +82,7 @@ public class MysqlProtoTest {
                     }
                 };
 
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = new Database();
 

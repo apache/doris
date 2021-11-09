@@ -17,12 +17,15 @@
 
 package org.apache.doris.common.profile;
 
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TUnit;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -53,6 +56,8 @@ public class ProfileTreeBuilder {
     private static final String PROFILE_NAME_BUFFER_POOL = "Buffer pool";
     private static final String PROFILE_NAME_EXCHANGE_NODE = "EXCHANGE_NODE";
     public static final String FINAL_SENDER_ID = "-1";
+    private static final String PROFILE_NAME_VEXCHANGE_NODE = "VEXCHANGE_NODE";
+    public static final String DATA_BUFFER_SENDER_ID = "-1";
     public static final String UNKNOWN_ID = "-2";
 
     private RuntimeProfile profileRoot;
@@ -68,6 +73,8 @@ public class ProfileTreeBuilder {
 
     // the tree root of the entire query profile tree
     private ProfileTreeNode fragmentTreeRoot;
+
+    private List<FragmentInstances> fragmentsInstances = Lists.newArrayList();
 
     // Match string like:
     // EXCHANGE_NODE (id=3):(Active: 103.899ms, % non-child: 2.27%)
@@ -112,6 +119,10 @@ public class ProfileTreeBuilder {
         return instanceActiveTimeMap.get(fragmentId);
     }
 
+    public List<FragmentInstances> getFragmentsInstances() {
+        return fragmentsInstances;
+    }
+
     public void build() throws UserException {
         reset();
         checkProfile();
@@ -125,6 +136,7 @@ public class ProfileTreeBuilder {
         instanceTreeMap.clear();
         instanceActiveTimeMap.clear();
         fragmentTreeRoot = null;
+        fragmentsInstances.clear();
     }
 
     private void checkProfile() throws UserException {
@@ -149,13 +161,20 @@ public class ProfileTreeBuilder {
 
         // 1. Get max active time of instances in this fragment
         List<Triple<String, String, Long>> instanceIdAndActiveTimeList = Lists.newArrayList();
+        List<String> instances = Lists.newArrayList();
+        Map<String, String> instanceIdToTime = Maps.newHashMap();
         long maxActiveTimeNs = 0;
         for (Pair<RuntimeProfile, Boolean> pair : fragmentChildren) {
             Triple<String, String, Long> instanceIdAndActiveTime = getInstanceIdHostAndActiveTime(pair.first);
+            instanceIdToTime.put(instanceIdAndActiveTime.getLeft(),
+                    RuntimeProfile.printCounter(instanceIdAndActiveTime.getRight(), TUnit.TIME_NS));
             maxActiveTimeNs = Math.max(instanceIdAndActiveTime.getRight(), maxActiveTimeNs);
             instanceIdAndActiveTimeList.add(instanceIdAndActiveTime);
+            instances.add(instanceIdAndActiveTime.getLeft());
         }
         instanceActiveTimeMap.put(fragmentId, instanceIdAndActiveTimeList);
+        fragmentsInstances.add(new FragmentInstances(fragmentId,
+                RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToTime));
 
         // 2. Build tree for all fragments
         //    All instance in a fragment are same, so use first instance to build the fragment tree
@@ -253,7 +272,8 @@ public class ProfileTreeBuilder {
             node.setParentNode(root);
         }
 
-        if (node.name.equals(PROFILE_NAME_EXCHANGE_NODE) && instanceId == null) {
+        if ((node.name.equals(PROFILE_NAME_EXCHANGE_NODE) ||
+            node.name.equals(PROFILE_NAME_VEXCHANGE_NODE)) && instanceId == null) {
             exchangeNodes.add(node);
         }
 
@@ -341,5 +361,22 @@ public class ProfileTreeBuilder {
             throw new UserException("Invalid instance profile name: " + name);
         }
         return new ImmutableTriple<>(m.group(1), m.group(2) + ":" + m.group(3), activeTimeNs);
+    }
+
+    @Getter
+    @Setter
+    public static class FragmentInstances {
+        @JsonProperty("fragment_id")
+        private String fragmentId;
+        @JsonProperty("time")
+        private String maxActiveTimeNs;
+        @JsonProperty("instance_id")
+        private Map<String, String> instanceIdToTime;
+
+        public FragmentInstances(String fragmentId, String maxActiveTimeNs, Map<String, String> instanceIdToTime) {
+            this.fragmentId = fragmentId;
+            this.maxActiveTimeNs = maxActiveTimeNs;
+            this.instanceIdToTime = instanceIdToTime;
+        }
     }
 }

@@ -313,6 +313,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -383,6 +384,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -563,7 +565,8 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
-        case TYPE_OBJECT: {
+        case TYPE_OBJECT:
+        case TYPE_STRING: {
             StringVal* value = reinterpret_cast<StringVal*>(_staging_input_vals[i]);
             memcpy(begin, value->ptr, value->len);
             begin += value->len;
@@ -808,7 +811,7 @@ void AggFnEvaluator::choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRo
 
 void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
                                            const SlotDescriptor* dst_slot_desc, Tuple* dst,
-                                           void* fn) {
+                                           void* fn, bool add_null) {
     // DCHECK_EQ(dst_slot_desc->type().type, _return_type.type);
     if (src == NULL) {
         src = dst;
@@ -818,7 +821,7 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     }
 
     // same
-    bool src_slot_null = src->is_null(_intermediate_slot_desc->null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(_intermediate_slot_desc->null_indicator_offset());
     void* src_slot = NULL;
 
     if (!src_slot_null) {
@@ -890,7 +893,8 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
         set_output_slot(&v, dst_slot_desc, dst);

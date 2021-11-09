@@ -116,8 +116,6 @@ CONF_mInt32(download_low_speed_limit_kbps, "50");
 CONF_mInt32(download_low_speed_time, "300");
 // sleep time for one second
 CONF_Int32(sleep_one_second, "1");
-// sleep time for five seconds
-CONF_Int32(sleep_five_seconds, "5");
 
 // log dir
 CONF_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -134,9 +132,6 @@ CONF_Strings(sys_log_verbose_modules, "");
 CONF_Int32(sys_log_verbose_level, "10");
 // log buffer level
 CONF_String(log_buffer_level, "");
-
-// Pull load task dir
-CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
 
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
@@ -160,8 +155,6 @@ CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 CONF_Int32(etl_thread_pool_size, "8");
 // number of etl thread pool size
 CONF_Int32(etl_thread_pool_queue_size, "256");
-// port on which to run Doris test backend
-CONF_Int32(port, "20001");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)
@@ -182,14 +175,15 @@ CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "10");
+CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
 // memory_limitation_per_thread_for_schema_change unit GB
 CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
 
-CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
+// the clean interval of file descriptor cache and segment cache
+CONF_mInt32(cache_clean_interval, "1800");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -280,7 +274,7 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_Int32(max_compaction_threads, "10");
+CONF_mInt32(max_compaction_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -303,8 +297,9 @@ CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 CONF_mInt64(row_step_for_compaction_merge_log, "0");
 
 // Threshold to logging compaction trace, in seconds.
-CONF_mInt32(base_compaction_trace_threshold, "10");
-CONF_mInt32(cumulative_compaction_trace_threshold, "2");
+CONF_mInt32(base_compaction_trace_threshold, "60");
+CONF_mInt32(cumulative_compaction_trace_threshold, "10");
+CONF_mBool(disable_compaction_trace_log, "true");
 
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");
@@ -367,10 +362,6 @@ CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 CONF_Int32(fragment_pool_thread_num_min, "64");
 CONF_Int32(fragment_pool_thread_num_max, "512");
 CONF_Int32(fragment_pool_queue_size, "2048");
-
-// Spill to disk when query
-// Writable scratch directories, split by ";"
-CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 CONF_Int32(num_disks, "0");
@@ -435,10 +426,12 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // max memory can be allocated by buffer pool
-CONF_String(buffer_pool_limit, "80G");
+// This is the percentage of mem_limit
+CONF_String(buffer_pool_limit, "20%");
 
 // clean page can be hold by buffer pool
-CONF_String(buffer_pool_clean_pages_limit, "20G");
+// This is the percentage of buffer_pool_limit
+CONF_String(buffer_pool_clean_pages_limit, "50%");
 
 // Sleep time in seconds between memory maintenance iterations
 CONF_mInt64(memory_maintenance_sleep_time_s, "10");
@@ -447,7 +440,7 @@ CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
-CONF_mInt64(write_buffer_size, "104857600");
+CONF_mInt64(write_buffer_size, "209715200");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -470,7 +463,7 @@ CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 CONF_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-CONF_mInt32(thrift_rpc_timeout_ms, "5000");
+CONF_mInt32(thrift_rpc_timeout_ms, "10000");
 
 // txn commit rpc timeout
 CONF_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -596,7 +589,7 @@ CONF_mInt32(zone_map_row_num_threshold, "20");
 CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
-CONF_mInt32(remote_storage_read_buffer_mb, "256");
+CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
@@ -618,6 +611,33 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
 // else we will call sync method
 CONF_mBool(runtime_filter_use_async_rpc, "true");
+
+// max send batch parallelism for OlapTableSink
+// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
+// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
+CONF_mInt32(max_send_batch_parallelism_per_job, "5");
+CONF_Validator(max_send_batch_parallelism_per_job,
+               [](const int config) -> bool { return config >= 1; });
+
+// number of send batch thread pool size
+CONF_Int32(send_batch_thread_pool_thread_num, "64");
+// number of send batch thread pool queue size
+CONF_Int32(send_batch_thread_pool_queue_size, "102400");
+
+// Limit the number of segment of a newly created rowset.
+// The newly created rowset may to be compacted after loading,
+// so if there are too many segment in a rowset, the compaction process
+// will run out of memory.
+// When doing compaction, each segment may take at least 1MB buffer.
+CONF_mInt32(max_segment_num_per_rowset, "200");
+
+// The connection timeout when connecting to external table such as odbc table.
+CONF_mInt32(external_table_connect_timeout_sec, "5");
+
+// The capacity of lur cache in segment loader.
+// Althought it is called "segment cache", but it caches segments in rowset granularity.
+// So the value of this config should corresponding to the number of rowsets on this BE.
+CONF_mInt32(segment_cache_capacity, "1000000");
 
 } // namespace config
 

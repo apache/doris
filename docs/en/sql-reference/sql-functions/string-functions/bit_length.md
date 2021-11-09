@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'INT bit_length (VARCHAR str)'
+`INT bit_length (VARCHAR str)`
 
 
 Return length of argument in bits。

@@ -34,30 +34,6 @@ using std::vector;
 
 namespace doris {
 
-void AlterTabletTask::init_from_pb(const AlterTabletPB& alter_task) {
-    _alter_state = alter_task.alter_state();
-    _related_tablet_id = alter_task.related_tablet_id();
-    _related_schema_hash = alter_task.related_schema_hash();
-    _alter_type = alter_task.alter_type();
-}
-
-void AlterTabletTask::to_alter_pb(AlterTabletPB* alter_task) {
-    alter_task->set_alter_state(_alter_state);
-    alter_task->set_related_tablet_id(_related_tablet_id);
-    alter_task->set_related_schema_hash(_related_schema_hash);
-    alter_task->set_alter_type(_alter_type);
-}
-
-OLAPStatus AlterTabletTask::set_alter_state(AlterTabletState alter_state) {
-    if (_alter_state == ALTER_FAILED && alter_state != ALTER_FAILED) {
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    } else if (_alter_state == ALTER_FINISHED && alter_state != ALTER_FINISHED) {
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    }
-    _alter_state = alter_state;
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                               uint64_t shard_id, uint32_t next_unique_id,
                               const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
@@ -70,14 +46,14 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
     return OLAP_SUCCESS;
 }
 
-TabletMeta::TabletMeta() : _tablet_uid(0, 0) {}
+TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType)
-        : _tablet_uid(0, 0), _preferred_rowset_type(ALPHA_ROWSET) {
+        : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
     tablet_meta_pb.set_partition_id(partition_id);
@@ -163,6 +139,25 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     init_from_pb(tablet_meta_pb);
 }
 
+TabletMeta::TabletMeta(const TabletMeta& b)
+        : _table_id(b._table_id),
+          _partition_id(b._partition_id),
+          _tablet_id(b._tablet_id),
+          _schema_hash(b._schema_hash),
+          _shard_id(b._shard_id),
+          _creation_time(b._creation_time),
+          _cumulative_layer_point(b._cumulative_layer_point),
+          _tablet_uid(b._tablet_uid),
+          _tablet_type(b._tablet_type),
+          _tablet_state(b._tablet_state),
+          _schema(b._schema),
+          _rs_metas(b._rs_metas),
+          _stale_rs_metas(b._stale_rs_metas),
+          _del_pred_array(b._del_pred_array),
+          _in_restore_mode(b._in_restore_mode),
+          _preferred_rowset_type(b._preferred_rowset_type) {
+}
+
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {
     column->set_unique_id(unique_id);
@@ -180,7 +175,8 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
                                                              tcolumn.column_type.len);
     column->set_length(length);
     column->set_index_length(length);
-    if (tcolumn.column_type.type == TPrimitiveType::VARCHAR) {
+    if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||
+        tcolumn.column_type.type == TPrimitiveType::STRING) {
         if (!tcolumn.column_type.__isset.index_len) {
             column->set_index_length(10);
         } else {
@@ -373,7 +369,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     // init _schema
-    _schema.init_from_pb(tablet_meta_pb.schema());
+    _schema->init_from_pb(tablet_meta_pb.schema());
 
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
@@ -389,13 +385,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         RowsetMetaSharedPtr rs_meta(new AlphaRowsetMeta());
         rs_meta->init_from_pb(it);
         _stale_rs_metas.push_back(std::move(rs_meta));
-    }
-
-    // generate AlterTabletTask
-    if (tablet_meta_pb.has_alter_task()) {
-        AlterTabletTask* alter_tablet_task = new AlterTabletTask();
-        alter_tablet_task->init_from_pb(tablet_meta_pb.alter_task());
-        _alter_task.reset(alter_tablet_task);
     }
 
     if (tablet_meta_pb.has_in_restore_mode()) {
@@ -441,10 +430,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
-    _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
-    if (_alter_task != nullptr) {
-        _alter_task->to_alter_pb(tablet_meta_pb->mutable_alter_task());
-    }
+    _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -456,7 +442,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
 
 uint32_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
-    size += _schema.mem_size();
+    size += _schema->mem_size();
     return size;
 }
 
@@ -548,9 +534,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 // is needed.
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     WriteLock wrlock(&_meta_lock);
-    // delete alter task
-    _alter_task.reset();
-
     _rs_metas = std::move(rs_metas);
     _stale_rs_metas.clear();
 }
@@ -635,42 +618,6 @@ bool TabletMeta::version_for_delete_predicate(const Version& version) {
     return false;
 }
 
-// return value not reference
-// MVCC modification for alter task, upper application get a alter task mirror
-AlterTabletTaskSharedPtr TabletMeta::alter_task() {
-    ReadLock rlock(&_meta_lock);
-    return _alter_task;
-}
-
-void TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
-    WriteLock wrlock(&_meta_lock);
-    _alter_task.reset(new AlterTabletTask(alter_task));
-}
-
-void TabletMeta::delete_alter_task() {
-    WriteLock wrlock(&_meta_lock);
-    _alter_task.reset();
-}
-
-// if alter task is nullptr, return error?
-OLAPStatus TabletMeta::set_alter_state(AlterTabletState alter_state) {
-    WriteLock wrlock(&_meta_lock);
-    if (_alter_task == nullptr) {
-        // alter state should be set to ALTER_PREPARED when starting to
-        // alter tablet. In this scenario, _alter_task is null pointer.
-        LOG(WARNING) << "original alter task is null, could not set state";
-        return OLAP_ERR_ALTER_STATUS_ERR;
-    } else {
-        auto alter_tablet_task = new AlterTabletTask(*_alter_task);
-        OLAPStatus reset_status = alter_tablet_task->set_alter_state(alter_state);
-        if (reset_status != OLAP_SUCCESS) {
-            return reset_status;
-        }
-        _alter_task.reset(alter_tablet_task);
-        return OLAP_SUCCESS;
-    }
-}
-
 std::string TabletMeta::full_name() const {
     std::stringstream ss;
     ss << _tablet_id << "." << _schema_hash << "." << _tablet_uid.to_string();
@@ -686,18 +633,6 @@ OLAPStatus TabletMeta::set_partition_id(int64_t partition_id) {
     return OLAP_SUCCESS;
 }
 
-bool operator==(const AlterTabletTask& a, const AlterTabletTask& b) {
-    if (a._alter_state != b._alter_state) return false;
-    if (a._related_tablet_id != b._related_tablet_id) return false;
-    if (a._related_schema_hash != b._related_schema_hash) return false;
-    if (a._alter_type != b._alter_type) return false;
-    return true;
-}
-
-bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b) {
-    return !(a == b);
-}
-
 bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._table_id != b._table_id) return false;
     if (a._partition_id != b._partition_id) return false;
@@ -709,12 +644,11 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._tablet_uid != b._tablet_uid) return false;
     if (a._tablet_type != b._tablet_type) return false;
     if (a._tablet_state != b._tablet_state) return false;
-    if (a._schema != b._schema) return false;
+    if (*a._schema != *b._schema) return false;
     if (a._rs_metas.size() != b._rs_metas.size()) return false;
     for (int i = 0; i < a._rs_metas.size(); ++i) {
         if (a._rs_metas[i] != b._rs_metas[i]) return false;
     }
-    if (a._alter_task != b._alter_task) return false;
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     return true;

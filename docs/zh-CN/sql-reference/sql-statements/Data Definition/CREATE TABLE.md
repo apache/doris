@@ -54,6 +54,8 @@ under the License.
     col_type：列类型
 
     ```
+        BOOLEAN（1字节）
+            范围：{0,1}
         TINYINT（1字节）
             范围：-2^7 + 1 ~ 2^7 - 1
         SMALLINT（2字节）
@@ -282,6 +284,7 @@ under the License.
            "storage_medium" = "[SSD|HDD]",
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
+           ["replication_allocation" = "xxx"]
            )
     ```
 
@@ -290,7 +293,8 @@ under the License.
        storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
                                默认存放 30 天。
                                格式为："yyyy-MM-dd HH:mm:ss"
-       replication_num:        指定分区的副本数。默认为 3
+       replication_num:        指定分区的副本数。默认为 3。
+       replication_allocation:     按照资源标签来指定副本分布。
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -334,6 +338,7 @@ under the License.
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
     dynamic_partition.create_history_partition: 用于创建历史分区功能是否开启。默认为 false。
     dynamic_partition.history_partition_num: 当开启创建历史分区功能时，用于指定创建历史分区数量。
+    dynamic_partition.reserved_history_periods: 用于指定保留的历史分区的时间段。
     
     5) 建表时可以批量创建多个 Rollup
     语法：
@@ -367,13 +372,14 @@ under the License.
     ```
     CREATE TABLE example_db.table_hash
     (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    k1 BOOLEAN,
+    k2 TINYINT,
+    k3 DECIMAL(10, 2) DEFAULT "10.5",
     v1 CHAR(10) REPLACE,
     v2 INT SUM
     )
     ENGINE=olap
-    AGGREGATE KEY(k1, k2)
+    AGGREGATE KEY(k1, k2, k3)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
@@ -722,12 +728,7 @@ under the License.
     )
     ENGINE=olap
     DUPLICATE KEY(k1, k2, k3)
-    PARTITION BY RANGE (k1)
-    (
-    PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-    PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-    PARTITION p3 VALUES LESS THAN ("2014-12-01")
-    )
+    PARTITION BY RANGE (k1) ()
     DISTRIBUTED BY HASH(k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
@@ -794,8 +795,40 @@ under the License.
     );
 ```
 
-## keyword
-```
-    CREATE,TABLE
+16. 通过 replication_allocation 指定表的副本分布
 
+```	
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+	);
+
+
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32",
+    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
 ```
+
+## keyword
+
+    CREATE,TABLE

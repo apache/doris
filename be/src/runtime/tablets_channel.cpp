@@ -126,7 +126,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     return Status::OK();
 }
 
-Status TabletsChannel::close(int sender_id, bool* finished,
+Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                              const google::protobuf::RepeatedField<int64_t>& partition_ids,
                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     std::lock_guard<std::mutex> l(_lock);
@@ -138,7 +138,8 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         *finished = (_num_remaining_senders == 0);
         return _close_status;
     }
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id;
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
+              << ", backend id: " << backend_id;
     for (auto pid : partition_ids) {
         _partition_ids.emplace(pid);
     }
@@ -183,7 +184,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
     return Status::OK();
 }
 
-Status TabletsChannel::reduce_mem_usage() {
+Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
@@ -191,18 +192,48 @@ Status TabletsChannel::reduce_mem_usage() {
         return _close_status;
     }
 
-    // Flush all memtables
+    // Sort the DeltaWriters by mem consumption in descend order.
+    std::vector<DeltaWriter*> writers;
     for (auto& it : _tablet_writers) {
-        it.second->flush_memtable_and_wait(false);
+        writers.push_back(it.second);
+    }
+    std::sort(writers.begin(), writers.end(),
+              [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
+                  return lhs->mem_consumption() > rhs->mem_consumption();
+              });
+
+    // Decide which writes should be flushed to reduce mem consumption.
+    // The main idea is to flush at least one third of the mem_limit.
+    // This is mainly to solve the following scenarios.
+    // Suppose there are N tablets in this TabletsChannel, and the mem limit is M.
+    // If the data is evenly distributed, when each tablet memory accumulates to M/N,
+    // the reduce memory operation will be triggered.
+    // At this time, the value of M/N may be much smaller than the value of `write_buffer_size`.
+    // If we flush all the tablets at this time, each tablet will generate a lot of small files.
+    // So here we only flush part of the tablet, and the next time the reduce memory operation is triggered,
+    // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
+    int64_t mem_to_flushed = mem_limit / 3;
+    int counter = 0;
+    int64_t  sum = 0;
+    for (auto writer : writers) {
+        if (writer->mem_consumption() <= 0) {
+            break;
+        }
+        ++counter;
+        sum += writer->mem_consumption();
+        if (sum > mem_to_flushed) {
+            break;
+        }
+    }
+    VLOG_CRITICAL << "flush " << counter << " memtables to reduce memory: " << sum;
+    for (int i = 0; i < counter; i++) {
+        writers[i]->flush_memtable_and_wait(false);
     }
 
-    for (auto& it : _tablet_writers) {
-        OLAPStatus st = it.second->wait_flush();
+    for (int i = 0; i < counter; i++) {
+        OLAPStatus st = writers[i]->wait_flush();
         if (st != OLAP_SUCCESS) {
-            // flush failed, return error
-            std::stringstream ss;
-            ss << "failed to reduce mem consumption by flushing memtable. err: " << st;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
         }
     }
     return Status::OK();

@@ -58,26 +58,6 @@ public class LoadJobTest {
     }
 
     @Test
-    public void testGetDbNotExists(@Mocked Catalog catalog) {
-        LoadJob loadJob = new BrokerLoadJob();
-        Deencapsulation.setField(loadJob, "dbId", 1L);
-        new Expectations() {
-            {
-                catalog.getDb(1L);
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        try {
-            loadJob.getDb();
-            Assert.fail();
-        } catch (MetaNotFoundException e) {
-        }
-    }
-
-
-    @Test
     public void testSetJobPropertiesWithErrorTimeout() {
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, "abc");

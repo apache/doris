@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
@@ -82,8 +83,15 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_EDIT_LOG_SIZE_BYTES;
-    public static LongCounterMetric COUNTER_IMAGE_WRITE;
-    public static LongCounterMetric COUNTER_IMAGE_PUSH;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE_FAILED;
+    public static LongCounterMetric COUNTER_IMAGE_PUSH_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_PUSH_FAILED;
+    public static LongCounterMetric COUNTER_IMAGE_CLEAN_SUCCESS;
+    public static LongCounterMetric COUNTER_IMAGE_CLEAN_FAILED;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_SUCCESS;
+    public static LongCounterMetric COUNTER_EDIT_LOG_CLEAN_FAILED;
+
     public static LongCounterMetric COUNTER_TXN_REJECT;
     public static LongCounterMetric COUNTER_TXN_BEGIN;
     public static LongCounterMetric COUNTER_TXN_FAILED;
@@ -91,6 +99,7 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ROWS;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_RECEIVED_BYTES;
     public static LongCounterMetric COUNTER_ROUTINE_LOAD_ERROR_ROWS;
+    public static LongCounterMetric COUNTER_HIT_SQL_BLOCK_RULE;
 
     public static Histogram HISTO_QUERY_LATENCY;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
@@ -104,6 +113,7 @@ public final class MetricRepo {
     private static ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1, "Metric-Timer-Pool", true);
     private static MetricCalculator metricCalculator = new MetricCalculator();
 
+    // init() should only be called after catalog is contructed.
     public static synchronized void init() {
         if (isInit) {
             return;
@@ -175,8 +185,8 @@ public final class MetricRepo {
                 }
             };
             gauge.addLabel(new MetricLabel("job", "alter"))
-                .addLabel(new MetricLabel("type", jobType.name()))
-                .addLabel(new MetricLabel("state", "running"));
+                    .addLabel(new MetricLabel("type", jobType.name()))
+                    .addLabel(new MetricLabel("state", "running"));
             PALO_METRIC_REGISTER.addPaloMetrics(gauge);
         }
 
@@ -256,17 +266,17 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_MODE_SQL);
         COUNTER_CACHE_HIT_SQL = new LongCounterMetric("cache_hit_sql", MetricUnit.REQUESTS, "total hits query by sql model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_HIT_SQL);
-        COUNTER_CACHE_MODE_PARTITION = new LongCounterMetric("query_mode_partition", MetricUnit.REQUESTS, 
-            "total query of partition mode");
+        COUNTER_CACHE_MODE_PARTITION = new LongCounterMetric("query_mode_partition", MetricUnit.REQUESTS,
+                "total query of partition mode");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_MODE_PARTITION);
-        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit_partition", MetricUnit.REQUESTS, 
-            "total hits query by partition model");
+        COUNTER_CACHE_HIT_PARTITION = new LongCounterMetric("cache_hit_partition", MetricUnit.REQUESTS,
+                "total hits query by partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_HIT_PARTITION);
-        COUNTER_CACHE_PARTITION_ALL = new LongCounterMetric("partition_all", MetricUnit.REQUESTS, 
-            "scan partition of cache partition model");
+        COUNTER_CACHE_PARTITION_ALL = new LongCounterMetric("partition_all", MetricUnit.REQUESTS,
+                "scan partition of cache partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION_ALL);
-        COUNTER_CACHE_PARTITION_HIT = new LongCounterMetric("partition_hit", MetricUnit.REQUESTS, 
-            "hit partition of cache partition model");
+        COUNTER_CACHE_PARTITION_HIT = new LongCounterMetric("partition_hit", MetricUnit.REQUESTS,
+                "hit partition of cache partition model");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_CACHE_PARTITION_HIT);
 
         COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", MetricUnit.REQUESTS, "total load finished");
@@ -277,11 +287,37 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
         COUNTER_EDIT_LOG_SIZE_BYTES = new LongCounterMetric("edit_log_size_bytes", MetricUnit.BYTES, "size of edit log");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_SIZE_BYTES);
-        COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image generated");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
-        COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push", MetricUnit.OPERATIONS,
-                "counter of image succeeded in pushing to other frontends");
-        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
+
+        // image generate
+        COUNTER_IMAGE_WRITE_SUCCESS = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image succeed in write");
+        COUNTER_IMAGE_WRITE_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_SUCCESS);
+        COUNTER_IMAGE_WRITE_FAILED = new LongCounterMetric("image_write", MetricUnit.OPERATIONS, "counter of image failed to write");
+        COUNTER_IMAGE_WRITE_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE_FAILED);
+
+        COUNTER_IMAGE_PUSH_SUCCESS = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image succeeded in pushing to other frontends");
+        COUNTER_IMAGE_PUSH_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_SUCCESS);
+        COUNTER_IMAGE_PUSH_FAILED = new LongCounterMetric("image_push", MetricUnit.OPERATIONS, "counter of image failed to other frontends");
+        COUNTER_IMAGE_PUSH_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH_FAILED);
+
+        // image clean
+        COUNTER_IMAGE_CLEAN_SUCCESS = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image succeeded in cleaning");
+        COUNTER_IMAGE_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_SUCCESS);
+        COUNTER_IMAGE_CLEAN_FAILED = new LongCounterMetric("image_clean", MetricUnit.OPERATIONS, "counter of image failed to clean");
+        COUNTER_IMAGE_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_CLEAN_FAILED);
+
+        // edit log clean
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log succeed in cleaning");
+        COUNTER_EDIT_LOG_CLEAN_SUCCESS.addLabel(new MetricLabel("type", "success"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_SUCCESS);
+        COUNTER_EDIT_LOG_CLEAN_FAILED = new LongCounterMetric("edit_log_clean", MetricUnit.OPERATIONS, "counter of edit log failed to clean");
+        COUNTER_EDIT_LOG_CLEAN_FAILED.addLabel(new MetricLabel("type", "failed"));
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_CLEAN_FAILED);
 
         COUNTER_TXN_REJECT = new LongCounterMetric("txn_reject", MetricUnit.REQUESTS, "counter of rejected transactions");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_REJECT);
@@ -301,6 +337,9 @@ public final class MetricRepo {
                 "total error rows of routine load");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_ROUTINE_LOAD_ERROR_ROWS);
 
+        COUNTER_HIT_SQL_BLOCK_RULE = new LongCounterMetric("counter_hit_sql_block_rule", MetricUnit.ROWS,
+                "total hit sql block rule query");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_HIT_SQL_BLOCK_RULE);
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
@@ -515,11 +554,6 @@ public final class MetricRepo {
 
     public static synchronized List<Metric> getMetricsByName(String name) {
         return PALO_METRIC_REGISTER.getPaloMetricsByName(name);
-    }
-
-    public static void addMetric(Metric<?> metric) {
-        init();
-        PALO_METRIC_REGISTER.addPaloMetrics(metric);
     }
 }
 

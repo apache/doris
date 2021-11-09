@@ -19,6 +19,7 @@
 
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
+#include "primitive_type.h"
 
 namespace doris {
 
@@ -29,11 +30,16 @@ class MysqlRowBuffer;
 class BufferControlBlock;
 class RuntimeProfile;
 
+namespace vectorized {
+    class VExprContext;
+}
+
 // convert the row batch to mysql protocol row
 class MysqlResultWriter final : public ResultWriter {
 public:
     MysqlResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs,
-                      RuntimeProfile* parent_profile);
+            RuntimeProfile* parent_profile);
+
     virtual ~MysqlResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -52,7 +58,11 @@ private:
 private:
     BufferControlBlock* _sinker;
     const std::vector<ExprContext*>& _output_expr_ctxs;
+
+    std::vector<int> _result_column_ids;
+
     MysqlRowBuffer* _row_buffer;
+    std::vector<MysqlRowBuffer*> _vec_buffers;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
     // total time cost on append batch operation

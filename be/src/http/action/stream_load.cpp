@@ -153,7 +153,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(ctx->status.get_error_msg());
         }
     }
 
@@ -229,7 +229,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(st.get_error_msg());
         }
         auto str = ctx->to_json();
         // add new line at end
@@ -237,8 +237,10 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         HttpChannel::send_reply(req, str);
         streaming_load_current_processing->increment(-1);
 #ifndef BE_TEST
-        str = ctx->prepare_stream_load_record(str);
-        _sava_stream_load_record(ctx, str);
+        if (config::enable_stream_load_record) {
+            str = ctx->prepare_stream_load_record(str);
+            _sava_stream_load_record(ctx, str);
+        }
 #endif
         return -1;
     }
@@ -334,7 +336,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
-                         << ctx->brief();
+                         << ", " << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -348,9 +350,9 @@ void StreamLoadAction::free_handler_ctx(void* param) {
     if (ctx == nullptr) {
         return;
     }
-    // sender is going, make receiver know it
+    // sender is gone, make receiver know it
     if (ctx->body_sink != nullptr) {
-        ctx->body_sink->cancel();
+        ctx->body_sink->cancel("sender is gone");
     }
     if (ctx->unref()) {
         delete ctx;
@@ -483,6 +485,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
         request.__set_sequence_col(
                 http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL));
+    }
+
+    if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
+        try {
+            request.__set_send_batch_parallelism(std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid send_batch_parallelism format");
+        }
     }
 
     if (ctx->timeout_second != -1) {
