@@ -54,10 +54,13 @@ under the License.
               class="action-button"
               :item="actionLink"
             />
-            <NavLink
-              class="action-button article-button"
-              :item="articleLink"
-            />
+            <span class="link-wrap">
+              <NavLink
+                class="action-button article-button"
+                :item="articleLink"
+              />
+              <img class="link-icon" :src="$withBase('/images/home/new.svg')" alt="last news">
+            </span>
           </p>
         </div>
         <div
@@ -254,19 +257,17 @@ export default {
           &:hover
             color #5A77F3
             background-color white
-        .article-button 
+        .link-wrap
+          display inline-block
           margin-left 10px
           position relative
-          &:after
-            content ''
+          .link-icon
             display block
             width 30px
             height 30px
             position absolute
             right 6px
             top 0px
-            background: url('/images/home/new.svg') no-repeat center
-            background-size: contain
           &:before
             content ''
             display block
