@@ -251,7 +251,7 @@ Used to set the default database replica quota. To set the quota size of a singl
 Set the database replica quota
 ALTER DATABASE db_name SET REPLICA QUOTA quota;
 View configuration
-show data （其他用法：HELP SHOW DATA）
+show data （Detail：HELP SHOW DATA）
 ```
 
 ### enable_batch_delete_by_default
