@@ -44,6 +44,7 @@ public class SyncChecker extends MasterDaemon {
         LOG.debug("start check sync jobs.");
         try {
             process();
+            cleanOldSyncJobs();
         } catch (Throwable e) {
             LOG.warn("Failed to process one round of SyncChecker", e);
         }
@@ -73,7 +74,10 @@ public class SyncChecker extends MasterDaemon {
                 job.cancel(msgType, exception.getMessage());
             }
         }
+    }
 
+    private void cleanOldSyncJobs() {
+        // clean up expired sync jobs
         this.syncJobManager.cleanOldSyncJobs();
     }
 }

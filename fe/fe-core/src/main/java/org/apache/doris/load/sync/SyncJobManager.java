@@ -291,6 +291,9 @@ public class SyncJobManager implements Writable {
             while (iterator.hasNext()) {
                 SyncJob syncJob = iterator.next().getValue();
                 if (syncJob.isExpired(currentTimeMs)) {
+                    if (!dbIdToJobNameToSyncJobs.containsKey(syncJob.getDbId())) {
+                        continue;
+                    }
                     Map<String, List<SyncJob>> map = dbIdToJobNameToSyncJobs.get(syncJob.getDbId());
                     List<SyncJob> list = map.get(syncJob.getJobName());
                     list.remove(syncJob);
