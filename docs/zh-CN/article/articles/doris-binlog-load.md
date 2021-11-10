@@ -5,6 +5,7 @@
     "date": "2021-11-10",
     "metaTitle": "article",
     "language": "zh-CN",
+    "author": "张家锋",
     "layout": "Article",
     "sidebar": false
 }
@@ -410,7 +411,7 @@ delete from test_cdc where id in (12,13)
 ```sql
 CREATE SYNC test_2.doris_mysql_binlog_demo_job 
 (
-	FROM demo.test_cdc INTO doris_mysql_binlog_demo,
+    FROM demo.test_cdc INTO doris_mysql_binlog_demo,
     FROM demo.test_cdc_1 INTO doris_mysql_binlog_demo,
     FROM demo.test_cdc_2 INTO doris_mysql_binlog_demo,
     FROM demo.test_cdc_3 INTO doris_mysql_binlog_demo
