@@ -5,6 +5,7 @@
     "date": "2021-11-10",
     "metaTitle": "article",
     "language": "en",
+    "author": "张家锋",
     "layout": "Article",
     "sidebar": false
 }
