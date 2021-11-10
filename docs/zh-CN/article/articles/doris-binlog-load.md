@@ -27,6 +27,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+
 # Apache Doris Binlog Load使用方法及示例
 
 ## 1. 安装配置 Mysql 
@@ -177,7 +178,7 @@ under the License.
    tail -200f logs/demo/demo.log
    ```
 
-   ![image-20211110145044815](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211110145044815.png)
+   ![image-20211110145044815](/images/binlog/image-20211110145044815.png)
 
 ## 3.开始同步数据
 

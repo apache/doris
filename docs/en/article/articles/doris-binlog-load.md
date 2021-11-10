@@ -27,6 +27,7 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+
 # How to use Apache Doris Binlog Load and examples
 
 ## 1. Install and configure Mysql
@@ -177,7 +178,7 @@ Download canal-1.1.5: https://github.com/alibaba/canal/releases/download/canal-1
    tail -200f logs/demo/demo.log
    ```
 
-   ![image-20211110145044815](C:\Users\zhang\AppData\Roaming\Typora\typora-user-images\image-20211110145044815.png)
+   ![image-20211110145044815](/images/binlog/image-20211110145044815.png)
 
 ## 3.Start synchronizing data
 
