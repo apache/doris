@@ -138,7 +138,7 @@ public:
     }
 
     bool is_coord_restart() const {
-        if (HeartbeatServer::is_fe_restart(_exec_env, _coord_addr.hostname, _start_time)) {
+        if (HeartbeatServer::is_fe_restart(_exec_env, _coord_addr, _start_time)) {
             return true;
         }
         return false;

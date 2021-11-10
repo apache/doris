@@ -56,7 +56,7 @@ public:
     }
 
     bool is_coord_restart() const {
-        if (HeartbeatServer::is_fe_restart(_exec_env, coord_addr.hostname, _start_time)) {
+        if (HeartbeatServer::is_fe_restart(_exec_env, coord_addr, _start_time)) {
             LOG(WARNING) << "Coordinator stop or restart: ip" << coord_addr.hostname 
                       << " port:" << coord_addr.port
                       << " query_id:" << query_id;

@@ -81,22 +81,21 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (master_info.__isset.frontends_info) {
         std::stringstream ss;
         ss << "Heartbeat frontends info len: " << master_info.frontends_info.size();
-        for (auto info: master_info.frontends_info) {
+        for (auto& info: master_info.frontends_info) {
             ss << "; host:" << info.network_address.hostname
             << ", port:" << info.network_address.port
             << ", fe_start_time:" << info.fe_start_time
             << ", is_alive:" << info.is_alive;
-            if (_exec_env->frontends_start_time().find(info.network_address.hostname)
-                    != _exec_env->frontends_start_time().end()) {
-                FrontendStartInfo* frontend_start_info = _exec_env->frontends_start_time()[info.network_address.hostname];
-                frontend_start_info->is_alive = info.is_alive;
-                frontend_start_info->start_time = info.fe_start_time;
-                frontend_start_info->last_heartbeat->from_unixtime(time(NULL), TimezoneUtils::default_time_zone);
-            } else {
-                _exec_env->frontends_start_time().insert({info.network_address.hostname
-                        , new FrontendStartInfo(info.fe_start_time, info.is_alive
-                        , new DateTimeValue(DateTimeValue::local_time().to_int64()))});
-            }
+            std::string coord_addr_str =
+                info.network_address.hostname + ":" + std::to_string(info.network_address.port);
+            _exec_env->frontends_start_time().try_emplace_l(coord_addr_str,
+                [info](std::shared_ptr<FrontendStartInfo> fsi_ptr) {
+                    fsi_ptr->is_alive = info.is_alive;
+                    fsi_ptr->start_time = info.fe_start_time;
+                    fsi_ptr->last_heartbeat->from_unixtime(time(NULL), TimezoneUtils::default_time_zone);},
+                std::make_shared<FrontendStartInfo>(
+                    info.fe_start_time, info.is_alive,
+                    new DateTimeValue(DateTimeValue::local_time().to_int64())));
         }
         LOG_EVERY_N(INFO, 12) << ss.str();
         _exec_env->last_heartbeat()->from_unixtime(time(NULL), TimezoneUtils::default_time_zone);
@@ -195,10 +194,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 }
 
 const bool HeartbeatServer::is_fe_restart(ExecEnv* exec_env,
-                                          const std::string& hostname,
+                                          const TNetworkAddress& coord_addr,
                                           const DateTimeValue& fe_msg_time) {
-    // In previous version, if (query_type == TQueryType::LOAD && hostname.empty()) is true.
-    if (hostname.empty()) {
+    // In previous version, if (query_type == TQueryType::LOAD && coord_addr.hostname.empty()) is true.
+    if (coord_addr.hostname.empty()) {
         return false;
     }
     // Heartbeat lags behind the frontend message time
@@ -208,24 +207,25 @@ const bool HeartbeatServer::is_fe_restart(ExecEnv* exec_env,
         return false;
     }
     int64_t start_timestamp;
+    std::string coord_addr_str = coord_addr.hostname + ":" + std::to_string(coord_addr.port);
     fe_msg_time.unix_timestamp(&start_timestamp, TimezoneUtils::default_time_zone);
-    if (exec_env->frontends_start_time().find(hostname) == exec_env->frontends_start_time().end()) {
-        LOG(WARNING) << "FE hostname: " << hostname << " not exist";
+    auto fsi_ptr = exec_env->frontends_start_time().find(coord_addr_str);
+    if (LIKELY(fsi_ptr == exec_env->frontends_start_time().end())) {
+        LOG(WARNING) << "FE coord_addr: " << coord_addr_str << " not exist";
         return true;
-    } else {
-        FrontendStartInfo* fe_start_info = exec_env->frontends_start_time().find(hostname)->second;
-        // The info of this frontend is not received in the recent heartbeat. At this time, the info is invalid
-        if (fe_start_info->last_heartbeat->second_diff(fe_msg_time) < 0) {
-            return false;
-        }
-        if (fe_start_info->is_alive == false || fe_start_info->start_time == -1) {
-            LOG(WARNING) << "FE hostname: " << hostname << " not alive";
-            return true;
-        } else if (start_timestamp * 1000 < fe_start_info->start_time) {
-            LOG(WARNING) << "The query submitted time: " << fe_msg_time << " before this frontend: "
-                         << hostname << " restart, should be cancelled";
-            return true;
-        }
+    }
+    // The info of this frontend is not received in the recent heartbeat. At this time, the info is invalid
+    if (fsi_ptr->second->last_heartbeat->second_diff(fe_msg_time) < 0) {
+        return false;
+    }
+    if (fsi_ptr->second->is_alive == false || fsi_ptr->second->start_time == -1) {
+        LOG(WARNING) << "FE coord_addr: " << coord_addr_str << " not alive";
+        return true;
+    }
+    if (start_timestamp * 1000 < fsi_ptr->second->start_time) {
+        LOG(WARNING) << "The query submitted time: " << fe_msg_time << " before this frontend: "
+                        << coord_addr_str << " restart, should be cancelled";
+        return true;
     }
     return false;
 }
@@ -234,7 +234,7 @@ AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
                                     ThriftServer** thrift_server, uint32_t worker_thread_num,
                                     TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(exec_env, local_master_info);
-    if (heartbeat_server == NULL) {
+    if (heartbeat_server == nullptr) {
         return DORIS_ERROR;
     }
 

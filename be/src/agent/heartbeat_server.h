@@ -65,7 +65,7 @@ public:
     virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
     
     // Used to determine whether the frontend has been restarted after receiving the frontend message
-    static const bool is_fe_restart(ExecEnv* exec_env, const std::string& hostname,
+    static const bool is_fe_restart(ExecEnv* exec_env, const TNetworkAddress& coord_addr,
                                     const DateTimeValue& fe_msg_time);
 
 private:

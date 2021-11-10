@@ -85,14 +85,16 @@ public class HeartbeatMgrTest {
                             "\"rpcPort\":9121," +
                             "\"status\":\"OK\"," +
                             "\"msg\":\"Success\"," +
-                            "\"version\":\"test\"}";
+                            "\"version\":\"test\"," +
+                            "\"startTime\":\"1636520396\"}";
                 } else {
                     return "{\"replayedJournalId\":0," +
                             "\"queryPort\":0," +
                             "\"rpcPort\":0," +
                             "\"status\":\"FAILED\"," +
                             "\"msg\":\"not ready\"," +
-                            "\"version\":\"unknown\"}";
+                            "\"version\":\"unknown\"," +
+                            "\"startTime\":\"0\"}";
                 }
             }
         };
@@ -108,6 +110,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(9121, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
         Assert.assertEquals("test", hbResponse.getVersion());
+        Assert.assertEquals(1636520396, hbResponse.getStartTime());
 
         Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
         handler = new FrontendHeartbeatHandler(fe2, 12345, "abcd");
@@ -118,6 +121,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(0, hbResponse.getReplayedJournalId());
         Assert.assertEquals(0, hbResponse.getQueryPort());
         Assert.assertEquals(0, hbResponse.getRpcPort());
+        Assert.assertEquals(0, hbResponse.getStartTime());
         Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
     }
 
@@ -148,6 +152,7 @@ public class HeartbeatMgrTest {
         normalResult.setQueryPort(9131);
         normalResult.setRpcPort(9121);
         normalResult.setVersion("test");
+        normalResult.setStartTime(1636520396);
 
         TFrontendPingFrontendRequest badRequest = new TFrontendPingFrontendRequest(12345, "abcde");
         TFrontendPingFrontendResult badResult = new TFrontendPingFrontendResult();
@@ -179,6 +184,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(9121, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.OK, hbResponse.getStatus());
         Assert.assertEquals("test", hbResponse.getVersion());
+        Assert.assertEquals(1636520396, hbResponse.getStartTime());
 
         Frontend fe2 = new Frontend(FrontendNodeType.FOLLOWER, "test2", "192.168.1.2", 9010);
         handler = new FrontendHeartbeatHandler(fe2, 12345, "abcde");
@@ -190,6 +196,7 @@ public class HeartbeatMgrTest {
         Assert.assertEquals(0, hbResponse.getQueryPort());
         Assert.assertEquals(0, hbResponse.getRpcPort());
         Assert.assertEquals(HbStatus.BAD, hbResponse.getStatus());
+        Assert.assertEquals(0, hbResponse.getStartTime());
         Assert.assertEquals("not ready", hbResponse.getMsg());
     }
 

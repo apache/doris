@@ -61,9 +61,7 @@ TEST(HeartbeatTest, TestHeartbeat) {
     master_info.network_address.hostname = "0.9.1.9";
     master_info.network_address.port = 1994;
 
-    std::vector<TFrontendInfo> frontends_info;
-
-    heartbeat_server.heartbeat(heartbeat_result, master_info, frontends_info);
+    heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
     EXPECT_EQ(master_info.epoch, heartbeat_server._fe_epoch);
     EXPECT_EQ(master_info.cluster_id, heartbeat_server._master_info->cluster_id);
@@ -74,7 +72,7 @@ TEST(HeartbeatTest, TestHeartbeat) {
 
     // Diff cluster heartbeat
     master_info.cluster_id = 2;
-    heartbeat_server.heartbeat(heartbeat_result, master_info, frontends_info);
+    heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::INTERNAL_ERROR, heartbeat_result.status.status_code);
 
     // New master but epoch small
@@ -82,12 +80,12 @@ TEST(HeartbeatTest, TestHeartbeat) {
     master_info.epoch = 9;
     master_info.network_address.hostname = "new_host";
     master_info.network_address.port = 54321;
-    heartbeat_server.heartbeat(heartbeat_result, master_info, frontends_info);
+    heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::INTERNAL_ERROR, heartbeat_result.status.status_code);
 
     // New master and epoch bigger
     master_info.epoch = 11;
-    heartbeat_server.heartbeat(heartbeat_result, master_info, frontends_info);
+    heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
     EXPECT_EQ(master_info.epoch, heartbeat_server._fe_epoch);
     EXPECT_EQ(master_info.network_address.hostname,
@@ -101,40 +99,43 @@ TEST(HeartbeatTest, TestHeartbeat) {
     frontend_info.network_address.port = 1994;
     frontend_info.is_alive = true;
     frontend_info.fe_start_time = current_time * 1000;
-    frontends_info.push_back(frontend_info);
-    
-    heartbeat_server.heartbeat(heartbeat_result, master_info, frontends_info);
+    master_info.frontends_info.push_back(frontend_info);
+    master_info.__isset.frontends_info = true;
+
+    std::string coord_addr_str = frontend_info.network_address.hostname + ":" +
+                            std::to_string(frontend_info.network_address.port);
+    heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
-    EXPECT_TRUE(env->frontends_start_time().find(frontend_info.network_address.hostname) 
-              != env->frontends_start_time().end());
-    EXPECT_EQ(env->frontends_start_time()[frontend_info.network_address.hostname]->is_alive,
-              frontend_info.is_alive);
-    EXPECT_EQ(env->frontends_start_time()[frontend_info.network_address.hostname]->start_time,
-              frontend_info.fe_start_time);
-    EXPECT_TRUE(env->frontends_start_time()[frontend_info.network_address.hostname]->last_heartbeat > 0);
+    EXPECT_TRUE(env->frontends_start_time().find(coord_addr_str) != env->frontends_start_time().end());
+    EXPECT_EQ(env->frontends_start_time()[coord_addr_str]->is_alive, frontend_info.is_alive);
+    EXPECT_EQ(env->frontends_start_time()[coord_addr_str]->start_time, frontend_info.fe_start_time);
+    EXPECT_TRUE(env->frontends_start_time()[coord_addr_str]->last_heartbeat > 0);
+
     DateTimeValue current_date;
     current_date.from_unixtime(current_time, TimezoneUtils::default_time_zone);
     env->last_heartbeat()->from_unixtime(current_time, TimezoneUtils::default_time_zone);
-    env->frontends_start_time()[frontend_info.network_address.hostname] 
+    env->frontends_start_time()[coord_addr_str]
         ->last_heartbeat->from_unixtime(current_time, TimezoneUtils::default_time_zone);
     
     // frontend not exist
-    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, "0.0.0.0", DateTimeValue::local_time()));
-    
+    TNetworkAddress coord_addr;
+    coord_addr.__set_hostname("0.0.0.0");
+    coord_addr.__set_port(1994);
+    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue::local_time()));
     // last_heartbeat < fe_msg_time
-    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, "0.8.1.4", DateTimeValue(current_date.to_int64() + 100)));
+    coord_addr.__set_hostname("0.8.1.4");
+    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() + 100)));
     env->last_heartbeat()->from_unixtime(current_time + 200, TimezoneUtils::default_time_zone);
     // fe_last_heartbeat < fe_msg_time
-    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, "0.8.1.4", DateTimeValue(current_date.to_int64() + 100)));
-    
+    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() + 100)));
     // fe_start_time > fe_msg_time
-    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, "0.8.1.4", DateTimeValue(current_date.to_int64() - 100)));
-    env->frontends_start_time()[frontend_info.network_address.hostname]->start_time = (current_time - 200) * 1000;
+    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() - 100)));
+    env->frontends_start_time()[coord_addr_str]->start_time = (current_time - 200) * 1000;
     // query is executed normally, last_heartbeat > fe_msg_time, fe_start_time < fe_msg_time, is_alive == true
-    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, "0.8.1.4", DateTimeValue(current_date.to_int64() - 100)));
-    env->frontends_start_time()[frontend_info.network_address.hostname]->is_alive = false;
+    EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() - 100)));
+    env->frontends_start_time()[coord_addr_str]->is_alive = false;
     // frontend is not alive
-    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, "0.8.1.4", DateTimeValue(current_date.to_int64() - 100)));
+    EXPECT_TRUE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() - 100)));
 }
 
 } // namespace doris

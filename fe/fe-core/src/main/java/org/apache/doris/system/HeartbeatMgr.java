@@ -232,7 +232,7 @@ public class HeartbeatMgr extends MasterDaemon {
                     tFrontendsInfo.add(frontendInfo);
                 }
                 copiedMasterInfo.setFrontendsInfo(tFrontendsInfo);
-		THeartbeatResult result;
+                THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
                     result = client.heartbeat(copiedMasterInfo);

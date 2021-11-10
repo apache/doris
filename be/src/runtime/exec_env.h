@@ -18,6 +18,10 @@
 #ifndef DORIS_BE_RUNTIME_EXEC_ENV_H
 #define DORIS_BE_RUNTIME_EXEC_ENV_H
 
+#include <parallel_hashmap/phmap.h>
+
+#include <mutex>
+
 #include "common/status.h"
 #include "olap/options.h"
 #include "util/threadpool.h"
@@ -69,6 +73,13 @@ class TExtDataSourceServiceClient;
 template <class T>
 class ClientCache;
 class HeartbeatFlags;
+
+using FrontendStartInfoMap = phmap::parallel_flat_hash_map<
+        std::string, std::shared_ptr<FrontendStartInfo>,
+        phmap::priv::hash_default_hash<std::string>,
+        phmap::priv::hash_default_eq<std::string>,
+        std::allocator<std::pair<const std::string, std::shared_ptr<FrontendStartInfo>>>,
+        4, std::mutex>;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -149,7 +160,7 @@ public:
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
-    std::map<std::string, FrontendStartInfo*>& frontends_start_time() { return _frontends_start_time; }
+    FrontendStartInfoMap& frontends_start_time() { return _frontends_start_time; }
     DateTimeValue* last_heartbeat() { return _last_heartbeat; }
     void set_last_heartbeat(DateTimeValue* last_heartbeat) { _last_heartbeat = last_heartbeat; }
 
@@ -226,7 +237,7 @@ private:
 
     PluginMgr* _plugin_mgr = nullptr;
 
-    std::map<std::string, FrontendStartInfo*> _frontends_start_time;
+    FrontendStartInfoMap _frontends_start_time;
     DateTimeValue* _last_heartbeat = nullptr;
 };
 
