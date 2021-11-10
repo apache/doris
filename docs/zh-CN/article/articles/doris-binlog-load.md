@@ -30,6 +30,12 @@ under the License.
 
 # Apache Doris Binlog Load使用方法及示例
 
+Binlog Load提供了一种使Doris增量同步用户在Mysql数据库的对数据更新操作的CDC(Change Data Capture)功能，使用户更方面的完成Mysql数据的导入
+
+>注意：
+>
+>该功能需要在0.15及以后的版本里使用
+
 ## 1. 安装配置 Mysql 
 
 1. 安装Mysql

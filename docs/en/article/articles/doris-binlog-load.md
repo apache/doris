@@ -30,6 +30,12 @@ under the License.
 
 # How to use Apache Doris Binlog Load and examples
 
+Binlog Load provides a CDC (Change Data Capture) function that enables Doris to incrementally synchronize the user's data update operations in the Mysql database, so that users can more fully complete the import of Mysql data
+
+>Note:
+>
+>This function needs to be used in 0.15 and later versions
+
 ## 1. Install and configure Mysql
 
 1. Install Mysql
