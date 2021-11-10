@@ -36,6 +36,7 @@ To write a blog file, you must first include Front Matter information in the hea
 | title| - | Blog title|
 | description | - | Blog description|
 | date | - | Blog date |
+| author | - | Blog author |
 | metaTitle | article | Mark blog file |
 | language | en/zn-CN | language |
 | layout | Article | Layout of the components |
@@ -50,6 +51,7 @@ File header example：
     "title": "This is title",
     "description": "This is description",
     "date": "2021-11-03",
+    "author": "Alex",
     "metaTitle": "article",
     "language": "zh-CN",
     "layout": "Article",
