@@ -297,7 +297,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             // such as sub-query: select * from (select split_part(k, "_", 1) as new_field from table) t where t.new_field > 1;
             // conjunct->get_child(0)->node_type() == TExprNodeType::FUNCTION_CALL, at present doris on es can not support push down function
             RETURN_ERROR_IF_EXPR_IS_NOT_SLOTREF(conjunct->get_child(0));
-            SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
+            SlotRef* slot_ref = (SlotRef*)(Expr::expr_without_cast(conjunct->get_child(0)));
             const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
             if (slot_desc == nullptr) {
                 return Status::InternalError("build disjuncts failed: no SLOT_REF child");
