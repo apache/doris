@@ -168,7 +168,7 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int label_clean_interval_second = 1 * 3600; // 1 hours
-    
+
     // Configurations for meta data durability
     /**
      * Doris meta data will be saved here.
@@ -1015,9 +1015,19 @@ public class Config extends ConfigBase {
      * 2. The data has N replicas.
      * 3. High concurrency queries are sent to all Frontends evenly
      * In this case, all Frontends can only use local replicas to do the query.
+     * If you want to allow fallback to nonlocal replicas when no local replicas available,
+     * set enable_local_replica_selection_fallback to true.
      */
     @ConfField(mutable = true)
     public static boolean enable_local_replica_selection = false;
+
+    /**
+     * Used with enable_local_replica_selection.
+     * If the local replicas is not available, fallback to the nonlocal replicas.
+     * */
+    @ConfField(mutable = true)
+    public static boolean enable_local_replica_selection_fallback = false;
+
 
     /**
      * The timeout of executing async remote fragment.
@@ -1475,7 +1485,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = true)
     public static int partition_in_memory_update_interval_secs = 300;
-    
+
     @ConfField(masterOnly = true)
     public static boolean enable_concurrent_update = false;
 
