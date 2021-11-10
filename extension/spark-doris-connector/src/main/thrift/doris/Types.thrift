@@ -66,7 +66,7 @@ enum TPrimitiveType {
   DATE,
   DATETIME,
   BINARY,
-  DECIMAL_DEPRACTED, // not used now, only for place holder
+  DECIMAL,
   // CHAR(n). Currently only supported in UDAs
   CHAR,
   LARGEINT,
@@ -87,13 +87,6 @@ enum TTypeNodeType {
     ARRAY,
     MAP,
     STRUCT
-}
-
-enum TStorageBackendType {
-    BROKER,
-    S3,
-    HDFS,
-    LOCAL
 }
 
 struct TScalarType {
@@ -142,17 +135,13 @@ enum TAggregationType {
     MIN,
     REPLACE,
     HLL_UNION,
-    NONE,
-    BITMAP_UNION,
-    REPLACE_IF_NOT_NULL
+    NONE
 }
 
 enum TPushType {
     LOAD,
     DELETE,
-    LOAD_DELETE,
-    // for spark load push request
-    LOAD_V2
+    LOAD_DELETE
 }
 
 enum TTaskType {
@@ -161,8 +150,8 @@ enum TTaskType {
     PUSH,
     CLONE,
     STORAGE_MEDIUM_MIGRATE,
-    ROLLUP, // Deprecated
-    SCHEMA_CHANGE,  // Deprecated
+    ROLLUP,
+    SCHEMA_CHANGE,
     CANCEL_DELETE,  // Deprecated
     MAKE_SNAPSHOT,
     RELEASE_SNAPSHOT,
@@ -170,18 +159,15 @@ enum TTaskType {
     UPLOAD,
     DOWNLOAD,
     CLEAR_REMOTE_FILE,
-    MOVE,
+    MOVE
     REALTIME_PUSH,
     PUBLISH_VERSION,
     CLEAR_ALTER_TASK,
     CLEAR_TRANSACTION_TASK,
-    RECOVER_TABLET, // deprecated
+    RECOVER_TABLET,
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
-    // this type of task will replace both ROLLUP and SCHEMA_CHANGE
-    ALTER,
-    INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN
+    ALTER_TASK
 }
 
 enum TStmtType {
@@ -194,24 +180,8 @@ enum TStmtType {
 // level of verboseness for "explain" output
 // TODO: should this go somewhere else?
 enum TExplainLevel {
-  BRIEF,
   NORMAL,
   VERBOSE
-}
-
-enum TRuntimeFilterMode {
-  // No filters are computed in the FE or the BE.
-  OFF = 0
-
-  // Only broadcast filters are computed in the BE, and are only published to the local
-  // fragment.
-  LOCAL = 1
-
-  // Only shuffle filters are computed in the BE, and are only published globally.
-  REMOTE = 2
-
-  // All fiters are computed in the BE, and are published globally.
-  GLOBAL = 3
 }
 
 struct TColumnType {
@@ -327,7 +297,6 @@ struct TFunction {
 
   11: optional i64 id
   12: optional string checksum
-  13: optional bool vectorized = false
 }
 
 enum TLoadJobState {
@@ -346,22 +315,12 @@ enum TEtlState {
 }
 
 enum TTableType {
-    MYSQL_TABLE, // Deprecated
+    MYSQL_TABLE,
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
-    ES_TABLE,
-    ODBC_TABLE
-}
-
-enum TOdbcTableType {
-    MYSQL,
-    ORACLE,
-    POSTGRESQL,
-    SQLSERVER,
-    REDIS,
-    MONGODB
+    ES_TABLE
 }
 
 enum TKeysType {
@@ -398,8 +357,6 @@ enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
     FILE_STREAM,    // file content is streaming in the buffer
-    FILE_S3,
-    FILE_HDFS,
 }
 
 struct TTabletCommitInfo {
@@ -417,22 +374,3 @@ enum TLoadSourceType {
     RAW,
     KAFKA,
 }
-
-enum TMergeType {
-  APPEND,
-  MERGE,
-  DELETE
-}
-
-// represent a user identity
-struct TUserIdentity {
-    1: optional string username
-    2: optional string host
-    3: optional bool is_domain
-}
-
-const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
-const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
-// the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
-const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
-
