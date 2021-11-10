@@ -347,6 +347,59 @@ TEST_F(BitmapFunctionsTest, bitmap_and) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_xor) {
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 2019});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_xor(ctx, bitmap_src, bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
+
+    BigIntVal expected(4);
+    ASSERT_EQ(expected, result);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_xor_count) {
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({3, 4, 5});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(4);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({1, 2, 3});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1, 2, 3});
+        BitmapValue bitmap2({4, 5, 6});
+
+        StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src, bitmap_dst);
+
+        BigIntVal expected(6);
+        ASSERT_EQ(expected, result);
+    }
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_and_count) {
     BitmapValue bitmap1({0, 1, 2});
     BitmapValue bitmap2;
@@ -697,6 +750,118 @@ TEST_F(BitmapFunctionsTest, bitmap_subset_in_range) {
     ASSERT_TRUE(res.is_null);
 
     res = BitmapFunctions::bitmap_subset_in_range(ctx, bitmap_src, BigIntVal::null(), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+}
+
+TEST_F(BitmapFunctionsTest, sub_bitmap) {
+    // normal
+    BitmapValue bitmap1({0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,100,200,500});
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+
+    StringVal res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(6));
+    BitmapValue bitmap2({30,31,32,33,100,200});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap2));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(100));
+    BitmapValue bitmap3({30,31,32,33,100,200,500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap3));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(INT64_MAX));
+    BitmapValue bitmap4({30,31,32,33,100,200,500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap4));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(0), BigIntVal(2));
+    BitmapValue bitmap5({0,1});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap5));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-1), BigIntVal(2));
+    BitmapValue bitmap6({500});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap6));
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-7), BigIntVal(6));
+    BitmapValue bitmap7({30,31,32,33,100,200});
+    ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap7));
+
+    // null
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(0), BigIntVal(0));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(100), BigIntVal(6));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-100), BigIntVal(6));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(30), BigIntVal(INT64_MIN));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, StringVal::null(), BigIntVal(1), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal::null(), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(10), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+
+    // empty
+    BitmapValue bitmap0;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap0);
+    res = BitmapFunctions::sub_bitmap(ctx, empty_str, BigIntVal(0), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_subset_limit) {
+    // null
+    StringVal res = BitmapFunctions::bitmap_subset_limit(ctx, StringVal::null(), BigIntVal(1), BigIntVal(3));
+    ASSERT_TRUE(res.is_null);
+
+    // empty
+    BitmapValue bitmap0;
+    StringVal empty_str = convert_bitmap_to_string(ctx, bitmap0);
+    res = BitmapFunctions::bitmap_subset_limit(ctx, empty_str, BigIntVal(10), BigIntVal(20));
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(0), result);
+
+    // normal
+    BitmapValue bitmap1({0,1,2,3,4,5,6,7,45,47,49,43,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,100,200,500});
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(4), BigIntVal(10));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(10), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(0), BigIntVal(1));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(1), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(35), BigIntVal(10));
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(7), result);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(31), DecimalV2Value::MAX_INT64);
+    result = BitmapFunctions::bitmap_count(ctx, res);
+    ASSERT_EQ(BigIntVal(10), result);
+
+    // abnormal
+    // negative range_start and cardinality_limit
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(-10), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(10), BigIntVal(-20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(-10), BigIntVal(-20));
+    ASSERT_TRUE(res.is_null);
+
+    // null range
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal::null(), BigIntVal(20));
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal(10), BigIntVal::null());
+    ASSERT_TRUE(res.is_null);
+
+    res = BitmapFunctions::bitmap_subset_limit(ctx, bitmap_src, BigIntVal::null(), BigIntVal::null());
     ASSERT_TRUE(res.is_null);
 
 }

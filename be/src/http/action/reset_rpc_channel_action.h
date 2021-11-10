@@ -14,33 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-package org.apache.doris.spark.sql
 
-import org.apache.spark.sql.SparkSession
+#pragma once
 
-object DataframeSinkDoris {
-  def main(args: Array[String]): Unit = {
-    val spark = SparkSession.builder().master("local").getOrCreate()
+#include "http/http_handler.h"
 
-    import spark.implicits._
+namespace doris {
+class ExecEnv;
+class ResetRPCChannelAction : public HttpHandler {
+public:
+    explicit ResetRPCChannelAction(ExecEnv* exec_env);
 
-    val mockDataDF = List(
-      (3, "440403001005", "21.cn"),
-      (1, "4404030013005", "22.cn"),
-      (33, null, "23.cn")
-    ).toDF("id", "mi_code", "mi_name")
-    mockDataDF.show(5)
+    virtual ~ResetRPCChannelAction() {}
 
-    mockDataDF.write.format("doris")
-      .option("feHostPort", "10.211.55.9:8030")
-      .option("dbName", "example_db")
-      .option("tbName", "test_insert_into")
-      .option("maxRowCount", "1000")
-      .option("user", "root")
-      .option("password", "")
-      .save()
+    void handle(HttpRequest* req) override;
 
-
-  }
-
-}
+private:
+    ExecEnv* _exec_env;
+};
+} // namespace doris

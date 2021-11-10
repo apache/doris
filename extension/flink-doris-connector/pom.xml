@@ -6,7 +6,7 @@
 
     <groupId>org.apache</groupId>
     <artifactId>doris-flink</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0-flink-${flink.version}_${scala.version}</version>
 
     <properties>
         <scala.version>2.12</scala.version>

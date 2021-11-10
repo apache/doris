@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "http/monitor_action.h"
+#include "http/action/monitor_action.h"
 
 #include <sstream>
 

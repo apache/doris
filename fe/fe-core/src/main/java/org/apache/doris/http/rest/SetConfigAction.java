@@ -19,9 +19,7 @@ package org.apache.doris.http.rest;
 
 import io.netty.handler.codec.http.HttpMethod;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
@@ -37,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
 
@@ -86,37 +83,20 @@ public class SetConfigAction extends RestBaseAction {
 
         LOG.debug("get config from url: {}, need persist: {}", configs, needPersist);
 
-        Field[] fields = ConfigBase.confClass.getFields();
-        for (Field f : fields) {
-            // ensure that field has "@ConfField" annotation
-            ConfField anno = f.getAnnotation(ConfField.class);
-            if (anno == null || !anno.mutable()) {
-                continue;
-            }
-
-            if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
-                continue;
-            }
-
-            // ensure that field has property string
-            String confKey = anno.value().equals("") ? f.getName() : anno.value();
-            List<String> confVals = configs.get(confKey);
-            if (confVals == null || confVals.isEmpty()) {
-                continue;
-            }
-
-            if (confVals.size() > 1) {
-                continue;
-            }
-
+        for (Map.Entry<String, List<String>> config : configs.entrySet()) {
+            String confKey = config.getKey();
+            List<String> confValue = config.getValue();
             try {
-                ConfigBase.setConfigField(f, confVals.get(0));
-            } catch (Exception e) {
-                LOG.warn("failed to set config {}:{}", confKey, confVals.get(0),  e);
-                continue;
+                if (confValue != null && confValue.size() == 1) {
+                    ConfigBase.setMutableConfig(confKey, confValue.get(0));
+                    setConfigs.put(confKey, confValue.get(0));
+                } else {
+                    throw new DdlException("conf value size != 1");
+                }
+            } catch (DdlException e) {
+                LOG.warn("failed to set config {}:{}", confKey, confValue, e);
+                errConfigs.put(confKey, String.valueOf(confValue));
             }
-
-            setConfigs.put(confKey, confVals.get(0));
         }
 
         String persistMsg = "";
@@ -127,12 +107,6 @@ public class SetConfigAction extends RestBaseAction {
             } catch (IOException e) {
                 LOG.warn("failed to persist config", e);
                 persistMsg = e.getMessage();
-            }
-        }
-
-        for (String key : configs.keySet()) {
-            if (!setConfigs.containsKey(key)) {
-                errConfigs.put(key, configs.get(key).toString());
             }
         }
 

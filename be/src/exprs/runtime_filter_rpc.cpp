@@ -39,7 +39,14 @@ struct IRuntimeFilter::rpc_context {
 Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     DCHECK(is_producer());
     DCHECK(_rpc_context == nullptr);
-    PBackendService_Stub* stub = state->exec_env()->brpc_stub_cache()->get_stub(*addr);
+    std::shared_ptr<PBackendService_Stub> stub(
+            state->exec_env()->brpc_stub_cache()->get_stub(*addr));
+    if (!stub) {
+        std::string msg =
+                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
+        LOG(WARNING) << msg;
+        return Status::InternalError(msg);
+    }
     _rpc_context = std::make_shared<IRuntimeFilter::rpc_context>();
     void* data = nullptr;
     int len = 0;
@@ -86,6 +93,8 @@ Status IRuntimeFilter::join_rpc() {
         brpc::Join(_rpc_context->cid);
         if (_rpc_context->cntl.Failed()) {
             LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
+            // reset stub cache
+            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_rpc_context->cntl.remote_side());
         }
     }
     return Status::OK();

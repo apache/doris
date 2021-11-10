@@ -97,6 +97,7 @@ module.exports = [
                     "query-profile-action",
                   ],
                 },
+                "backends-action",
                 "bootstrap-action",
                 "cancel-load-action",
                 "check-decommission-action",
@@ -135,6 +136,7 @@ module.exports = [
             ],
           },
           "cancel-label",
+          "check-reset-rpc-cache",
           "compaction-action",
           "connection-action",
           "fe-get-log-file",
@@ -222,7 +224,8 @@ module.exports = [
       "fe-load-balance",
       "systemd",
       "samples",
-      "datax-doris-writer"
+      "datax-doris-writer",
+      "flink-cdc-to-doris"
     ],
   },
   {
@@ -422,10 +425,13 @@ module.exports = [
               "bitmap_and_count",
               "bitmap_or_count",
               "bitmap_xor",
+              "bitmap_xor_count",
               "bitmap_not",
               "bitmap_and_not",
               "bitmap_and_not_count",
               "bitmap_subset_in_range",
+              "bitmap_subset_limit",
+              "sub_bitmap",
               "bitmap_to_string",
               "bitmap_union",
               "bitmap_xor",
@@ -631,6 +637,7 @@ module.exports = [
         "be-vscode-dev",
         "java-format-code",
         "cpp-format-code",
+        "How-to-Share-blogs"
     ],
   },
   {

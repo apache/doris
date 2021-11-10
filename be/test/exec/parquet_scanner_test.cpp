@@ -95,7 +95,8 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         }
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
-        slot_desc.byteOffset = i * 16 + 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
+        // Skip the first 8 bytes These 8 bytes are used to indicate whether the field is a null value
+        slot_desc.byteOffset = i * 16 + 8; 
         slot_desc.nullIndicatorByte = i / 8;
         slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
@@ -109,7 +110,8 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
-        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; //此处8字节为了处理null值
+        //Here 8 bytes in order to handle null values
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; 
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -119,7 +121,7 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
 }
 
 int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    int32_t byteOffset = 8; // 跳过前8个字节 这8个字节用于表示字段是否为null值
+    int32_t byteOffset = 8; // Skip the first 8 bytes These 8 bytes are used to indicate whether the field is a null value
     {                       //log_version
         TSlotDescriptor slot_desc;
 
@@ -237,7 +239,7 @@ int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int nex
         // TTupleDescriptor dest
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_DST;
-        t_tuple_desc.byteSize = byteOffset + 8; //此处8字节为了处理null值
+        t_tuple_desc.byteSize = byteOffset + 8; //Here 8 bytes in order to handle null values
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;

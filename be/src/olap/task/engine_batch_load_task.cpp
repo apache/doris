@@ -343,7 +343,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
 
 OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                              std::vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
+    VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;

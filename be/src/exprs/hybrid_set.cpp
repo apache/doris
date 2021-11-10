@@ -36,21 +36,22 @@ HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
     case TYPE_BIGINT:
         return new (std::nothrow) HybridSet<int64_t>();
 
+    case TYPE_LARGEINT:
+        return new (std::nothrow) HybridSet<__int128>();
+
     case TYPE_FLOAT:
         return new (std::nothrow) HybridSet<float>();
 
+    case TYPE_TIME:
     case TYPE_DOUBLE:
         return new (std::nothrow) HybridSet<double>();
-
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        return new (std::nothrow) HybridSet<DateTimeValue>();
 
     case TYPE_DECIMALV2:
         return new (std::nothrow) HybridSet<DecimalV2Value>();
 
-    case TYPE_LARGEINT:
-        return new (std::nothrow) HybridSet<__int128>();
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+        return new (std::nothrow) HybridSet<DateTimeValue>();
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -58,12 +59,10 @@ HybridSetBase* HybridSetBase::create_set(PrimitiveType type) {
         return new (std::nothrow) StringValueSet();
 
     default:
-        return NULL;
+        DCHECK(false) << "Invalid type.";
     }
 
-    return NULL;
+    return nullptr;
 }
 
 } // namespace doris
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 */

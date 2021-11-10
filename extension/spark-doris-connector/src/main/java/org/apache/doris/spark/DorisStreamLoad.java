@@ -62,6 +62,7 @@ public class DorisStreamLoad implements Serializable{
     private String db;
     private String tbl;
     private String authEncoding;
+    private String columns;
 
     public DorisStreamLoad(String hostPort, String db, String tbl, String user, String passwd) {
         this.hostPort = hostPort;
@@ -74,7 +75,7 @@ public class DorisStreamLoad implements Serializable{
     }
 
     public DorisStreamLoad(SparkSettings settings) throws IOException, DorisException {
-        String hostPort = RestService.randomBackend(settings, LOG);
+        String hostPort = RestService.randomBackendV2(settings, LOG);
         this.hostPort = hostPort;
         String[] dbTable = settings.getProperty(ConfigurationOptions.DORIS_TABLE_IDENTIFIER).split("\\.");
         this.db = dbTable[0];
@@ -83,6 +84,7 @@ public class DorisStreamLoad implements Serializable{
         this.passwd = settings.getProperty(ConfigurationOptions.DORIS_REQUEST_AUTH_PASSWORD);
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        this.columns = settings.getProperty(ConfigurationOptions.DORIS_WRITE_FIELDS);
     }
 
     public String getLoadUrlStr() {
@@ -108,6 +110,9 @@ public class DorisStreamLoad implements Serializable{
         conn.addRequestProperty("Expect", "100-continue");
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
         conn.addRequestProperty("label", label);
+        if (columns != null && !columns.equals("")) {
+            conn.addRequestProperty("columns", columns);
+        }
         conn.setDoOutput(true);
         conn.setDoInput(true);
         return conn;

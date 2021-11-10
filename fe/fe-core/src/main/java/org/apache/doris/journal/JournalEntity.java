@@ -48,7 +48,6 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -106,7 +105,7 @@ import java.io.IOException;
 
 // this is the value written to bdb or local edit files. key is an auto-increasing long.
 public class JournalEntity implements Writable {
-    public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
+    public static final Logger LOG = LogManager.getLogger(JournalEntity.class);
 
     private short opCode;
     private Writable data;

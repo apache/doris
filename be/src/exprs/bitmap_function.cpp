@@ -519,6 +519,11 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
+BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs,
+                                                const StringVal& rhs) {
+    return bitmap_count(ctx, bitmap_xor(ctx, lhs, rhs));
+}
+
 StringVal BitmapFunctions::bitmap_not(FunctionContext* ctx, const StringVal& lhs,
                                       const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
@@ -661,6 +666,44 @@ StringVal BitmapFunctions::bitmap_subset_in_range(FunctionContext* ctx, const St
     } else {
         BitmapValue bitmap = BitmapValue((char*)src.ptr);
         bitmap.sub_range(range_start.val, range_end.val, &ret_bitmap);
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
+StringVal BitmapFunctions::sub_bitmap(FunctionContext* ctx, const StringVal& src,
+                                    const BigIntVal& offset, const BigIntVal& cardinality_limit) {
+    if (src.is_null || offset.is_null || cardinality_limit.is_null || cardinality_limit.val <= 0) {
+        return StringVal::null();
+    }
+
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        if (bitmap.offset_limit(offset.val, cardinality_limit.val, &ret_bitmap) == 0) {
+            return StringVal::null();
+        }
+    }
+
+    return serialize(ctx, &ret_bitmap);
+}
+
+StringVal BitmapFunctions::bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
+        const BigIntVal& range_start, const BigIntVal& cardinality_limit) {
+    if (src.is_null || range_start.is_null || cardinality_limit.is_null) {
+        return StringVal::null();
+    }
+    if (range_start.val < 0 || cardinality_limit.val < 0) {
+        return StringVal::null();
+    }
+    BitmapValue ret_bitmap;
+    if (src.len == 0) {
+        ret_bitmap = *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        BitmapValue bitmap = BitmapValue((char*)src.ptr);
+        bitmap.sub_limit(range_start.val, cardinality_limit.val, &ret_bitmap);
     }
 
     return serialize(ctx, &ret_bitmap);
