@@ -229,7 +229,7 @@ public class HiveMetaStoreClientHelper {
                 FileSystem fileSystem = path.getFileSystem(configuration);
                 iterators.add(fileSystem.listLocatedStatus(path));
             } catch (IOException e) {
-                LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
+                LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
                 throw new DdlException("Get HDFS file remote iterator failed.");
             }
         }
