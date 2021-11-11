@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Multi-tenancy(Experimental)",
+    "title": "Multi-tenancy(Deprecated)",
     "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Multi-tenancy(Experimental)
+# Multi-tenancy(Deprecated)
 
-This function is experimental and is not recommended for use in production environment.
+This function is deprecated. Please see [Multi-Tenant](../multi-tenant.md).
 
 ## Background
 Doris, as a PB-level online report and multi-dimensional analysis database, provides cloud-based database services through open cloud, and deploys a physical cluster for each client in the cloud. Internally, a physical cluster deploys multiple services, and separately builds clusters for services with high isolation requirements. In view of the above problems:
