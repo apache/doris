@@ -203,7 +203,7 @@ public:
         // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
         //             But I don't know why. so here I print node_info->id instead of node_info->host
         //             to avoid BE crash. It needs further observation.
-        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info->id, _node_info->brpc_port);
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id, _node_info.brpc_port);
     } 
 
 private:
@@ -218,7 +218,7 @@ private:
     std::string _name;
 
     TupleDescriptor* _tuple_desc = nullptr;
-    const NodeInfo* _node_info = nullptr;
+    NodeInfo _node_info;
 
     // this should be set in init() using config
     int _rpc_timeout_ms = 60000;
