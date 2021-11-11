@@ -30,7 +30,7 @@
 
 namespace doris {
 
-FilePathDesc BetaRowset::segment_file_path(FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
+FilePathDesc BetaRowset::segment_file_path(const FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
                                           int segment_id) {
     FilePathDescStream path_desc_s;
     path_desc_s << segment_dir_desc << "/" << rowset_id.to_string() << "_" << segment_id << ".dat";
