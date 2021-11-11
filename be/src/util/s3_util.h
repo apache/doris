@@ -30,6 +30,12 @@ class S3Client;
 } // namespace Aws
 
 namespace doris {
+
+const static std::string S3_AK = "AWS_ACCESS_KEY";
+const static std::string S3_SK = "AWS_SECRET_KEY";
+const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
+const static std::string S3_REGION = "AWS_REGION";
+
 class ClientFactory {
 public:
     ~ClientFactory();

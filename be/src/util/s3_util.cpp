@@ -26,10 +26,6 @@
 
 namespace doris {
 
-const static std::string S3_AK = "AWS_ACCESS_KEY";
-const static std::string S3_SK = "AWS_SECRET_KEY";
-const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
-const static std::string S3_REGION = "AWS_REGION";
 const static std::string USE_PATH_STYLE = "use_path_style";
 
 ClientFactory::ClientFactory() {
