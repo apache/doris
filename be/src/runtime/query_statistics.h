@@ -25,6 +25,7 @@
 
 namespace doris {
 
+class QueryStatistics;
 class QueryStatisticsRecvr;
 
 class NodeStatistics {
@@ -35,11 +36,12 @@ public:
 
     void merge(const NodeStatistics& other);
 
-    void to_pb(PNodeStatistics* nodeStatistics);
+    void to_pb(PNodeStatistics* node_statistics);
 
-    void from_pb(const PNodeStatistics& nodeStatistics);
+    void from_pb(const PNodeStatistics& node_statistics);
 
 private:
+    friend class QueryStatistics;
     int64_t peak_memory_bytes;
 };
 
@@ -48,7 +50,8 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics() : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0) {}
+    QueryStatistics() : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
+    ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
@@ -60,10 +63,10 @@ public:
 
     NodeStatistics* add_nodes_statistics(int64_t node_id) {
         NodeStatistics* nodeStatistics = nullptr;
-        auto iter = nodes_statistics_map.find(node_id);
-        if (iter == nodes_statistics_map.end()) {
+        auto iter = _nodes_statistics_map.find(node_id);
+        if (iter == _nodes_statistics_map.end()) {
             nodeStatistics = new NodeStatistics;
-            nodes_statistics_map[node_id] = nodeStatistics;
+            _nodes_statistics_map[node_id] = nodeStatistics;
         } else {
             nodeStatistics = iter->second;
         }
@@ -72,14 +75,20 @@ public:
 
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
+    void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) { this->max_peak_memory_bytes = max_peak_memory_bytes; }
+
     void merge(QueryStatisticsRecvr* recvr);
+
+    int64_t calculate_max_peak_memory_bytes();
+
+    void clearNodeStatistics();
 
     void clear() {
         scan_rows = 0;
         scan_bytes = 0;
         cpu_ms = 0;
         returned_rows = 0;
-        nodes_statistics_map.clear();
+        clearNodeStatistics();
     }
 
     void to_pb(PQueryStatistics* statistics);
@@ -93,10 +102,12 @@ private:
     // number rows returned by query.
     // only set once by result sink when closing.
     int64_t returned_rows;
-
+    // Maximum memory peak for all backends.
+    // only set once by result sink when closing.
+    int64_t max_peak_memory_bytes;
     // The statistics of the query on each backend.
     typedef std::unordered_map<int64_t, NodeStatistics*> NodeStatisticsMap;
-    NodeStatisticsMap nodes_statistics_map;
+    NodeStatisticsMap _nodes_statistics_map;
 };
 
 // It is used for collecting sub plan query statistics in DataStreamRecvr.

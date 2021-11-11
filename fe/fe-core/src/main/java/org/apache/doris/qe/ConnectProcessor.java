@@ -43,7 +43,6 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
-import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.Data;
 import org.apache.doris.service.FrontendOptions;
@@ -120,18 +119,10 @@ public class ConnectProcessor {
             .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
             .setScanRows(statistics == null ? 0 : statistics.getScanRows())
             .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+            .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
             .setReturnRows(ctx.getReturnRows())
             .setStmtId(ctx.getStmtId())
             .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
-
-        if (statistics != null && statistics.getNodesStatisticsCount() != 0) {
-            long maxPeakMemoryBytes = 0L;
-            for (Data.PNodeStatistics nodeStatistics : statistics.getNodesStatisticsList()) {
-                maxPeakMemoryBytes = Math.max(maxPeakMemoryBytes, nodeStatistics.getPeakMemoryBytes());
-            }
-            ctx.getAuditEventBuilder().setPeakMemory(
-                    AuditEvent.EventFormatter.getPeakMemory(maxPeakMemoryBytes));
-        }
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);

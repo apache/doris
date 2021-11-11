@@ -460,7 +460,7 @@ private:
     int _num_per_fragment_instances = 0;
 
     // The backend id on which this fragment instance runs
-    int64_t _backend_id;
+    int64_t _backend_id = -1;
 
     // used as send id
     int _be_number;

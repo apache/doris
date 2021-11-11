@@ -17,12 +17,9 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.DebugUtil;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.Formatter;
 
 /*
  * AuditEvent contains all information about audit log info.
@@ -83,10 +80,10 @@ public class AuditEvent {
     public String stmt = "";
     @AuditField(value = "CpuTimeMS")
     public long cpuTimeMs = -1;
-    @AuditField(value = "PeakMemory")
-    public String peakMemory = "";
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
+    @AuditField(value = "peakMemoryBytes")
+    public long peakMemoryBytes = -1;
 
     public static class AuditEventBuilder {
 
@@ -144,8 +141,8 @@ public class AuditEvent {
             return this;
         }
 
-        public AuditEventBuilder setPeakMemory(String peakMemory) {
-            auditEvent.peakMemory = peakMemory;
+        public AuditEventBuilder setPeakMemoryBytes(long peakMemoryBytes) {
+            auditEvent.peakMemoryBytes = peakMemoryBytes;
             return this;
         }
 
@@ -191,14 +188,6 @@ public class AuditEvent {
 
         public AuditEvent build() {
             return this.auditEvent;
-        }
-    }
-
-    public static class EventFormatter {
-
-        public static String getPeakMemory(long peakMemoryBytes) {
-            Pair<Double, String> pair = DebugUtil.getByteUint(peakMemoryBytes);
-            return pair.first == 0 ? "" : (new Formatter().format("%.2f", pair.first) + pair.second);
         }
     }
 }
