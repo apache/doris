@@ -330,6 +330,20 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         return res;
     }
 
+    // schema_full_path_desc.filepath:
+    //      /snapshot_id_path/tablet_id/schema_hash/
+    FilePathDesc schema_full_path_desc = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
+    // header_path:
+    //      /schema_full_path/tablet_id.hdr
+    string header_path = _get_header_full_path(ref_tablet, schema_full_path_desc.filepath);
+    if (FileUtils::check_exist(schema_full_path_desc.filepath)) {
+        VLOG_TRACE << "remove the old schema_full_path.";
+        FileUtils::remove_all(schema_full_path_desc.filepath);
+    }
+
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path_desc.filepath), OLAP_ERR_CANNOT_CREATE_DIR,
+                              "create path " + schema_full_path_desc.filepath + "failed");
+
     string snapshot_id;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id),
                               OLAP_ERR_CANNOT_CREATE_DIR,

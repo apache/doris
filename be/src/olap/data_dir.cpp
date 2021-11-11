@@ -190,7 +190,7 @@ Status DataDir::_init_capacity() {
     if (!exist_status.ok() && (!exist_status.is_not_found() || !Env::Default()->create_dirs(data_path).ok())) {
         RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
                 "failed to create data root path $0", data_path)), "create_dirs failed");
-
+    }
     return Status::OK();
 }
 

@@ -764,9 +764,9 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     // For case 2, If a tablet has just been copied to local BE,
     // it may be cleared by gc-thread(see perform_path_gc_by_tablet) because the tablet meta may not be loaded to memory.
     // So clone task should check path and then failed and retry in this case.
-    if (check_path && !Env::Default()->path_exists(tablet->tablet_path()).ok()) {
+    if (check_path && !Env::Default()->path_exists(tablet->tablet_path_desc().filepath).ok()) {
         LOG(WARNING) << "tablet path not exists, create tablet failed, path="
-                     << tablet->tablet_path();
+                     << tablet->tablet_path_desc().filepath;
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
     }
 
@@ -1010,7 +1010,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                             tablet_path_desc.filepath, std::to_string((*it)->tablet_id()) + ".hdr");
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path_desc.debug_string();
-                    OLAPStatus rm_st = move_to_trash(tablet_path, tablet_path_desc.filepath);
+                    OLAPStatus rm_st = move_to_trash(tablet_path_desc.filepath, tablet_path_desc.filepath);
                     if (rm_st != OLAP_SUCCESS) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path_desc.debug_string();
                         ++it;
