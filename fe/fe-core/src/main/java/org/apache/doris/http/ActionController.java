@@ -21,7 +21,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.doris.common.path.PathTrie;
-import org.apache.doris.http.rest.LoadAction;
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
