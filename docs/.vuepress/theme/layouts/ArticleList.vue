@@ -31,6 +31,9 @@ under the License.
             <div class="article-item-meta article-item-time">
               {{$themeLocaleConfig.article.metaTime}}：<span>{{item.frontmatter.date}}</span>
             </div>
+            <div class="article-item-meta article-item-author">
+              {{$themeLocaleConfig.article.metaAuthor}}：<span>{{item.frontmatter.author}}</span>
+            </div>
           </footer>
         </article>
         <div class="article-pagination-wrap">
@@ -111,11 +114,10 @@ export default {
         align-items: center
         font-size: 12px
         line-height: 12px
+        color: #888888
       .article-item-meta:not(:last-child)
         margin-bottom: 3px
         margin-right: 20px
-      .article-item-time
-        color: #888888
     .article-item:last-child
       border: none
     .article-pagination-wrap
