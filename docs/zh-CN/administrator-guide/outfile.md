@@ -65,7 +65,7 @@ INTO OUTFILE "file_path"
     指定相关属性。目前支持通过 Broker 进程, 或通过 S3 协议进行导出。
 
     + Broker 相关属性需加前缀 `broker.`。具体参阅[Broker 文档](./broker.html)。
-    + HDFS 相关属性需加前缀 `hdfs.`。
+    + HDFS 相关属性需加前缀 `hdfs.` 其中 hdfs.fs.defaultFS 用于填写 namenode 地址和端口。属于必填项。。
     + S3 协议则直接执行 S3 协议配置即可。
 
     ```
@@ -140,11 +140,11 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 1. 示例1
 
-    使用 broker 方式导出，将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
+    使用 broker 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
 
     ```
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     FORMAT AS CSV
     PROPERTIES
     (
@@ -164,11 +164,11 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 2. 示例2
 
-    将简单查询结果导出到文件 `hdfs:/path/to/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 kerberos 认证信息。
+    将简单查询结果导出到文件 `hdfs://path/to/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 kerberos 认证信息。
 
     ```
     SELECT c1, c2, c3 FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     FORMAT AS PARQUET
     PROPERTIES
     (
@@ -184,7 +184,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 3. 示例3
 
-    将 CTE 语句的查询结果导出到文件 `hdfs:/path/to/result.txt`。默认导出格式为 CSV。使用 `my_broker` 并设置 hdfs 高可用信息。使用默认的行列分隔符。
+    将 CTE 语句的查询结果导出到文件 `hdfs://path/to/result.txt`。默认导出格式为 CSV。使用 `my_broker` 并设置 hdfs 高可用信息。使用默认的行列分隔符。
 
     ```
     WITH
@@ -193,7 +193,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
     x2 AS
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     PROPERTIES
     (
         "broker.name" = "my_broker",
@@ -301,20 +301,36 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 7. 示例7
 
-    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用并设置 kerberos 认证信息。
+    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 csv。
 
     ```
-    SELECT * FROM tbl
-    INTO OUTFILE "hdfs://path/to/result_"
-    FORMAT AS CSV
-    PROPERTIES
+    select * from tbl
+    into outfile "hdfs://path/to/result_"
+    format as csv
+    properties
     (
-        "hdfs.fs.defaultFS" = "hdfs://namenode:port",
+        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
+    );
+    ```
+   
+
+8. 示例8
+
+    使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 csv。使用并设置 kerberos 认证信息。
+
+    ```
+    select * from tbl
+    into outfile "hdfs://path/to/result_"
+    format as csv
+    properties
+    (
+        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
         "hdfs.hadoop.security.authentication" = "kerberos",
-        "hdfs.kerberos_principal" = "doris@YOUR.COM",
+        "hdfs.kerberos_principal" = "doris@your.com",
         "hdfs.kerberos_keytab" = "/home/doris/my.keytab"
     );
     ```
+
     
 ## 返回结果
 

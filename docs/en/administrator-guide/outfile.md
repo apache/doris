@@ -64,7 +64,7 @@ INTO OUTFILE "file_path"
     Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
 
     + Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker Document](./broker.html).
-    + HDFS protocal can directly execute HDFS protocal configuration.
+    + HDFS protocal can directly execute HDFS protocal configuration. hdfs.fs.defaultFS is used to fill in the namenode address and port. It is required.
     + S3 protocol can directly execute S3 protocol configuration.
 
     ```
@@ -141,11 +141,11 @@ Planning example for concurrent export:
 
 1. Example 1
 
-    Export simple query results to the file `hdfs:/path/to/result.txt`. Specify the export format as CSV. Use `my_broker` and set kerberos authentication information. Specify the column separator as `,` and the line delimiter as `\n`.
+    Export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV. Use `my_broker` and set kerberos authentication information. Specify the column separator as `,` and the line delimiter as `\n`.
     
     ```
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     FORMAT AS CSV
     PROPERTIES
     (
@@ -165,11 +165,11 @@ Planning example for concurrent export:
 
 2. Example 2
 
-    Export simple query results to the file `hdfs:/path/to/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set kerberos authentication information. 
+    Export simple query results to the file `hdfs://path/to/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set kerberos authentication information. 
     
     ```
     SELECT c1, c2, c3 FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     FORMAT AS PARQUET
     PROPERTIES
     (
@@ -185,7 +185,7 @@ Planning example for concurrent export:
 
 3. Example 3
 
-    Export the query result of the CTE statement to the file `hdfs:/path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default column separators and line delimiter.
+    Export the query result of the CTE statement to the file `hdfs://path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default column separators and line delimiter.
 
     ```
     WITH
@@ -194,7 +194,7 @@ Planning example for concurrent export:
     x2 AS
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
-    INTO OUTFILE "hdfs:/path/to/result_"
+    INTO OUTFILE "hdfs://path/to/result_"
     PROPERTIES
     (
         "broker.name" = "my_broker",
@@ -300,7 +300,21 @@ Planning example for concurrent export:
 
     **But because the query statement has a top-level sorting node, even if the query is enabled for concurrently exported session variables, it cannot be exported concurrently.**
 
-7. Example 7
+8. Example 8
+
+    Use hdfs to export and export the simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as csv.
+
+    ```
+    select * from tbl
+    into outfile "hdfs://path/to/result_"
+    format as csv
+    properties
+    (
+        "hdfs.fs.defaultfs" = "hdfs://namenode:port",
+    );
+    ```
+
+9. Example 9
 
     Export simple query results to the file `hdfs://path/to/result.txt`. Specify the export format as CSV. Use HDFS protocal directly and set kerberos authentication information.
     

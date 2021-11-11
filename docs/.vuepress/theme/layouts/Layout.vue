@@ -42,9 +42,9 @@ export default {
       .get("/versions.json")
       .then(res => {
         Object.keys(this.$site.themeConfig.locales).forEach(k => {
-          this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(
-            res.data[k.replace(/\//gi, "")] || []
-          )
+          const nav = res.data[k.replace(/\//gi, "")] || []
+          const localNav = nav.filter(item => this.$site.themeConfig.locales[k].nav.every(v => v.text !== item.text))
+          this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(localNav)
         })
         this.renderIndex = 1
       })

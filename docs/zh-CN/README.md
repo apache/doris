@@ -90,4 +90,6 @@ cases:
       alt: 有道
 actionText: 快速上手 →
 actionLink: /zh-CN/installing/compilation
+articleText: 最新动态
+articleLink: /zh-CN/article/article-list
 ---

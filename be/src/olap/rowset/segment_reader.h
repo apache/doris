@@ -44,7 +44,7 @@
 
 namespace doris {
 
-// SegmentReader 用于读取一个Segment文件
+// SegmentReader is used to read a Segment file
 class SegmentReader {
 public:
     SegmentReader(const std::string file, SegmentGroup* segment_group, uint32_t segment_id,
@@ -56,10 +56,10 @@ public:
 
     ~SegmentReader();
 
-    // 初始化segmentreader：
-    // 1. 反序列化pb头，获取必要的信息；
-    // 2. 检查文件版本
-    // 3. 获取解压缩器
+    // Initialize segmentreader:
+    // 1. Deserialize the pb header to obtain the necessary information;
+    // 2. Check the file version
+    // 3. Get the decompressor
     // @return [description]
     OLAPStatus init(bool is_using_cache);
 
@@ -67,15 +67,15 @@ public:
     // TODO(zc)
     OLAPStatus prepare(const std::vector<uint32_t>& columns);
 
-    // 指定读取的第一个block和最后一个block，并初始化column reader
-    // seek_to_block支持被多次调用
+    // Specify the first block and the last block to read, and initialize the column reader
+    // seek_to_block supports being called multiple times
     // Inputs:
-    //   first_block: 需要读取的第一个block
-    //   last_block:  需要读取的最后一个block,如果last_block大于最大的block,
-    //                则读取所有的block
-    // 1. 按conditions过滤segment_group中的统计信息,  确定需要读取的block列表
-    // 2. 读取blocks, 构造InStream
-    // 3. 创建并初始化Readers
+    //   first_block: the first block that needs to be read
+    //   last_block: The last block that needs to be read, if last_block is greater than the largest block,
+    // read all blocks
+    // 1. Filter the statistics in segment_group according to conditions and determine the list of blocks that need to be read
+    // 2. Read blocks, construct InStream
+    // 3. Create and initialize Readers
     // Outputs:
     // next_block_id:
     //      block with next_block_id would read if get_block called again.
@@ -92,22 +92,22 @@ public:
 
     bool eof() const { return _eof; }
 
-    // 返回当前segment中block的数目
+    // Returns the number of blocks in the current segment
     uint32_t block_count() const { return _block_count; }
 
-    // 返回当前segment中，每块的行数
+    // Returns the number of rows in each block in the current segment
     uint32_t num_rows_in_block() { return _num_rows_in_block; }
 
     bool is_using_mmap() { return _is_using_mmap; }
 
-    // 只允许在初始化之前选择，之后则无法更改
-    // 暂时没有动态切换的需求
+    // Only allowed to be selected before initialization, and cannot be changed afterwards
+    // There is no need for dynamic switching at the moment
     void set_is_using_mmap(bool is_using_mmap) { _is_using_mmap = is_using_mmap; }
 
 private:
     typedef std::vector<ColumnId>::iterator ColumnIdIterator;
 
-    // 用于表示一段要读取的数据范围
+    // Used to indicate a range of data to be read
     struct DiskRange {
         int64_t offset;
         int64_t end;
@@ -126,8 +126,8 @@ private:
 
     static void _delete_cached_index_stream(const CacheKey& key, void* value);
 
-    // 判断当前列是否需要读取
-    // 当_include_columns为空时，直接返回true
+    // Determine whether the current column needs to be read
+    // When _include_columns is empty, return true directly
     inline bool _is_column_included(ColumnId column_unique_id) {
         return _include_columns.count(column_unique_id) != 0;
     }
@@ -136,43 +136,43 @@ private:
         return _include_bf_columns.count(column_unique_id) != 0;
     }
 
-    // 加载文件和必要的文件信息
+    // Load files and necessary file information
     OLAPStatus _load_segment_file();
 
-    // 设置encoding map，创建列时使用
+    // Set the encoding map and use it when creating columns
     void _set_column_map();
 
-    // 从header中获取当前文件压缩格式，并生成解压器，可通过_decompressor调用
-    // @return 返回OLAP_SUCCESS代表版本检查通过
+    //Get the current file compression format from the header and generate a decompressor, which can be called by _decompressor
+    // @return Return OLAP_SUCCESS on behalf of the version check passed
     OLAPStatus _set_decompressor();
 
-    // 设置segment的相关信息，解压器，列，编码等
+    // Set segment related information, decompressor, column, encoding, etc.
     OLAPStatus _set_segment_info();
 
-    // 检查列存文件版本
-    // @return 返回OLAP_SUCCESS代表版本检查通过
+    // Check the listed file version
+    // @return Return OLAP_SUCCESS on behalf of the version check passed
     OLAPStatus _check_file_version();
 
-    // 选出要读取的列
+    // Select the column to be read
     OLAPStatus _pick_columns();
 
-    // 根据条件选出要读取的范围，会用条件在first block和last block之间标记合适的区块
-    // NOTE. 注意范围是[first_block, last_block], 闭区间
-    // @param  first_block 起始块号
-    // @param  last_block  结束块号
+    // Select the range to be read according to the conditions, and use the conditions to mark the appropriate block between the first block and the last block
+    // NOTE. Note that the range is [first_block, last_block], closed interval
+    // @param  first_block : Starting block number
+    // @param  last_block  : End block number
     // @return
     OLAPStatus _pick_row_groups(uint32_t first_block, uint32_t last_block);
     OLAPStatus _pick_delete_row_groups(uint32_t first_block, uint32_t last_block);
 
-    // 加载索引，将需要的列的索引读入内存
+    // Load the index, read the index of the required column into memory
     OLAPStatus _load_index(bool is_using_cache);
 
-    // 读出所有列，完整的流，（这里只是创建stream，在orc file里因为没有mmap因
-    // 此意味着实际的数据读取， 而在这里并没有实际的读，只是圈出来需要的范围）
+    // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file, 
+    // it means the actual data is read, but there is no actual read here, just circle the required range)
     OLAPStatus _read_all_data_streams(size_t* buffer_size);
 
-    // 过滤并读取，（和_read_all_data_streams一样，也没有实际的读取数据）
-    // 创建reader
+    // Filter and read, (like _read_all_data_streams, there is no actual read data)
+    // Create reader
     OLAPStatus _create_reader(size_t* buffer_size);
 
     // we implement seek to block in two phase. first, we just only move _next_block_id
@@ -184,12 +184,12 @@ private:
     // because some columns may not be read
     OLAPStatus _seek_to_block_directly(int64_t block_id, const std::vector<uint32_t>& cids);
 
-    // 跳转到某个row entry
+    // Jump to a row entry
     OLAPStatus _seek_to_row_entry(int64_t block_id);
 
     OLAPStatus _reset_readers();
 
-    // 获取当前的table级schema。
+    // Get the current table-level schema.
     inline const TabletSchema& tablet_schema() { return _segment_group->get_tablet_schema(); }
 
     inline const ColumnDataHeaderMessage& _header_message() { return _file_header->message(); }
@@ -240,13 +240,13 @@ private:
     static const int32_t RUN_LENGTH_BYTE_POSITIONS = BYTE_STREAM_POSITIONS + 1;
     static const int32_t BITFIELD_POSITIONS = RUN_LENGTH_BYTE_POSITIONS + 1;
     static const int32_t RUN_LENGTH_INT_POSITIONS = BYTE_STREAM_POSITIONS + 1;
-    // 这个值的含义是，8 = 最大的int类型长度，int reader 一次读取最多会搞出来12个字符（MAX SCOPE）.
-    // 假设完全没压缩，那么就会有这么多个字节，2应该是控制字符？
-    // 那么最多读这么多，就一定足够把下一个字段解出来。
+    // The meaning of this value is that 8 = the largest int type length, and an int reader can read up to 12 characters at a time (MAX SCOPE).
+    // Assuming no compression at all, then there will be so many bytes, 2 should be the control character?
+    // Then read at most so many, it must be enough to solve the next field.
     static const int32_t WORST_UNCOMPRESSED_SLOP = 2 + 8 * 512;
     static const uint32_t CURRENT_COLUMN_DATA_VERSION = 1;
 
-    std::string _file_name; // 文件名
+    std::string _file_name; // File name
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
     // columns that can be used by client. when client seek to range's start or end,
@@ -258,44 +258,44 @@ private:
     //  In this situation, _used_columns contains (k1, k2, v1)
     std::vector<uint32_t> _used_columns;
     UniqueIdSet _load_bf_columns;
-    const Conditions* _conditions;    // 列过滤条件
-    doris::FileHandler _file_handler; // 文件handler
+    const Conditions* _conditions;    // Column filter
+    doris::FileHandler _file_handler; // File handler
 
     const DeleteHandler* _delete_handler = nullptr;
     DelCondSatisfied _delete_status;
 
-    bool _eof; // eof标志
+    bool _eof; // EOF Sign
 
     // If this field is true, client must to call seek_to_block before
     // calling get_block.
     bool _need_to_seek_block = true;
 
-    int64_t _end_block;            // 本次读取的结束块
-    int64_t _current_block_id = 0; // 当前读取到的块
+    int64_t _end_block;            // The end block read this time
+    int64_t _current_block_id = 0; // Block currently read
 
     // this is set by _seek_to_block, when get_block is called, first
     // seek to this block_id, then read block.
     int64_t _next_block_id = 0;
-    int64_t _block_count; // 每一列中，index entry的数目应该相等。
+    int64_t _block_count; // In each column, the number of index entries should be equal.
 
     uint64_t _num_rows_in_block;
     bool _null_supported;
-    uint64_t _header_length; // Header(FixHeader+PB)大小，读数据时需要偏移
+    uint64_t _header_length; // Header(FixHeader+PB) size, need to offset when reading data
 
-    std::vector<ColumnReader*> _column_readers;      // 实际的数据读取器
-    std::vector<StreamIndexReader*> _column_indices; // 保存column的index
+    std::vector<ColumnReader*> _column_readers;      // Actual data reader
+    std::vector<StreamIndexReader*> _column_indices; // Save the index of the column
 
-    UniqueIdSet _include_columns; // 用于判断该列是不是被包含
+    UniqueIdSet _include_columns; // Used to determine whether the column is included
     UniqueIdSet _include_bf_columns;
-    UniqueIdToColumnIdMap _tablet_id_to_unique_id_map;  // tablet id到unique id的映射
-    UniqueIdToColumnIdMap _unique_id_to_tablet_id_map;  // unique id到tablet id的映射
-    UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // unique id到segment id的映射
+    UniqueIdToColumnIdMap _tablet_id_to_unique_id_map;  // The mapping from tablet id to unique id
+    UniqueIdToColumnIdMap _unique_id_to_tablet_id_map;  // Mapping from unique id to tablet id
+    UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // Mapping from unique id to segment id
 
     std::map<ColumnId, StreamIndexReader*> _indices;
-    std::map<StreamName, ReadOnlyFileStream*> _streams; //需要读取的流
-    UniqueIdEncodingMap _encodings_map;                 // 保存encoding
+    std::map<StreamName, ReadOnlyFileStream*> _streams; // Need to read the stream
+    UniqueIdEncodingMap _encodings_map;                 // Save encoding
     std::map<ColumnId, BloomFilterIndexReader*> _bloom_filters;
-    Decompressor _decompressor; //根据压缩格式，设置的解压器
+    Decompressor _decompressor; // According to the compression format, set the decompressor
     StorageByteBuffer* _mmap_buffer;
 
     /*
@@ -309,8 +309,8 @@ private:
     */
     uint8_t* _include_blocks;
     uint32_t _remain_block;
-    bool _need_block_filter; //与include blocks组合使用，如果全不中，就不再读
-    bool _is_using_mmap;     // 这个标记为true时，使用mmap来读取文件
+    bool _need_block_filter; // Used in combination with include blocks, if none of them are in, no longer read
+    bool _is_using_mmap;     // When this flag is true, use mmap to read the file
     bool _is_data_loaded;
     size_t _buffer_size;
 
@@ -322,7 +322,7 @@ private:
 
     StorageByteBuffer* _shared_buffer;
     Cache* _lru_cache;
-    RuntimeState* _runtime_state; // 用于统计内存消耗等运行时信息
+    RuntimeState* _runtime_state; // Used to count runtime information such as memory consumption
     OlapReaderStatistics* _stats;
 
     // Set when seek_to_block is called, valid until next seek_to_block is called.
