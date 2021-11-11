@@ -149,7 +149,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
     // turn off all automatic join reorder algorithms
-    public static final String CLOSE_JOIN_REORDER = "close_join_reorder";
+    public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
 
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
@@ -387,8 +387,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
     public boolean enableLateralView = false;
 
-    @VariableMgr.VarAttr(name = CLOSE_JOIN_REORDER)
-    private boolean closeJoinReorder = false;
+    @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
+    private boolean disableJoinReorder = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -806,8 +806,8 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLateralView = enableLateralView;
     }
 
-    public boolean isCloseJoinReorder() {
-        return closeJoinReorder;
+    public boolean isDisableJoinReorder() {
+        return disableJoinReorder;
     }
 
     // Serialize to thrift object
