@@ -912,6 +912,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         
         writeLock();
         try {
+            this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
             if (state != JobState.RUNNING) {
                 // job is not running, nothing need to be done
                 return;
@@ -963,6 +964,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             throws UserException {
         long taskBeId = -1L;
         try {
+            this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
             if (txnOperated) {
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
