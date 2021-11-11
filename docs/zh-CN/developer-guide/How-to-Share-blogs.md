@@ -36,6 +36,7 @@ under the License.
 | title| - | Blog标题|
 | description | - | Blog描述|
 | date | - | Blog发布时间 |
+| author | - | Blog作者 |
 | metaTitle | article | 标记Blog文件 |
 | language | en/zn-CN | 语言 |
 | layout | Article | 布局组件 |
@@ -50,6 +51,7 @@ under the License.
     "title": "This is title",
     "description": "This is description",
     "date": "2021-11-03",
+    "author": "Alex",
     "metaTitle": "article",
     "language": "zh-CN",
     "layout": "Article",
