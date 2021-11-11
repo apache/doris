@@ -77,6 +77,12 @@ public:
         return Status::OK();
     };
 
+    // Deletes an existing block, allowing its space to be reclaimed by the
+    // filesystem. The change is immediately made durable.
+    //
+    // Blocks may be deleted while they are open for reading or writing;
+    // the actual deletion will take place after the last open reader or
+    // writer is closed.
     // is_dir: whether this path is a dir or file. if it is true, delete all files in this path
     Status delete_block(const FilePathDesc& path_desc, bool is_dir = false);
 
@@ -85,14 +91,6 @@ public:
 private:
     friend class internal::FileReadableBlock;
     friend class internal::FileWritableBlock;
-
-    // Deletes an existing block, allowing its space to be reclaimed by the
-    // filesystem. The change is immediately made durable.
-    //
-    // Blocks may be deleted while they are open for reading or writing;
-    // the actual deletion will take place after the last open reader or
-    // writer is closed.
-    Status _delete_block(const std::string& path);
 
     // Synchronizes the metadata for a block with the given location.
     Status _sync_metadata(const FilePathDesc& path_desc);

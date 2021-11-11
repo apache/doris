@@ -142,7 +142,7 @@ Status FileWritableBlock::close() {
 
 Status FileWritableBlock::abort() {
     RETURN_IF_ERROR(_close(NO_SYNC));
-    return _block_manager->_delete_block(_path_desc);
+    return _block_manager->delete_block(_path_desc);
 }
 
 BlockManager* FileWritableBlock::block_manager() const {
@@ -250,7 +250,7 @@ Status FileWritableBlock::_close(SyncMode mode) {
 // embed a FileBlockLocation, using the simpler BlockId instead.
 class FileReadableBlock : public ReadableBlock {
 public:
-    FileReadableBlock(FileBlockManager* block_manager, string path,
+    FileReadableBlock(FileBlockManager* block_manager, FilePathDesc path_desc,
                       std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~FileReadableBlock();
@@ -422,7 +422,7 @@ Status FileBlockManager::open_block(FilePathDesc path_desc,
 
 // TODO(lingbin): We should do something to ensure that deletion can only be done
 // after the last reader or writer has finished
-Status FileBlockManager::_delete_block(const FilePathDesc& path_desc, bool is_dir) {
+Status FileBlockManager::delete_block(const FilePathDesc& path_desc, bool is_dir) {
     CHECK(!_opts.read_only);
 
     RETURN_IF_ERROR(_env->delete_file(path_desc.filepath));
