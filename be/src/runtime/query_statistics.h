@@ -79,6 +79,7 @@ public:
 
     void merge(QueryStatisticsRecvr* recvr);
 
+    // Get the maximum value from the peak memory collected by all node statistics
     int64_t calculate_max_peak_memory_bytes();
 
     void clearNodeStatistics();
