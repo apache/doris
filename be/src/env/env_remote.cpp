@@ -37,9 +37,6 @@ public:
     Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
         return Status::IOError("No support", 1, "");
     }
-    Status read_all(std::string* content) const override {
-        return _storage_backend->direct_download(_filename, content);
-    }
     Status size(uint64_t* size) const override {
         return Status::IOError("No support", 1, "");
     }
@@ -149,14 +146,6 @@ private:
     bool _closed = false;
 };
 
-void RemoteEnv::init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
-                             const std::string& region) {
-    _storage_prop[S3_AK] = ak;
-    _storage_prop[S3_SK] = sk;
-    _storage_prop[S3_ENDPOINT] = endpoint;
-    _storage_prop[S3_REGION] = region;
-}
-
 Status RemoteEnv::new_sequential_file(const std::string& fname,
                                       std::unique_ptr<SequentialFile>* result) {
     return Status::IOError(strings::Substitute("Unable to new_sequential_file $0", fname), 0, "");
@@ -199,12 +188,7 @@ Status RemoteEnv::new_random_rw_file(const RandomRWFileOptions& opts, const std:
 
 Status RemoteEnv::path_exists(const std::string& fname, bool is_dir) {
     std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
-    Status status = Status::OK();
-    if (is_dir) {
-        status = storage_backend->exist_dir(fname);
-    } else {
-        status = storage_backend->exist(fname);
-    }
+    Status = storage_backend->exist(fname);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
             "path_exists failed: $0, err=$1", fname, status.to_string()));
     return Status::OK();
@@ -242,10 +226,7 @@ Status RemoteEnv::create_dirs(const string& dirname) {
 
 // Delete the specified directory.
 Status RemoteEnv::delete_dir(const std::string& dirname) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
-    Status status = storage_backend->rmdir(dirname);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "delete_dir failed: $0, err=$1", dirname, status.to_string()));
+    // TODO
     return Status::OK();
 }
 
@@ -254,26 +235,7 @@ Status RemoteEnv::sync_dir(const string& dirname) {
 }
 
 Status RemoteEnv::is_directory(const std::string& path, bool* is_dir) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
-    Status status = storage_backend->exist(path);
-    if (status.ok()) {
-        *is_dir = false;
-        return Status::OK();
-    }
-    if (!status.is_not_found()) {
-        return status;
-    }
-
-    status = storage_backend->exist_dir(path);
-    if (status.ok()) {
-        *is_dir = true;
-        return Status::OK();
-    }
-    if (!status.is_not_found()) {
-        return status;
-    }
-
-    *is_dir = false;
+    // TODO
     return Status::OK();
 }
 
@@ -304,10 +266,7 @@ Status RemoteEnv::rename_file(const std::string& src, const std::string& target)
 }
 
 Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) {
-    std::unique_ptr<StorageBackend> storage_backend(new S3StorageBackend(_storage_prop));
-    Status status = storage_backend->rename_dir(src, target);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute(
-            "rename_dir failed: from $0 to $1, err=$2", src, target, status.to_string()));
+    // TODO
     return Status::OK();
 }
 

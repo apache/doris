@@ -520,7 +520,7 @@ private:
 };
 
 Status PosixEnv::new_sequential_file(const string& fname,
-                                     std::unique_ptr<SequentialFile>* result) override {
+                                     std::unique_ptr<SequentialFile>* result) {
     FILE* f;
     POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
     if (f == nullptr) {
@@ -532,12 +532,12 @@ Status PosixEnv::new_sequential_file(const string& fname,
 
 // get a RandomAccessFile pointer without file cache
 Status PosixEnv::new_random_access_file(const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) override {
+                              std::unique_ptr<RandomAccessFile>* result) {
     return new_random_access_file(RandomAccessFileOptions(), fname, result);
 }
 
 Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
-                              std::unique_ptr<RandomAccessFile>* result) override {
+                              std::unique_ptr<RandomAccessFile>* result) {
     int fd;
     RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
     if (fd < 0) {
@@ -547,12 +547,12 @@ Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts, con
     return Status::OK();
 }
 
-Status PosixEnv::new_writable_file(const string& fname, std::unique_ptr<WritableFile>* result) override {
+Status PosixEnv::new_writable_file(const string& fname, std::unique_ptr<WritableFile>* result) {
     return new_writable_file(WritableFileOptions(), fname, result);
 }
 
 Status PosixEnv::new_writable_file(const WritableFileOptions& opts, const string& fname,
-                         std::unique_ptr<WritableFile>* result) override {
+                         std::unique_ptr<WritableFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
 
@@ -564,26 +564,26 @@ Status PosixEnv::new_writable_file(const WritableFileOptions& opts, const string
     return Status::OK();
 }
 
-Status PosixEnv::new_random_rw_file(const string& fname, std::unique_ptr<RandomRWFile>* result) override {
+Status PosixEnv::new_random_rw_file(const string& fname, std::unique_ptr<RandomRWFile>* result) {
     return new_random_rw_file(RandomRWFileOptions(), fname, result);
 }
 
 Status PosixEnv::new_random_rw_file(const RandomRWFileOptions& opts, const string& fname,
-                          std::unique_ptr<RandomRWFile>* result) override {
+                          std::unique_ptr<RandomRWFile>* result) {
     int fd;
     RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
     result->reset(new PosixRandomRWFile(fname, fd, opts.sync_on_close));
     return Status::OK();
 }
 
-Status PosixEnv::path_exists(const std::string& fname, bool is_dir) override {
+Status PosixEnv::path_exists(const std::string& fname, bool is_dir) {
     if (access(fname.c_str(), F_OK) != 0) {
         return io_error(fname, errno);
     }
     return Status::OK();
 }
 
-Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* result) override {
+Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* result) {
     result->clear();
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
@@ -598,7 +598,7 @@ Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* 
 }
 
 Status PosixEnv::iterate_dir(const std::string& dir,
-                   const std::function<bool(const char*)>& cb) override {
+                   const std::function<bool(const char*)>& cb) {
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
         return io_error(dir, errno);
@@ -614,21 +614,21 @@ Status PosixEnv::iterate_dir(const std::string& dir,
     return Status::OK();
 }
 
-Status PosixEnv::delete_file(const std::string& fname) override {
+Status PosixEnv::delete_file(const std::string& fname) {
     if (unlink(fname.c_str()) != 0) {
         return io_error(fname, errno);
     }
     return Status::OK();
 }
 
-Status PosixEnv::create_dir(const std::string& name) override {
+Status PosixEnv::create_dir(const std::string& name) {
     if (mkdir(name.c_str(), 0755) != 0) {
         return io_error(name, errno);
     }
     return Status::OK();
 }
 
-Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created = nullptr) override {
+Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created = nullptr) {
     Status s = create_dir(dirname);
     if (created != nullptr) {
         *created = s.ok();
@@ -687,7 +687,7 @@ Status PosixEnv::create_dirs(const string& dirname) {
 }
 
 // Delete the specified directory.
-Status PosixEnv::delete_dir(const std::string& dirname) override {
+Status PosixEnv::delete_dir(const std::string& dirname) {
     std::filesystem::path boost_path(dirname);
     std::error_code ec;
     std::filesystem::remove_all(boost_path, ec);
@@ -699,7 +699,7 @@ Status PosixEnv::delete_dir(const std::string& dirname) override {
     return Status::OK();
 }
 
-Status PosixEnv::sync_dir(const string& dirname) override {
+Status PosixEnv::sync_dir(const string& dirname) {
     int dir_fd;
     RETRY_ON_EINTR(dir_fd, open(dirname.c_str(), O_DIRECTORY | O_RDONLY));
     if (dir_fd < 0) {
@@ -712,7 +712,7 @@ Status PosixEnv::sync_dir(const string& dirname) override {
     return Status::OK();
 }
 
-Status PosixEnv::is_directory(const std::string& path, bool* is_dir) override {
+Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
     struct stat path_stat;
     if (stat(path.c_str(), &path_stat) != 0) {
         return io_error(path, errno);
@@ -723,7 +723,7 @@ Status PosixEnv::is_directory(const std::string& path, bool* is_dir) override {
     return Status::OK();
 }
 
-Status PosixEnv::canonicalize(const std::string& path, std::string* result) override {
+Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
     // NOTE: we must use free() to release the buffer retruned by realpath(),
     // because the buffer is allocated by malloc(), see `man 3 realpath`.
     std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
@@ -734,7 +734,7 @@ Status PosixEnv::canonicalize(const std::string& path, std::string* result) over
     return Status::OK();
 }
 
-Status PosixEnv::get_file_size(const string& fname, uint64_t* size) override {
+Status PosixEnv::get_file_size(const string& fname, uint64_t* size) {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
         return io_error(fname, errno);
@@ -744,7 +744,7 @@ Status PosixEnv::get_file_size(const string& fname, uint64_t* size) override {
     return Status::OK();
 }
 
-Status PosixEnv::get_file_modified_time(const std::string& fname, uint64_t* file_mtime) override {
+Status PosixEnv::get_file_modified_time(const std::string& fname, uint64_t* file_mtime) {
     struct stat s;
     if (stat(fname.c_str(), &s) != 0) {
         return io_error(fname, errno);
@@ -765,7 +765,7 @@ Status PosixEnv::copy_path(const std::string& src, const std::string& target) {
     return Status::OK();
 }
 
-Status PosixEnv::rename_file(const std::string& src, const std::string& target) override {
+Status PosixEnv::rename_file(const std::string& src, const std::string& target) {
     if (rename(src.c_str(), target.c_str()) != 0) {
         return io_error(src, errno);
     }
@@ -776,7 +776,7 @@ Status PosixEnv::rename_dir(const std::string& src, const std::string& target) {
     return rename_file(src, target);
 }
 
-Status PosixEnv::link_file(const std::string& old_path, const std::string& new_path) override {
+Status PosixEnv::link_file(const std::string& old_path, const std::string& new_path) {
     if (link(old_path.c_str(), new_path.c_str()) != 0) {
         return io_error(old_path, errno);
     }
