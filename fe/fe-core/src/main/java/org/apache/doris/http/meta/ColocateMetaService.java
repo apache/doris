@@ -147,7 +147,7 @@ public class ColocateMetaService {
 
             HttpMethod method = request.getRequest().method();
             if (method.equals(HttpMethod.POST)) {
-                colocateIndex.markGroupUnstable(groupId, true);
+                colocateIndex.markGroupUnstable(groupId, "mark unstable via http api", true);
             } else if (method.equals(HttpMethod.DELETE)) {
                 colocateIndex.markGroupStable(groupId, true);
             } else {
