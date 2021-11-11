@@ -27,6 +27,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include "common/logging.h"
 #include "gutil/strings/strip.h"
@@ -88,6 +89,22 @@ Status S3StorageBackend::download(const std::string& remote, const std::string& 
     return Status::OK();
 }
 
+Status S3StorageBackend::direct_download(const std::string& remote, std::string* content) {
+    CHECK_S3_CLIENT(_client);
+    CHECK_S3_PATH(uri, remote);
+    Aws::S3::Model::GetObjectRequest request;
+    request.WithBucket(uri.get_bucket()).WithKey(uri.get_key());
+    Aws::S3::Model::GetObjectOutcome response = _client->GetObject(request);
+    if (response.IsSuccess()) {
+        std::stringstream ss;
+        ss << response.GetResult().GetBody().rdbuf();
+        *content = ss.str();
+    } else {
+        return Status::IOError("s3 direct_download error: " + error_msg(response));
+    }
+    return Status::OK();
+}
+
 Status S3StorageBackend::upload(const std::string& local, const std::string& remote) {
     CHECK_S3_CLIENT(_client);
     CHECK_S3_PATH(uri, remote);
@@ -107,8 +124,8 @@ Status S3StorageBackend::upload(const std::string& local, const std::string& rem
     RETRUN_S3_STATUS(response);
 }
 
-Status S3StorageBackend::list(const std::string& remote_path,
-                              std::map<std::string, FileStat>* files) {
+Status S3StorageBackend::list(const std::string& remote_path, bool contain_md5,
+                              bool recursion, std::map<std::string, FileStat>* files) {
     std::string normal_str(remote_path);
     if (!normal_str.empty() && normal_str.at(normal_str.size() - 1) != '/') {
         normal_str += '/';
@@ -117,7 +134,10 @@ Status S3StorageBackend::list(const std::string& remote_path,
     CHECK_S3_PATH(uri, normal_str);
 
     Aws::S3::Model::ListObjectsRequest request;
-    request.WithBucket(uri.get_bucket()).WithPrefix(uri.get_key()).WithDelimiter("/");
+    request.WithBucket(uri.get_bucket()).WithPrefix(uri.get_key());
+    if (!recursion) {
+        request.WithDelimiter("/");
+    }
     Aws::S3::Model::ListObjectsOutcome response = _client->ListObjects(request);
     if (response.IsSuccess()) {
         Aws::Vector<Aws::S3::Model::Object> objects = response.GetResult().GetContents();
@@ -127,17 +147,19 @@ Status S3StorageBackend::list(const std::string& remote_path,
             if (key.at(key.size() - 1) == '/') {
                 continue;
             }
-            size_t pos = key.find_last_of("/");
-            if (pos != std::string::npos && pos != key.size() - 1) {
-                key = std::string(key, pos + 1);
+            key = boost::algorithm::replace_first_copy(key, uri.get_key(), "");
+            if (contain_md5) {
+                size_t pos = key.find_last_of(".");
+                if (pos == std::string::npos || pos == key.size() - 1) {
+                    // Not found checksum separator, ignore this file
+                    continue;
+                }
+                FileStat stat = {std::string(key, 0, pos), std::string(key, pos + 1), object.GetSize()};
+                files->emplace(std::string(key, 0, pos), stat);
+            } else {
+                FileStat stat = {key, "", object.GetSize()};
+                files->emplace(key, stat);
             }
-            pos = key.find_last_of(".");
-            if (pos == std::string::npos || pos == key.size() - 1) {
-                // Not found checksum separator, ignore this file
-                continue;
-            }
-            FileStat stat = {std::string(key, 0, pos), std::string(key, pos + 1), object.GetSize()};
-            files->emplace(std::string(key, 0, pos), stat);
         }
         return Status::OK();
     } else {
@@ -148,6 +170,11 @@ Status S3StorageBackend::list(const std::string& remote_path,
 Status S3StorageBackend::rename(const std::string& orig_name, const std::string& new_name) {
     RETURN_IF_ERROR(copy(orig_name, new_name));
     return rm(orig_name);
+}
+
+Status S3StorageBackend::rename_dir(const std::string& orig_name, const std::string& new_name) {
+    RETURN_IF_ERROR(copy_dir(orig_name, new_name));
+    return rmdir(orig_name);
 }
 
 Status S3StorageBackend::direct_upload(const std::string& remote, const std::string& content) {
@@ -181,6 +208,19 @@ Status S3StorageBackend::rm(const std::string& remote) {
     RETRUN_S3_STATUS(response);
 }
 
+Status S3StorageBackend::rmdir(const std::string& remote) {
+    CHECK_S3_CLIENT(_client);
+    std::map<std::string, FileStat> files;
+    LOG(INFO) << "Remove S3 dir: " << remote;
+    RETURN_IF_ERROR(list(remote, false, true, &files));
+
+    for (auto &file : files) {
+        std::string file_path = remote + "/" + file.second.name;
+        RETURN_IF_ERROR(rm(file_path));
+    }
+    return Status::OK();
+}
+
 Status S3StorageBackend::copy(const std::string& src, const std::string& dst) {
     CHECK_S3_CLIENT(_client);
     CHECK_S3_PATH(src_uri, src);
@@ -193,6 +233,20 @@ Status S3StorageBackend::copy(const std::string& src, const std::string& dst) {
     Aws::S3::Model::CopyObjectOutcome response = _client->CopyObject(request);
 
     RETRUN_S3_STATUS(response);
+}
+
+Status S3StorageBackend::copy_dir(const std::string& src, const std::string& dst) {
+    std::map<std::string, FileStat> files;
+    LOG(INFO) << "Copy S3 dir: " << src << " -> " << dst;
+    RETURN_IF_ERROR(list(src, false, true, &files));
+    if (files.size() == 0) {
+        LOG(WARNING) << "Nothing need to copy: " << src << " -> " << dst;
+        return Status::OK();
+    }
+    for (auto &kv : files) {
+        RETURN_IF_ERROR(copy(src + "/" + kv.first, dst + "/" + kv.first));
+    }
+    return Status::OK();
 }
 
 Status S3StorageBackend::mkdir(const std::string& path) {
@@ -220,6 +274,16 @@ Status S3StorageBackend::exist(const std::string& path) {
         return Status::NotFound(path + " not exists!");
     } else {
         return Status::InternalError(error_msg(response));
+    }
+}
+
+Status S3StorageBackend::exist_dir(const std::string& path) {
+    std::map<std::string, FileStat> files;
+    RETURN_IF_ERROR(list(path, false, true, &files));
+    if (files.size() > 0) {
+        return Status::OK();
+    } else {
+        return Status::NotFound(path + " not exists!");
     }
 }
 
