@@ -345,15 +345,14 @@ void PlanFragmentExecutor::_collect_query_statistics() {
     _query_statistics->clear();
     _plan->collect_query_statistics(_query_statistics.get());
     _query_statistics->add_cpu_ms(_fragment_cpu_timer->value() / NANOS_PER_MILLIS);
-    _collect_node_statistics();
+    if (_runtime_state->backend_id() != -1) {
+        _collect_node_statistics();
+    }
 }
 
 void PlanFragmentExecutor::_collect_node_statistics() {
-    int64_t backend_id = _runtime_state->backend_id();
-    if (backend_id == -1) {
-        return;
-    }
-    NodeStatistics* node_statistics = _query_statistics->add_nodes_statistics(backend_id);
+    DCHECK(_runtime_state->backend_id() != -1);
+    NodeStatistics* node_statistics = _query_statistics->add_nodes_statistics(_runtime_state->backend_id());
     node_statistics->add_peak_memory(_mem_tracker->peak_consumption());
 }
 
