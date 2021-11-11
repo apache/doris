@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.stack.model.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * be join cluster req
+ **/
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class InstallInfo {
-    private String host;
-    /**
-     * be / fe
-     */
-    private String role;
+public class BeJoin extends TaskDesc {
 
-    // FOLLOWER / OBSERVER
-    private String feNodeType;
+    private String feHost;
+
+    private int feQueryPort;
+
+    private String beHost;
+
+    private int agentPort;
 }

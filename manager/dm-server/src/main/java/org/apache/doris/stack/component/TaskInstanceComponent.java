@@ -65,6 +65,7 @@ public class TaskInstanceComponent {
         if (!checkTaskRunning(processId, host, processType, taskType)) {
             return taskInstanceRepository.save(new TaskInstanceEntity(processId, host, processType, taskType, status));
         } else {
+            log.warn("task {} is already running on the host {}", taskType, host);
             return null;
         }
     }

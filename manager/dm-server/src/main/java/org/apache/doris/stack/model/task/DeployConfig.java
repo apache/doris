@@ -15,33 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.stack.model.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.model.request.AgentInstallReq;
-import org.springframework.beans.BeanUtils;
 
+/**
+ * deploy Config
+ **/
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class AgentInstall {
+public class DeployConfig {
 
     private String host;
 
-    private String user;
+    private String role;
 
-    private int sshPort;
-
-    private String sshKey;
-
-    private String installDir;
-
-    private int clusterId;
-
-    public AgentInstall(String host, AgentInstallReq installReq) {
-        this.host = host;
-        BeanUtils.copyProperties(installReq, this);
-    }
+    private String conf;
 }

@@ -22,7 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constant.EnvironmentDefine;
 import org.apache.doris.stack.constants.Constants;
 import org.apache.doris.stack.exceptions.ServerException;
-import org.apache.doris.stack.model.AgentInstall;
+import org.apache.doris.stack.model.task.AgentInstall;
 import org.apache.doris.stack.runner.TaskContext;
 import org.apache.doris.stack.service.impl.ServerProcessImpl;
 import org.apache.doris.stack.shell.SCP;
@@ -46,10 +46,11 @@ public class InstallAgentTask extends AbstractTask {
     }
 
     @Override
-    public void handle() {
-        AgentInstall requestParams = (AgentInstall) taskContext.getRequestParams();
-        distAgentPackage(requestParams);
-        startAgent(requestParams);
+    public Object handle() {
+        AgentInstall taskDesc = (AgentInstall) taskContext.getTaskDesc();
+        distAgentPackage(taskDesc);
+        startAgent(taskDesc);
+        return "Install Agent Success";
     }
 
     /**

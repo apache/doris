@@ -98,6 +98,16 @@ public class ProcessTaskController {
     }
 
     /**
+     * retry task when task fails
+     */
+    @ApiOperation(value = "retry task when task fails")
+    @RequestMapping(value = "/task/retry/{taskId}", method = RequestMethod.POST)
+    public RResult retryTask(@PathVariable(value = "taskId") int taskId) {
+        processTask.retryTask(taskId);
+        return RResult.success();
+    }
+
+    /**
      * request task info
      */
     @RequestMapping(value = "/task/info/{taskId}", method = RequestMethod.GET)

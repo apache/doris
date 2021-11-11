@@ -63,18 +63,14 @@ public class SSH extends BaseCommand {
                 sshKeyFile.delete();
             }
             FileUtils.writeStringToFile(sshKeyFile, sshKey, Charset.defaultCharset());
+            chmodSshKey(sshKeyFile);
         } catch (IOException e) {
             log.error("build sshKey file failed:", e);
             throw new ServerException("build sshKey file failed");
         }
     }
 
-    /**
-     * build sshkeyfile per request
-     */
-    public static File buildSshKeyFile() {
-        File sshKeyFile = new File("conf", "sshkey");
-
+    public static void chmodSshKey(File sshKeyFile) {
         // chmod ssh key file permission to 600
         try {
             Set<PosixFilePermission> permission = new HashSet<>();
@@ -82,8 +78,16 @@ public class SSH extends BaseCommand {
             permission.add(PosixFilePermission.OWNER_WRITE);
             Files.setPosixFilePermissions(Paths.get(sshKeyFile.getAbsolutePath()), permission);
         } catch (IOException e) {
-            log.error("set ssh key file permission fail");
+            log.error("set ssh key file permission fail,", e);
+            throw new ServerException("set ssh key file permission fail");
         }
+    }
+
+    /**
+     * build sshkeyfile
+     */
+    public static File buildSshKeyFile() {
+        File sshKeyFile = new File("conf", "sshkey");
         return sshKeyFile;
     }
 

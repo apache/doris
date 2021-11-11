@@ -52,6 +52,9 @@ public class TaskInstanceEntity {
     @Column(name = "process_id")
     private int processId;
 
+    @Column(name = "task_json", columnDefinition = "LONGTEXT")
+    private String taskJson;
+
     @Column(name = "host", nullable = false)
     private String host;
 

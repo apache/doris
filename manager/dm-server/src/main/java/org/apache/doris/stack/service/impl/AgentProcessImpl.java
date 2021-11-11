@@ -20,23 +20,17 @@ package org.apache.doris.stack.service.impl;
 import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
-import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
-import org.apache.doris.manager.common.domain.TaskResult;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 import org.apache.doris.stack.agent.AgentCache;
@@ -56,18 +50,16 @@ import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
-import org.apache.doris.stack.model.BeJoin;
-import org.apache.doris.stack.model.DeployConfig;
-import org.apache.doris.stack.model.DorisStart;
-import org.apache.doris.stack.model.InstallInfo;
 import org.apache.doris.stack.model.request.BeJoinReq;
 import org.apache.doris.stack.model.request.DeployConfigReq;
 import org.apache.doris.stack.model.request.DorisExecReq;
 import org.apache.doris.stack.model.request.DorisInstallReq;
 import org.apache.doris.stack.model.request.DorisStartReq;
-import org.apache.doris.stack.runner.TaskContext;
-import org.apache.doris.stack.runner.TaskExecCallback;
-import org.apache.doris.stack.runner.TaskExecuteThread;
+import org.apache.doris.stack.model.task.BeJoin;
+import org.apache.doris.stack.model.task.DeployConfig;
+import org.apache.doris.stack.model.task.DorisInstall;
+import org.apache.doris.stack.model.task.DorisStart;
+import org.apache.doris.stack.runner.TaskExecutor;
 import org.apache.doris.stack.service.AgentProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.util.JdbcUtil;
@@ -86,7 +78,6 @@ import java.sql.SQLException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -95,11 +86,6 @@ import java.util.stream.Collectors;
 @Service
 @Slf4j
 public class AgentProcessImpl implements AgentProcess {
-
-    /**
-     * thread executor service
-     */
-    private final ListeningExecutorService taskExecService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(10));
 
     @Autowired
     private AgentRest agentRest;
@@ -119,6 +105,9 @@ public class AgentProcessImpl implements AgentProcess {
     @Autowired
     private AuthenticationService authenticationService;
 
+    @Autowired
+    private TaskExecutor taskExecutor;
+
     @Override
     @Transactional
     public void installService(HttpServletRequest request, HttpServletResponse response,
@@ -134,11 +123,11 @@ public class AgentProcessImpl implements AgentProcess {
         List<String> agentRoleList = agentRoleComponent.queryAgentRoles(process.getClusterId()).stream()
                 .map(m -> (m.getHost() + "-" + m.getRole()))
                 .collect(Collectors.toList());
-        List<InstallInfo> installInfos = installReq.getInstallInfos();
+        List<DorisInstall> installInfos = installReq.getInstallInfos();
         if (installInfos == null) {
             throw new ServerException("Please specify the host configuration to be installed");
         }
-        for (InstallInfo install : installInfos) {
+        for (DorisInstall install : installInfos) {
             String key = install.getHost() + "-" + install.getRole();
             if (agentRoleList.contains(key)) {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
@@ -156,7 +145,7 @@ public class AgentProcessImpl implements AgentProcess {
         }
     }
 
-    private void installDoris(int processId, InstallInfo install, String packageUrl, String installDir) {
+    private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
         CommandRequest creq = new CommandRequest();
         TaskInstanceEntity installService = new TaskInstanceEntity(processId, install.getHost(), ProcessTypeEnum.INSTALL_SERVICE);
         if (ServiceRole.FE.name().equals(install.getRole())) {
@@ -178,17 +167,17 @@ public class AgentProcessImpl implements AgentProcess {
         } else {
             throw new ServerException("The service installation is not currently supported");
         }
-        handleAgentTask(installService, install.getHost(), creq);
+        handleAgentTask(installService, creq);
     }
 
-    private void handleAgentTask(TaskInstanceEntity installService, String host, CommandRequest creq) {
-        boolean isRunning = taskInstanceComponent.checkTaskRunning(installService.getProcessId(), installService.getHost(), installService.getProcessType(), installService.getTaskType());
+    private void handleAgentTask(TaskInstanceEntity taskInstance, CommandRequest creq) {
+        boolean isRunning = taskInstanceComponent.checkTaskRunning(taskInstance.getProcessId(), taskInstance.getHost(), taskInstance.getProcessType(), taskInstance.getTaskType());
         if (isRunning) {
             return;
         }
-        RResult result = agentRest.commandExec(host, agentPort(host), creq);
-        refreshAgentResult(host, agentPort(host), result);
-        taskInstanceComponent.refreshTask(installService, result);
+        taskInstance.setTaskJson(JSON.toJSONString(creq));
+        RResult result = taskExecutor.execAgentTask(taskInstance, creq);
+        taskInstanceComponent.refreshTask(taskInstance, result);
     }
 
     @Override
@@ -234,7 +223,7 @@ public class AgentProcessImpl implements AgentProcess {
             creq.setCommandType(CommandType.WRITE_BE_CONF.name());
             deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
         }
-        handleAgentTask(deployTask, deployConf.getHost(), creq);
+        handleAgentTask(deployTask, creq);
     }
 
     @Override
@@ -275,7 +264,7 @@ public class AgentProcessImpl implements AgentProcess {
             }
             creq.setCommandType(commandType.name());
 
-            handleAgentTask(execTask, start.getHost(), creq);
+            handleAgentTask(execTask, creq);
             log.info("agent {} starting {} ", start.getHost(), start.getRole());
         }
     }
@@ -357,14 +346,6 @@ public class AgentProcessImpl implements AgentProcess {
         return CommandType.findByName(cmd);
     }
 
-    private int agentPort(String host) {
-        AgentEntity agent = agentCache.agentInfo(host);
-        if (agent == null) {
-            throw new ServerException("query agent port fail");
-        }
-        return agent.getPort();
-    }
-
     @Override
     public void joinBe(HttpServletRequest request, HttpServletResponse response, BeJoinReq beJoinReq) throws Exception {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
@@ -374,22 +355,18 @@ public class AgentProcessImpl implements AgentProcess {
         Preconditions.checkArgument(success, "The service has not been started and completed, and the component cannot be clustered");
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(beJoinReq.getProcessId(), ProcessTypeEnum.BUILD_CLUSTER);
 
-        for (String be : beJoinReq.getHosts()) {
-            addBeToCluster(process.getId(), be, process.getClusterId());
-        }
-    }
-
-    private void addBeToCluster(int processId, String be, int clusterId) {
-        int agentPort = agentPort(be);
-        AgentEntity aliveAgent = getAliveAgent(clusterId);
+        //Query the alive agent that installed fe and get fe's query port
+        AgentEntity aliveAgent = getAliveAgent(process.getClusterId());
         Integer queryPort = getFeQueryPort(aliveAgent.getHost(), aliveAgent.getPort());
-        TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(processId, be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
-        if (joinBeTask == null) {
-            return;
+        for (String be : beJoinReq.getHosts()) {
+            int agentPort = agentCache.agentPort(be);
+            TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(process.getId(), be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
+            if (joinBeTask == null) {
+                return;
+            }
+            BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
+            taskExecutor.execTask(joinBeTask, beJoin);
         }
-        TaskContext taskContext = new TaskContext(TaskTypeEnum.JOIN_BE, joinBeTask, new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort));
-        ListenableFuture<Object> submit = taskExecService.submit(new TaskExecuteThread(taskContext));
-        Futures.addCallback(submit, new TaskExecCallback(taskContext));
     }
 
     @Override
@@ -449,34 +426,15 @@ public class AgentProcessImpl implements AgentProcess {
         }
 
         creq.setCommandType(command.name());
-        RResult result = agentRest.commandExec(host, agentPort(host), creq);
-        refreshAgentResult(execTask.getHost(), agentPort(host), result);
+        RResult result = taskExecutor.execAgentTask(execTask, creq);
         TaskInstanceEntity taskInstanceEntity = taskInstanceComponent.refreshTask(execTask, result);
         log.info("agent {} {} {} ", host, execTask.getTaskType().name(), roleName);
         return taskInstanceEntity.getId();
     }
 
-    /**
-     * Re-fetch result after requesting the agent interface each time
-     */
-    private RResult refreshAgentResult(String host, Integer port, RResult result) {
-        if (result == null || result.getData() == null) {
-            return null;
-        }
-        CommandResult commandResult = JSON.parseObject(JSON.toJSONString(result.getData()), CommandResult.class);
-        if (commandResult == null) {
-            return null;
-        }
-        TaskResult taskResult = commandResult.getTaskResult();
-        if (taskResult == null) {
-            return null;
-        }
-        return agentRest.taskInfo(host, port, taskResult.getTaskId());
-    }
-
     @Override
     public Object log(String host, String type) {
-        RResult rResult = agentRest.serverLog(host, agentPort(host), type);
+        RResult rResult = agentRest.serverLog(host, agentCache.agentPort(host), type);
         if (rResult != null && rResult.isSuccess()) {
             return rResult.getData();
         } else {

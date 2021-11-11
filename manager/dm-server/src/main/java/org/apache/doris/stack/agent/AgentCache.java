@@ -18,8 +18,10 @@
 package org.apache.doris.stack.agent;
 
 import com.google.common.collect.Lists;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.entity.AgentEntity;
+import org.apache.doris.stack.exceptions.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -32,6 +34,7 @@ import java.util.stream.Collectors;
 /**
  * agent host port cache
  **/
+@Slf4j
 @Component
 public class AgentCache {
 
@@ -65,5 +68,17 @@ public class AgentCache {
      */
     public void putAgent(AgentEntity agent) {
         hostAgentCache.put(agent.getHost(), agent);
+    }
+
+    /**
+     * query agent port by host
+     */
+    public int agentPort(String host) {
+        AgentEntity agent = agentInfo(host);
+        if (agent == null) {
+            log.error("failed query agent {} port", host);
+            throw new ServerException("query agent port fail");
+        }
+        return agent.getPort();
     }
 }

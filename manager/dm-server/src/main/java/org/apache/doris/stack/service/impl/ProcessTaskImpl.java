@@ -17,21 +17,27 @@
 
 package org.apache.doris.stack.service.impl;
 
+import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
 import org.apache.doris.stack.constants.Flag;
+import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
+import org.apache.doris.stack.model.task.AgentInstall;
+import org.apache.doris.stack.model.task.BeJoin;
+import org.apache.doris.stack.runner.TaskExecutor;
 import org.apache.doris.stack.service.ProcessTask;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,6 +73,9 @@ public class ProcessTaskImpl implements ProcessTask {
 
     @Autowired
     private AuthenticationService authenticationService;
+
+    @Autowired
+    private TaskExecutor taskExecutor;
 
     @Override
     public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -129,9 +138,40 @@ public class ProcessTaskImpl implements ProcessTask {
     }
 
     @Override
+    public void retryTask(int taskId) {
+        TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
+        Preconditions.checkNotNull(taskId, "task not exist");
+        Preconditions.checkArgument(taskEntity.getFinish().typeIsYes(), "task is finish,can not retry");
+        Preconditions.checkArgument(taskEntity.getStatus().typeIsRunning(), "task is running,can not retry");
+        TaskTypeEnum taskType = taskEntity.getTaskType();
+        switch (taskType) {
+            case INSTALL_AGENT:
+                taskExecutor.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), AgentInstall.class));
+                break;
+            case JOIN_BE:
+                taskExecutor.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), BeJoin.class));
+                break;
+            case INSTALL_FE:
+            case INSTALL_BE:
+            case START_FE:
+            case START_BE:
+            case STOP_FE:
+            case STOP_BE:
+            case DEPLOY_BE_CONFIG:
+            case DEPLOY_FE_CONFIG:
+                RResult result = taskExecutor.execAgentTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), CommandRequest.class));
+                taskInstanceComponent.refreshTask(taskEntity, result);
+                break;
+            default:
+                throw new ServerException("can not support this task type " + taskType);
+        }
+        log.info("task {} execute retry success", taskId);
+    }
+
+    @Override
     public Object taskInfo(int taskId) {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
-        Preconditions.checkNotNull("taskId {} not exist", taskId);
+        Preconditions.checkNotNull(taskId, "taskId not exist");
         if (taskEntity.getTaskType().agentTask()) {
             RResult result = agentRest.taskInfo(taskEntity.getHost(), agentPort(taskEntity.getHost()), taskEntity.getExecutorId());
             return taskInstanceComponent.refreshTask(taskEntity, result);

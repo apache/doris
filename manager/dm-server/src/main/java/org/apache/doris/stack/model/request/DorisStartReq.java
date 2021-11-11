@@ -20,7 +20,7 @@ package org.apache.doris.stack.model.request;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import org.apache.doris.stack.model.DorisStart;
+import org.apache.doris.stack.model.task.DorisStart;
 
 import java.util.List;
 

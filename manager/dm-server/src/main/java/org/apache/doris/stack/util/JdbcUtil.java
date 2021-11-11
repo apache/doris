@@ -91,14 +91,4 @@ public class JdbcUtil {
             log.warn("close resultset error:", e);
         }
     }
-
-    public static void main(String[] args) {
-        try {
-            Connection connection = getConnection("10.220.146.10", 9030);
-
-            execute(connection, "alter system add backend \"10.220.146.10:8888\"");
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
 }

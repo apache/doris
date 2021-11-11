@@ -52,8 +52,8 @@ public class ServerController {
      */
     @ApiOperation(value = "install agent and return processId")
     @RequestMapping(value = "/installAgent", method = RequestMethod.POST)
-    public RResult installAgent(HttpServletRequest request, HttpServletResponse response,
-                                @RequestBody AgentInstallReq agentInstallReq) throws Exception {
+    public RResult installAgents(HttpServletRequest request, HttpServletResponse response,
+                                 @RequestBody AgentInstallReq agentInstallReq) throws Exception {
         int processId = serverProcess.installAgent(request, response, agentInstallReq);
         return RResult.success(processId);
     }

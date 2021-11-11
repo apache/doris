@@ -40,6 +40,8 @@ public interface ProcessTask {
 
     void skipTask(int taskId);
 
+    void retryTask(int taskId);
+
     /**
      * Refresh the task status on the agent side again
      */

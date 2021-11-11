@@ -51,8 +51,7 @@ public class TaskExecuteThread implements Callable<Object> {
         updateStatus();
         task = initTask();
         task.init();
-        task.handle();
-        return "SUCCESS";
+        return task.handle();
     }
 
     private void updateStatus() {
