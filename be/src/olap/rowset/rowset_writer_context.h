@@ -33,7 +33,6 @@ struct RowsetWriterContext {
               tablet_schema_hash(0),
               partition_id(0),
               rowset_type(ALPHA_ROWSET),
-              rowset_path_prefix(""),
               tablet_schema(nullptr),
               rowset_state(PREPARED),
               version(Version(0, 0)),

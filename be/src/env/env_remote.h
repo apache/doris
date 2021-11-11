@@ -24,6 +24,8 @@ struct RandomRWFileOptions;
 
 class RemoteEnv : public Env {
 public:
+    static void init_s3_conf(const std::string& ak, const std::string& sk, const std::string& endpoint,
+                             const std::string& region);
     ~RemoteEnv() override {}
 
     Status new_sequential_file(const std::string& fname,

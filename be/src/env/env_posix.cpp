@@ -628,7 +628,7 @@ Status PosixEnv::create_dir(const std::string& name) {
     return Status::OK();
 }
 
-Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created = nullptr) {
+Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
     Status s = create_dir(dirname);
     if (created != nullptr) {
         *created = s.ok();
