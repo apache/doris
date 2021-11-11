@@ -1,7 +1,13 @@
 ---
 {
-    "title": "Datax DorisWriter扩展使用方法",
-    "language": "zh-CN"
+    "title": "How to use Apache doris Datax DorisWriter extension",
+    "description": "In order to better expand the Apache doris ecosystem and provide more convenient data import for doris users, the community development and extension supports Datax DorisWriter, making it more convenient for Datax to access data.",
+    "date": "2021-11-11",
+    "metaTitle": "article",
+    "language": "zh_cn",
+    "author": "张家锋",
+    "layout": "Article",
+    "sidebar": false
 }
 ---
 
@@ -23,53 +29,51 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# Datax DorisWriter扩展使用方法
+# How to use Apache doris Datax DorisWriter extension
 
-DataX 是阿里云 DataWorks数据集成 的开源版本，在阿里巴巴集团内被广泛使用的离线数据同步工具/平台。DataX 实现了包括 MySQL、Oracle、SqlServer、Postgre、HDFS、Hive、ADS、HBase、TableStore(OTS)、MaxCompute(ODPS)、Hologres、DRDS 等各种异构数据源之间高效的数据同步功能
+DataX is an open source version of Alibaba Cloud DataWorks data integration, an offline data synchronization tool/platform widely used in Alibaba Group. DataX implements efficient data synchronization functions between various heterogeneous data sources including MySQL, Oracle, SqlServer, Postgre, HDFS, Hive, ADS, HBase, TableStore (OTS), MaxCompute (ODPS), Hologres, DRDS, etc.
 
-为了更好的扩展Apache doris生态，为doris用户提供更方便的数据导入，社区开发扩展支持了Datax DorisWriter，使大家更方便Datax进行数据进入
+In order to better expand the Apache doris ecosystem and provide more convenient data import for doris users, the community development and extension supports Datax DorisWriter, making it more convenient for Datax to access data..
 
-## 1.场景
+## 1.Scenes
 
-这里演示介绍的使用 Doris 的 Datax 扩展 DorisWriter实现从Mysql数据定时抽取数据导入到Doris数仓表里
+Here is a demonstration of using Doris' Datax extension DorisWriter to extract data from Mysql data and import it into the Doris data warehouse table.
 
-## 2.编译 DorisWriter
+## 2.Build DorisWriter
 
-这个的扩展的编译可以不在 doris 的 docker 编译环境下进行，本文是在 windows 下的 WLS 下进行编译的
+The compilation of this extension can not be done in the docker compilation environment of doris, this article is compiled under the WLS under windows
 
-首先从github上拉取源码
+First pull the source code from github
 
 ```
 git clone https://github.com/apache/incubator-doris.git
 ```
 
-进入到`incubator-doris/extension/DataX/` 执行编译
+Enter `incubator-doris/extension/DataX/` to execute compilation
 
-首先执行：
+First execute:
 
 ```shell
 sh init_env.sh
 ```
 
-这个脚本主要用于构建 DataX 开发环境，他主要进行了以下操作：
+This script is mainly used to build the DataX development environment. It mainly performs the following operations:
 
-1. 将 DataX 代码库 clone 到本地。
+1. Clone the DataX code base to the local.
 
-2. 将 `doriswriter/` 目录软链到 `DataX/doriswriter` 目录。
+2. Softlink the `doriswriter/` directory to the `DataX/doriswriter` directory.
 
-3. 在 `DataX/pom.xml` 文件中添加 `<module>doriswriter</module>` 模块。
+3. Add the `<module>doriswriter</module>` module in the `DataX/pom.xml` file.
 
-4. 将 `DataX/core/pom.xml` 文件中的 httpclient 版本从 4.5 改为 4.5.13.
+4. Change the httpclient version in the `DataX/core/pom.xml` file from 4.5 to 4.5.13.
 
-   > httpclient v4.5 在处理 307 转发时有bug。
+    > httpclient v4.5 has a bug in handling 307 forwarding.
 
-这个脚本执行后，开发者就可以进入 `DataX/` 目录开始开发或编译了。因为做了软链，所以任何对 `DataX/doriswriter` 目录中文件的修改，都会反映到 `doriswriter/` 目录中，方便开发者提交代码
+After the script is executed, the developer can enter the `DataX/` directory to start development or compilation. Because of the soft link, any modification to the files in the `DataX/doriswriter` directory will be reflected in the `doriswriter/` directory, which is convenient for developers to submit code
 
-### 2.1 开始编译
+### 2.1 Build
 
-这里为了加快编译速度你可以去掉一些没有用到的插件，例如下面这些：
-
-这里直接在Datax目录下的pom.xml里注释掉就行
+Here I removed a lot of useless plug-ins in order to speed up the compilation: here, just comment out the pom.xml in the Datax directory.
 
 ```
 hbase11xreader
@@ -84,9 +88,9 @@ oscarwriter
 oceanbasev10writer
 ```
 
-然后进入到`incubator-doris/extension/DataX/` 目录下的 Datax 目录，执行编译
+Then enter the Datax directory under the `incubator-doris/extension/DataX/` directory and execute the compilation
 
-这里我是执行的将 Datax 编译成 tar 包，和官方的编译命令不太一样。
+Here I am performing the compilation of Datax into a tar package, which is not the same as the official compilation command.
 
 ```
 mvn -U clean package assembly:assembly -Dmaven.test.skip=true
@@ -96,23 +100,21 @@ mvn -U clean package assembly:assembly -Dmaven.test.skip=true
 
 ![image-20210903132539511](/images/image-20210903132539511.png)
 
-编译完成以后，tar 包在 `Datax/target` 目录下，你可以将这tar包拷贝到你需要的地方，这里我是直接在 datax 执行测试，这里因为的 python 版本是 3.x版本，需要将 bin 目录下的三个文件换成 python 3 版本的，这个你可以去下面的地址下载：
+After the compilation is complete, the tar package is in the `Datax/target` directory. You can copy the tar package to the place you need. Here I am directly performing the test in datax. Because the python version is 3.x version, you need to The three files in the bin directory are replaced with other versions of python 3. You can download this from the following address:
 
 ```
 https://github.com/WeiYe-Jing/datax-web/tree/master/doc/datax-web/datax-python3
 ```
 
-将下载的三个文件替换 bin 目录下的文件以后，整个编译，安装就完成了
+After replacing the downloaded three files with the files in the bin directory, the entire compilation is complete, and the installation is complete
 
-## 3.数据接入
+## 3.Data access
 
-这个时候我们就可以开始使用 Datax  的`doriswriter`扩展开始从Mysql（或者其他数据源）直接将数据抽取出来导入到 Doris 表中了。
+At this time we can start to use Datax's doriswriter extension to directly extract data from Mysql (or other data sources) and import it into the Doris table.
 
-下面以 Mysql 数据库为例演示怎么使用 `Datax DorisWriter` 来完成 Mysql 数据库数据的抽取
+### 3.1 Mysql database preparation
 
-### 3.1 Mysql 数据库准备
-
-下面是数据库的建表脚本（mysql 8）：
+The following is the database table creation script (mysql 8):
 
 ```sql
 CREATE TABLE `order_analysis` (
@@ -130,7 +132,7 @@ CREATE TABLE `order_analysis` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT
 ```
 
-示例数据
+Sample data
 
 ```sql
 INSERT INTO `sql12298540`.`order_analysis` (`date`, `user_src`, `order_src`, `order_location`, `new_order`, `payed_order`, `pending_order`, `cancel_order`, `reject_order`, `good_order`, `report_order`) VALUES ('2015-10-12 00:00:00', '广告二维码', 'Android APP', '上海', 15253, 13210, 684, 1247, 1000, 10824, 862);
@@ -147,9 +149,9 @@ INSERT INTO `sql12298540`.`order_analysis` (`date`, `user_src`, `order_src`, `or
 
 ```
 
-### 3.2 doris数据库准备
+### 3.2 doris database preparation
 
-下面是我上面数据表在doris对应的建表脚本
+The following is the table creation script corresponding to the above data table in doris
 
 ```sql
 CREATE TABLE `order_analysis` (
@@ -175,9 +177,9 @@ PROPERTIES (
 );
 ```
 
-### 3.3 Datax Job JSON文件
+### 3.3 Datax Job JSON file
 
-创建并编辑datax job任务json文件，并保存到指定目录
+Create and edit the datax job task json file and save it to the specified directory
 
 ```json
 {
@@ -228,28 +230,28 @@ PROPERTIES (
 }
 ```
 
-这块 Mysql reader 使用方式参照：
+Refer to the usage of this piece of Mysql reader:
 
 ```
 https://github.com/alibaba/DataX/blob/master/mysqlreader/doc/mysqlreader.md
 ```
 
-doriswriter的使用及参数说明：
+The use and parameter description of doriswriter:
 
 ```
 https://github.com/apache/incubator-doris/blob/master/extension/DataX/doriswriter/doc/doriswriter.md
 ```
 
-## 4.执行Datax数据导入任务
+## 4.Perform Datax data import tasks
 
 ```python
 python bin/datax.py doris.json
 ```
 
-然后就可以看到执行结果：
+Then you can see the execution result:
 
 ![image-20210903134043421](/images/image-20210903134043421.png)
 
-再去 Doris 数据库中查看你的表，数据就已经导入进去了，任务执行结束
+Then go to the Doris database to check your table, the data has been imported, and the task execution is over
 
-因为 Datax 的任务是要靠外部触发才能执行，这里你可以使用Linux的crontab或者海豚调度之类的来控制任务运行
+Because Datax tasks are executed by external triggers, here you can use Linux crontab or Apache DolphinScheduler to control task operation
