@@ -408,6 +408,8 @@ delete from test_cdc where id in (12,13)
 
 多表同步只需要像下面这样写法就可以了
 
+
+
 ```sql
 CREATE SYNC test_2.doris_mysql_binlog_demo_job 
 (

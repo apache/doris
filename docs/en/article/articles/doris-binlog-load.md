@@ -405,6 +405,8 @@ We are looking at the Doris table, the two data with id 12 and 13 have been dele
 
 Multi-table synchronization only needs to be written like the following
 
+
+
 ```sql
 CREATE SYNC test_2.doris_mysql_binlog_demo_job 
 (
