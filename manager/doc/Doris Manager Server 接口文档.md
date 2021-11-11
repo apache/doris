@@ -1,13 +1,8 @@
 [TOC]
 
 ---
-## Doris Manager API文档
 
-### Doris Manager 接口文档
-
-Direct access after local service startup:http://localhost:port/swagger-ui.html#/
-
-### Doris Manager Server 接口文档
+### DorisManager-Agent Server 接口文档
 
 #### 1.安装Agent
 
@@ -17,7 +12,7 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 **URL**
 
-> /server/installAgent
+> /api/server/installAgent
 
 **支持格式**
 
@@ -31,25 +26,32 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
-> |hosts    |ture    |List|机器列表                          |
+> |clusterId|true|String|集群ID ,新建集群后返回的id|
+> |hosts    |true    |List|机器列表                          |
 > |user    |true    |String   |ssh 用户|
 > |port |true |int |ssh 端口|
 > |sshKey |true |String |ssh 私钥|
+> |packageUrl |true |String |doris编译包下载地址，只支持http方式。|
+> |installDir |true |String |安装路径|
 
 **返回字段**
 
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|msg   |String    |调用信息   |
-|code  |String | 结果状态。0：正常  |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data |Int | 当前安装的流程ID |
 
 **接口示例**
 
-> 地址：http://localhost:9601/server/installAgent
+> 地址：http://localhost:9601/api/server/installAgent
 
 > 请求参数：
 ``` json
 {
+    "clusterId":"1",
+    "packageUrl":"https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-0.15.1-rc03-no-avx2-binary.tar.gz",
+    "installDir":"/usr/local/doris",
     "hosts":["10.10.10.11"],
     "user":"root",
     "sshPort":22,
@@ -60,9 +62,12 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 ``` json
 {
     "msg": "success",
-    "code": 0
+    "code": 0,
+    "data":1
 }
 ```
+
+
 
 #### 2.查看Agent列表
 
@@ -72,7 +77,7 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 **URL**
 
-> /server/agentList
+> /api/server/agentList
 
 **支持格式**
 
@@ -80,28 +85,29 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 **HTTP请求方式**
 
-> POST
+> GET
 
 **请求参数**
-
-无
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |clusterId   |int    |集群id   |
 
 **返回字段**
 
 > |返回字段|字段类型|说明                              |
-|:-----   |:------|:-----------------------------   |
-|msg   |String    |调用信息   |
-|code  |String | 结果状态。0：正常  |
-|data.id  |int | agentId |
-|data.host  |String |agent host  |
-|data.port  |String | agent port |
-|data.status  |String | agent状态 ：RUNNING STOP|
-|data.registerTime  |Date | agent注册时间  |
-|data.lastReportedTime  |Date | agent最后上报时间  |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.id  |int | agentId |
+> |data.host  |String |agent host  |
+> |data.port  |String | agent port |
+> |data.status  |String | agent状态 ：RUNNING STOP|
+> |data.registerTime  |Date | agent注册时间  |
+> |data.lastReportedTime  |Date | agent最后上报时间  |
 
 **接口示例**
 
-> 地址：http://localhost:9601/server/agentList
+> 地址：http://localhost:9601/api/server/agentList
 
 > 请求参数：无
 
@@ -131,7 +137,7 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 **URL**
 
-> /agent/installDoris
+> /api/agent/installService
 
 **支持格式**
 
@@ -145,41 +151,36 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
-> |host    |ture    | String  |指定安装doris的机器                          |
-> |role    |true    |String   |doris角色：FE、BE|
-> |packageUrl |true |String |doris编译包下载地址，只支持http方式。|
-> |mkFeMetadir |false |boolean |安装FE时是否新建 元数据目录|
-> |mkBeStorageDir |false |boolean |安装BE时是否新建 数据存储目录|
-> |installDir |true |String |安装路径|
+> |processId|true|int|当前安装的流程ID，接口1返回的结果|
+> |installInfos.host    |ture    | String  |指定安装doris的机器                          |
+> |installInfos.role    |true    |String   |doris角色：FE、BE|
+> |installInfos.feNodeType    |false    |String   |角色为FE时:FOLLOWER / OBSERVER|
 
 **返回字段**
+
 
 > |返回字段|字段类型|说明                              |
 > |:-----   |:------|:-----------------------------   |
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
-> |data.taskResult.taskId |String | 任务ID |
-> |data.taskResult.submitTime |Date | 任务提交时间 |
-> |data.taskResult.startTime |Date | 任务开始时间 |
-> |data.taskResult.endTime |Date | 任务终止时间      |
-> |data.taskResult.taskState |String | 任务状态 |
-> |data.taskResult.retCode |int | 任务返回状态。0：正常 |
-> |data.stdlogs |List | 任务输出日志 |
-> |data.errlogs |List | 任务错误日志 |
-
+> 
 **接口示例**
 
-> 地址：http://localhost:9601/agent/installDoris
+> 地址：http://localhost:9601/api/agent/installService
 
 > 请求参数：
 ``` json
 {
+    "processId":1,
     "installInfos":[{
-        "host":"10.10.10.11",
+        "host":"10.220.147.155",
         "role":"FE",
-        "packageUrl":"http://10.10.10.11/fileupload/doris-fe.tar.gz",
-        "mkFeMetadir":true,
-        "installDir":"/usr/local/doris-fe"
+        "feNodeType":"FOLLOWER"
+    },
+    {
+        "host":"10.220.147.155",
+        "role":"BE"
+        
     }]
 }
 ```
@@ -187,33 +188,19 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 ``` json
 {
     "msg": "success",
-    "code": 0,
-    "data": [
-        {
-            "taskResult": {
-                "taskId": "a3b966cc10794f4c8b9b2c0dc1fa9b26",
-                "submitTime": "2021-08-12T02:37:11.757+00:00",
-                "startTime": "2021-08-12T02:37:11.759+00:00",
-                "endTime": null,
-                "taskState": "RUNNING",
-                "retCode": null
-            },
-            "stdlogs": [],
-            "errlogs": []
-        }
-    ]
+    "code": 0
 }
 ```
 
-#### 4.启停Doris
+#### 4.分发配置
 
 **接口功能**
 
-> 对指定机器的doris进行启动、停止
+> 分发FE、BE的配置
 
 **URL**
 
-> /agent/execute
+> /api/agent/deployConfig
 
 **支持格式**
 
@@ -227,9 +214,10 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
-> |command    |ture    | String  | 执行命令: START STOP                          |
-> |dorisExecs.host    |true    |String   |指定的机器列表|
-> |dorisExecs.role |true |String |doris角色：FE、BE|
+> |processId|true|int|当前安装的流程ID，接口1返回的结果|
+> |deployConfigs.host |true |String |指定的机器|
+> |deployConfigs.role    |true    |String   |doris角色：FE、BE|
+> |deployConfigs.conf |true |String |配置文件内容|
 
 **返回字段**
 
@@ -237,26 +225,81 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 > |:-----   |:------|:-----------------------------   |
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
-> |data.taskResult.taskId |String | 任务ID |
-> |data.taskResult.submitTime |Date | 任务提交时间 |
-> |data.taskResult.startTime |Date | 任务开始时间 |
-> |data.taskResult.endTime |Date | 任务终止时间      |
-> |data.taskResult.taskState |String | 任务状态 |
-> |data.taskResult.retCode |int | 任务返回状态。0：正常 |
-> |data.stdlogs |List | 任务输出日志 |
-> |data.errlogs |List | 任务错误日志 |
 
 **接口示例**
 
-> 地址：http://localhost:9601/agent/execute
+> 地址：http://localhost:9601/api/agent/deployConfig
 
 > 请求参数：
 ``` json
 {
-    "command":"START",
-    "dorisExecs":[{
-        "host":"10.10.10.11",
+    "processId":"1",
+    "deployConfigs":[{
+        "host":"10.220.147.155",
+        "role":"FE",
+        "conf":"LOG_DIR = ${DORIS_HOME}/log\nDATE = `date +%Y%m%d-%H%M%S`\nJAVA_OPTS=\"-Xmx4096m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$DATE\"\nJAVA_OPTS_FOR_JDK_9=\"-Xmx4096m -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xlog:gc*:$DORIS_HOME/log/fe.gc.log.$DATE:time\"\nsys_log_level = INFO\nmeta_dir = /usr/local/doris/fe/doris-meta\nhttp_port = 8030\nrpc_port = 9020\nquery_port = 9030\nedit_log_port = 9010\nmysql_service_nio_enabled = true"
+    },{
+        "host":"10.220.147.155",
+        "role":"BE",
+        "conf":"PPROF_TMPDIR=\"$DORIS_HOME/log/\"\nsys_log_level = INFO\nbe_port = 19060\nbe_rpc_port = 19070\nwebserver_port = 18040\nheartbeat_service_port = 19050\nbrpc_port = 18060\nstorage_root_path = /usr/local/doris/be/storage\n"
+    }]
+}
+```
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
+}
+```
+
+#### 5.启动Doris
+
+**接口功能**
+
+> 启动指定机器的doris
+
+**URL**
+
+> /api/agent/startService
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |processId|true|int|当前安装的流程ID，接口1返回的结果|
+> |dorisStarts.host    |true    |String   |指定机器|
+> |dorisStarts.role |true |String |doris角色：FE、BE|
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/agent/startService
+
+> 请求参数：
+``` json
+{
+    "processId":"1",
+    "dorisStarts":[{
+        "host":"10.220.147.155",
         "role":"FE"
+    },{
+        "host":"10.220.147.155",
+        "role":"BE"
     }]
 }
 ```
@@ -264,33 +307,255 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 ``` json
 {
     "msg": "success",
+    "code": 0
+}
+```
+
+#### 5.启动组件集群
+
+**接口功能**
+
+> 组件集群，将BE加入集群
+
+**URL**
+
+> /api/agent/joinBe
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |processId|true|int|当前安装的流程ID，接口1返回的结果|
+> |hosts    |true    |String   |加入机器列表|
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/agent/joinBe
+
+> 请求参数：
+``` json
+{
+    "processId":1,
+    "hosts":["10.220.147.155"]
+}
+```
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
+}
+```
+
+#### 6.完成安装
+
+**接口功能**
+
+> 完成安装，完成安装后调用
+
+**URL**
+
+> /api/process/installComplete/{processId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |processId|true|int|当前安装的流程ID，接口1返回的结果|
+
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/installComplete/1
+
+> 请求参数：
+``` json
+{
+    "processId":1,
+    "hosts":["10.220.147.155"]
+}
+```
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0
+}
+```
+
+#### 7.查询该用户当前安装的流程
+
+**接口功能**
+
+> 查询该用户当前安装的流程
+
+**URL**
+
+> /api/process/historyProgress
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.id  |String | 流程id |
+> |data.processType   |String | 流程进度  |
+> |data.finish   |String | 流程完成标志  |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/historyProgress
+
+> 返回参数：
+``` json
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "id": 1,
+        "clusterId": 0,
+        "userId": 0,
+        "processType": "START_SERVICE",
+        "createTime": "2021-11-02T01:29:58.000+00:00",
+        "updateTime": "2021-11-02T01:29:58.000+00:00",
+        "finish": "NO"
+    }
+}
+```
+
+
+#### 8.查看当前流程当前安装任务状态
+
+**接口功能**
+
+> 查看当前流程当前安装任务状态
+
+**URL**
+
+> /api/process/{processId}/currentTasks
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> POST
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |processId    |ture    | String  |流程ID，接口1返回                        |
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.id |int | 任务ID |
+> |data.processId |int | 流程id |
+> |data.host |String | 任务运行host |
+> |data.processType |String | 流程类型      |
+> |data.taskType |String | 任务类型 |
+> |data.status |String | 任务执行状态 |
+> |data.startTime |Date | 任务开始时间 |
+> |data.endTime |Date | 任务终止时间      |
+> |data.finish |int | 任务执行完成标志 |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/1/currentTasks
+
+> 请求参数：
+无
+> 返回参数：
+``` json
+{
+    "msg": "success",
     "code": 0,
     "data": [
         {
-            "taskResult": {
-                "taskId": "a3b966cc10794f4c8b9b2c0dc1fa9b26",
-                "submitTime": "2021-08-12T02:37:11.757+00:00",
-                "startTime": "2021-08-12T02:37:11.759+00:00",
-                "endTime": null,
-                "taskState": "RUNNING",
-                "retCode": null
-            },
-            "stdlogs": [],
-            "errlogs": []
+            "id": 6,
+            "processId": 1,
+            "host": "10.220.147.155",
+            "processType": "START_SERVICE",
+            "taskType": "START_FE",
+            "status": "SUCCESS",
+            "startTime": "2021-11-02T01:33:08.000+00:00",
+            "endTime": "2021-11-02T01:33:20.000+00:00",
+            "executorId": "377bb55156774cb7a72804fbba207e94",
+            "result": null,
+            "finish": "YES"
+        },
+        {
+            "id": 7,
+            "processId": 1,
+            "host": "10.220.147.155",
+            "processType": "START_SERVICE",
+            "taskType": "START_BE",
+            "status": "SUCCESS",
+            "startTime": "2021-11-02T01:33:08.000+00:00",
+            "endTime": "2021-11-02T01:33:20.000+00:00",
+            "executorId": "f052ba23ad9d4428900d328a7979d7a2",
+            "result": null,
+            "finish": "YES"
         }
     ]
 }
 ```
 
-#### 5.查看任务执行状态
+#### 9.查看任务执行信息
 
 **接口功能**
 
-> 查看任务执行状态
+> 查看任务执行信息
 
 **URL**
 
-> /agent/task
+> /api/process/task/info/{taskId}
 
 **支持格式**
 
@@ -298,13 +563,12 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 
 **HTTP请求方式**
 
-> POST
+> GET
 
 **请求参数**
 
 > |参数|必选|类型|说明|
 > |:-----  |:-------|:-----|-----                               |
-> |host    |ture    | String  |agent 机器host                          |
 > |taskId    |true    |String   |任务id|
 
 **返回字段**
@@ -313,180 +577,158 @@ Direct access after local service startup:http://localhost:port/swagger-ui.html#
 > |:-----   |:------|:-----------------------------   |
 > |msg   |String    |调用信息   |
 > |code  |String | 结果状态。0：正常  |
-> |data.taskResult.taskId |String | 任务ID |
-> |data.taskResult.submitTime |Date | 任务提交时间 |
-> |data.taskResult.startTime |Date | 任务开始时间 |
-> |data.taskResult.endTime |Date | 任务终止时间      |
-> |data.taskResult.taskState |String | 任务状态 |
-> |data.taskResult.retCode |int | 任务返回状态。0：正常 |
-> |data.stdlogs |List | 任务输出日志 |
-> |data.errlogs |List | 任务错误日志 |
+> |data.id |int | 任务ID |
+> |data.processId |int | 任务所属流程ID |
+> |data.host |Date | 任务执行host |
+> |data.processType |String | 安装类型      |
+> |data.taskType |String | 任务类型 |
+> |data.status |int | 任务返回状态。 |
+> |data.startTime |Date | 任务开始时间 |
+> |data.endTime |Date | 任务结束时间 |
+> |data.result |String | 任务返回结果 |
+> |data.finish |String | 任务是否执行成功。YES NO|
 
 **接口示例**
 
-> 地址：http://localhost:9601/agent/task
+> 地址：http://localhost:9601/api/process/task/info/9
 
-> 请求参数：
-``` json
+```
+> 返回参数：
+​``` json
 {
-    "host":"10.10.10.11",
-    "taskId":"a3b966cc10794f4c8b9b2c0dc1fa9b26"
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "id": 1,
+        "processId": 1,
+        "host": "10.220.147.155",
+        "processType": "INSTALL_AGENT",
+        "taskType": "INSTALL_AGENT",
+        "status": "SUCCESS",
+        "startTime": "2021-11-05T10:33:23.000+00:00",
+        "endTime": "2021-11-05T10:33:26.000+00:00",
+        "executorId": null,
+        "result": "SUCCESS",
+        "finish": "YES"
+    }
 }
 ```
+
+
+#### 10.查看任务执行日志
+
+**接口功能**
+
+> 查看任务最近1MB日志
+
+**URL**
+
+> /api/process/task/log/{taskId}
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> GET
+
+**请求参数**
+
+> |参数|必选|类型|说明|
+> |:-----  |:-------|:-----|-----                               |
+> |taskId    |true    |String   |任务id|
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.logPath |String | 任务日志路径 |
+> |data.log |String | 日志内容 |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/process/task/log/9
+
+```
+> 返回参数：
+​``` json
+{
+    "msg": "success",
+    "code": 0,
+    "data": {
+        "logPath": "/usr/local/doris/agent/log/task.log",
+        "log": "2021-11-05 19:01:38.434 [pool-2-thread-1] INFO  TASK_LOG - scriptCmd:/bin/sh /usr/local/doris/agent/bin/install_fe.sh  --installDir /usr"
+    }
+}
+```
+
+#### 11.查看Agent上安装的角色列表
+
+**接口功能**
+
+> 查看Agent上安装的角色列表
+
+**URL**
+
+> /api/server/roleList
+
+**支持格式**
+
+> JSON
+
+**HTTP请求方式**
+
+> GET
+
+**请求参数**
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |clusterId   |int    |集群id   |
+
+**返回字段**
+
+> |返回字段|字段类型|说明                              |
+> |:-----   |:------|:-----------------------------   |
+> |msg   |String    |调用信息   |
+> |code  |String | 结果状态。0：正常  |
+> |data.host  |String |agent host  |
+> |data.role  |String |安装角色 FE BE |
+> |data.feNodeType  |String | 角色类型 FOLLOWer OBserveer|
+> |data.register  |String | 安装后是否注册成功 |
+
+**接口示例**
+
+> 地址：http://localhost:9601/api/server/agentList
+
+> 请求参数：无
+
 > 返回参数：
 ``` json
 {
     "msg": "success",
     "code": 0,
-    "data": {
-        "taskResult": {
-            "taskId": "a3b966cc10794f4c8b9b2c0dc1fa9b26",
-            "submitTime": "2021-08-12T02:37:11.757+00:00",
-            "startTime": "2021-08-12T02:37:11.759+00:00",
-            "endTime": "2021-08-12T02:37:14.759+00:00",
-            "taskState": "FINISHED",
-            "retCode": 0
+    "data": [
+        {
+            "id": 1,
+            "host": "10.220.147.155",
+            "clusterId": 0,
+            "role": "FE",
+            "feNodeType": null,
+            "installDir": "/usr/local/doris/fe",
+            "register": "YES"
         },
-        "stdlogs": [
-            "bin/",
-            "bin/start_fe.sh",
-            "bin/stop_fe.sh",
-            "conf/",
-            "conf/fe.conf",
-            "lib/",
-            "lib/RoaringBitmap-0.8.13.jar",
-            "lib/activation-1.1.1.jar",
-            "lib/aircompressor-0.10.jar",
-            "lib/amqp-client-5.7.3.jar",
-            "lib/annotations-2.15.45.jar"
-            .....
-        ],
-        "errlogs": []
-    }
+        {
+            "id": 2,
+            "host": "10.220.147.155",
+            "clusterId": 0,
+            "role": "BE",
+            "feNodeType": null,
+            "installDir": "/usr/local/doris/be",
+            "register": "YES"
+        }
+    ]
 }
 ```
-
-#### 6.查看任务输出日志
-
-**接口功能**
-
-> 查看任务输出日志
-
-**URL**
-
-> /agent/stdlog
-
-**支持格式**
-
-> JSON
-
-**HTTP请求方式**
-
-> POST
-
-**请求参数**
-
-> |参数|必选|类型|说明|
-> |:-----  |:-------|:-----|-----                               |
-> |host    |ture    | String  |agent 机器host                          |
-> |taskId    |true    |String   |任务id|
-> |offset    |false    |int   |日志偏移量|
-
-**返回字段**
-
-> |返回字段|字段类型|说明                              |
-> |:-----   |:------|:-----------------------------   |
-> |msg   |String    |调用信息   |
-> |code  |String | 结果状态。0：正常  |
-> |data.key |String | 下一页起始偏移量 |
-> |data.value |List | 日志 |
-
-**接口示例**
-
-> 地址：http://localhost:9601/agent/stdlog
-
-> 请求参数：
-``` json
-{
-    "host":"10.10.10.11",
-    "taskId":"a3b966cc10794f4c8b9b2c0dc1fa9b26",
-    "offset":10,
-}
-```
-> 返回参数：
-``` json
-{
-    "msg": "success",
-    "code": 0,
-    "data": {
-        "key": 366,
-        "value": [
-            "lib/annotations-2.15.45.jar",
-            "lib/antlr4-runtime-4.7.jar",
-            .....
-        ]
-    }
-}
-```
-
-#### 7.查看任务错误日志
-
-**接口功能**
-
-> 查看任务错误日志
-
-**URL**
-
-> /agent/errlog
-
-**支持格式**
-
-> JSON
-
-**HTTP请求方式**
-
-> POST
-
-**请求参数**
-
-> |参数|必选|类型|说明|
-> |:-----  |:-------|:-----|-----                               |
-> |host    |ture    | String  |agent 机器host                          |
-> |taskId    |true    |String   |任务id|
-> |offset    |false    |int   |日志偏移量|
-
-**返回字段**
-
-> |返回字段|字段类型|说明                              |
-> |:-----   |:------|:-----------------------------   |
-> |msg   |String    |调用信息   |
-> |code  |String | 结果状态。0：正常  |
-> |data.key |String | 下一页起始偏移量 |
-> |data.value |List | 日志 |
-
-**接口示例**
-
-> 地址：http://localhost:9601/agent/errlog
-
-> 请求参数：
-``` json
-{
-    "host":"10.10.10.11",
-    "taskId":"a3b966cc10794f4c8b9b2c0dc1fa9b26",
-    "offset":10,
-}
-```
-> 返回参数：
-``` json
-{
-    "msg": "success",
-    "code": 0,
-    "data": {
-        "key": 366,
-        "value": [
-            .....
-        ]
-    }
-}
-```
-

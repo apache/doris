@@ -18,6 +18,8 @@
 package org.apache.doris.stack.constants;
 
 public enum AgentStatus {
+    INIT,
+    REGISTER,
     RUNNING,
     STOP;
 }

@@ -15,19 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.dao;
+
+import org.apache.doris.stack.entity.ProcessInstanceEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-public class DorisInstallReq {
+public interface ProcessInstanceRepository extends JpaRepository<ProcessInstanceEntity, Integer> {
 
-    private List<InstallInfo> installInfos;
+    @Query("select f from ProcessInstanceEntity f where f.userId = :userId and finish = 0")
+    ProcessInstanceEntity queryProcessByuserId(@Param("userId") int userId);
 
-    public List<InstallInfo> getInstallInfos() {
-        return installInfos;
-    }
-
-    public void setInstallInfos(List<InstallInfo> installInfos) {
-        this.installInfos = installInfos;
-    }
+    @Query("select f from ProcessInstanceEntity f where  finish = 0")
+    List<ProcessInstanceEntity> queryProcessList();
 }

@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.task;
+package org.apache.doris.stack.model.request;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.DeployConfig;
 
 import java.util.List;
 
-public interface ITaskLog {
-    ImmutablePair<Integer, List<String>> stdLog(int offset, int size);
+/**
+ * deploy config req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DeployConfigReq {
 
-    List<String> errLog(int offset, int size);
-
-    void appendStdLog(String log);
-
-    void appendErrLog(String log);
-
-    List<String> allStdLog();
-
-    List<String> allErrLog();
+    List<DeployConfig> deployConfigs;
+    private int processId;
 }
-

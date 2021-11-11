@@ -43,8 +43,8 @@ mkdir -p output/server/lib
 mv manager-server/target/manager-server-1.0.0.jar output/server/lib/doris-manager.jar
 cp -r conf output/server/
 cp -r manager-bin output/
+mv output/manager-bin/agent output/
 mv output/manager-bin output/server/bin
-cp -r dm-agent/src/main/resources/agent output/
 mkdir -p output/agent/lib
 mv dm-agent/target/dm-agent-1.0.0.jar output/agent/lib/dm-agent.jar
 cp -r manager-server/src/main/resources/web-resource output/server/

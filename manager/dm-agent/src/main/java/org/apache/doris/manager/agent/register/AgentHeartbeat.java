@@ -46,7 +46,7 @@ public class AgentHeartbeat {
     }
 
     private static boolean heartbeat() {
-        String requestUrl = "http://" + AgentContext.getAgentServer() + "/server/heartbeat";
+        String requestUrl = "http://" + AgentContext.getAgentServer() + "/api/server/heartbeat";
         Map<String, Object> map = new HashMap<>();
         map.put("host", AgentContext.getAgentIp());
         map.put("port", AgentContext.getAgentPort());

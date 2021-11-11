@@ -35,9 +35,9 @@ public class AgentRest {
 
     private static final String AGENT_COMMAND_EXEC = "http://%s:%s/command/execute";
     private static final String AGENT_TASK_INFO = "http://%s:%s/command/result?taskId={taskId}";
-    private static final String AGENT_TASK_STD_LOG = "http://%s:%s/command/stdlog?taskId={taskId}&offset={offset}";
-    private static final String AGENT_TASK_ERR_LOG = "http://%s:%s/command/errlog?taskId={taskId}&offset={offset}";
     private static final String SERVICE_CONFIG = "http://%s:%s/service/config?serviceRole={serviceRole}";
+    private static final String SERVICE_LOG = "http://%s:%s/log?type={type}";
+    private static final String AGENT_TASK_LOG = "http://%s:%s/log/task?taskId={taskId}";
 
     @Autowired
     private RestTemplate restTemplate;
@@ -48,20 +48,26 @@ public class AgentRest {
         return result;
     }
 
-    public RResult taskInfo(String host, Integer port, Map<String, Object> param) {
+    public RResult serverLog(String host, Integer port, String type) {
+        Map<String, Object> param = Maps.newHashMap();
+        param.put("type", type);
+        String restUrl = String.format(SERVICE_LOG, host, port);
+        RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
+        return result;
+    }
+
+    public RResult taskInfo(String host, Integer port, String taskId) {
+        Map<String, Object> param = Maps.newHashMap();
+        param.put("taskId", taskId);
         String restUrl = String.format(AGENT_TASK_INFO, host, port);
         RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
         return result;
     }
 
-    public RResult taskStdLog(String host, Integer port, Map<String, Object> param) {
-        String restUrl = String.format(AGENT_TASK_STD_LOG, host, port);
-        RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
-        return result;
-    }
-
-    public RResult taskErrLog(String host, Integer port, Map<String, Object> param) {
-        String restUrl = String.format(AGENT_TASK_ERR_LOG, host, port);
+    public RResult taskLog(String host, Integer port, String taskId) {
+        Map<String, Object> param = Maps.newHashMap();
+        param.put("taskId", taskId);
+        String restUrl = String.format(AGENT_TASK_LOG, host, port);
         RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
         return result;
     }

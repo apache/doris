@@ -22,9 +22,9 @@ import org.apache.doris.manager.agent.task.Task;
 import org.apache.doris.manager.common.domain.CommandType;
 
 public abstract class Command {
+    protected CommandType commandType;
     private Task task;
     private ITaskHandlerFactory handlerFactory;
-    protected CommandType commandType;
 
     public Command setup() {
         task = setupTask();

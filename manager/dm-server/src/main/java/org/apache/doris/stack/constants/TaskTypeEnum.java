@@ -15,37 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.constants;
 
-public class DorisExec {
+/**
+ * task type
+ **/
+public enum TaskTypeEnum {
+    INSTALL_AGENT,
+    INSTALL_FE,
+    INSTALL_BE,
+    DEPLOY_FE_CONFIG,
+    DEPLOY_BE_CONFIG,
+    START_FE,
+    START_BE,
+    STOP_FE,
+    STOP_BE,
+    JOIN_BE;
 
-    private String host;
-    //FE、BE
-    private String role;
-
-    private boolean master;
-
-    public String getHost() {
-        return host;
+    /**
+     * agent side task
+     */
+    public boolean agentTask() {
+        return this != INSTALL_AGENT && this != JOIN_BE;
     }
 
-    public void setHost(String host) {
-        this.host = host;
-    }
-
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
-
-    public boolean isMaster() {
-        return master;
-    }
-
-    public void setMaster(boolean master) {
-        this.master = master;
-    }
 }

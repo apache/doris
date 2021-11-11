@@ -45,6 +45,24 @@ public class BeService extends Service {
         doLoad();
     }
 
+    private static List<String> parseStorageDirs(String storageRootPath) {
+        ArrayList<String> list = new ArrayList<>();
+        String[] splitArr = storageRootPath.split(";");
+        for (String split : splitArr) {
+            if (split.trim().length() <= 0) {
+                continue;
+            }
+
+            int lastIndex = split.lastIndexOf(".");
+            if (lastIndex == -1) {
+                list.add(split.substring(0));
+            } else {
+                list.add(split.substring(0, lastIndex));
+            }
+        }
+        return list;
+    }
+
     @Override
     public void doLoad() {
         String httpPortStr = getConfig().getProperty(AgentConstants.BE_CONFIG_KEY_HTTP_PORT);
@@ -116,23 +134,5 @@ public class BeService extends Service {
                 }
             }
         }
-    }
-
-    private static List<String> parseStorageDirs(String storageRootPath) {
-        ArrayList<String> list = new ArrayList<>();
-        String[] splitArr = storageRootPath.split(";");
-        for (String split : splitArr) {
-            if (split.trim().length() <= 0) {
-                continue;
-            }
-
-            int lastIndex = split.lastIndexOf(".");
-            if (lastIndex == -1) {
-                list.add(split.substring(0));
-            } else {
-                list.add(split.substring(0, lastIndex));
-            }
-        }
-        return list;
     }
 }

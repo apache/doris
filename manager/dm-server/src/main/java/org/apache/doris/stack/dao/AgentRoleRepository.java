@@ -24,19 +24,17 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-/**
- * Copyright (C) 2020 Baidu, Inc. All Rights Reserved.
- *
- * @Author: songchuanyuan@baidu.com
- * @Description：
- * @Date: 2021/8/18
- */
-public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, String> {
+public interface AgentRoleRepository extends JpaRepository<AgentRoleEntity, Integer> {
 
-    @Query("select f from AgentRoleEntity f where f.role = :role")
-    List<AgentRoleEntity> queryAgentByRole(@Param("role") String role);
+    @Query("select f from AgentRoleEntity f where f.role = :role and f.clusterId = :clusterId")
+    List<AgentRoleEntity> queryAgentByRole(@Param("role") String role, @Param("clusterId") int clusterId);
 
     @Query("select f from AgentRoleEntity f where f.host = :host")
     List<AgentRoleEntity> queryAgentByHost(@Param("host") String host);
 
+    @Query("select f from AgentRoleEntity f where f.host = :host and f.role = :role")
+    AgentRoleEntity queryByHostRole(@Param("host") String host, @Param("role") String role);
+
+    @Query("select f from AgentRoleEntity f where f.clusterId = :clusterId")
+    List<AgentRoleEntity> queryAgentRoles(@Param("clusterId") int clusterId);
 }

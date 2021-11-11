@@ -15,30 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.manager.common.domain;
 
-import java.util.List;
+public enum TaskState {
+    // Task has been queued for execution by the driver
+    INITIALIZED,
+    // Task has been queued for execution by the driver
+    QUEUED,
+    // Task is currently running
+    RUNNING,
+    // Task has completed
+    FINISHED,
+    // Task state is unkown
+    UNKNOWN;
 
-public class DorisExecReq {
-
-    //START STOP RESTART
-    private String command;
-
-    private List<DorisExec> dorisExecs;
-
-    public String getCommand() {
-        return command;
-    }
-
-    public void setCommand(String command) {
-        this.command = command;
-    }
-
-    public List<DorisExec> getDorisExecs() {
-        return dorisExecs;
-    }
-
-    public void setDorisExecs(List<DorisExec> dorisExecs) {
-        this.dorisExecs = dorisExecs;
+    public boolean typeIsRunning() {
+        return this == INITIALIZED || this == QUEUED || this == RUNNING;
     }
 }

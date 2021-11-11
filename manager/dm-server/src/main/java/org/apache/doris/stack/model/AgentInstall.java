@@ -15,59 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
-import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.doris.stack.model.request.AgentInstallReq;
+import org.springframework.beans.BeanUtils;
 
-public class SshInfo {
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class AgentInstall {
 
-    private List<String> hosts;
+    private String host;
 
     private String user;
 
-    private Integer sshPort;
+    private int sshPort;
 
     private String sshKey;
 
     private String installDir;
 
-    public List<String> getHosts() {
-        return hosts;
-    }
+    private int clusterId;
 
-    public void setHosts(List<String> hosts) {
-        this.hosts = hosts;
-    }
-
-    public String getUser() {
-        return user;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
-    }
-
-    public Integer getSshPort() {
-        return sshPort;
-    }
-
-    public void setSshPort(Integer sshPort) {
-        this.sshPort = sshPort;
-    }
-
-    public String getSshKey() {
-        return sshKey;
-    }
-
-    public void setSshKey(String sshKey) {
-        this.sshKey = sshKey;
-    }
-
-    public String getInstallDir() {
-        return installDir;
-    }
-
-    public void setInstallDir(String installDir) {
-        this.installDir = installDir;
+    public AgentInstall(String host, AgentInstallReq installReq) {
+        this.host = host;
+        BeanUtils.copyProperties(installReq, this);
     }
 }

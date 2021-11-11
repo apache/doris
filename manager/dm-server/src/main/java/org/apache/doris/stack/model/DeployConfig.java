@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
 
-import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
- * be join cluster req
+ * deploy Config
  **/
-public class BeJoinReq {
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class DeployConfig {
 
-    private List<AgentCommon> list;
+    private String host;
 
-    public List<AgentCommon> getList() {
-        return list;
-    }
+    private String role;
 
-    public void setList(List<AgentCommon> list) {
-        this.list = list;
-    }
+    private String conf;
 }

@@ -18,17 +18,21 @@
 package org.apache.doris.manager.agent.task;
 
 import org.apache.doris.manager.agent.common.AgentConstants;
+import org.apache.doris.manager.common.domain.TaskResult;
+import org.apache.doris.manager.common.domain.TaskState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Date;
 import java.util.UUID;
 
 public abstract class Task<T extends TaskDesc> {
+    private static final Logger TASKLOG = LoggerFactory.getLogger(AgentConstants.LOG_TYPE_TASK);
+
     protected T taskDesc;
 
     private TaskResult taskResult;
-
-    private ITaskLog tasklog;
 
     private TaskHook taskHook;
 
@@ -38,19 +42,9 @@ public abstract class Task<T extends TaskDesc> {
         this.taskResult.setTaskId(UUID.randomUUID().toString().replace("-", ""));
     }
 
-    public Task(T taskDesc, ITaskLog taskLruLog) {
+    public Task(T taskDesc, TaskHook taskHook) {
         this(taskDesc);
-        this.tasklog = taskLruLog;
-    }
-
-    public Task(T taskDesc, ITaskLog taskLruLog, TaskHook taskHook) {
-        this(taskDesc);
-        this.tasklog = taskLruLog;
         this.taskHook = taskHook;
-    }
-
-    public ITaskLog getTasklog() {
-        return tasklog;
     }
 
     public String getTaskId() {
@@ -73,9 +67,7 @@ public abstract class Task<T extends TaskDesc> {
         } catch (Throwable e) {
             code = AgentConstants.TASK_ERROR_CODE_EXCEPTION;
             e.printStackTrace();
-            if (tasklog != null) {
-                tasklog.appendErrLog(e.getMessage());
-            }
+            TASKLOG.info(e.getMessage());
         } finally {
             this.taskResult.setEndTime(new Date());
             this.taskResult.setRetCode(code);

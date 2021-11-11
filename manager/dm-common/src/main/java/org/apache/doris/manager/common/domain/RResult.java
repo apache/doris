@@ -83,4 +83,8 @@ public class RResult extends HashMap<String, Object> {
     public int getCode() {
         return (int) this.get("code");
     }
+
+    public boolean isSuccess() {
+        return getCode() == CODE_SUCCESS;
+    }
 }

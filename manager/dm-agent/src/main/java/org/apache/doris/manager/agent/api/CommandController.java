@@ -18,12 +18,10 @@
 package org.apache.doris.manager.agent.api;
 
 import org.apache.doris.manager.agent.command.CommandFactory;
-import org.apache.doris.manager.agent.command.CommandResult;
 import org.apache.doris.manager.agent.command.CommandResultService;
-import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.task.Task;
-import org.apache.doris.manager.agent.task.TaskContext;
 import org.apache.doris.manager.common.domain.CommandRequest;
+import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.RResult;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -42,27 +40,19 @@ public class CommandController {
     @PostMapping("/execute")
     public RResult execute(@RequestBody CommandRequest commandRequest) {
         if (Objects.isNull(CommandType.findByName(commandRequest.getCommandType()))) {
-            return RResult.error("unkonwn command");
+            return RResult.error("Unkonwn command");
         }
         Task task = CommandFactory.get(commandRequest).setup().execute();
-        CommandResult commandResult = new CommandResult(task.getTaskResult(),
-                task.getTasklog().allStdLog(),
-                task.getTasklog().allErrLog());
+        CommandResult commandResult = new CommandResult(task.getTaskResult());
         return RResult.success(commandResult);
     }
 
     @GetMapping("/result")
     public RResult commandResult(@RequestParam String taskId) {
-        return RResult.success(CommandResultService.commandResult(taskId));
-    }
-
-    @GetMapping("/stdlog")
-    public RResult getTaskStdLog(@RequestParam String taskId, @RequestParam int offset) {
-        return RResult.success(TaskContext.getTaskByTaskId(taskId) == null ? null : TaskContext.getTaskByTaskId(taskId).getTasklog().stdLog(offset, AgentConstants.COMMAND_LOG_PAGE_SIZE));
-    }
-
-    @GetMapping("/errlog")
-    public RResult getTaskErrLog(@RequestParam String taskId, @RequestParam int offset) {
-        return RResult.success(TaskContext.getTaskByTaskId(taskId) == null ? null : TaskContext.getTaskByTaskId(taskId).getTasklog().errLog(offset, AgentConstants.COMMAND_LOG_PAGE_SIZE));
+        CommandResult commandResult = CommandResultService.commandResult(taskId);
+        if (Objects.isNull(commandResult)) {
+            return RResult.error("Task not found");
+        }
+        return RResult.success(commandResult);
     }
 }

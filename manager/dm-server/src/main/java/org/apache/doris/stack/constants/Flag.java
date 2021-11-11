@@ -15,33 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.util;
+package org.apache.doris.stack.constants;
 
-public class Preconditions {
+public enum Flag {
+    /**
+     * 0 no
+     * 1 yes
+     */
+    NO(0, "no"),
+    YES(1, "yes");
 
-    public static <T> T checkNotNull(T reference) {
-        if (reference == null) {
-            throw new NullPointerException();
-        }
-        return reference;
+    private final int code;
+    private final String desc;
+
+    Flag(int code, String desc) {
+        this.code = code;
+        this.desc = desc;
     }
 
-    public static <T> T checkNotNull(T reference, String errorMessage) {
-        if (reference == null) {
-            throw new NullPointerException(String.valueOf(errorMessage));
-        }
-        return reference;
+    public int getCode() {
+        return code;
     }
 
-    public static void checkArgument(boolean condition) {
-        if (!condition) {
-            throw new IllegalArgumentException();
-        }
-    }
-
-    public static void checkArgument(boolean condition, Object errorMessage) {
-        if (!condition) {
-            throw new IllegalArgumentException(String.valueOf(errorMessage));
-        }
+    public String getDesc() {
+        return desc;
     }
 }

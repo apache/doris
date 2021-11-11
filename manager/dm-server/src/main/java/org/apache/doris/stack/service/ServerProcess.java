@@ -19,9 +19,11 @@ package org.apache.doris.stack.service;
 
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
-import org.apache.doris.stack.req.AgentRegister;
-import org.apache.doris.stack.req.SshInfo;
+import org.apache.doris.stack.model.request.AgentInstallReq;
+import org.apache.doris.stack.model.request.AgentRegister;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.util.List;
 
 /**
@@ -29,17 +31,17 @@ import java.util.List;
  */
 public interface ServerProcess {
 
-    void initAgent(SshInfo sshInfo);
-
     /**
      * install agent
      */
-    void startAgent(SshInfo sshInfo);
+    int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
 
     /**
      * agent list
      */
-    List<AgentEntity> agentList();
+    List<AgentEntity> agentList(int clusterId);
+
+    List<AgentRoleEntity> roleList(int clusterId);
 
     List<AgentRoleEntity> agentRole(String host);
 

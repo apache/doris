@@ -19,7 +19,10 @@ package org.apache.doris.manager.agent.common;
 
 public class AgentConstants {
     public static final int COMMAND_LOG_PAGE_SIZE = 1000;
-    public static final int COMMAND_EXECUTE_UNHEALTH_CODE = -1;
+    public static final int COMMAND_EXECUTE_SUCCESS_CODE = 0;
+    public static final int COMMAND_EXECUTE_UNHEALTH_CODE = -10;
+    public static final int COMMAND_EXECUTE_TIMEOUT_CODE = -11;
+    public static final int COMMAND_EXECUTE_TIMEOUT_MILSECOND = 600000;
 
     public static final int FE_HTTP_PORT_DEFAULT = 8030;
     public static final int BE_HTTP_PORT_DEFAULT = 8040;
@@ -38,7 +41,11 @@ public class AgentConstants {
     public static final String BE_DEFAULT_STORAGE_DIR_RELATIVE_PATH = "/storage";
     public static final String FE_CONFIG_FILE_RELATIVE_PATH = "/conf/fe.conf";
     public static final String BE_CONFIG_FILE_RELATIVE_PATH = "/conf/be.conf";
+    public static final String LOG_FILE_RELATIVE_PATH = "/log/";
+    public static final String TASK_LOG_FILE_RELATIVE_PATH = "/log/task.log";
 
     public static final int TASK_ERROR_CODE_DEFAULT = -501;
     public static final int TASK_ERROR_CODE_EXCEPTION = -502;
+
+    public static final String LOG_TYPE_TASK = "TASK_LOG";
 }

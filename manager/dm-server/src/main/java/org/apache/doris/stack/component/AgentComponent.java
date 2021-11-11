@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.req.AgentRegister;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +41,10 @@ public class AgentComponent {
         return agentRepository.queryAgentNodes(hosts);
     }
 
+    public List<AgentEntity> queryAgentNodes(int clusterId) {
+        return agentRepository.queryAgentNodesByClusterId(clusterId);
+    }
+
     public AgentEntity agentInfo(String host) {
         List<AgentEntity> agentEntities = agentRepository.agentInfo(host);
         if (agentEntities != null && !agentEntities.isEmpty()) {
@@ -51,19 +54,18 @@ public class AgentComponent {
         }
     }
 
-    public int refreshAgentStatus(String host, Integer port) {
+    public boolean refreshAgentStatus(String host, Integer port) {
         AgentEntity agentInfo = agentInfo(host);
         if (agentInfo == null) {
-            return 0;
+            return false;
         }
-        agentInfo.setStatus(AgentStatus.RUNNING.name());
+        agentInfo.setStatus(AgentStatus.RUNNING);
         agentInfo.setLastReportedTime(new Date());
         agentRepository.save(agentInfo);
-        return 1;
+        return true;
     }
 
-    public AgentEntity registerAgent(AgentRegister agent) {
-        AgentEntity agentEntity = new AgentEntity(agent.getHost(), agent.getPort(), agent.getInstallDir(), AgentStatus.RUNNING.name());
-        return agentRepository.save(agentEntity);
+    public AgentEntity saveAgent(AgentEntity agent) {
+        return agentRepository.save(agent);
     }
 }

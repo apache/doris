@@ -15,16 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.task;
 
-public class TaskLogReq extends TaskInfoReq {
-    private int offset;
+import org.apache.doris.stack.runner.TaskContext;
 
-    public int getOffset() {
-        return offset;
+public abstract class AbstractTask {
+
+    protected TaskContext taskContext;
+
+    public AbstractTask(TaskContext taskContext) {
+        this.taskContext = taskContext;
     }
 
-    public void setOffset(int offset) {
-        this.offset = offset;
+    /**
+     * init task
+     */
+    public void init() {
     }
+
+    /**
+     * task handle
+     */
+    public abstract void handle();
+
 }

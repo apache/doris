@@ -20,7 +20,6 @@ package org.apache.doris.stack.component;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.manager.common.domain.AgentRoleRegister;
 import org.apache.doris.stack.dao.AgentRoleRepository;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,15 +34,19 @@ public class AgentRoleComponent {
     @Autowired
     private AgentRoleRepository agentRoleRepository;
 
-    public List<AgentRoleEntity> queryAgentRoles() {
+    public List<AgentRoleEntity> queryAllAgentRoles() {
         return agentRoleRepository.findAll();
     }
 
-    public List<AgentRoleEntity> queryAgentByRole(String role) {
+    public List<AgentRoleEntity> queryAgentRoles(int clusterId) {
+        return agentRoleRepository.queryAgentRoles(clusterId);
+    }
+
+    public List<AgentRoleEntity> queryAgentByRole(String role, int clusterId) {
         if (StringUtils.isBlank(role)) {
-            return Lists.newArrayList();
+            return agentRoleRepository.queryAgentRoles(clusterId);
         }
-        return agentRoleRepository.queryAgentByRole(role);
+        return agentRoleRepository.queryAgentByRole(role, clusterId);
     }
 
     public List<AgentRoleEntity> queryAgentByHost(String host) {
@@ -53,8 +56,11 @@ public class AgentRoleComponent {
         return agentRoleRepository.queryAgentByHost(host);
     }
 
-    public AgentRoleEntity registerAgentRole(AgentRoleRegister agentReg) {
-        AgentRoleEntity agentRoleEntity = new AgentRoleEntity(agentReg.getHost(), agentReg.getRole(), agentReg.getInstallDir());
+    public AgentRoleEntity queryByHostRole(String host, String role) {
+        return agentRoleRepository.queryByHostRole(host, role);
+    }
+
+    public AgentRoleEntity saveAgentRole(AgentRoleEntity agentRoleEntity) {
         return agentRoleRepository.save(agentRoleEntity);
     }
 }

@@ -15,17 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.agent.task;
+package org.apache.doris.stack.model.request;
 
-public enum TaskState {
-    // Task has been queued for execution by the driver
-    INITIALIZED,
-    // Task has been queued for execution by the driver
-    QUEUED,
-    // Task is currently running
-    RUNNING,
-    // Task has completed
-    FINISHED,
-    // Task state is unkown
-    UNKNOWN
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+/**
+ * be join cluster req
+ **/
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BeJoinReq {
+
+    private int processId;
+
+    private List<String> hosts;
 }

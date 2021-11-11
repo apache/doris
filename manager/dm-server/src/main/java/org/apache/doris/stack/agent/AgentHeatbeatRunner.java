@@ -21,7 +21,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
-import org.apache.doris.stack.service.ServerProcess;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -44,9 +43,6 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
     private static ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     @Autowired
-    private ServerProcess serverProcess;
-
-    @Autowired
     private AgentRepository agentRepository;
 
     @Autowired
@@ -61,7 +57,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
                 log.error("heartbeat check fail:", ex);
                 ex.printStackTrace();
             }
-        }, 0, HEALTH_TIME, TimeUnit.MILLISECONDS);
+        }, HEALTH_TIME, HEALTH_TIME, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -69,7 +65,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
      */
     private void heartbeatCheck() {
         long currTime = System.currentTimeMillis();
-        List<AgentEntity> agents = serverProcess.agentList();
+        List<AgentEntity> agents = agentRepository.findAll();
         for (AgentEntity agent : agents) {
             Date lastReportedTime = agent.getLastReportedTime();
             long diff = HEALTH_TIME + 1;
@@ -77,7 +73,7 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
                 diff = currTime - lastReportedTime.getTime();
             }
             if (diff > HEALTH_TIME) {
-                agent.setStatus(AgentStatus.STOP.name());
+                agent.setStatus(AgentStatus.STOP);
                 agentRepository.save(agent);
                 agentCache.putAgent(agent);
                 log.warn("agent {} is unhealthly", agent.getHost());

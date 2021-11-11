@@ -45,7 +45,7 @@ public class AgentContext {
     }
 
     private static boolean registerToServer(String agentIp, Integer agentPort, String agentServer, String agentInstallDir) {
-        String requestUrl = "http://" + agentServer + "/server/register";
+        String requestUrl = "http://" + agentServer + "/api/server/register";
         Map<String, Object> map = new HashMap<>();
         map.put("host", agentIp);
         map.put("port", agentPort);

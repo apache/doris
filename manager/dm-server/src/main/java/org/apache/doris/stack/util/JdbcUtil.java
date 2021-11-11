@@ -51,19 +51,15 @@ public class JdbcUtil {
         return DriverManager.getConnection(url);
     }
 
-    public static boolean execute(Connection conn, String sql) {
-        boolean flag = false;
+    public static boolean execute(Connection conn, String sql) throws SQLException {
         PreparedStatement stmt = null;
         try {
             stmt = conn.prepareStatement(sql);
-            flag = stmt.execute();
-        } catch (SQLException e) {
-            log.error("sql execute error:{}", sql, e);
+            return stmt.execute();
         } finally {
             closeConn(conn);
             closeStmt(stmt);
         }
-        return flag;
     }
 
     public static void closeConn(Connection conn) {
@@ -72,7 +68,7 @@ public class JdbcUtil {
                 conn.close();
             }
         } catch (SQLException e) {
-            log.error("close connection error:", e);
+            log.warn("close connection error:", e);
         }
     }
 
@@ -82,7 +78,7 @@ public class JdbcUtil {
                 stmt.close();
             }
         } catch (SQLException e) {
-            log.error("close statement error:", e);
+            log.warn("close statement error:", e);
         }
     }
 
@@ -92,7 +88,7 @@ public class JdbcUtil {
                 rs.close();
             }
         } catch (SQLException e) {
-            log.error("close resultset error:", e);
+            log.warn("close resultset error:", e);
         }
     }
 }

@@ -20,9 +20,12 @@ package org.apache.doris.stack.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.doris.stack.constants.AgentStatus;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.EnumType;
+import javax.persistence.Enumerated;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
 import javax.persistence.Id;
@@ -33,7 +36,7 @@ import java.util.Date;
  * agent entity
  **/
 @Entity
-@Table(name = "t_agent")
+@Table(name = "agent")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -43,14 +46,20 @@ public class AgentEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
+    @Column(name = "host")
     private String host;
 
-    private Integer port;
+    @Column(name = "port")
+    private int port;
+
+    @Column(name = "cluster_id")
+    private int clusterId;
 
     @Column(name = "install_dir")
     private String installDir;
 
-    private String status;
+    @Enumerated(EnumType.STRING)
+    private AgentStatus status;
 
     @Column(name = "register_time")
     private Date registerTime;
@@ -58,11 +67,18 @@ public class AgentEntity {
     @Column(name = "last_reported_time")
     private Date lastReportedTime;
 
-    public AgentEntity(String host, Integer port, String installDir, String status) {
+    public AgentEntity(String host, int port, String installDir, AgentStatus status) {
         this.host = host;
         this.port = port;
         this.installDir = installDir;
         this.status = status;
         this.registerTime = new Date();
+    }
+
+    public AgentEntity(String host, String installDir, AgentStatus status, int clusterId) {
+        this.host = host;
+        this.installDir = installDir;
+        this.status = status;
+        this.clusterId = clusterId;
     }
 }

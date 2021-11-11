@@ -20,26 +20,50 @@ package org.apache.doris.stack.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.doris.stack.constants.Flag;
 
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
 import javax.persistence.Id;
 import javax.persistence.Table;
 
 @Entity
-@Table(name = "t_agent_role")
+@Table(name = "agent_role")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class AgentRoleEntity {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+
     @Column(length = 150)
     private String host;
 
+    @Column(name = "cluster_id")
+    private int clusterId;
+
+    @Column(name = "role")
     private String role;
+
+    //FOLLOWER / OBSERVER
+    @Column(name = "fe_node_type")
+    private String feNodeType;
 
     @Column(name = "install_dir")
     private String installDir;
 
+    @Column(name = "register")
+    private Flag register;
+
+    public AgentRoleEntity(String host, String role, String feNodeType, String installDir, Flag register) {
+        this.host = host;
+        this.role = role;
+        this.feNodeType = feNodeType;
+        this.installDir = installDir;
+        this.register = register;
+    }
 }

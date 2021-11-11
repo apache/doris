@@ -15,42 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.req;
+package org.apache.doris.stack.model;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
- * deploy Config req
+ * be join cluster req
  **/
-public class DeployConfig {
-    private String host;
-    private String role;
-    private String conf;
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BeJoin {
 
-    public DeployConfig(String host, String conf) {
-        this.host = host;
-        this.conf = conf;
-    }
+    private String feHost;
 
-    public String getHost() {
-        return host;
-    }
+    private int feQueryPort;
 
-    public void setHost(String host) {
-        this.host = host;
-    }
+    private String beHost;
 
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
-
-    public String getConf() {
-        return conf;
-    }
-
-    public void setConf(String conf) {
-        this.conf = conf;
-    }
+    private int agentPort;
 }
