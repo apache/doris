@@ -98,7 +98,7 @@ void AlphaRowset::make_visible_extra(Version version, VersionHash version_hash) 
     }
 }
 
-OLAPStatus AlphaRowset::link_files_to(FilePathDesc& dir_desc, RowsetId new_rowset_id) {
+OLAPStatus AlphaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) {
     for (auto& segment_group : _segment_groups) {
         auto status = segment_group->link_segments_to_path(dir_desc.filepath, new_rowset_id);
         if (status != OLAP_SUCCESS) {

@@ -84,7 +84,7 @@ private:
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
                                      std::string* snapshot_id_path);
 
-    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, FilePathDesc& new_path_desc,
+    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const FilePathDesc& new_path_desc,
                                  TabletSchema& tablet_schema, const RowsetId& next_id,
                                  RowsetMetaPB* new_rs_meta_pb);
 

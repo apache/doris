@@ -199,7 +199,7 @@ public:
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
-    virtual OLAPStatus link_files_to(FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
+    virtual OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
 
     // copy all files to `dir`
     virtual OLAPStatus copy_files_to(const std::string& dir) = 0;

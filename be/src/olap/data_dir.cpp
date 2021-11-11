@@ -523,7 +523,7 @@ OLAPStatus DataDir::load() {
         }
         RowsetSharedPtr rowset;
         OLAPStatus create_status = RowsetFactory::create_rowset(
-                &tablet->tablet_schema(), tablet->tablet_path(), rowset_meta, &rowset);
+                &tablet->tablet_schema(), tablet->tablet_path_desc(), rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()

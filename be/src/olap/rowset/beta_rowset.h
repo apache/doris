@@ -51,7 +51,7 @@ public:
 
     OLAPStatus remove() override;
 
-    OLAPStatus link_files_to(FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
+    OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
     OLAPStatus copy_files_to(const std::string& dir) override;
 
