@@ -22,6 +22,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.apache.doris.stack.model.task.TaskDesc;
 
 /**
  * task context
@@ -35,5 +36,5 @@ public class TaskContext {
 
     private TaskInstanceEntity taskInstance;
 
-    private Object requestParams;
+    private TaskDesc taskDesc;
 }

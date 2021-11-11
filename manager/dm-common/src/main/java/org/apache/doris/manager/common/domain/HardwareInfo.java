@@ -17,37 +17,38 @@
 
 package org.apache.doris.manager.common.domain;
 
-public enum CommandType {
-    INSTALL_FE,
+/**
+ * hardware info
+ **/
+public class HardwareInfo {
 
-    INSTALL_BE,
+    private String host;
 
-    START_FE,
+    private String cpu;
 
-    STOP_FE,
+    private String totalMemory;
 
-    START_BE,
+    public String getHost() {
+        return host;
+    }
 
-    STOP_BE,
+    public void setHost(String host) {
+        this.host = host;
+    }
 
-    WRITE_FE_CONF,
+    public String getCpu() {
+        return cpu;
+    }
 
-    WRITE_BE_CONF,
+    public void setCpu(String cpu) {
+        this.cpu = cpu;
+    }
 
-    INSTALL_BROKER,
+    public String getTotalMemory() {
+        return totalMemory;
+    }
 
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
+    public void setTotalMemory(String totalMemory) {
+        this.totalMemory = totalMemory;
     }
 }

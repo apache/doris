@@ -15,39 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.manager.common.domain;
+package org.apache.doris.stack.model.task;
 
-public enum CommandType {
-    INSTALL_FE,
-
-    INSTALL_BE,
-
-    START_FE,
-
-    STOP_FE,
-
-    START_BE,
-
-    STOP_BE,
-
-    WRITE_FE_CONF,
-
-    WRITE_BE_CONF,
-
-    INSTALL_BROKER,
-
-    START_BROKER,
-
-    STOP_BROKER,
-
-    WRITE_BROKER_CONF;
-
-    public static CommandType findByName(String name) {
-        for (CommandType type : CommandType.values()) {
-            if (type.name().equals(name)) {
-                return type;
-            }
-        }
-        return null;
-    }
+/**
+ * task
+ **/
+public abstract class TaskDesc {
 }

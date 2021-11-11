@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.stack.model.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
 
 /**
  * deploy Config
@@ -29,7 +31,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class DeployConfig {
 
-    private String host;
+    private List<String> hosts;
 
     private String role;
 

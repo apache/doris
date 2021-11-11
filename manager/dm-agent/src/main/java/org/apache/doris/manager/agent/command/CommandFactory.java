@@ -20,11 +20,13 @@ package org.apache.doris.manager.agent.command;
 import com.alibaba.fastjson.JSON;
 import org.apache.doris.manager.agent.exception.AgentException;
 import org.apache.doris.manager.common.domain.BeInstallCommandRequestBody;
+import org.apache.doris.manager.common.domain.BrokerInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.CommandType;
 import org.apache.doris.manager.common.domain.FeInstallCommandRequestBody;
 import org.apache.doris.manager.common.domain.FeStartCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteBeConfCommandRequestBody;
+import org.apache.doris.manager.common.domain.WriteBrokerConfCommandRequestBody;
 import org.apache.doris.manager.common.domain.WriteFeConfCommandRequestBody;
 
 import java.io.UnsupportedEncodingException;
@@ -51,6 +53,9 @@ public class CommandFactory {
             case INSTALL_BE:
                 validBody(body);
                 return new BeInstallCommand(JSON.parseObject(body, BeInstallCommandRequestBody.class));
+            case INSTALL_BROKER:
+                validBody(body);
+                return new BrokerInstallCommand(JSON.parseObject(body, BrokerInstallCommandRequestBody.class));
             case START_FE:
                 return new FeStartCommand(JSON.parseObject(body, FeStartCommandRequestBody.class));
             case STOP_FE:
@@ -59,6 +64,10 @@ public class CommandFactory {
                 return new BeStartCommand();
             case STOP_BE:
                 return new BeStopCommand();
+            case START_BROKER:
+                return new BrokerStartCommand();
+            case STOP_BROKER:
+                return new BrokerStopCommand();
             case WRITE_FE_CONF:
                 validBody(body);
                 WriteFeConfCommandRequestBody writeFeConfCommandRequestBody = JSON.parseObject(body, WriteFeConfCommandRequestBody.class);
@@ -79,6 +88,16 @@ public class CommandFactory {
                     e.printStackTrace();
                 }
                 return new WriteBeConfCommand(writeBeConfCommandRequestBody);
+            case WRITE_BROKER_CONF:
+                validBody(body);
+                WriteBrokerConfCommandRequestBody writeBrokerConfCommandRequestBody = JSON.parseObject(body, WriteBrokerConfCommandRequestBody.class);
+                Base64.Decoder decoder3 = Base64.getDecoder();
+                try {
+                    writeBrokerConfCommandRequestBody.setContent(new String(decoder3.decode(writeBrokerConfCommandRequestBody.getContent()), "UTF-8"));
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+                return new WriteBrokerConfCommand(writeBrokerConfCommandRequestBody);
             default:
                 throw new AgentException("unkown CommandType");
         }

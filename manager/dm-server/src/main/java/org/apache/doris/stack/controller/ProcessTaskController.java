@@ -88,12 +88,33 @@ public class ProcessTaskController {
     }
 
     /**
+     * cancel process
+     */
+    @ApiOperation(value = "cancel process")
+    @RequestMapping(value = "/cancel/{processId}", method = RequestMethod.POST)
+    public RResult cancelProcess(HttpServletRequest request, HttpServletResponse response,
+                                 @PathVariable(value = "processId") int processId) throws Exception {
+        processTask.cancelProcess(request, response, processId);
+        return RResult.success();
+    }
+
+    /**
      * Skip task when task fails
      */
     @ApiOperation(value = "Skip task when task fails")
     @RequestMapping(value = "/task/skip/{taskId}", method = RequestMethod.POST)
-    public RResult skipTask(@PathVariable(value = "taskId") int taskId) throws Exception {
+    public RResult skipTask(@PathVariable(value = "taskId") int taskId) {
         processTask.skipTask(taskId);
+        return RResult.success();
+    }
+
+    /**
+     * retry task when task fails
+     */
+    @ApiOperation(value = "retry task when task fails")
+    @RequestMapping(value = "/task/retry/{taskId}", method = RequestMethod.POST)
+    public RResult retryTask(@PathVariable(value = "taskId") int taskId) {
+        processTask.retryTask(taskId);
         return RResult.success();
     }
 

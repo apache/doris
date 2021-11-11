@@ -40,4 +40,14 @@ public enum Flag {
     public String getDesc() {
         return desc;
     }
+
+    /**
+     * is yes
+     *
+     * @return status
+     */
+    public boolean typeIsYes() {
+        return this == YES;
+    }
+
 }

@@ -18,7 +18,9 @@
 package org.apache.doris.stack.component;
 
 import com.alibaba.fastjson.JSON;
+import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
 import org.apache.doris.manager.common.domain.CommandResult;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.TaskResult;
@@ -65,8 +67,13 @@ public class TaskInstanceComponent {
         if (!checkTaskRunning(processId, host, processType, taskType)) {
             return taskInstanceRepository.save(new TaskInstanceEntity(processId, host, processType, taskType, status));
         } else {
+            log.warn("task {} is already running on the host {}", taskType, host);
             return null;
         }
+    }
+
+    public TaskInstanceEntity saveTask(TaskInstanceEntity task) {
+        return saveTask(task.getProcessId(), task.getHost(), task.getProcessType(), task.getTaskType(), task.getStatus());
     }
 
     /**
@@ -110,9 +117,13 @@ public class TaskInstanceComponent {
             return true;
         }
         List<TaskInstanceEntity> taskInstanceEntities = taskInstanceRepository.queryTasksByProcessStep(processId, parent);
+        if (ObjectUtils.isEmpty(taskInstanceEntities)) {
+            log.error("parent step {} has no task", processType.name());
+            return false;
+        }
         for (TaskInstanceEntity task : taskInstanceEntities) {
             if (Flag.NO.equals(task.getFinish())) {
-                log.info("task {} is unsuccess", task.getTaskType());
+                log.error("task {} is unfinish", task.getTaskType());
                 return false;
             }
         }
@@ -128,5 +139,33 @@ public class TaskInstanceComponent {
             return optional.get();
         }
         return null;
+    }
+
+    /**
+     * query running task
+     */
+    public List<TaskInstanceEntity> queryRunningTasks(int processId, TaskTypeEnum taskType) {
+        List<TaskInstanceEntity> runningTask = Lists.newArrayList();
+        List<TaskInstanceEntity> tasks = taskInstanceRepository.queryTasks(processId, taskType);
+        for (TaskInstanceEntity task : tasks) {
+            if (task.getStatus().typeIsRunning()) {
+                runningTask.add(task);
+            }
+        }
+        return runningTask;
+    }
+
+    /**
+     * query success task
+     */
+    public List<TaskInstanceEntity> querySuccessTasks(int processId, TaskTypeEnum taskType) {
+        List<TaskInstanceEntity> successTask = Lists.newArrayList();
+        List<TaskInstanceEntity> tasks = taskInstanceRepository.queryTasks(processId, taskType);
+        for (TaskInstanceEntity task : tasks) {
+            if (task.getStatus().typeIsSuccess()) {
+                successTask.add(task);
+            }
+        }
+        return successTask;
     }
 }

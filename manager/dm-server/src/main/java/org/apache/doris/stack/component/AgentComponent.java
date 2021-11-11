@@ -18,6 +18,7 @@
 package org.apache.doris.stack.component;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.stack.constants.AgentStatus;
 import org.apache.doris.stack.dao.AgentRepository;
 import org.apache.doris.stack.entity.AgentEntity;
@@ -66,6 +67,21 @@ public class AgentComponent {
     }
 
     public AgentEntity saveAgent(AgentEntity agent) {
+        if (agent.getId() == 0 && StringUtils.isNotBlank(agent.getHost())) {
+            //When retry installing the agent, overwrite the previously installed
+            AgentEntity agentEntity = agentInfo(agent.getHost());
+            if (agentEntity != null) {
+                agent.setId(agentEntity.getId());
+            }
+        }
         return agentRepository.save(agent);
     }
+
+    public void removeAgent(String agentHost) {
+        AgentEntity agentEntity = agentInfo(agentHost);
+        if (agentEntity != null) {
+            agentRepository.deleteById(agentEntity.getId());
+        }
+    }
+
 }

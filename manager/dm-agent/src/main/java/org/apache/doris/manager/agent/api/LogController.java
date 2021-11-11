@@ -18,6 +18,7 @@
 package org.apache.doris.manager.agent.api;
 
 import com.google.common.base.Preconditions;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.manager.agent.common.AgentConstants;
 import org.apache.doris.manager.agent.exception.AgentException;
@@ -26,8 +27,6 @@ import org.apache.doris.manager.agent.service.Service;
 import org.apache.doris.manager.agent.service.ServiceContext;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.manager.common.domain.ServiceRole;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -42,11 +41,11 @@ import java.util.Map;
 /**
  * fe be log
  **/
+@Slf4j
 @RestController
 @RequestMapping("/log")
 public class LogController {
 
-    private static final Logger LOG = LogManager.getLogger(LogController.class);
     private static final long WEB_LOG_BYTES = 1024 * 1024;  // 1MB
 
     /**
@@ -110,7 +109,7 @@ public class LogController {
                     raf.close();
                 }
             } catch (IOException e) {
-                LOG.warn("fail to close log file: " + logPath, e);
+                log.warn("fail to close log file: " + logPath, e);
             }
         }
         return map;

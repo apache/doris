@@ -15,22 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.stack.model;
+package org.apache.doris.manager.common.domain;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+public class WriteBrokerConfCommandRequestBody {
+    private String content;
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class InstallInfo {
-    private String host;
-    /**
-     * be / fe
-     */
-    private String role;
+    public String getContent() {
+        return content;
+    }
 
-    // FOLLOWER / OBSERVER
-    private String feNodeType;
+    public void setContent(String content) {
+        this.content = content;
+    }
 }

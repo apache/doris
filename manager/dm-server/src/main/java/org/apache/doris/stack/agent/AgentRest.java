@@ -19,6 +19,7 @@ package org.apache.doris.stack.agent;
 
 import com.alibaba.fastjson.JSON;
 import com.google.common.collect.Maps;
+import org.apache.doris.manager.common.domain.HardwareInfo;
 import org.apache.doris.manager.common.domain.RResult;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,7 @@ public class AgentRest {
     private static final String SERVICE_CONFIG = "http://%s:%s/service/config?serviceRole={serviceRole}";
     private static final String SERVICE_LOG = "http://%s:%s/log?type={type}";
     private static final String AGENT_TASK_LOG = "http://%s:%s/log/task?taskId={taskId}";
+    private static final String HARDWARE_INFO = "http://%s:%s/hardware/view";
 
     @Autowired
     private RestTemplate restTemplate;
@@ -78,9 +80,19 @@ public class AgentRest {
         param.put("serviceRole", serviceRole);
         RResult result = restTemplate.getForObject(restUrl, RResult.class, param);
         Properties roleConf = new Properties();
-        if (result.getCode() == 0) {
+        if (result != null && result.isSuccess()) {
             roleConf = JSON.parseObject(JSON.toJSONString(result.getData()), Properties.class);
         }
         return roleConf;
+    }
+
+    public HardwareInfo hardwareInfo(String host, Integer port) {
+        String restUrl = String.format(HARDWARE_INFO, host, port);
+        RResult result = restTemplate.getForObject(restUrl, RResult.class);
+        HardwareInfo hardware = null;
+        if (result != null && result.isSuccess()) {
+            hardware = JSON.parseObject(JSON.toJSONString(result.getData()), HardwareInfo.class);
+        }
+        return hardware;
     }
 }

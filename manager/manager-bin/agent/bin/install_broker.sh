@@ -32,17 +32,17 @@ OPTS=$(getopt \
 eval set -- "$OPTS"
 
 URL=
-DORIS_BE_HOME=
+DORIS_BROKER_HOME=
 while true; do
     case "$1" in
         --url) URL=$2 ; shift 2;;
-        --installDir) DORIS_BE_HOME=$2 ; shift 2;;
+        --installDir) DORIS_BROKER_HOME=$2 ; shift 2;;
         --) shift ;  break ;;
         *) echo "Internal error" ; exit 1 ;;
     esac
 done
 
-if [ x"$DORIS_BE_HOME" == x"" ]; then
+if [ x"$DORIS_BROKER_HOME" == x"" ]; then
     echo "--installDir can not empty!"
     exit 1
 fi
@@ -52,25 +52,25 @@ if [ x"$URL" == x"" ]; then
     exit 1
 fi
 
-if [ ! -d $DORIS_BE_HOME ]; then
-    mkdir -p $DORIS_BE_HOME
+if [ ! -d $DORIS_BROKER_HOME ]; then
+    mkdir -p $DORIS_BROKER_HOME
 else
-    rm -rf $DORIS_BE_HOME/*
+    rm -rf $DORIS_BROKER_HOME/*
 fi
 if [ $? -ne 0 ] ;then exit 1;fi
 
-cd $DORIS_BE_HOME
-wget  $URL -O doris-be.tar.gz --quiet
+cd $DORIS_BROKER_HOME
+wget  $URL -O doris-broker.tar.gz --quiet
 if [ $? -ne 0 ] ;then exit 1;fi
 
-mkdir -p $DORIS_BE_HOME/betmp
+mkdir -p $DORIS_BROKER_HOME/brokertmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-tar -zxvf doris-be.tar.gz --strip-components=1 -C $DORIS_BE_HOME/betmp
+tar -zxvf doris-broker.tar.gz --strip-components=1 -C $DORIS_BROKER_HOME/brokertmp
 if [ $? -ne 0 ] ;then exit 1;fi
 
-mv $DORIS_BE_HOME/betmp/be/* $DORIS_BE_HOME/
+mv $DORIS_BROKER_HOME/brokertmp/apache_hdfs_broker/* $DORIS_BROKER_HOME/
 if [ $? -ne 0 ] ;then exit 1;fi
 
-rm -rf $DORIS_BE_HOME/betmp
+rm -rf $DORIS_BROKER_HOME/brokertmp
 if [ $? -ne 0 ] ;then exit 1;fi
