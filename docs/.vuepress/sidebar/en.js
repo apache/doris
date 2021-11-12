@@ -216,15 +216,12 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "Benchmark & Bast Practices",
-    directoryPath: "best-practices/",
+    title: "Benchmark & Sample",
+    directoryPath: "benchmark/",
     children: [
       "star-schema-benchmark",
-      "fe-load-balance",
       "systemd",
-      "samples",
-      "datax-doris-writer",
-      "flink-cdc-to-doris"
+      "samples"
     ],
   },
   {

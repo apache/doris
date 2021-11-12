@@ -1,7 +1,13 @@
 ---
 {
     "title": "Use Flink CDC to realize real-time MySQL data into Apache Doris",
-    "language": "zh-CN"
+    "description": "This article uses examples to demonstrate how to use Flink CDC and Doris' Flink Connector to monitor data from the Mysql database and store it in the corresponding table of the Doris data warehouse in real time.",
+    "date": "2021-11-11",
+    "metaTitle": "article",
+    "language": "zh_cn",
+    "author": "张家锋",
+    "layout": "Article",
+    "sidebar": false
 }
 ---
 
