@@ -494,6 +494,7 @@ public class PropertyAnalyzer {
         String allocationVal = properties.remove(propKey);
         allocationVal = allocationVal.replaceAll(" ", "");
         String[] locations = allocationVal.split(",");
+        int totalReplicaNum = 0;
         for (String location : locations) {
             String[] parts = location.split(":");
             if (parts.length != 2) {
@@ -507,7 +508,13 @@ public class PropertyAnalyzer {
                 throw new AnalysisException("Invalid replication allocation location tag property: " + location);
             }
 
-            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), Short.valueOf(parts[1]));
+            Short replicationNum = Short.valueOf(parts[1]);
+            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
+            totalReplicaNum += replicationNum;
+        }
+        if (totalReplicaNum < Config.min_replication_num_per_tablet || totalReplicaNum > Config.max_replication_num_per_tablet) {
+            throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
+                    + " and " + Config.max_replication_num_per_tablet);
         }
 
         if (replicaAlloc.isEmpty()) {

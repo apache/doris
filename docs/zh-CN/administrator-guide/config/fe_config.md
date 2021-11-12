@@ -145,7 +145,7 @@ FE 的配置项有两种方式进行配置：
 
 ### max_replication_num_per_tablet
 
-默认值：2147483647
+默认值：32767
 
 用于设置单个tablet的最大replication数量。
 

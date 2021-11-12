@@ -146,7 +146,7 @@ Used to set minimal number of replication per tablet.
 
 ### max_replication_num_per_tablet
 
-Default: 2147483647
+Default: 32767
 
 Used to set maximal number of replication per tablet.
 

@@ -1454,13 +1454,13 @@ public class Config extends ConfigBase {
      * Used to set minimal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int min_replication_num_per_tablet = 1;
+    public static short min_replication_num_per_tablet = 1;
 
     /**
      * Used to set maximal number of replication per tablet.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_replication_num_per_tablet = Integer.MAX_VALUE;
+    public static short max_replication_num_per_tablet = Short.MAX_VALUE;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,
