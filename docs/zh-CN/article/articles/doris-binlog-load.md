@@ -3,8 +3,9 @@
     "title": "Apache Doris Binlog Load使用方法及示例",
     "description": "Binlog Load提供了一种使Doris增量同步用户在Mysql数据库的对数据更新操作的CDC(Change Data Capture)功能，使用户更方便的完成Mysql数据的导入",
     "date": "2021-11-10",
-    "metaTitle": "article",
+    "metaTitle": "Apache Doris Binlog Load使用方法及示例",
     "language": "zh-CN",
+    "isArticle": true,
     "author": "张家锋",
     "layout": "Article",
     "sidebar": false
@@ -28,8 +29,6 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-# Apache Doris Binlog Load使用方法及示例
 
 Binlog Load提供了一种使Doris增量同步用户在Mysql数据库的对数据更新操作的CDC(Change Data Capture)功能，使用户更方便的完成Mysql数据的导入
 

@@ -3,8 +3,9 @@
     "title": "How to use Apache Doris Binlog Load and examples",
     "description": "Binlog Load provides a CDC (Change Data Capture) function that enables Doris to incrementally synchronize the user's data update operation in the Mysql database, making it more convenient for users to complete the import of Mysql data.",
     "date": "2021-11-10",
-    "metaTitle": "article",
+    "metaTitle": "How to use Apache Doris Binlog Load and examples",
     "language": "en",
+    "isArticle": true,
     "author": "张家锋",
     "layout": "Article",
     "sidebar": false
@@ -28,8 +29,6 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-
-# How to use Apache Doris Binlog Load and examples
 
 Binlog Load provides a CDC (Change Data Capture) function that enables Doris to incrementally synchronize the user's data update operation in the Mysql database, making it more convenient for users to complete the import of Mysql data.
 
