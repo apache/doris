@@ -27,8 +27,6 @@
 
 namespace doris {
 
-const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
-
 HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
                      const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
                      bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
