@@ -397,7 +397,7 @@ std::string ReservationTracker::DebugString() {
     //std::lock_guard<SpinLock> l(lock_);
     if (!initialized_) return "<ReservationTracker>: uninitialized";
 
-    std::string parent_debug_string = parent_ == nullptr ? "nullptr" : parent_->DebugString();
+    std::string parent_debug_string = parent_ == nullptr ? "NULL" : parent_->DebugString();
     std::stringstream ss;
     ss << "<ReservationTracker>: reservation_limit " << reservation_limit_ << " reservation "
        << reservation_ << " used_reservation " << used_reservation_ << " child_reservations "

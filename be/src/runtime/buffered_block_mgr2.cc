@@ -814,10 +814,10 @@ Status BufferedBlockMgr2::allocate_scratch_space(int64_t block_size, TmpFileMgr:
     for (int attempt = 0; attempt < _tmp_files.size(); ++attempt) {
         *tmp_file = _tmp_files[_next_block_index].get();
         _next_block_index = (_next_block_index + 1) % _tmp_files.size();
-        if (_tmp_files[_next_block_index]->is_blacklisted()) {
+        if ((*tmp_file)->is_blacklisted()) {
             continue;
         }
-        Status status = _tmp_files[_next_block_index]->allocate_space(_max_block_size, file_offset);
+        Status status = (*tmp_file)->allocate_space(_max_block_size, file_offset);
         if (status.ok()) {
             return Status::OK();
         }

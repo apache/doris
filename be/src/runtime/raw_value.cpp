@@ -98,7 +98,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
                            std::stringstream* stream) {
     if (value == nullptr) {
-        *stream << "nullptr";
+        *stream << "NULL";
         return;
     }
 
@@ -195,7 +195,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
                            std::string* str) {
     if (value == nullptr) {
-        *str = "nullptr";
+        *str = "NULL";
         return;
     }
 
@@ -228,7 +228,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         return;
     }
     case TYPE_NULL: {
-        *str = "nullptr";
+        *str = "NULL";
         return;
     }
     default:

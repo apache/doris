@@ -227,7 +227,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                 }
                 void* item = _output_expr_ctxs[j]->get_value(row);
                 if (item == nullptr) {
-                    fmt::format_to(_insert_stmt_buffer, "{}", "nullptr");
+                    fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
                     continue;
                 }
                 switch (_output_expr_ctxs[j]->root()->type().type) {
@@ -267,7 +267,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                         if (string_val->len == 0) {
                             fmt::format_to(_insert_stmt_buffer, "{}", "''");
                         } else {
-                            fmt::format_to(_insert_stmt_buffer, "{}", "nullptr");
+                            fmt::format_to(_insert_stmt_buffer, "{}", "NULL");
                         }
                     } else {
                         fmt::format_to(_insert_stmt_buffer, "'{}'",

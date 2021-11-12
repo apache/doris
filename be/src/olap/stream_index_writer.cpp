@@ -137,7 +137,7 @@ size_t StreamIndexWriter::output_size() {
 
 OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
     if (nullptr == buffer) {
-        OLAP_LOG_WARNING("given buffer is nullptr");
+        OLAP_LOG_WARNING("given buffer is null");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

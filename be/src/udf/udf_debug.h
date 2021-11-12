@@ -28,7 +28,7 @@ namespace doris_udf {
 template <typename T>
 std::string debug_string(const T& val) {
     if (val.is_null) {
-        return "nullptr";
+        return "NULL";
     }
 
     std::stringstream ss;
@@ -39,7 +39,7 @@ std::string debug_string(const T& val) {
 template <>
 std::string debug_string(const StringVal& val) {
     if (val.is_null) {
-        return "nullptr";
+        return "NULL";
     }
 
     return std::string(reinterpret_cast<const char*>(val.ptr), val.len);

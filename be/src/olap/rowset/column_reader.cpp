@@ -502,8 +502,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
 
     if (0 == segment_included.count(column_unique_id)) {
         if (column.has_default_value()) {
-            if (0 == strcasecmp("nullptr", column.default_value().c_str()) &&
-                column.is_nullable()) {
+            if (0 == strcasecmp("NULL", column.default_value().c_str()) && column.is_nullable()) {
                 return new (std::nothrow) NullValueReader(column_id, column_unique_id);
             } else {
                 return new (std::nothrow)

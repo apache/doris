@@ -145,18 +145,6 @@ IntVal validate_mem(FunctionContext* context) {
     return IntVal::null();
 }
 
-// StringVal time_to_string(FunctionContext* context, const TimestampVal& time) {
-//     boost::posix_time::ptime t(*(boost::gregorian::date*)&time.date);
-//     t += boost::posix_time::nanoseconds(time.time_of_day);
-//     std::stringstream ss;
-//     ss << boost::posix_time::to_iso_extended_string(t) << " "
-//        << boost::posix_time::to_simple_string(t.time_of_day());
-//     std::string s = ss.str();
-//     StringVal result(context, s.size());
-//     memcpy(result.ptr, s.data(), result.len);
-//     return result;
-// }
-
 TEST(UdfTest, TestFunctionContext) {
     EXPECT_TRUE(UdfTestHarness::validat_udf<IntVal>(validat_udf, IntVal::null()));
     EXPECT_FALSE(UdfTestHarness::validat_udf<IntVal>(validate_fail, IntVal::null()));

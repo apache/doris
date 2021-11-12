@@ -81,7 +81,7 @@ public:
     /// result in result_.
     void* get_value(TupleRow* row);
 
-    /// Convenience functions: print value into 'str' or 'stream'.  nullptr turns into "nullptr".
+    /// Convenience functions: print value into 'str' or 'stream'.  nullptr turns into "NULL".
     void print_value(TupleRow* row, std::string* str);
     void print_value(void* value, std::string* str);
     void print_value(void* value, std::stringstream* stream);

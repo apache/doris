@@ -315,7 +315,7 @@ std::string RowCursor::to_string() const {
         result.append(std::to_string(is_null(cid)));
         result.append("&");
         if (is_null(cid)) {
-            result.append("nullptr");
+            result.append("NULL");
         } else {
             char* src = cell_ptr(cid);
             result.append(field->to_string(src));

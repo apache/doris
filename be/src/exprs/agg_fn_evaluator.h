@@ -240,7 +240,7 @@ private:
                 _TAggregationOp_VALUES_TO_NAMES.find(_agg_op);
 
         if (it == _TAggregationOp_VALUES_TO_NAMES.end()) {
-            return "nullptr";
+            return "NULL";
         } else {
             return it->second;
         }

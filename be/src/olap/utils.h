@@ -317,7 +317,7 @@ bool valid_bool(const std::string& value_str);
         std::map<int, const char*>::const_iterator it =     \
                 _##enum_type##_VALUES_TO_NAMES.find(index); \
         if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
-            out = "nullptr";                                \
+            out = "NULL";                                   \
         } else {                                            \
             out = it->second;                               \
         }                                                   \

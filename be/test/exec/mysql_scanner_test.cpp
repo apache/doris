@@ -71,7 +71,7 @@ TEST_F(MysqlScannerTest, normal_use) {
             if (buf[i]) {
                 LOG(WARNING) << buf[i];
             } else {
-                LOG(WARNING) << "nullptr";
+                LOG(WARNING) << "NULL";
             }
         }
     }

@@ -315,7 +315,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.column_name = "k4";
     condition.condition_op = "IS";
     condition.condition_values.clear();
-    condition.condition_values.push_back("nullptr");
+    condition.condition_values.push_back("NULL");
     conditions.push_back(condition);
 
     condition.column_name = "k5";
@@ -347,7 +347,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k1=1", del_pred.sub_predicates(0).c_str());
     EXPECT_STREQ("k2>>3", del_pred.sub_predicates(1).c_str());
     EXPECT_STREQ("k3<=5", del_pred.sub_predicates(2).c_str());
-    EXPECT_STREQ("k4 IS nullptr", del_pred.sub_predicates(3).c_str());
+    EXPECT_STREQ("k4 IS NULL", del_pred.sub_predicates(3).c_str());
     EXPECT_STREQ("k5=7", del_pred.sub_predicates(4).c_str());
     EXPECT_STREQ("k12!=9", del_pred.sub_predicates(5).c_str());
 

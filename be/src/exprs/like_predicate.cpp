@@ -187,7 +187,7 @@ void LikePredicate::regexp_like_prepare(FunctionContext* context,
         StringVal* match_parameter = reinterpret_cast<StringVal*>(context->get_constant_arg(2));
         std::stringstream error;
         if (match_parameter->is_null) {
-            error << "nullptr match parameter";
+            error << "match parameter is null";
             context->set_error(error.str().c_str());
             return;
         }

@@ -86,7 +86,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         }
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
-            ss << "nullptr";
+            ss << "NULL";
             continue;
         }
         switch (_output_expr_ctxs[i]->root()->type().type) {
@@ -126,7 +126,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
                 if (string_val->len == 0) {
                     ss << "\'\'";
                 } else {
-                    ss << "nullptr";
+                    ss << "NULL";
                 }
             } else {
                 char* buf = new char[2 * string_val->len + 1];

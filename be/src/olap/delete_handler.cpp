@@ -113,7 +113,7 @@ std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& c
 bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column,
                                                       const std::string& condition_op,
                                                       const string& value_str) {
-    if ("IS" == condition_op && ("nullptr" == value_str || "NOT nullptr" == value_str)) {
+    if ("IS" == condition_op && ("NULL" == value_str || "NOT NULL" == value_str)) {
         return true;
     }
 

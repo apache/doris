@@ -49,7 +49,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
     }
 
     if (nullptr == state) {
-        return Status::InternalError("input pointer is nullptr.");
+        return Status::InternalError("input pointer is null.");
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
@@ -94,7 +94,7 @@ Status OdbcScanNode::open(RuntimeState* state) {
     VLOG_CRITICAL << "OdbcScanNode::Open";
 
     if (nullptr == state) {
-        return Status::InternalError("input pointer is nullptr.");
+        return Status::InternalError("input pointer is null.");
     }
 
     if (!_is_init) {

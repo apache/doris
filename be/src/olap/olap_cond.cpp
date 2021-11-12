@@ -114,7 +114,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
                              tcond.column_name.c_str(), operand->c_str(), op);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
-        if (strcasecmp(operand->c_str(), "nullptr") == 0) {
+        if (strcasecmp(operand->c_str(), "NULL") == 0) {
             f->set_null();
         } else {
             f->set_not_null();

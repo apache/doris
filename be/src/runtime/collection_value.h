@@ -35,7 +35,7 @@ class ArrayIterator;
  * - INT32
  * - CHAR
  * - VARCHAR
- * - nullptr
+ * - NULL
  * 
  * A new array need initialization memory before used
  */

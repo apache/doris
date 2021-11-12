@@ -67,7 +67,7 @@ OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, strin
                                           bool* allow_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be nullptr";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -248,7 +248,7 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet
                                                    string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
     if (out_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be nullptr";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -307,7 +307,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
               << ", snapshot_version is " << snapshot_version;
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be nullptr";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

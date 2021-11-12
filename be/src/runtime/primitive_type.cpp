@@ -180,7 +180,7 @@ std::string type_to_string(PrimitiveType t) {
         return "INVALID";
 
     case TYPE_NULL:
-        return "nullptr";
+        return "NULL";
 
     case TYPE_BOOLEAN:
         return "BOOL";

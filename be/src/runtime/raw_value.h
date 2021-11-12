@@ -38,7 +38,7 @@ public:
     // Ascii output precision for double/float
     static const int ASCII_PRECISION;
 
-    // Convert 'value' into ascii and write to 'stream'. nullptr turns into "nullptr". 'scale'
+    // Convert 'value' into ascii and write to 'stream'. nullptr turns into NULL. 'scale'
     // determines how many digits after the decimal are printed for floating point numbers,
     // -1 indicates to use the stream's current formatting.
     static void print_value(const void* value, const TypeDescriptor& type, int scale,
