@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -266,6 +267,18 @@ public abstract class SyncJob implements Writable {
         return "\\N";
     }
 
+    public boolean isExpired(long currentTimeMs) {
+        if (!isCompleted()) {
+            return false;
+        }
+        Preconditions.checkState(finishTimeMs != -1L);
+        long expireTime = Config.label_keep_max_second * 1000L;
+        if ((currentTimeMs - finishTimeMs) > expireTime) {
+            return true;
+        }
+        return false;
+    }
+
     // only use for persist when job state changed
     public static class SyncJobUpdateStateInfo implements Writable {
         @SerializedName(value = "id")
@@ -449,5 +462,9 @@ public abstract class SyncJob implements Writable {
 
     public List<ChannelDescription> getChannelDescriptions() {
         return this.channelDescriptions;
+    }
+
+    public long getFinishTimeMs() {
+        return finishTimeMs;
     }
 }
