@@ -52,8 +52,7 @@ public:
     Status init();
     void stop_bg_worker();
 
-    const std::string& path() const { return _path; }
-    const std::string& remote_path() const { return _remote_path; }
+    const std::string& path() const { return _path_desc.filepath; }
     const FilePathDesc& path_desc() const { return _path_desc;}
     size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
@@ -165,8 +164,6 @@ private:
 private:
     bool _stop_bg_worker = false;
 
-    std::string _path;
-    std::string _remote_path;
     FilePathDesc _path_desc;
     size_t _path_hash;
     // user specified capacity
