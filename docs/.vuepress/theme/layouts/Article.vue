@@ -20,7 +20,7 @@ under the License.
 <template>
   <div class="article-wrap">
     <Navbar />
-    <div class="content-wrapper">
+    <div class="content-wrapper1">
       <div class="article-header">
         <h1>{{frontmatter.title}}</h1>
         <div class="article-sub-header">
@@ -56,10 +56,10 @@ export default {
 };
 </script>
 <style lang="stylus">
-  .content-wrapper
+  .content-wrapper1
     padding: 60px 15px 80px
     min-height: calc(100vh - 140px)
-    max-width: 740px
+    max-width: 80%
     margin: 0 auto
     .article-sub-header
       .article-header-item
