@@ -46,18 +46,19 @@ import java.util.Map;
 public class OdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
 
-    private static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
-    private static final String ODBC_HOST = "host";
-    private static final String ODBC_PORT = "port";
-    private static final String ODBC_USER = "user";
-    private static final String ODBC_PASSWORD = "password";
-    private static final String ODBC_DATABASE = "database";
-    private static final String ODBC_TABLE = "table";
-    private static final String ODBC_DRIVER = "driver";
-    private static final String ODBC_TYPE = "odbc_type";
+    public static final String ODBC_CATALOG_RESOURCE = "odbc_catalog_resource";
+    public static final String ODBC_HOST = "host";
+    public static final String ODBC_PORT = "port";
+    public static final String ODBC_USER = "user";
+    public static final String ODBC_PASSWORD = "password";
+    public static final String ODBC_DATABASE = "database";
+    public static final String ODBC_TABLE = "table";
+    public static final String ODBC_DRIVER = "driver";
+    public static final String ODBC_TYPE = "odbc_type";
 
     // map now odbc external table Doris support now
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
+
     static {
         Map<String, TOdbcTableType> tempMap = new HashMap<>();
         tempMap.put("oracle", TOdbcTableType.ORACLE);
