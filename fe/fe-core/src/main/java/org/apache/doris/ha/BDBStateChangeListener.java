@@ -19,7 +19,6 @@ package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.persist.EditLog;
 
 import com.google.common.base.Preconditions;
 import com.sleepycat.je.rep.StateChangeEvent;
