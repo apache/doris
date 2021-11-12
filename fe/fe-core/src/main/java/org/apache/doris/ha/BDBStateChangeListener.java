@@ -29,7 +29,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class BDBStateChangeListener implements StateChangeListener {
-    public static final Logger LOG = LogManager.getLogger(EditLog.class);
+    public static final Logger LOG = LogManager.getLogger(BDBStateChangeListener.class);
 
     public BDBStateChangeListener() {
     }
