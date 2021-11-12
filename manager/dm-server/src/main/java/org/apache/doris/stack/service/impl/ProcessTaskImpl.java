@@ -37,7 +37,7 @@ import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.task.AgentInstall;
 import org.apache.doris.stack.model.task.BeJoin;
-import org.apache.doris.stack.runner.TaskExecutor;
+import org.apache.doris.stack.runner.TaskExecuteRunner;
 import org.apache.doris.stack.service.ProcessTask;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,7 +75,7 @@ public class ProcessTaskImpl implements ProcessTask {
     private AuthenticationService authenticationService;
 
     @Autowired
-    private TaskExecutor taskExecutor;
+    private TaskExecuteRunner taskExecuteRunner;
 
     @Override
     public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -146,10 +146,10 @@ public class ProcessTaskImpl implements ProcessTask {
         TaskTypeEnum taskType = taskEntity.getTaskType();
         switch (taskType) {
             case INSTALL_AGENT:
-                taskExecutor.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), AgentInstall.class));
+                taskExecuteRunner.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), AgentInstall.class));
                 break;
             case JOIN_BE:
-                taskExecutor.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), BeJoin.class));
+                taskExecuteRunner.execTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), BeJoin.class));
                 break;
             case INSTALL_FE:
             case INSTALL_BE:
@@ -159,7 +159,7 @@ public class ProcessTaskImpl implements ProcessTask {
             case STOP_BE:
             case DEPLOY_BE_CONFIG:
             case DEPLOY_FE_CONFIG:
-                RResult result = taskExecutor.execAgentTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), CommandRequest.class));
+                RResult result = taskExecuteRunner.execAgentTask(taskEntity, JSON.parseObject(taskEntity.getTaskJson(), CommandRequest.class));
                 taskInstanceComponent.refreshTask(taskEntity, result);
                 break;
             default:

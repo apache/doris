@@ -59,7 +59,7 @@ import org.apache.doris.stack.model.task.BeJoin;
 import org.apache.doris.stack.model.task.DeployConfig;
 import org.apache.doris.stack.model.task.DorisInstall;
 import org.apache.doris.stack.model.task.DorisStart;
-import org.apache.doris.stack.runner.TaskExecutor;
+import org.apache.doris.stack.runner.TaskExecuteRunner;
 import org.apache.doris.stack.service.AgentProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.util.JdbcUtil;
@@ -106,7 +106,7 @@ public class AgentProcessImpl implements AgentProcess {
     private AuthenticationService authenticationService;
 
     @Autowired
-    private TaskExecutor taskExecutor;
+    private TaskExecuteRunner taskExecuteRunner;
 
     @Override
     @Transactional
@@ -176,7 +176,7 @@ public class AgentProcessImpl implements AgentProcess {
             return;
         }
         taskInstance.setTaskJson(JSON.toJSONString(creq));
-        RResult result = taskExecutor.execAgentTask(taskInstance, creq);
+        RResult result = taskExecuteRunner.execAgentTask(taskInstance, creq);
         taskInstanceComponent.refreshTask(taskInstance, result);
     }
 
@@ -365,7 +365,7 @@ public class AgentProcessImpl implements AgentProcess {
                 return;
             }
             BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
-            taskExecutor.execTask(joinBeTask, beJoin);
+            taskExecuteRunner.execTask(joinBeTask, beJoin);
         }
     }
 
@@ -426,7 +426,7 @@ public class AgentProcessImpl implements AgentProcess {
         }
 
         creq.setCommandType(command.name());
-        RResult result = taskExecutor.execAgentTask(execTask, creq);
+        RResult result = taskExecuteRunner.execAgentTask(execTask, creq);
         TaskInstanceEntity taskInstanceEntity = taskInstanceComponent.refreshTask(execTask, result);
         log.info("agent {} {} {} ", host, execTask.getTaskType().name(), roleName);
         return taskInstanceEntity.getId();

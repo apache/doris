@@ -41,7 +41,7 @@ import org.apache.doris.stack.model.request.AgentRegister;
 import org.apache.doris.stack.model.request.TestConnectionReq;
 import org.apache.doris.stack.model.response.TestConnectionResp;
 import org.apache.doris.stack.model.task.AgentInstall;
-import org.apache.doris.stack.runner.TaskExecutor;
+import org.apache.doris.stack.runner.TaskExecuteRunner;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
 import org.apache.doris.stack.shell.SSH;
@@ -81,7 +81,7 @@ public class ServerProcessImpl implements ServerProcess {
     private AuthenticationService authenticationService;
 
     @Autowired
-    private TaskExecutor taskExecutor;
+    private TaskExecuteRunner taskExecuteRunner;
 
     @Override
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
@@ -97,7 +97,7 @@ public class ServerProcessImpl implements ServerProcess {
             }
             AgentInstall agentInstall = new AgentInstall(host, installReq);
             installAgent.setTaskJson(JSON.toJSONString(agentInstall));
-            taskExecutor.execTask(installAgent, agentInstall);
+            taskExecuteRunner.execTask(installAgent, agentInstall);
             //save agent
             agentComponent.saveAgent(new AgentEntity(host, installReq.getInstallDir(), AgentStatus.INIT, installReq.getClusterId()));
             log.info("host {} installing agent.", host);
