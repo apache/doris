@@ -218,7 +218,7 @@ module.exports = [
   },
   {
     title: "性能测试及示例",
-    directoryPath: "best-practices/",
+    directoryPath: "benchmark/",
     children: [
       "star-schema-benchmark",
       "systemd",
