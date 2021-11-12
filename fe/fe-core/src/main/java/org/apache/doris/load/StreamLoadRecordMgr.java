@@ -51,6 +51,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -67,7 +68,7 @@ import com.google.gson.annotations.SerializedName;
 public class StreamLoadRecordMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StreamLoadRecordMgr.class);
 
-    private class StreamLoadItem {
+    public class StreamLoadItem {
         private String label;
         private long dbId;
         private String finishTime;
@@ -88,6 +89,14 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
         public String getFinishTime() {
             return finishTime;
+        }
+
+        public List<String> getStatistics() {
+            List<String> row = Lists.newArrayList();
+            row.add(label);
+            row.add(String.valueOf(dbId));
+            row.add(finishTime);
+            return row;
         }
     }
 
@@ -137,6 +146,10 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             labelToStreamLoadRecord.put(label, streamLoadRecord);
         }
         writeUnlock();
+    }
+
+    public List<StreamLoadItem> getStreamLoadRecords() {
+        return new ArrayList<>(streamLoadRecordHeap);
     }
 
     public List<List<Comparable>> getStreamLoadRecordByDb(long dbId, String label, boolean accurateMatch, StreamLoadState state) {

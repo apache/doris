@@ -110,6 +110,7 @@ public:
                                          const BigIntVal& range_start, const BigIntVal& cardinality_limit);
     static StringVal sub_bitmap(FunctionContext* ctx, const StringVal& src,
                                 const BigIntVal& offset, const BigIntVal& cardinality_limit);
+
 };
 } // namespace doris
 #endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
