@@ -217,15 +217,12 @@ module.exports = [
     sidebarDepth: 1,
   },
   {
-    title: "性能测试和最佳实践",
-    directoryPath: "best-practices/",
+    title: "性能测试及示例",
+    directoryPath: "benchmark/",
     children: [
       "star-schema-benchmark",
-      "fe-load-balance",
       "systemd",
-      "samples",
-      "datax-doris-writer",
-      "flink-cdc-to-doris"
+      "samples"
     ],
   },
   {

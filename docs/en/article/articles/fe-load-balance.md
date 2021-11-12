@@ -1,7 +1,13 @@
 ---
 {
-    "title": "Doris FE load balance",
-    "language": "en"
+    "title": "Apache Doris FE load balance",
+    "description": "In order to better expand the Apache doris ecosystem and provide more convenient data import for doris users, the community development and extension supports Datax DorisWriter, making it more convenient for Datax to access data.",
+    "date": "2021-11-11",
+    "metaTitle": "article",
+    "language": "zh_cn",
+    "author": "张家锋",
+    "layout": "Article",
+    "sidebar": false
 }
 ---
 
