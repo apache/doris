@@ -42,6 +42,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
+import org.apache.doris.rewrite.OrToInRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
@@ -275,6 +276,7 @@ public class Analyzer {
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
             rules.add(RewriteLikePredicateRule.INSTANCE);
+            rules.add(OrToInRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules, onceRules);
@@ -1652,7 +1654,7 @@ public class Analyzer {
         }
         return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
     }
-    
+
     public boolean safeIsEnableFoldConstantByBe() {
         if (globalState.context == null) {
             return false;
