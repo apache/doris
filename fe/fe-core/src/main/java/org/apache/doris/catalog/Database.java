@@ -406,6 +406,22 @@ public class Database extends MetaObject implements Writable {
         return tableList;
     }
 
+    public List<Table> getTablesOnIdOrderWithIgnoringWrongTableId(List<Long> tableIdList) {
+        List<Table> tableList = Lists.newArrayList();
+        for (Long tableId : tableIdList) {
+            Table table = idToTable.get(tableId);
+            if (table == null) {
+                LOG.warn("unknown table, tableId=" + tableId);
+                continue;
+            }
+            tableList.add(table);
+        }
+        if (tableList.size() > 1) {
+            return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
+        }
+        return tableList;
+    }
+
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
