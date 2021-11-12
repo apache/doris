@@ -89,6 +89,7 @@ public:
         scan_bytes = 0;
         cpu_ms = 0;
         returned_rows = 0;
+        max_peak_memory_bytes = 0;
         clearNodeStatistics();
     }
 
