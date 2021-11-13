@@ -198,6 +198,7 @@
                 <artifactId>maven-thrift-plugin</artifactId>
                 <version>0.1.11</version>
                 <configuration>
+                    <thriftExecutable>${doris.thirdparty}/installed/bin/thrift</thriftExecutable>
                     <generator>java:fullcamel</generator>
                 </configuration>
                 <executions>
