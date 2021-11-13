@@ -3,8 +3,9 @@
     "title": "Apache Doris Datax DorisWriter扩展使用方法",
     "description": "为了更好的扩展Apache doris生态，为doris用户提供更方便的数据导入，社区开发扩展支持了Datax DorisWriter，使大家更方便Datax进行数据接入.",
     "date": "2021-11-11",
-    "metaTitle": "article",
-    "language": "zh_cn",
+    "metaTitle": "Apache Doris Datax DorisWriter扩展使用方法",
+    "isArticle": true,
+    "language": "zh-CN",
     "author": "张家锋",
     "layout": "Article",
     "sidebar": false
@@ -29,7 +30,6 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# Datax DorisWriter扩展使用方法
 
 DataX 是阿里云 DataWorks数据集成 的开源版本，在阿里巴巴集团内被广泛使用的离线数据同步工具/平台。DataX 实现了包括 MySQL、Oracle、SqlServer、Postgre、HDFS、Hive、ADS、HBase、TableStore(OTS)、MaxCompute(ODPS)、Hologres、DRDS 等各种异构数据源之间高效的数据同步功能
 
@@ -98,7 +98,7 @@ oceanbasev10writer
 mvn -U clean package assembly:assembly -Dmaven.test.skip=true
 ```
 
-![image-20210903132250723](/images/image-20210903132250723.png)
+<img src="/images/image-20210903132250723.png" alt="image-20211105134818474" style="zoom:50%;" />
 
 ![image-20210903132539511](/images/image-20210903132539511.png)
 
@@ -254,7 +254,7 @@ python bin/datax.py doris.json
 
 然后就可以看到执行结果：
 
-![image-20210903134043421](/images/image-20210903134043421.png)
+<img src="/images/image-20210903134043421.png" alt="image-20210903134043421" style="zoom:30%;" />
 
 再去 Doris 数据库中查看你的表，数据就已经导入进去了，任务执行结束
 

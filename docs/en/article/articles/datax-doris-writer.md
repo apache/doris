@@ -3,9 +3,10 @@
     "title": "How to use Apache doris Datax DorisWriter extension",
     "description": "In order to better expand the Apache doris ecosystem and provide more convenient data import for doris users, the community development and extension supports Datax DorisWriter, making it more convenient for Datax to access data.",
     "date": "2021-11-11",
-    "metaTitle": "article",
-    "language": "zh_cn",
+    "metaTitle": "How to use Apache doris Datax DorisWriter extension",
+    "language": "en",
     "author": "张家锋",
+    "isArticle": true,
     "layout": "Article",
     "sidebar": false
 }
@@ -29,7 +30,6 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-# How to use Apache doris Datax DorisWriter extension
 
 DataX is an open source version of Alibaba Cloud DataWorks data integration, an offline data synchronization tool/platform widely used in Alibaba Group. DataX implements efficient data synchronization functions between various heterogeneous data sources including MySQL, Oracle, SqlServer, Postgre, HDFS, Hive, ADS, HBase, TableStore (OTS), MaxCompute (ODPS), Hologres, DRDS, etc.
 
@@ -96,7 +96,7 @@ Here I am performing the compilation of Datax into a tar package, which is not t
 mvn -U clean package assembly:assembly -Dmaven.test.skip=true
 ```
 
-![image-20210903132250723](/images/image-20210903132250723.png)
+<img src="/images/image-20210903132250723.png" alt="image-20210903132250723" style="zoom:50%;" />
 
 ![image-20210903132539511](/images/image-20210903132539511.png)
 
@@ -250,7 +250,7 @@ python bin/datax.py doris.json
 
 Then you can see the execution result:
 
-![image-20210903134043421](/images/image-20210903134043421.png)
+<img src="/images/image-20210903134043421.png" alt="image-20210903134043421" style="zoom:30%;" />
 
 Then go to the Doris database to check your table, the data has been imported, and the task execution is over
 

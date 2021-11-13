@@ -64,7 +64,7 @@ export default {
   },
   computed: {
     articleList () {
-      return this.$site.pages.filter(item => item.frontmatter.metaTitle === 'article' && item.frontmatter.language === this.$lang)
+      return this.$site.pages.filter(item => item.frontmatter.isArticle && item.frontmatter.language === this.$lang)
     },
     currentArticleList () {
       const start = (this.pageNumber - 1) * this.pageSize
@@ -89,7 +89,7 @@ export default {
   .content-wrapper
     padding: 100px 15px 80px
     min-height: calc(100vh - 180px)
-    max-width: 740px
+    max-width: 80%
     margin: 0 auto
     .article-item 
       padding-bottom: 20px
