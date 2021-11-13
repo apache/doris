@@ -514,5 +514,4 @@ public class PropertyAnalyzer {
         }
         return replicaAlloc;
     }
-
 }
