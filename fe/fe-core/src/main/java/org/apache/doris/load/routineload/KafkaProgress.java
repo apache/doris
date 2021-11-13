@@ -156,12 +156,12 @@ public class KafkaProgress extends RoutineLoadProgress {
     // And offset saved in `partitionIdToOffset` is the next offset to be consumed.
     // For example, if a partition has 4 msg with offsets: 0,1,2,3
     // The latest offset is 4, and offset to be consumed is 2,
-    // so the lag should be (4-2+1=)2.
+    // so the lag should be (4-2=)2.
     public Map<Integer, Long> getLag(Map<Integer, Long> partitionIdWithLatestOffsets) {
         Map<Integer, Long> lagMap = Maps.newHashMap();
         for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
             if (partitionIdWithLatestOffsets.containsKey(entry.getKey())) {
-                long lag = partitionIdWithLatestOffsets.get(entry.getKey()) - entry.getValue() + 1;
+                long lag = partitionIdWithLatestOffsets.get(entry.getKey()) - entry.getValue();
                 lagMap.put(entry.getKey(), lag);
             } else {
                 lagMap.put(entry.getKey(), -1L);
