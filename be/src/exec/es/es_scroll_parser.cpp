@@ -427,18 +427,23 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 break;
             }
 
-            bool is_nested_str = false;
-            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
-                *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
-                break;
-            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
-                is_nested_str = true;
-            } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+            bool nested_string = false;
+            if (pure_doc_value && col.IsArray()) {
+                if (col[0].IsBool()) {
+                    *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
+                    break;
+                } else if (col[0].IsString()) {
+                    nested_string = true;
+                } else {
+                    return Status::InternalError(
+                            strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                }
             }
 
-            const rapidjson::Value& str_col = is_nested_str? col[0]: col;
+            const rapidjson::Value& str_col = nested_string? col[0] : col;
+            RETURN_ERROR_IF_COL_IS_ARRAY(str_col, type);
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(str_col, type);
+
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;
