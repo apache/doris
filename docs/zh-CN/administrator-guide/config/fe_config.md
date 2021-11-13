@@ -775,7 +775,15 @@ fe 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片
 
 3. 高并发查询均匀发送到所有 Frontends
 
-在这种情况下，所有 Frontends 只能使用本地副本进行查询。
+在这种情况下，所有 Frontends 只能使用本地副本进行查询。如果想当本地副本不可用时，使用非本地副本服务查询，请将 enable_local_replica_selection_fallback 设置为 true
+
+### enable_local_replica_selection_fallback
+
+默认值：false
+
+是否可以动态配置：true
+
+与 enable_local_replica_selection 配合使用，当本地副本不可用时，使用非本地副本服务查询。
 
 ### max_unfinished_load_job
 
