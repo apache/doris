@@ -520,7 +520,7 @@ public class SelectStmt extends QueryStmt {
         if (needToSql) {
             sqlString_ = toSql();
         }
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+        if (analyzer.enableStarJoinReorder()) {
             LOG.debug("use old reorder logical in select stmt");
             reorderTable(analyzer);
         }

@@ -1643,6 +1643,17 @@ public class Analyzer {
         this.changeResSmap = changeResSmap;
     }
 
+    // The star join reorder is turned on
+    // when 'enable_join_reorder_based_cost = false' and 'disable_join_reorder = false'
+    public boolean enableStarJoinReorder() {
+        if (globalState.context == null) {
+            return false;
+        }
+        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+    }
+
+    // The cost based join reorder is turned on
+    // when 'enable_join_reorder_based_cost = true' and 'disable_join_reorder = false'
     // Load plan and query plan are the same framework
     // Some Load method in doris access through http protocol, which will cause the session may be empty.
     // In order to avoid the occurrence of null pointer exceptions, a check will be added here
@@ -1650,7 +1661,7 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost();
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
     
     public boolean safeIsEnableFoldConstantByBe() {
