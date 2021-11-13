@@ -432,3 +432,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
     该参数会被 user property 中的 `cpu_resource_limit` 配置覆盖。
 
     默认 -1，即不限制。
+
+* `disable_join_reorder`
+
+   用于关闭所有系统自动的 join reorder 算法。取值有两种：true 和 false。默认行况下关闭，也就是采用系统自动的 join reorder 算法。设置为 true 后，系统会关闭所有自动排序的算法，采用 SQL 原始的表顺序，执行 join
