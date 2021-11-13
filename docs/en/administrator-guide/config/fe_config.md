@@ -783,7 +783,15 @@ If set to true, Planner will try to select replica of tablet on same host as thi
 -  N hosts with N Backends and N Frontends deployed. 
 - The data has N replicas. 
 -  High concurrency queries are syyuyuient to all Frontends evenly 
--  In this case, all Frontends can only use local replicas to do the query.
+-  In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to nonlocal replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
+
+### enable_local_replica_selection_fallback
+
+Default：false
+
+IsMutable：true
+
+Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
 
 ### max_unfinished_load_job
 

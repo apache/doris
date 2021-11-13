@@ -213,8 +213,8 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public void getQueryableReplicas(List<Replica> allQuerableReplica, List<Replica> localReplicas,
-            long visibleVersion, long visibleVersionHash, long localBeId, int schemaHash) {
+    public void getQueryableReplicas(List<Replica> allQuerableReplica, long visibleVersion,
+                                     long visibleVersionHash, int schemaHash) {
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -231,9 +231,6 @@ public class Tablet extends MetaObject implements Writable {
                 if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
                     allQuerableReplica.add(replica);
-                    if (localBeId != -1 && replica.getBackendId() == localBeId) {
-                        localReplicas.add(replica);
-                    }
                 }
             }
         }
