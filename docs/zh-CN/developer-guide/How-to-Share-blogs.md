@@ -37,12 +37,17 @@ under the License.
 | description | - | Blog描述|
 | date | - | Blog发布时间 |
 | author | - | Blog作者 |
-| metaTitle | article | 标记Blog文件 |
-| language | en/zn-CN | 语言 |
+| metaTitle | - | 浏览文章时候浏览器显示的标题 |
+| language | en/zh-CN | 语言 |
 | layout | Article | 布局组件 |
 | sidebar | false | 隐藏侧边栏 |
+| isArticle | true | 是否是文章，默认不要修改 |
 
-其中title、description和date字段值由Blog编写者填写，其他字段为固定值。
+>**注意**
+>
+>其中title、description、date、author，metaTitle字段值由Blog编写者填写，其他字段为固定值。
+>
+>language：en，zh-CN，主要不要书写错误
 
 文件头示例：
 ```
@@ -52,10 +57,11 @@ under the License.
     "description": "This is description",
     "date": "2021-11-03",
     "author": "Alex",
-    "metaTitle": "article",
+    "metaTitle": "This is title",
     "language": "zh-CN",
     "layout": "Article",
     "sidebar": false
+    "isArticle":true
 }
 ---
 ```
