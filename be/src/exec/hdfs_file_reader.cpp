@@ -185,7 +185,6 @@ int64_t HdfsFileReader::size() {
 Status HdfsFileReader::seek(int64_t position) {
     int res = hdfsSeek(_hdfs_fs, _hdfs_file, position);
     if (res != 0) {
-        char err_buf[64];
         std::stringstream ss;
         ss << "Seek to offset failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
                 << " offset=" << position << ", err: " << strerror(errno);
