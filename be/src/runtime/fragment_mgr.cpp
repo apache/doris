@@ -452,6 +452,9 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+    TAG(LOG(INFO)).log("PlanFragmentExecutor::_exec_actual")
+            .query_id(exec_state->query_id()).instance_id(exec_state->fragment_instance_id())
+            .tag("pthread_id", std::to_string((uintptr_t) pthread_self()));
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
