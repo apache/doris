@@ -561,7 +561,7 @@ public final class SparkDpp implements java.io.Serializable {
                                 .otherwise("0"));
             } else if (!column.columnType.equalsIgnoreCase(BITMAP_TYPE) && !dstField.dataType().equals(DataTypes.StringType)) {
                 dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(dstField.dataType()));
-            } else if (column.columnType.equals(BITMAP_TYPE) && dstField.dataType().equals(DataTypes.BinaryType)) {
+            } else if (column.columnType.equalsIgnoreCase(BITMAP_TYPE) && dstField.dataType().equals(DataTypes.BinaryType)) {
                 dataframe = dataframe.withColumn(dstField.name(), dataframe.col(dstField.name()).cast(DataTypes.BinaryType));
             }
             if (fileGroup.isNegative && !column.isKey) {
