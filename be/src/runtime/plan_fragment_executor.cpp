@@ -39,6 +39,7 @@
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
+#include "util/uid_util.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -71,7 +72,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
 
     TAG(LOG(INFO)).log("PlanFragmentExecutor::prepare")
                   .query_id(_query_id).instance_id(params.fragment_instance_id)
-                  .tag("backend_num", std::to_string(request.backend_num));
+                  .tag("backend_num", std::to_string(request.backend_num))
+                  .tag("pthread_id", std::to_string((uintptr_t) pthread_self()));
     // VLOG_CRITICAL << "request:\n" << apache::thrift::ThriftDebugString(request);
 
     const TQueryGlobals& query_globals =
