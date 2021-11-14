@@ -73,7 +73,7 @@ fi
 
 eval set -- "$OPTS"
 
-PARALLEL=$[$(nproc)/2+1]
+PARALLEL=$[$(nproc)/4+1]
 CLEAN=
 RUN=
 if [ $# == 1 ] ; then
@@ -128,7 +128,7 @@ if [ ${RUN} -ne 1 ]; then
 fi
 
 echo "******************************"
-echo "    Running Backend Unit Test    "
+echo "   Running Backend Unit Test  "
 echo "******************************"
 
 cd ${DORIS_HOME}

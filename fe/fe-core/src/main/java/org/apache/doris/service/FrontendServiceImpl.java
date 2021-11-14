@@ -204,13 +204,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // database privs should be checked in analysis phrase
 
-        Database db = Catalog.getCurrentCatalog().getDb(params.db);
-        UserIdentity currentUser = null;
+        UserIdentity currentUser;
         if (params.isSetCurrentUserIdent()) {
             currentUser = UserIdentity.fromThrift(params.current_user_ident);
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        Database db = Catalog.getCurrentCatalog().getDbNullable(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
@@ -246,13 +246,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // database privs should be checked in analysis phrase
 
-        Database db = Catalog.getCurrentCatalog().getDb(params.db);
-        UserIdentity currentUser = null;
+        UserIdentity currentUser;
         if (params.isSetCurrentUserIdent()) {
             currentUser = UserIdentity.fromThrift(params.current_user_ident);
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        Database db = Catalog.getCurrentCatalog().getDbNullable(params.db);
         if (db != null) {
             List<Table> tables = null;
             if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
@@ -381,9 +381,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(params.db);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(params.db);
         if (db != null) {
-            Table table = db.getTable(params.getTableName());
+            Table table = db.getTableNullable(params.getTableName());
             if (table != null) {
                 table.readLock();
                 try {
@@ -668,10 +668,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
 
     private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new AuthenticationException("invalid db name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
         TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().
                 getTransactionState(db.getId(), txnId);
         if (transactionState == null) {
@@ -779,7 +776,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // check database
         Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = catalog.getDb(fullDbName);
+        Database db = catalog.getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -788,7 +785,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
-        Table table = db.getTableOrThrowException(request.tbl, TableType.OLAP);
+        Table table = db.getTableOrMetaException(request.tbl, TableType.OLAP);
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -851,11 +848,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // get database
         Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = null;
+        Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = catalog.getDb(request.getDbId());
+            db = catalog.getDbNullable(request.getDbId());
         } else {
-            db = catalog.getDb(fullDbName);
+            db = catalog.getDbNullable(fullDbName);
         }
         if (db == null) {
             String dbName = fullDbName;
@@ -866,7 +863,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
-        Table table = db.getTableOrThrowException(request.getTbl(), TableType.OLAP);
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         db, Lists.newArrayList(table), request.getTxnId(),
                         TabletCommitInfo.fromThrift(request.getCommitInfos()),
@@ -916,11 +913,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = null;
+        Database db;
         if (request.isSetDbId() && request.getDbId() > 0) {
-            db = Catalog.getCurrentCatalog().getDb(request.getDbId());
+            db = Catalog.getCurrentCatalog().getDbNullable(request.getDbId());
         } else {
-            db = Catalog.getCurrentCatalog().getDb(dbName);
+            db = Catalog.getCurrentCatalog().getDbNullable(dbName);
         }
         if (db == null) {
             throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
@@ -962,7 +959,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Catalog catalog = Catalog.getCurrentCatalog();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-        Database db = catalog.getDb(fullDbName);
+        Database db = catalog.getDbNullable(fullDbName);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -971,7 +968,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
-        Table table = db.getTableOrThrowException(request.getTbl(), TableType.OLAP);
+        Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
             throw new UserException("get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }

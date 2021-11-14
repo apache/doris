@@ -203,8 +203,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_PARTITION: {
-                data = new ModifyPartitionInfo();
-                ((ModifyPartitionInfo) data).readFields(in);
+                data = ModifyPartitionInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -319,6 +318,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
+            case OperationType.OP_MODIFY_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
                 data = Backend.read(in);
                 isRead = true;
@@ -470,8 +470,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
             case OperationType.OP_COLOCATE_MARK_UNSTABLE:
             case OperationType.OP_COLOCATE_MARK_STABLE: {
-                data = new ColocatePersistInfo();
-                ((ColocatePersistInfo) data).readFields(in);
+                data = ColocatePersistInfo.read(in);
                 isRead = true;
                 break;
             }

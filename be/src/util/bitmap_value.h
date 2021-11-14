@@ -616,7 +616,7 @@ public:
 
         if (*buf == BitmapTypeCode::BITMAP32) {
             Roaring read = Roaring::read(buf + 1);
-            result.emplaceOrInsert(0, read);
+            result.emplaceOrInsert(0, std::move(read));
             return result;
         }
 
@@ -635,9 +635,9 @@ public:
             buf += sizeof(uint32_t);
             // read map value Roaring
             Roaring read = Roaring::read(buf);
-            result.emplaceOrInsert(key, read);
             // forward buffer past the last Roaring Bitmap
             buf += read.getSizeInBytes();
+            result.emplaceOrInsert(key, std::move(read));
         }
         return result;
     }
@@ -845,6 +845,10 @@ private:
 #else
         roarings.emplace(std::make_pair(key, value));
 #endif
+    }
+
+    void emplace(const uint32_t key, Roaring&& value) {
+        roarings.emplace(std::make_pair(key, std::move(value)));
     }
 };
 

@@ -266,8 +266,9 @@ public class InlineViewRef extends TableRef {
             }
 
             columnSet.add(colAlias);
-            columnList.add(new Column(colAlias, selectItemExpr.getType().getPrimitiveType(),
-                    selectItemExpr.isNullable()));
+            columnList.add(new Column(colAlias, selectItemExpr.getType(),
+                    false, null, selectItemExpr.isNullable(),
+                    null, ""));
         }
         InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 
@@ -423,15 +424,18 @@ public class InlineViewRef extends TableRef {
         // This is needed for view compatibility between Impala and Hive.
         String aliasSql = null;
         String alias = getExplicitAlias();
-        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+
         if (view != null) {
-            // TODO(zc):
-            // return view_.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+            // FIXME: this may result in a sql cache problem
+            // See pr #6736 and issue #6735
             return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
         }
 
-        StringBuilder sb = new StringBuilder()
-                .append("(")
+        StringBuilder sb = new StringBuilder();
+        sb.append("(")
                 .append(queryStmt.toSql())
                 .append(") ")
                 .append(aliasSql);

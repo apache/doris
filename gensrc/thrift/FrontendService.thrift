@@ -591,6 +591,7 @@ struct TStreamLoadPutRequest {
     32: optional string line_delimiter
     33: optional bool read_json_by_line
     34: optional string auth_code_uuid
+    35: optional i32 send_batch_parallelism
 }
 
 struct TStreamLoadPutResult {

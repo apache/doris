@@ -154,6 +154,7 @@ module.exports = [
         directoryPath: "operation/",
         children: [
           "doris-error-code",
+          "be-olap-error-code",
           "disk-capacity",
           "metadata-operation",
           "monitor-alert",
@@ -207,6 +208,7 @@ module.exports = [
       "time-zone",
       "variables",
       "update",
+      "multi-tenant",
     ],
     sidebarDepth: 1,
   },
@@ -216,7 +218,8 @@ module.exports = [
     children: [
       "fe-load-balance",
       "systemd",
-      "samples"
+      "samples",
+      "datax-doris-writer"
     ],
   },
   {
@@ -335,6 +338,7 @@ module.exports = [
               "get_json_int",
               "get_json_string",
               "group_concat",
+              "hex",
               "instr",
               "lcase",
               "left",
@@ -346,6 +350,7 @@ module.exports = [
               "money_format",
               "null_or_empty",
               "repeat",
+              "replace",
               "reverse",
               "right",
               "rpad",
@@ -353,6 +358,7 @@ module.exports = [
               "starts_with",
               "strleft",
               "strright",
+              "unhex",
               {
                 title: "fuzzy match",
                 directoryPath: "like/",
@@ -384,6 +390,7 @@ module.exports = [
               "hll_union_agg",
               "max",
               "min",
+              "percentile",
               "percentile_approx",
               "stddev",
               "stddev_samp",
@@ -581,6 +588,7 @@ module.exports = [
               "HLL",
               "INT",
               "SMALLINT",
+              "STRING",
               "TINYINT",
               "VARCHAR",
             ],
@@ -599,6 +607,7 @@ module.exports = [
     directoryPath: "developer-guide/",
     children: [
         "debug-tool",
+        "benchmark-tool",
         "fe-eclipse-dev",
         "fe-idea-dev",
         "be-vscode-dev",		

@@ -213,7 +213,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_n
         _packet_seq_map.emplace(be_number, packet_seq);
     }
 
-    int batch_size = RowBatch::get_batch_size(pb_batch);
+    size_t batch_size = RowBatch::get_batch_size(pb_batch);
     COUNTER_UPDATE(_recvr->_bytes_received_counter, batch_size);
 
     // Following situation will match the following condition.
@@ -446,8 +446,7 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "DataStreamRecvr", parent_tracker);
+    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

@@ -41,13 +41,13 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,7 +58,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -237,10 +236,7 @@ public class RoutineLoadManager implements Writable {
             throws MetaNotFoundException, DdlException, AnalysisException {
 
         List<RoutineLoadJob> result = Lists.newArrayList();
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         long dbId = database.getId();
         Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
         if (jobMap == null) {
@@ -358,7 +354,6 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             int result = 0;
-            updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
@@ -442,7 +437,6 @@ public class RoutineLoadManager implements Writable {
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
-            updateBeIdToMaxConcurrentTasks();
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
@@ -499,12 +493,8 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
 
-            long dbId = 0L;
-            Database database = Catalog.getCurrentCatalog().getDb(dbFullName);
-            if (database == null) {
-                throw new MetaNotFoundException("failed to find database by dbFullName " + dbFullName);
-            }
-            dbId = database.getId();
+            Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbFullName);
+            long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();
                 break RESULT;
@@ -565,13 +555,12 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    public boolean checkTaskInJob(UUID taskId) {
-        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            if (routineLoadJob.containsTask(taskId)) {
-                return true;
-            }
+    public boolean checkTaskInJob(RoutineLoadTaskInfo task) {
+        RoutineLoadJob routineLoadJob = idToRoutineLoadJob.get(task.getJobId());
+        if (routineLoadJob == null) {
+            return false;
         }
-        return false;
+        return routineLoadJob.containsTask(task.getId());
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(Set<RoutineLoadJob.JobState> desiredStates) {

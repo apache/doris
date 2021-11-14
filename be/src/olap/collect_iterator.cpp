@@ -138,8 +138,7 @@ OLAPStatus CollectIterator::next(const RowCursor** row, bool* delete_flag) {
 
 CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, Reader* reader)
         : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
-    auto* ans = dynamic_cast<BetaRowsetReader*>(rs_reader.get());
-    if (LIKELY(ans != nullptr)) {
+    if (LIKELY(rs_reader->type() == RowsetReader::BETA)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
     } else {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v1;
@@ -149,13 +148,9 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
 CollectIterator::Level0Iterator::~Level0Iterator() {}
 
 OLAPStatus CollectIterator::Level0Iterator::init() {
-    auto res = _row_cursor.init(_reader->_tablet->tablet_schema(), _reader->_seek_columns);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to init row cursor, res=" << res;
-        return res;
-    }
-    RETURN_NOT_OK((this->*_refresh_current_row)());
-    return OLAP_SUCCESS;
+    RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet->tablet_schema(), _reader->_seek_columns),
+                      "failed to init row cursor");
+    return (this->*_refresh_current_row)();
 }
 
 const RowCursor* CollectIterator::Level0Iterator::current_row(bool* delete_flag) const {
@@ -237,6 +232,17 @@ CollectIterator::Level1Iterator::~Level1Iterator() {
         if (child != nullptr) {
             delete child;
             child = nullptr;
+        }
+    }
+
+    if (_heap) {
+        while (!_heap->empty()) {
+            LevelIterator* it = _heap->top();
+            if (it != nullptr) {
+                delete it;
+                it = nullptr;
+            }
+            _heap->pop();
         }
     }
 }

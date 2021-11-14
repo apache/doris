@@ -202,11 +202,11 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
-# librdkafka
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v0.11.6-RC5.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-0.11.6-RC5.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-0.11.6-RC5
-LIBRDKAFKA_MD5SUM="2e4ecef2df277e55a0144eb6d185e18a"
+# librdkafka-1.7.0
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.7.0.tar.gz"
+LIBRDKAFKA_NAME=v1.7.0.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.7.0
+LIBRDKAFKA_MD5SUM="fe3c45deb182bd9c644b6bc6375bffc3"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.3.7.tar.gz"
@@ -374,10 +374,11 @@ GSASL_SOURCE="libgsasl-1.10.0"
 GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/ClickHouse-Extras/libhdfs3/archive/refs/heads/master.zip"
+HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
 HDFS3_NAME="libhdfs3-master.zip"
 HDFS3_SOURCE="libhdfs3-master"
-HDFS3_MD5SUM="9e46a16009cf86b5e187d302b3582628"
+HDFS3_MD5SUM="8c071fd2e7b0b1ccc1ec9c0d073d4146"
+# commit id: 22781c4ebd31aee918c38b3af7b2e8da5adec93e
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/refs/tags/v4.0.0.tar.gz"
@@ -390,6 +391,13 @@ PDQSORT_DOWNLOAD="http://ftp.cise.ufl.edu/ubuntu/pool/universe/p/pdqsort/pdqsort
 PDQSORT_NAME="pdqsort.tar.gz"
 PDQSORT_SOURCE="pdqsort-0.0.0+git20180419"
 PDQSORT_MD5SUM="39261c3e7b40aa7505662fac29f22d20"
+
+# benchmark
+BENCHMARK_DOWNLOAD="https://github.com/google/benchmark/archive/v1.5.6.tar.gz"
+BENCHMARK_NAME=benchmark-1.5.6.tar.gz
+BENCHMARK_SOURCE=benchmark-1.5.6
+BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -447,5 +455,6 @@ XML2
 GSASL
 HDFS3
 LIBDIVIDE
-PDQSORT"
+PDQSORT
+BENCHMARK"
 

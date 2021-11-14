@@ -28,7 +28,7 @@ under the License.
 ## description
 ### syntax
 
-'BOOLEAN regexp(VARCHAR str, VARCHAR pattern)'
+`BOOLEAN regexp(VARCHAR str, VARCHAR pattern)`
 
 对字符串 str 进行正则匹配，匹配上的则返回 true，没匹配上则返回 false。pattern 为正则表达式。
 

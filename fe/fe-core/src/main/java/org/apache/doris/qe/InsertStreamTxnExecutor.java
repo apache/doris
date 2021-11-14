@@ -62,8 +62,8 @@ public class InsertStreamTxnExecutor {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
-                1, true, true, txnEntry.getDb().getClusterName());
+        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                1, true, false, txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
             throw new UserException("there is no scanNode Backend.");
         }
@@ -159,9 +159,10 @@ public class InsertStreamTxnExecutor {
             if (code != TStatusCode.OK) {
                 throw new TException("failed to insert data: " + result.getStatus().getErrorMsgsList());
             }
-            txnEntry.clearDataToSend();
         } catch (RpcException e) {
             throw new TException(e);
+        } finally {
+            txnEntry.clearDataToSend();
         }
     }
 

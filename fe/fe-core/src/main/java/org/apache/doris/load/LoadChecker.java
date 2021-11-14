@@ -51,11 +51,11 @@ import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -170,7 +170,8 @@ public class LoadChecker extends MasterDaemon {
                         task = new HadoopLoadPendingTask(job);
                         break;
                     default:
-                        LOG.warn("unknown etl job type. type: {}", etlJobType.name());
+                        LOG.warn("unknown etl job type. type: {}, job id: {}, label: {}, db: {}",
+                                etlJobType.name(), job.getId(), job.getLabel(), job.getDbId());
                         break;
                 }
                 if (task != null) {
@@ -226,7 +227,7 @@ public class LoadChecker extends MasterDaemon {
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         // get db
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
@@ -356,14 +357,14 @@ public class LoadChecker extends MasterDaemon {
 
     private Set<Long> submitPushTasks(LoadJob job, Database db) {
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
-        boolean needDecompress = (job.getEtlJobType() == EtlJobType.HADOOP) ? true : false;
+        boolean needDecompress = job.getEtlJobType() == EtlJobType.HADOOP;
         AgentBatchTask batchTask = new AgentBatchTask();
         Set<Long> jobTotalTablets = new HashSet<Long>();
 
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 // if table is dropped during load, the the job is failed
@@ -396,7 +397,7 @@ public class LoadChecker extends MasterDaemon {
                         return null;
                     }
                     
-                    short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
+                    short replicationNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
@@ -539,7 +540,7 @@ public class LoadChecker extends MasterDaemon {
         // if db is null, cancel load job
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;

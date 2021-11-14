@@ -48,6 +48,10 @@ namespace doris {
  *  251-1-'5'-3-'120'-253-65536-"...my length is 65536..."
  *
  */
+using int128_t = __int128;
+class DateTimeValue;
+class DecimalV2Value;
+
 class MysqlRowBuffer {
 public:
     MysqlRowBuffer();
@@ -61,8 +65,12 @@ public:
     int push_int(int32_t data);
     int push_bigint(int64_t data);
     int push_unsigned_bigint(uint64_t data);
+    int push_largeint(int128_t data);
     int push_float(float data);
     int push_double(double data);
+    int push_time(double data);
+    int push_datetime(const DateTimeValue& data);
+    int push_decimal(const DecimalV2Value& data, int round_scale);
     int push_string(const char* str, int length);
     int push_null();
 

@@ -55,8 +55,9 @@ enum PrimitiveType {
     TYPE_HLL,       /* 19 */
     TYPE_DECIMALV2, /* 20 */
 
-    TYPE_TIME, /* 21 */
-    TYPE_OBJECT,
+    TYPE_TIME,   /* 21 */
+    TYPE_OBJECT, /* 22 */
+    TYPE_STRING, /* 23 */
 };
 
 inline bool is_enumeration_type(PrimitiveType type) {
@@ -66,6 +67,7 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_NULL:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
     case TYPE_DATETIME:
     case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
@@ -88,13 +90,13 @@ inline bool is_enumeration_type(PrimitiveType type) {
     return false;
 }
 
-// inline bool is_date_type(PrimitiveType type) {
-//     return type == TYPE_DATETIME || type == TYPE_DATE;
-// }
-//
-// inline bool is_string_type(PrimitiveType type) {
-//     return type == TYPE_CHAR || type == TYPE_VARCHAR;
-// }
+inline bool is_date_type(PrimitiveType type) {
+    return type == TYPE_DATETIME || type == TYPE_DATE;
+}
+
+inline bool is_string_type(PrimitiveType type) {
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_STRING;
+}
 
 // Returns the byte size of 'type'  Returns 0 for variable length types.
 inline int get_byte_size(PrimitiveType type) {
@@ -102,6 +104,7 @@ inline int get_byte_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
     case TYPE_ARRAY:
         return 0;
 
@@ -141,6 +144,7 @@ inline int get_real_byte_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
     case TYPE_ARRAY:
         return 0;
 
@@ -181,15 +185,21 @@ int get_slot_size(PrimitiveType type);
 
 inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     if (lhs == TYPE_VARCHAR) {
-        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT;
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
+               rhs == TYPE_STRING;
     }
 
     if (lhs == TYPE_OBJECT) {
-        return rhs == TYPE_VARCHAR || rhs == TYPE_OBJECT;
+        return rhs == TYPE_VARCHAR || rhs == TYPE_OBJECT || rhs == TYPE_STRING;
     }
 
     if (lhs == TYPE_CHAR || lhs == TYPE_HLL) {
-        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL;
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_STRING;
+    }
+
+    if (lhs == TYPE_STRING) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT ||
+               rhs == TYPE_STRING;
     }
 
     return lhs == rhs;
@@ -257,6 +267,11 @@ struct PrimitiveTypeTraits<TYPE_CHAR> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
+    using CppType = StringValue;
+};
+
+template <>
+struct PrimitiveTypeTraits<TYPE_STRING> {
     using CppType = StringValue;
 };
 

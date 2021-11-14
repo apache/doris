@@ -24,8 +24,12 @@ import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.sync.SyncJob.JobState;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
+import org.apache.doris.load.sync.canal.CanalDestination;
+import org.apache.doris.load.sync.canal.CanalSyncJob;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -63,12 +67,31 @@ public class SyncJobManager implements Writable {
         SyncJob syncJob = SyncJob.fromStmt(jobId, stmt);
         writeLock();
         try {
+            checkDuplicateRemote(syncJob);
             unprotectedAddSyncJob(syncJob);
             Catalog.getCurrentCatalog().getEditLog().logCreateSyncJob(syncJob);
         } finally {
             writeUnlock();
         }
-        LOG.info("add sync job. {}", syncJob);
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                .add("name", syncJob.getJobName())
+                .add("type", syncJob.getJobType())
+                .add("config", syncJob.getJobConfig())
+                .add("msg", "add sync job.")
+                .build());
+    }
+
+    private void checkDuplicateRemote(SyncJob syncJob) throws DdlException {
+        if (syncJob.getJobType() == DataSyncJobType.CANAL) {
+            CanalDestination remote = ((CanalSyncJob) syncJob).getRemote();
+            List<SyncJob> unCompletedJobs = idToSyncJob.values().stream().filter(job -> !job.isCompleted())
+                    .collect(Collectors.toList());
+            for (SyncJob job : unCompletedJobs) {
+                if (job instanceof CanalSyncJob && ((CanalSyncJob) job).getRemote().equals(remote)) {
+                    throw new DdlException("Remote Canal instance already exists. conflict destination: " + remote);
+                }
+            }
+        }
     }
 
     private void unprotectedAddSyncJob(SyncJob syncJob) {
@@ -84,14 +107,11 @@ public class SyncJobManager implements Writable {
         map.get(syncJob.getJobName()).add(syncJob);
     }
 
-    public void pauseSyncJob(PauseSyncJobStmt stmt) throws DdlException {
+    public void pauseSyncJob(PauseSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -101,7 +121,7 @@ public class SyncJobManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
 
-            List<SyncJob> runningSyncJob = matchJobs.stream().filter(entity -> entity.isRunning())
+            List<SyncJob> runningSyncJob = matchJobs.stream().filter(SyncJob::isRunning)
                     .collect(Collectors.toList());
             if (runningSyncJob.isEmpty()) {
                 throw new DdlException("There is no running job with jobName `"
@@ -118,14 +138,11 @@ public class SyncJobManager implements Writable {
         }
     }
 
-    public void resumeSyncJob(ResumeSyncJobStmt stmt) throws DdlException {
+    public void resumeSyncJob(ResumeSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         List<SyncJob> syncJobs = Lists.newArrayList();
         readLock();
@@ -135,7 +152,7 @@ public class SyncJobManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
 
-            List<SyncJob> pausedSyncJob = matchJobs.stream().filter(entity -> entity.isPaused())
+            List<SyncJob> pausedSyncJob = matchJobs.stream().filter(SyncJob::isPaused)
                     .collect(Collectors.toList());
             if (pausedSyncJob.isEmpty()) {
                 throw new DdlException("There is no paused job with jobName `"
@@ -152,14 +169,11 @@ public class SyncJobManager implements Writable {
         }
     }
 
-    public void stopSyncJob(StopSyncJobStmt stmt) throws DdlException {
+    public void stopSyncJob(StopSyncJobStmt stmt) throws UserException {
         String dbName = stmt.getDbFullName();
         String jobName = stmt.getJobName();
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         // List of sync jobs waiting to be cancelled
         List<SyncJob> syncJobs = Lists.newArrayList();
@@ -237,10 +251,7 @@ public class SyncJobManager implements Writable {
     }
 
     public boolean isJobNameExist(String dbName, String jobName) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         boolean result = false;
         readLock();
         try {
@@ -258,6 +269,14 @@ public class SyncJobManager implements Writable {
         }
 
         return result;
+    }
+
+    public void updateNeedSchedule() throws UserException {
+        for (SyncJob syncJob : idToSyncJob.values()) {
+            if (!syncJob.isCompleted()) {
+                syncJob.checkAndDoUpdate();
+            }
+        }
     }
 
     public SyncJob getSyncJobById(long jobId) {
@@ -293,9 +312,6 @@ public class SyncJobManager implements Writable {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             SyncJob syncJob = SyncJob.read(in);
-            if (!syncJob.isCompleted()) {
-                syncJob.updateState(JobState.PENDING, true);
-            }
             unprotectedAddSyncJob(syncJob);
         }
     }
@@ -304,17 +320,23 @@ public class SyncJobManager implements Writable {
         writeLock();
         try {
             unprotectedAddSyncJob(syncJob);
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
+                    .add("msg", "replay create sync job.")
+                    .build());
         } finally {
             writeUnlock();
         }
     }
+    
     public void replayUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
         writeLock();
         try {
             long jobId = info.getId();
             SyncJob job = idToSyncJob.get(jobId);
             if (job == null) {
-                LOG.warn("replay update sync job state failed. Job was not found, id: {}", jobId);
+                LOG.warn(new LogBuilder(LogKey.SYNC_JOB, jobId)
+                        .add("msg", "replay update sync job state failed. Job was not found.")
+                        .build());
                 return;
             }
             job.replayUpdateSyncJobState(info);

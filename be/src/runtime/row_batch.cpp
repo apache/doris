@@ -20,14 +20,14 @@
 #include <snappy/snappy.h>
 #include <stdint.h> // for intptr_t
 
+#include "gen_cpp/Data_types.h"
+#include "gen_cpp/data.pb.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
+#include "runtime/collection_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "gen_cpp/Data_types.h"
-#include "gen_cpp/data.pb.h"
-#include "runtime/collection_value.h"
 
 //#include "vec/columns/column_vector.h"
 //#include "vec/core/block.h"
@@ -370,7 +370,7 @@ RowBatch::~RowBatch() {
     clear();
 }
 
-int RowBatch::serialize(TRowBatch* output_batch) {
+size_t RowBatch::serialize(TRowBatch* output_batch) {
     // why does Thrift not generate a Clear() function?
     output_batch->row_tuples.clear();
     output_batch->tuple_offsets.clear();
@@ -380,7 +380,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     _row_desc.to_thrift(&output_batch->row_tuples);
     output_batch->tuple_offsets.reserve(_num_rows * _num_tuples_per_row);
 
-    int size = total_byte_size();
+    size_t size = total_byte_size();
     output_batch->tuple_data.resize(size);
 
     // Copy tuple data, including strings, into output_batch (converting string
@@ -412,7 +412,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
         // smaller
-        int max_compressed_size = snappy::MaxCompressedLength(size);
+        size_t max_compressed_size = snappy::MaxCompressedLength(size);
 
         if (_compression_scratch.size() < max_compressed_size) {
             _compression_scratch.resize(max_compressed_size);
@@ -437,7 +437,7 @@ int RowBatch::serialize(TRowBatch* output_batch) {
     return get_batch_size(*output_batch) - output_batch->tuple_data.size() + size;
 }
 
-int RowBatch::serialize(PRowBatch* output_batch) {
+size_t RowBatch::serialize(PRowBatch* output_batch) {
     // num_rows
     output_batch->set_num_rows(_num_rows);
     // row_tuples
@@ -448,7 +448,7 @@ int RowBatch::serialize(PRowBatch* output_batch) {
     // is_compressed
     output_batch->set_is_compressed(false);
     // tuple data
-    int size = total_byte_size();
+    size_t size = total_byte_size();
     auto mutable_tuple_data = output_batch->mutable_tuple_data();
     mutable_tuple_data->resize(size);
 
@@ -478,7 +478,7 @@ int RowBatch::serialize(PRowBatch* output_batch) {
     if (config::compress_rowbatches && size > 0) {
         // Try compressing tuple_data to _compression_scratch, swap if compressed data is
         // smaller
-        int max_compressed_size = snappy::MaxCompressedLength(size);
+        uint32_t max_compressed_size = snappy::MaxCompressedLength(size);
 
         if (_compression_scratch.size() < max_compressed_size) {
             _compression_scratch.resize(max_compressed_size);
@@ -625,15 +625,15 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     reset();
 }
 
-int RowBatch::get_batch_size(const TRowBatch& batch) {
-    int result = batch.tuple_data.size();
+size_t RowBatch::get_batch_size(const TRowBatch& batch) {
+    size_t result = batch.tuple_data.size();
     result += batch.row_tuples.size() * sizeof(TTupleId);
     result += batch.tuple_offsets.size() * sizeof(int32_t);
     return result;
 }
 
-int RowBatch::get_batch_size(const PRowBatch& batch) {
-    int result = batch.tuple_data().size();
+size_t RowBatch::get_batch_size(const PRowBatch& batch) {
+    size_t result = batch.tuple_data().size();
     result += batch.row_tuples().size() * sizeof(int32_t);
     result += batch.tuple_offsets().size() * sizeof(int32_t);
     return result;
@@ -690,8 +690,8 @@ void RowBatch::deep_copy_to(RowBatch* dst) {
     dst->commit_rows(_num_rows);
 }
 // TODO: consider computing size of batches as they are built up
-int RowBatch::total_byte_size() {
-    int result = 0;
+size_t RowBatch::total_byte_size() {
+    size_t result = 0;
 
     // Sum total variable length byte sizes.
     for (int i = 0; i < _num_rows; ++i) {

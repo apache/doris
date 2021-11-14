@@ -242,30 +242,6 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testFromCreateStmtWithErrorTable(@Mocked Catalog catalog,
-                                                 @Injectable Database database) throws LoadException {
-        CreateRoutineLoadStmt createRoutineLoadStmt = initCreateRoutineLoadStmt();
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, null, null, null, null,
-                partitionNames, null, LoadTask.MergeType.APPEND, null);
-        Deencapsulation.setField(createRoutineLoadStmt, "routineLoadDesc", routineLoadDesc);
-
-        new Expectations() {
-            {
-                database.getTable(tableNameString);
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        try {
-            KafkaRoutineLoadJob kafkaRoutineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
-            Assert.fail();
-        } catch (UserException e) {
-            LOG.info(e.getMessage());
-        }
-    }
-
-    @Test
     public void testFromCreateStmt(@Mocked Catalog catalog,
                                    @Injectable Database database,
             @Injectable OlapTable table) throws UserException {
@@ -291,7 +267,7 @@ public class KafkaRoutineLoadJobTest {
 
         new Expectations() {
             {
-                database.getTable(tableNameString);
+                database.getTableNullable(tableNameString);
                 minTimes = 0;
                 result = table;
                 database.getId();

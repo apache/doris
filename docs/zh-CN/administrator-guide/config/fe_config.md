@@ -216,7 +216,7 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 ### default_db_data_quota_bytes
 
-默认值：1TB
+默认值：1PB
 
 是否可以动态配置：true
 
@@ -2024,6 +2024,18 @@ HOUR: log前缀是：yyyyMMddHH
 
 load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清理过时的作业。
 
+### delete_info_keep_max_second
+
+默认值：3 * 24 * 3600  (3天)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+删除元数据中创建时间大于`delete_info_keep_max_second`的delete信息。
+
+设置较短的时间将减少 FE 内存使用量和镜像文件大小。（因为所有的deleteInfo在被删除之前都存储在内存和镜像文件中）
+
 ### transaction_clean_interval_second
 
 默认值：30
@@ -2031,8 +2043,25 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 如果事务 visible 或者 aborted 状态，事务将在 `transaction_clean_interval_second` 秒后被清除 ，我们应该让这个间隔尽可能短，每个清洁周期都尽快
 
 
-### `default_max_query_instances`
+### default_max_query_instances
 
 默认值：-1
 
 用户属性max_query_instances小于等于0时，使用该配置，用来限制单个用户同一时刻可使用的查询instance个数。该参数小于等于0表示无限制。
+
+### use_compact_thrift_rpc
+
+默认值：true
+
+是否使用压缩格式发送查询计划结构体。开启后，可以降低约50%的查询计划结构体大小，从而避免一些 "send fragment timeout" 错误。
+但是在某些高并发小查询场景下，可能会降低约10%的并发度。
+
+### disable_tablet_scheduler
+
+默认值：false
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：false
+
+如果设置为true，将关闭副本修复和均衡逻辑。

@@ -25,6 +25,7 @@ import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.http.HttpServer;
 import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
@@ -34,6 +35,9 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.base.Charsets;
+import com.google.common.base.Strings;
+
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -41,9 +45,6 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Charsets;
-import com.google.common.base.Strings;
 
 import java.io.File;
 import java.io.IOException;
@@ -111,6 +112,9 @@ public class PaloFe {
 
             FrontendOptions.init();
 
+            // check all port
+            checkAllPorts();
+
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
                 BDBDebugger.get().startDebugMode(dorisHomeDir);
@@ -129,7 +133,7 @@ public class PaloFe {
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
-
+            
             if (!Config.enable_http_server_v2) {
                 HttpServer httpServer = new HttpServer(
                         Config.http_port,
@@ -158,7 +162,25 @@ public class PaloFe {
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            return;
+        }
+    }
+
+    private static void checkAllPorts() throws IOException {
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
+                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.edit_log_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
+                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.http_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
+                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.query_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
+                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
 

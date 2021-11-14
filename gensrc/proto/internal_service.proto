@@ -101,6 +101,7 @@ message PTabletWriterAddBatchResult {
     repeated PTabletInfo tablet_vec = 2;
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
+    optional int64 wait_execution_time_us = 5;
 };
 
 // tablet writer cancel
@@ -115,6 +116,7 @@ message PTabletWriterCancelResult {
 
 message PExecPlanFragmentRequest {
     optional bytes request = 1;
+    optional bool compact = 2;
 };
 
 message PExecPlanFragmentResult {
@@ -237,7 +239,10 @@ message PKafkaLoadInfo {
 
 message PKafkaMetaProxyRequest {
     optional PKafkaLoadInfo kafka_info = 1;
+    // optional for getting offsets for times
     repeated PIntegerPair offset_times = 3;
+    // optional for getting latest offsets of partitons
+    repeated int32 partition_id_for_latest_offsets = 4;
 };
 
 message PProxyRequest {
@@ -320,6 +325,7 @@ enum PColumnType {
     COLUMN_TYPE_FLOAT = 11;
     COLUMN_TYPE_DECIMAL = 12;
     COLUMN_TYPE_DECIMALV2 = 13;
+    COLUMN_TYPE_STRING = 14;
 }
 
 message PMinMaxFilter {

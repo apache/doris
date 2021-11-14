@@ -194,6 +194,7 @@ public:
     // to identified a specified data consumer.
     int64_t consumer_id;
 
+    // If this is an tranactional insert operation, this will be true
     bool need_commit_self = false;
 public:
     ExecEnv* exec_env() { return _exec_env; }

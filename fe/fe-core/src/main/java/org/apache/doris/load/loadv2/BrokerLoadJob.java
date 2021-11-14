@@ -194,12 +194,12 @@ public class BrokerLoadJob extends BulkLoadJob {
                 FileGroupAggKey aggKey = entry.getKey();
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), isReportSuccess ? jobProfile : null);
+                        getLoadParallelism(), getSendBatchParallelism(), isReportSuccess ? jobProfile : null);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),

@@ -92,19 +92,23 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
     std::vector<scoped_refptr<Thread>> threads(1000);
     {
         int64_t thread_creation_ns = 0;
-        SCOPED_RAW_TIMER(&thread_creation_ns);
-        for (auto& t : threads) {
-            Status status = Thread::create("test", "TestCallOnExit", SleepFor,
-                                           MonoDelta::FromSeconds(0), &t);
-            ASSERT_TRUE(status.ok());
+        {
+            SCOPED_RAW_TIMER(&thread_creation_ns);
+            for (auto& t : threads) {
+                Status status = Thread::create("test", "TestCallOnExit", SleepFor,
+                                            MonoDelta::FromSeconds(0), &t);
+                ASSERT_TRUE(status.ok());
+            }
         }
         std::cout << "create 1000 threads use:" << thread_creation_ns << "ns" << std::endl;
     }
     {
         int64_t thread_publish_tid_ns = 0;
-        SCOPED_RAW_TIMER(&thread_publish_tid_ns);
-        for (auto& t : threads) {
-            t->tid();
+        {
+            SCOPED_RAW_TIMER(&thread_publish_tid_ns);
+            for (auto& t : threads) {
+                t->tid();
+            }
         }
         std::cout << "1000 threads publish TIDS use:" << thread_publish_tid_ns << "ns" << std::endl;
     }

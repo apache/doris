@@ -17,8 +17,6 @@
 
 package org.apache.doris.httpv2.rest;
 
-import io.netty.handler.codec.http.HttpHeaderNames;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -43,6 +41,8 @@ import java.util.List;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import io.netty.handler.codec.http.HttpHeaderNames;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -128,7 +128,8 @@ public class LoadAction extends RestBaseController {
                 }
             } else {
                 // Choose a backend sequentially.
-                List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
+                List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                        1, true, false, clusterName, null, null);
                 if (backendIds == null) {
                     return new RestBaseResult("No backend alive.");
                 }

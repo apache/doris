@@ -187,8 +187,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
-          _timeout_second(-1),
           _set_rsc_info(false),
+          _timeout_second(-1),
           _fragments_ctx(std::move(fragments_ctx)) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
@@ -248,7 +248,7 @@ Status FragmentExecState::cancel_before_execute() {
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel("Execution aborted before start");
     }
     return Status::OK();
 }
@@ -261,7 +261,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
     }
     _executor.cancel();
     if (_pipe != nullptr) {
-        _pipe->cancel();
+        _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
     }
     return Status::OK();
 }
@@ -562,7 +562,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         } else {
             // This may be a first fragment request of the query.
             // Create the query fragments context.
-            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host));
+            fragments_ctx.reset(new QueryFragmentsCtx(params.fragment_num_on_host, _exec_env));
             fragments_ctx->query_id = params.params.query_id;
             RETURN_IF_ERROR(DescriptorTbl::create(&(fragments_ctx->obj_pool), params.desc_tbl,
                                                   &(fragments_ctx->desc_tbl)));
@@ -577,6 +577,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
             if (params.__isset.query_options) {
                 fragments_ctx->timeout_second = params.query_options.query_timeout;
+                if (params.query_options.__isset.resource_limit) {
+                    fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit);
+                }
             }
 
             {
@@ -743,11 +746,12 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
         selected_columns->emplace_back(std::move(col));
     }
 
-    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: "
-              << apache::thrift::ThriftDebugString(t_query_plan_info);
+    VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
+        << apache::thrift::ThriftDebugString(t_query_plan_info);
     // assign the param used to execute PlanFragment
     TExecPlanFragmentParams exec_fragment_params;
     exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
+    exec_fragment_params.__set_is_simplified_param(false);
     exec_fragment_params.__set_fragment(t_query_plan_info.plan_fragment);
     exec_fragment_params.__set_desc_tbl(t_query_plan_info.desc_tbl);
 

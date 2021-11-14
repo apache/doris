@@ -241,12 +241,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     }
 
     public Database getDb() throws MetaNotFoundException {
-        // get db
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("Database " + dbId + " already has been deleted");
-        }
-        return db;
+        return Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
     }
 
     public long getDbId() {
@@ -337,6 +332,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (ConnectContext.get() != null) {
             jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
             jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
+            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, ConnectContext.get().getSessionVariable().getSendBatchParallelism());
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -383,6 +379,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         jobProperties.put(LoadStmt.STRICT_MODE, false);
         jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
+        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
     }
 
     public void isJobTypeRead(boolean jobTypeRead) {
@@ -563,10 +560,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws DdlException
      */
     private void checkAuthWithoutAuthInfo(String command) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbId);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
 
         // check auth
         try {
@@ -1191,6 +1185,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public int getLoadParallelism() {
         return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+    }
+
+    public int getSendBatchParallelism() {
+        return (int) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM);
     }
 
     // Return true if this job is finished for a long time

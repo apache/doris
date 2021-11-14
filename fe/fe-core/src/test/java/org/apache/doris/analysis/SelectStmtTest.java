@@ -25,6 +25,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -38,6 +39,7 @@ import org.junit.rules.ExpectedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -57,7 +59,7 @@ public class SelectStmtTest {
     public static void setUp() throws Exception {
         Config.enable_batch_delete_by_default = true;
         Config.enable_http_server_v2 = false;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
                 + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         String createBaseAllStmtStr = "create table db1.baseall(k1 int, k2 varchar(32)) distributed by hash(k1) "
@@ -714,5 +716,43 @@ public class SelectStmtTest {
         } catch (AnalysisException e) {
             System.out.println(e.getMessage());
         }
+    }
+
+    @Test
+    public void testWithUnionToSql() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql1 =
+                "select \n" +
+                "  t.k1 \n" +
+                "from (\n" +
+                "  with \n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
+        stmt1.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt1.toSql().equals("SELECT `t`.`k1` AS `k1` " +
+                "FROM (WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t1)," +
+                "v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2) " +
+                "SELECT `v1`.`k1` AS `k1` FROM `v1` UNION SELECT `v2`.`k1` AS `k1` FROM `v2`) t"));
+
+        String sql2 =
+                "with\n" +
+                "    v1 as (select t1.k1 from db1.tbl1 t1),\n" +
+                "    v2 as (select t2.k1 from db1.tbl1 t2)\n" +
+                "select\n" +
+                "  t.k1\n" +
+                "from (\n" +
+                "  select v1.k1 as k1 from v1\n" +
+                "  union\n" +
+                "  select v2.k1 as k1 from v2\n" +
+                ") t";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt2.toSql().contains("WITH v1 AS (SELECT `t1`.`k1` AS `k1` FROM " +
+                "`default_cluster:db1`.`tbl1` t1),v2 AS (SELECT `t2`.`k1` AS `k1` FROM `default_cluster:db1`.`tbl1` t2)"));
     }
 }

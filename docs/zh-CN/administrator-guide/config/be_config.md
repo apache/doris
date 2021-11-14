@@ -280,7 +280,7 @@ Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以
 选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
 tablet score可以通过以下公式计算：
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 
@@ -346,6 +346,14 @@ CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查
 * 默认值：2
 
 与base_compaction_trace_threshold类似。
+
+### disable_compaction_trace_log
+
+* 类型: bool
+* 描述: 关闭compaction的trace日志
+* 默认值: true
+
+如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 
 ### `cumulative_compaction_policy`
 
@@ -792,6 +800,12 @@ cumulative compaction策略：最大增量文件的数量
 
 txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
 
+### `max_send_batch_parallelism_per_job`
+
+* 类型：int
+* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
+* 默认值：1
+
 ### `max_tablet_num_per_shard`
 
 默认：1024
@@ -1059,6 +1073,18 @@ routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurren
 
 此配置用于上下文gc线程调度周期 ， 注意：单位为分钟，默认为 5 分钟
 
+### `send_batch_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
+* 默认值：256
+
+### `send_batch_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `serialize_batch`
 
 默认值：false
@@ -1123,15 +1149,27 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
 * 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
 
+  示例1如下：
+  
   **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
-
-  示例如下：
 
   `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
   * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
   * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
   * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+  
+  示例2如下：
+      
+  **注意：不论HHD磁盘目录还是SSD磁盘目录，文件夹目录名称都无需添加后缀，storage_root_path参数里指定medium即可**
+  
+  `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+  
+  **说明**
+  
+  - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+  - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
+
 
 * 默认值：${DORIS_HOME}
 
@@ -1401,7 +1439,6 @@ webserver默认工作线程数
   ```
 * 默认值: 3
 
-
 ### `mem_tracker_level`
 
 * 类型: int16
@@ -1411,3 +1448,23 @@ webserver默认工作线程数
     DEBUG = 1
   ```
 * 默认值: 0
+
+### `max_segment_num_per_rowset`
+
+* 类型: int32
+* 描述: 用于限制导入时，新产生的rowset中的segment数量。如果超过阈值，导入会失败并报错 -238。过多的 segment 会导致compaction占用大量内存引发 OOM 错误。
+* 默认值: 100
+
+### `remote_storage_read_buffer_mb`
+
+* 类型: int32
+* 描述: 读取hdfs或者对象存储上的文件时，使用的缓存大小。
+* 默认值: 16MB
+
+增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
+
+### `external_table_connect_timeout_sec`
+
+* 类型: int32
+* 描述: 和外部表建立连接的超时时间。
+* 默认值: 5秒

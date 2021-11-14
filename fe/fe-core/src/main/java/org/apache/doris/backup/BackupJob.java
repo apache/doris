@@ -343,14 +343,11 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized boolean isDone() {
-        if (state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED) {
-            return true;
-        }
-        return false;
+        return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
     }
 
     private void prepareAndSendSnapshotTask() {
-        Database db = catalog.getDb(dbId);
+        Database db = catalog.getDbNullable(dbId);
         if (db == null) {
             status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
             return;
@@ -364,7 +361,7 @@ public class BackupJob extends AbstractJob {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
-            Table tbl = db.getTable(tblName);
+            Table tbl = db.getTableNullable(tblName);
             if (tbl == null) {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
@@ -500,7 +497,7 @@ public class BackupJob extends AbstractJob {
         List<Resource> copiedResources = Lists.newArrayList();
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
-            Table table = db.getTable(tblName);
+            Table table = db.getTableNullable(tblName);
             table.readLock();
             try {
                 if (table.getType() == TableType.OLAP) {

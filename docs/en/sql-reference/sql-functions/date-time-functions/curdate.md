@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'DATE CURDATE()'
+`DATE CURDATE()`
 
 Get the current date and return it in Date type
 

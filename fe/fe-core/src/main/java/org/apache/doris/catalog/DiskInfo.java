@@ -24,14 +24,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
-import com.google.gson.annotations.SerializedName;
 
 public class DiskInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
@@ -53,7 +53,6 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     @SerializedName("state")
     private DiskState state;
-
     // path hash and storage medium are reported from Backend and no need to persist
     private long pathHash = 0;
     private TStorageMedium storageMedium;
@@ -127,6 +126,10 @@ public class DiskInfo implements Writable {
 
     public boolean hasPathHash() {
         return pathHash != 0;
+    }
+
+    public boolean isStorageMediumMatch(TStorageMedium storageMedium) {
+        return this.storageMedium == storageMedium;
     }
 
     public TStorageMedium getStorageMedium() {

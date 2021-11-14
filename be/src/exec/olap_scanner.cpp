@@ -20,6 +20,8 @@
 #include <string>
 
 #include "gen_cpp/PaloInternalService_types.h"
+#include "common/utils.h"
+#include "exprs/expr_context.h"
 #include "olap/decimal12.h"
 #include "olap/field.h"
 #include "olap/uint24.h"
@@ -182,6 +184,7 @@ Status OlapScanner::_init_params(
              _params.rs_readers[0]->rowset()->rowset_meta()->num_rows() == 0 &&
              _params.rs_readers[1]->rowset()->start_version() == 2 &&
              !_params.rs_readers[1]->rowset()->rowset_meta()->is_segments_overlapping());
+
     if (_aggregation || single_version) {
         _params.return_columns = _return_columns;
     } else {
@@ -291,6 +294,10 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             _convert_row_to_tuple(tuple);
             if (VLOG_ROW_IS_ON) {
                 VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
+            }
+
+            if (_num_rows_read % RELEASE_CONTEXT_COUNTER == 0) {
+                ExprContext::free_local_allocations(_conjunct_ctxs);
             }
 
             // 3.4 Set tuple to RowBatch(not committed)
@@ -443,7 +450,8 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_OBJECT:
-        case TYPE_HLL: {
+        case TYPE_HLL:
+        case TYPE_STRING: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue* slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;

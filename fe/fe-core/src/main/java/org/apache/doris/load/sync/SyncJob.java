@@ -22,17 +22,22 @@ import org.apache.doris.analysis.ChannelDescription;
 import org.apache.doris.analysis.CreateDataSyncJobStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
@@ -42,6 +47,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public abstract class SyncJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(SyncJob.class);
@@ -82,6 +89,24 @@ public abstract class SyncJob implements Writable {
         this.finishTimeMs = -1L;
     }
 
+    /**
+     *                       +-------------+
+     *           create job  |  PENDING    |    resume job
+     *           +-----------+             | <-------------+
+     *           |           +-------------+               |
+     *           v                                         ^
+     *           |                                         |
+     *      +------------+   pause job             +-------+----+
+     *      |  RUNNING   |   run error             |  PAUSED    |
+     *      |            +-----------------------> |            |
+     *      +----+-------+                         +-------+----+
+     *           |                                         |
+     *           v           +-------------+               v
+     *           |           | CANCELLED   |               |
+     *           +---------> |             |   <-----------+
+     *          stop job     +-------------+    stop job
+     *          system error
+     */
     public enum JobState {
         PENDING,
         RUNNING,
@@ -91,11 +116,8 @@ public abstract class SyncJob implements Writable {
 
     public static SyncJob fromStmt(long jobId, CreateDataSyncJobStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-        SyncJob syncJob = null;
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        SyncJob syncJob;
         try {
             switch (stmt.getDataSyncJobType()) {
                 case CANAL:
@@ -129,7 +151,16 @@ public abstract class SyncJob implements Writable {
         return jobState == JobState.CANCELLED;
     }
 
-    public synchronized void updateState(JobState newState, boolean isReplay) {
+    public boolean isNeedReschedule() {
+        return false;
+    }
+
+    public synchronized void updateState(JobState newState, boolean isReplay) throws UserException {
+        checkStateTransform(newState);
+        unprotectedUpdateState(newState, isReplay);
+    }
+
+    public void unprotectedUpdateState(JobState newState, boolean isReplay) {
         this.jobState = newState;
         switch (newState) {
             case PENDING:
@@ -155,6 +186,61 @@ public abstract class SyncJob implements Writable {
         }
     }
 
+    private void checkStateTransform(JobState newState) throws UserException {
+        switch (jobState) {
+            case PENDING:
+                break;
+            case RUNNING:
+                if (newState == JobState.RUNNING) {
+                    throw new DdlException("Could not transform " + jobState + " to " + newState);
+                }
+                break;
+            case PAUSED:
+                if (newState == JobState.PAUSED || newState == JobState.RUNNING) {
+                    throw new DdlException("Could not transform " + jobState + " to " + newState);
+                }
+                break;
+            case CANCELLED:
+                throw new DdlException("Could not transform " + jobState + " to " + newState);
+        }
+    }
+
+    public void checkAndDoUpdate() throws UserException {
+        Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+        if (database == null) {
+            if (!isCompleted()) {
+                String msg = "The database has been deleted. Change job state to cancelled";
+                LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
+                        .add("database", dbId)
+                        .add("msg", msg).build());
+                cancel(MsgType.SCHEDULE_FAIL, msg);
+            }
+            return;
+        }
+
+        for (ChannelDescription channelDescription : channelDescriptions) {
+            Table table = database.getTableNullable(channelDescription.getTargetTable());
+            if (table == null) {
+                if (!isCompleted()) {
+                    String msg = "The table has been deleted. Change job state to cancelled";
+                    LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
+                            .add("dbId", dbId)
+                            .add("table", channelDescription.getTargetTable())
+                            .add("msg", msg).build());
+                    cancel(MsgType.SCHEDULE_FAIL, msg);
+                }
+                return;
+            }
+        }
+
+        if (isNeedReschedule()) {
+            LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
+                    .add("msg", "Job need to be scheduled")
+                    .build());
+            updateState(JobState.PENDING, false);
+        }
+    }
+
     public void checkAndSetBinlogInfo(BinlogDesc binlogDesc) throws DdlException {
         this.binlogDesc = binlogDesc;
     }
@@ -164,12 +250,12 @@ public abstract class SyncJob implements Writable {
     public void cancel(MsgType msgType, String errMsg) {
     }
 
-    public void pause() throws DdlException {
-        throw new DdlException("not implemented");
+    public void pause() throws UserException {
+        throw new UserException("not implemented");
     }
 
-    public void resume() throws DdlException {
-        throw new DdlException("not implemented");
+    public void resume() throws UserException {
+        throw new UserException("not implemented");
     }
 
     public String getStatus() {
@@ -294,8 +380,15 @@ public abstract class SyncJob implements Writable {
         lastStartTimeMs = info.getLastStartTimeMs();
         lastStopTimeMs = info.getLastStopTimeMs();
         finishTimeMs = info.getFinishTimeMs();
-        updateState(info.getJobState(), true);
-        LOG.info("replay update sync job state: {}", info);
+        try {
+            updateState(info.getJobState(), true);
+        } catch (UserException e) {
+            LOG.error("replay update state error, which should not happen: {}", e.getMessage());
+        }
+        LOG.info(new LogBuilder(LogKey.SYNC_JOB, info.getId())
+                .add("desired_state:", info.getJobState())
+                .add("msg", "Replay update sync job state")
+                .build());
     }
 
     @Override
@@ -308,8 +401,22 @@ public abstract class SyncJob implements Writable {
         return GsonUtils.GSON.fromJson(json, SyncJob.class);
     }
 
-    public void setChannelDescriptions(List<ChannelDescription> channelDescriptions) {
+    public void setChannelDescriptions(List<ChannelDescription> channelDescriptions) throws DdlException {
         this.channelDescriptions = channelDescriptions;
+        Map<String, String> tableMappings = Maps.newHashMap();
+        for (ChannelDescription channelDescription : channelDescriptions) {
+            String src = channelDescription.getSrcDatabase() + "." + channelDescription.getSrcTableName();
+            String tar = channelDescription.getTargetTable();
+            tableMappings.put(src, tar);
+        }
+        Set<String> mappingSet = Sets.newHashSet(tableMappings.values());
+        if (mappingSet.size() != tableMappings.size() || mappingSet.size() != channelDescriptions.size()) {
+            throw new DdlException("The mapping relations between tables should be injective.");
+        }
+        // set channel id
+        for (ChannelDescription channelDescription : channelDescriptions) {
+            channelDescription.setChannelId(Catalog.getCurrentCatalog().getNextId());
+        }
     }
 
     public long getId() {
@@ -343,5 +450,4 @@ public abstract class SyncJob implements Writable {
     public List<ChannelDescription> getChannelDescriptions() {
         return this.channelDescriptions;
     }
-
 }

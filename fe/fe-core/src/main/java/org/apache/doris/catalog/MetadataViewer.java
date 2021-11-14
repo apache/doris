@@ -24,7 +24,6 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
@@ -52,20 +51,11 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
-            
             if (partitions.isEmpty()) {
                 partitions.addAll(olapTable.getPartitionNames());
             } else {
@@ -81,7 +71,7 @@ public class MetadataViewer {
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
                 long visibleVersion = partition.getVisibleVersion();
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
@@ -147,7 +137,7 @@ public class MetadataViewer {
                 }
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
@@ -177,19 +167,10 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
             List<Long> partitionIds = Lists.newArrayList();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -251,7 +232,7 @@ public class MetadataViewer {
             }
             
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
@@ -282,19 +263,11 @@ public class MetadataViewer {
             throw new DdlException("Should specify one and only one partitions");
         }
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
             long partitionId = -1;
             // check partition
             for (String partName : partitionNames.getPartitionNames()) {
@@ -344,7 +317,7 @@ public class MetadataViewer {
                 result.add(row);
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;

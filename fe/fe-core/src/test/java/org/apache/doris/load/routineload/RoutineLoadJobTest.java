@@ -196,7 +196,7 @@ public class RoutineLoadJobTest {
     public void testUpdateWhileDbDeleted(@Mocked Catalog catalog) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -213,10 +213,10 @@ public class RoutineLoadJobTest {
                                             @Injectable Database database) throws UserException {
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = null;
             }
@@ -238,10 +238,10 @@ public class RoutineLoadJobTest {
 
         new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
             }

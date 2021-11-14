@@ -417,7 +417,7 @@ public class RoutineLoadManagerTest {
         };
 
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-
+        routineLoadManager.updateBeIdToMaxConcurrentTasks();
         Assert.assertEquals(Config.max_routine_load_task_num_per_be * 2 - 1,
                 routineLoadManager.getClusterIdleSlotNum());
     }
@@ -542,7 +542,7 @@ public class RoutineLoadManagerTest {
                 routineLoadJob3.isFinal();
                 minTimes = 0;
                 result = true;
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -597,7 +597,7 @@ public class RoutineLoadManagerTest {
                 pauseRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getDb("");
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -657,7 +657,7 @@ public class RoutineLoadManagerTest {
                 resumeRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getDb("");
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -701,7 +701,7 @@ public class RoutineLoadManagerTest {
                 stopRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getDb("");
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -894,7 +894,7 @@ public class RoutineLoadManagerTest {
                 stopRoutineLoadStmt.getName();
                 minTimes = 0;
                 result = "";
-                catalog.getDb("");
+                catalog.getDbNullable("");
                 minTimes = 0;
                 result = database;
                 database.getId();

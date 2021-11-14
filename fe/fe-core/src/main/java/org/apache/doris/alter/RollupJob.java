@@ -341,7 +341,7 @@ public class RollupJob extends AlterJob {
         if (!clearFailed && batchClearAlterTask != null) {
             return 1;
         }
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -351,9 +351,9 @@ public class RollupJob extends AlterJob {
         batchClearAlterTask = new AgentBatchTask();
 
         synchronized (this) {
-            OlapTable olapTable = null;
+            OlapTable olapTable;
             try {
-                olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+                olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 LOG.warn(e.getMessage());
                 return -1;
@@ -410,7 +410,7 @@ public class RollupJob extends AlterJob {
         // here we just rejoin tasks to AgentTaskQueue.
         // task report process will later resend these tasks
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = "db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
@@ -419,9 +419,9 @@ public class RollupJob extends AlterJob {
 
 
         synchronized (this) {
-            OlapTable olapTable = null;
+            OlapTable olapTable;
             try {
-                olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+                olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 LOG.warn(e.getMessage());
                 return false;
@@ -628,16 +628,16 @@ public class RollupJob extends AlterJob {
             return 0;
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = "Db[" + dbId + "] does not exist";
             LOG.warn(cancelMsg);
             return -1;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return -1;
@@ -655,7 +655,7 @@ public class RollupJob extends AlterJob {
                         continue;
                     }
 
-                    short expectReplicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    short expectReplicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     MaterializedIndex rollupIndex = entry.getValue();
                     for (Tablet rollupTablet : rollupIndex.getTablets()) {
                         // yiguolei: the rollup tablet only contains the replica that is healthy at rollup time
@@ -788,7 +788,13 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void replayInitJob(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay init rollup job failed", e);
+            return;
+        }
         olapTable.writeLock();
         try {
             // set state
@@ -824,8 +830,14 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void replayFinishing(Database db) {
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay finishing rollup job failed", e);
+            return;
+        }
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
         olapTable.writeLock();
         try {
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -908,7 +920,13 @@ public class RollupJob extends AlterJob {
             replayFinishing(db);
         }
 
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay finish rollup job failed", e);
+            return;
+        }
         olapTable.writeLock();
         try {
             olapTable.setState(OlapTableState.NORMAL);
@@ -919,7 +937,13 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void replayCancel(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+        OlapTable olapTable;
+        try {
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay cancel rollup job failed", e);
+            return;
+        }
         olapTable.writeLock();
         try{
             if (!Catalog.isCheckpointThread()) {
@@ -943,16 +967,16 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void finishJob() {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             cancelMsg = String.format("database %d does not exist", dbId);
             LOG.warn(cancelMsg);
             return;
         }
 
-        OlapTable olapTable = null;
+        OlapTable olapTable;
         try {
-            olapTable = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage());
             return;
@@ -987,7 +1011,7 @@ public class RollupJob extends AlterJob {
         // base index and rollup index name
         jobInfo.add(baseIndexName);
         jobInfo.add(rollupIndexName);
-        
+
         // rollup id
         jobInfo.add(rollupIndexId);
 

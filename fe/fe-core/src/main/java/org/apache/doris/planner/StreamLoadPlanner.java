@@ -151,7 +151,7 @@ public class StreamLoadPlanner {
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout);
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout(), taskInfo.getSendBatchParallelism());
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -159,7 +159,7 @@ public class StreamLoadPlanner {
         PlanFragment fragment = new PlanFragment(new PlanFragmentId(0), scanNode, DataPartition.UNPARTITIONED);
         fragment.setSink(olapTableSink);
 
-        fragment.finalize(null, false);
+        fragment.finalize(null);
 
         TExecPlanFragmentParams params = new TExecPlanFragmentParams();
         params.setProtocolVersion(PaloInternalServiceVersion.V1);

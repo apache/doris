@@ -56,4 +56,6 @@ public class FeConstants {
 
     // use \N to indicate NULL
     public static String null_string = "\\N";
+
+    public static long tablet_checker_interval_ms = 20 * 1000L;
 }
