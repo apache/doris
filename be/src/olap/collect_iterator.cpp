@@ -17,6 +17,8 @@
 
 #include "olap/collect_iterator.h"
 
+#include <utility>
+
 #include "olap/reader.h"
 #include "olap/row.h"
 #include "olap/row_block.h"
@@ -25,7 +27,7 @@
 
 namespace doris {
 
-CollectIterator::~CollectIterator() {}
+CollectIterator::~CollectIterator() = default;
 
 void CollectIterator::init(Reader* reader) {
     _reader = reader;
@@ -84,18 +86,18 @@ void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_re
                 ++i;
             }
             Level1Iterator* cumu_iter =
-                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse);
+                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse, _reader->_sequence_col_idx);
             cumu_iter->init();
-            std::list<LevelIterator*> children;
-            children.push_back(*base_reader_child);
-            children.push_back(cumu_iter);
-            _inner_iter.reset(new Level1Iterator(children, _merge, _reverse));
+            _inner_iter.reset(new Level1Iterator(std::list<LevelIterator*>{*base_reader_child, cumu_iter}, _merge,
+                    _reverse, _reader->_sequence_col_idx));
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse));
+            _inner_iter.reset(new Level1Iterator(_children, _merge,
+                    _reverse, _reader->_sequence_col_idx));
         }
     } else {
-        _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse));
+        _inner_iter.reset(new Level1Iterator(_children, _merge,
+                _reverse, _reader->_sequence_col_idx));
     }
     _inner_iter->init();
     // Clear _children earlier to release any related references
@@ -110,6 +112,15 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
     int cmp_res = compare_row(*first, *second);
     if (cmp_res != 0) {
         return cmp_res > 0;
+    }
+
+    // Second: If sequence_id_idx != 0 means we need to compare sequence. sequence only use
+    // in unique key. so keep reverse order here
+    if (_sequence_id_idx != -1) {
+        auto seq_first_cell = first->cell(_sequence_id_idx);
+        auto seq_second_cell = second->cell(_sequence_id_idx);
+        auto res = first->schema()->column(_sequence_id_idx)->compare_cell(seq_first_cell, seq_second_cell);
+        if (res != 0) return res < 0;
     }
     // if row cursors equal, compare data version.
     // read data from higher version to lower version.
@@ -145,7 +156,7 @@ CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
     }
 }
 
-CollectIterator::Level0Iterator::~Level0Iterator() {}
+CollectIterator::Level0Iterator::~Level0Iterator() = default;
 
 OLAPStatus CollectIterator::Level0Iterator::init() {
     RETURN_NOT_OK_LOG(_row_cursor.init(_reader->_tablet->tablet_schema(), _reader->_seek_columns),
@@ -222,10 +233,10 @@ OLAPStatus CollectIterator::Level0Iterator::next(const RowCursor** row, bool* de
 }
 
 CollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<CollectIterator::LevelIterator*>& children, bool merge, bool reverse)
-        : _children(children), _merge(merge), _reverse(reverse) {}
+        std::list<CollectIterator::LevelIterator*> children, bool merge, bool reverse, int sequence_id_idx)
+        : _children(std::move(children)), _merge(merge), _reverse(reverse), _sequence_id_idx(sequence_id_idx) {}
 
-CollectIterator::LevelIterator::~LevelIterator() {}
+CollectIterator::LevelIterator::~LevelIterator() = default;
 
 CollectIterator::Level1Iterator::~Level1Iterator() {
     for (auto child : _children) {
@@ -293,7 +304,7 @@ OLAPStatus CollectIterator::Level1Iterator::init() {
 
     // Only when there are multiple children that need to be merged
     if (_merge && _children.size() > 1) {
-        _heap.reset(new MergeHeap(LevelIteratorComparator(_reverse)));
+        _heap.reset(new MergeHeap(LevelIteratorComparator(_reverse, _sequence_id_idx)));
         for (auto child : _children) {
             DCHECK(child != nullptr);
             DCHECK(child->current_row() != nullptr);
