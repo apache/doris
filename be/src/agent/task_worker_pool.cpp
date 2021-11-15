@@ -51,6 +51,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
@@ -425,7 +426,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatus task_status;
         string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, &err);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, false, &err);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -662,7 +663,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
 
         if (status == DORIS_SUCCESS) {
             VLOG_NOTICE << "push ok. signature: " << agent_task_req.signature
-                    << ", push_type: " << push_req.push_type;
+                        << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;
@@ -1098,19 +1099,36 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
 }
 
 void TaskWorkerPool::_report_task_worker_thread_callback() {
+    StorageEngine::instance()->register_report_listener(this);
     TReportRequest request;
     request.__set_backend(_backend);
 
-    do {
+    while (_is_work) {
+        _is_doing_work = false;
+        // wait at most report_task_interval_seconds, or being notified
+        _worker_thread_condition_variable.wait_for(
+                MonoDelta::FromSeconds(config::report_task_interval_seconds));
+        if (!_is_work) {
+            break;
+        }
+
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            // sleep a short time and try again
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing task report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
         {
             lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
-        _is_doing_work = false;
-    } while (!_stop_background_threads_latch.wait_for(
-            MonoDelta::FromSeconds(config::report_task_interval_seconds)));
+    }
+    StorageEngine::instance()->deregister_report_listener(this);
 }
 
 /// disk state report thread will report disk state at a configurable fix interval.
@@ -1122,14 +1140,6 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO) << "waiting to receive first heartbeat from frontend";
-            sleep(config::sleep_one_second);
-            continue;
-        }
-
         // wait at most report_disk_state_interval_seconds, or being notified
         _worker_thread_condition_variable.wait_for(
                 MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
@@ -1137,7 +1147,18 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             break;
         }
 
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing disk report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // Random sleep 1~5 seconds before doing report.
+        // In order to avoid the problem that the FE receives many report requests at the same time
+        // and can not be processed.
+        _random_sleep(5);
+
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
@@ -1147,9 +1168,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_storage_medium(root_path_info.storage_medium);
-            disk.__set_disk_total_capacity(static_cast<double>(root_path_info.disk_capacity));
-            disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
-            disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
+            disk.__set_disk_total_capacity(root_path_info.disk_capacity);
+            disk.__set_data_used_capacity(root_path_info.data_used_capacity);
+            disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
         }
@@ -1168,13 +1189,6 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
 
     while (_is_work) {
         _is_doing_work = false;
-        if (_master_info.network_address.port == 0) {
-            // port == 0 means not received heartbeat yet
-            // sleep a short time and try again
-            LOG(INFO) << "waiting to receive first heartbeat from frontend";
-            sleep(config::sleep_one_second);
-            continue;
-        }
 
         // wait at most report_tablet_interval_seconds, or being notified
         _worker_thread_condition_variable.wait_for(
@@ -1183,11 +1197,30 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             break;
         }
 
+        if (_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            LOG(INFO) << "waiting to receive first heartbeat from frontend before doing tablet report";
+            continue;
+        }
+
         _is_doing_work = true;
+        // See _random_sleep() comment in _report_disk_state_worker_thread_callback
+        _random_sleep(5);
         request.tablets.clear();
+        uint64_t report_version = _s_report_version;
         OLAPStatus build_all_report_tablets_info_status =
                 StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
+        if (report_version < _s_report_version) {
+            // TODO llj This can only reduce the possibility for report error, but can't avoid it.
+            // If FE create a tablet in FE meta and send CREATE task to this BE, the tablet may not be included in this
+            // report, and the report version has a small probability that it has not been updated in time. When FE
+            // receives this report, it is possible to delete the new tablet.
+            LOG(WARNING) << "report version " << report_version << " change to "
+                         << _s_report_version;
+            DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+            continue;
+        }
         if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
             LOG(WARNING) << "build all report tablets info failed. status: "
                          << build_all_report_tablets_info_status;
@@ -1197,7 +1230,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
                 std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score->value(),
                          DorisMetrics::instance()->tablet_base_max_compaction_score->value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
-        request.__set_report_version(_s_report_version);
+        request.__set_report_version(report_version);
         _handle_report(request, ReportType::TABLET);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1226,11 +1259,14 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (upload_request.__isset.storage_backend && upload_request.storage_backend == TStorageBackendType::S3) {
-            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_prop));
+        if (upload_request.__isset.storage_backend &&
+            upload_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
+                                            upload_request.broker_prop));
         } else {
-            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature, upload_request.broker_addr,
-                                      upload_request.broker_prop));
+            loader.reset(new SnapshotLoader(_env, upload_request.job_id, agent_task_req.signature,
+                                            upload_request.broker_addr,
+                                            upload_request.broker_prop));
         }
         Status status = loader->upload(upload_request.src_dest_map, &tablet_files);
 
@@ -1290,13 +1326,16 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         std::vector<int64_t> downloaded_tablet_ids;
 
         std::unique_ptr<SnapshotLoader> loader = nullptr;
-        if (download_request.__isset.storage_backend && download_request.storage_backend == TStorageBackendType::S3) {
-            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_prop));
+        if (download_request.__isset.storage_backend &&
+            download_request.storage_backend == TStorageBackendType::S3) {
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
+                                            download_request.broker_prop));
         } else {
-            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature, download_request.broker_addr,
-                                        download_request.broker_prop));
+            loader.reset(new SnapshotLoader(_env, download_request.job_id, agent_task_req.signature,
+                                            download_request.broker_addr,
+                                            download_request.broker_prop));
         }
-        Status status = loader->download(download_request.src_dest_map,  &downloaded_tablet_ids);
+        Status status = loader->download(download_request.src_dest_map, &downloaded_tablet_ids);
 
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1349,8 +1388,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         string snapshot_path;
         bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
-        OLAPStatus make_snapshot_status =
-                SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
+        OLAPStatus make_snapshot_status = SnapshotManager::instance()->make_snapshot(
+                snapshot_request, &snapshot_path, &allow_incremental_clone);
         if (make_snapshot_status != OLAP_SUCCESS) {
             status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
                                   ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED
@@ -1559,10 +1598,10 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     AgentStatus status = _master_client->report(request, &result);
     bool is_report_success = false;
     if (status != DORIS_SUCCESS) {
-        LOG(WARNING) << "report " << TYPE_STRING(type)  << " failed. status: " << status
+        LOG(WARNING) << "report " << TYPE_STRING(type) << " failed. status: " << status
                      << ", master host: " << _master_info.network_address.hostname
                      << ", port:" << _master_info.network_address.port;
-    } else if  (result.status.status_code != TStatusCode::OK) {
+    } else if (result.status.status_code != TStatusCode::OK) {
         std::stringstream ss;
         if (!result.status.error_msgs.empty()) {
             ss << result.status.error_msgs[0];
@@ -1570,12 +1609,13 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
                 ss << "," << result.status.error_msgs[i];
             }
         }
-        LOG(WARNING) << "finish report " << TYPE_STRING(type) << " failed. status:" << result.status.status_code
+        LOG(WARNING) << "finish report " << TYPE_STRING(type)
+                     << " failed. status:" << result.status.status_code
                      << ", error msg:" << ss.str();
     } else {
         is_report_success = true;
-        LOG(INFO) << "finish report " << TYPE_STRING(type) << ". master host: "
-                  << _master_info.network_address.hostname
+        LOG(INFO) << "finish report " << TYPE_STRING(type)
+                  << ". master host: " << _master_info.network_address.hostname
                   << ", port: " << _master_info.network_address.port;
     }
     switch (type) {
@@ -1600,6 +1640,11 @@ void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     default:
         break;
     }
+}
+
+void TaskWorkerPool::_random_sleep(int second) {
+    Random rnd(UnixMillis());
+    sleep(rnd.Uniform(second) + 1);
 }
 
 } // namespace doris

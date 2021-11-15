@@ -28,6 +28,7 @@ struct AuthInfo {
     std::string user_ip;
     // -1 as unset
     int64_t auth_code = -1;
+    std::string auth_code_uuid = "";
 };
 
 template <class T>
@@ -39,6 +40,9 @@ void set_request_auth(T* req, const AuthInfo& auth) {
         // so they have to be set.
         req->user = "";
         req->passwd = "";
+    } else if (auth.auth_code_uuid != "") {
+        req->__isset.auth_code_uuid = true;
+        req->auth_code_uuid = auth.auth_code_uuid;
     } else {
         req->user = auth.user;
         req->passwd = auth.passwd;
@@ -48,5 +52,13 @@ void set_request_auth(T* req, const AuthInfo& auth) {
         req->__set_user_ip(auth.user_ip);
     }
 }
+
+// This is the threshold used to periodically release the memory occupied by the expression. 
+// RELEASE_CONTEXT_COUNTER should be power of 2
+// GCC will optimize the modulo operation to &(release_context_counter - 1)
+// _conjunct_ctxs will free local alloc after this probe calculations
+static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 7;
+static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
+              "should be power of 2");
 
 } // namespace doris

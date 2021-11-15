@@ -17,6 +17,38 @@
 
 #include "olap/aggregate_func.h"
 
+namespace std {
+namespace {
+// algorithm from boost: http://www.boost.org/doc/libs/1_61_0/doc/html/hash/reference.html#boost.hash_combine
+template <class T>
+inline void hash_combine(std::size_t& seed, T const& v) {
+    seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+template <class Tuple, size_t Index = std::tuple_size<Tuple>::value - 1>
+struct HashValueImpl {
+    static void apply(size_t& seed, Tuple const& tuple) {
+        HashValueImpl<Tuple, Index - 1>::apply(seed, tuple);
+        hash_combine(seed, std::get<Index>(tuple));
+    }
+};
+
+template <class Tuple>
+struct HashValueImpl<Tuple, 0> {
+    static void apply(size_t& seed, Tuple const& tuple) { hash_combine(seed, std::get<0>(tuple)); }
+};
+} // namespace
+
+template <typename... TT>
+struct hash<std::tuple<TT...>> {
+    size_t operator()(std::tuple<TT...> const& tt) const {
+        size_t seed = 0;
+        HashValueImpl<std::tuple<TT...>>::apply(seed, tt);
+        return seed;
+    }
+};
+} // namespace std
+
 namespace doris {
 
 template <typename Traits>
@@ -26,19 +58,14 @@ AggregateInfo::AggregateInfo(const Traits& traits)
           _finalize_fn(traits.finalize),
           _agg_method(traits.agg_method) {}
 
-struct AggregateFuncMapHash {
-    size_t operator()(const std::pair<FieldAggregationMethod, FieldType>& pair) const {
-        return (pair.first + 31) ^ pair.second;
-    }
-};
-
 class AggregateFuncResolver {
     DECLARE_SINGLETON(AggregateFuncResolver);
 
 public:
     const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
-                                            const FieldType field_type) const {
-        auto pair = _infos_mapping.find(std::make_pair(agg_method, field_type));
+                                            const FieldType field_type,
+                                            const FieldType sub_type) const {
+        auto pair = _infos_mapping.find(std::make_tuple(agg_method, field_type, sub_type));
         if (pair != _infos_mapping.end()) {
             return pair->second;
         } else {
@@ -46,15 +73,17 @@ public:
         }
     }
 
-    template <FieldAggregationMethod agg_method, FieldType field_type>
+    template <FieldAggregationMethod agg_method, FieldType field_type,
+              FieldType sub_type = OLAP_FIELD_TYPE_NONE>
     void add_aggregate_mapping() {
-        _infos_mapping.emplace(std::make_pair(agg_method, field_type),
-                               new AggregateInfo(AggregateTraits<agg_method, field_type>()));
+        _infos_mapping.emplace(
+                std::make_tuple(agg_method, field_type, sub_type),
+                new AggregateInfo(AggregateTraits<agg_method, field_type, sub_type>()));
     }
 
 private:
-    typedef std::pair<FieldAggregationMethod, FieldType> key_t;
-    std::unordered_map<key_t, const AggregateInfo*, AggregateFuncMapHash> _infos_mapping;
+    typedef std::tuple<FieldAggregationMethod, FieldType, FieldType> key_t;
+    std::unordered_map<key_t, const AggregateInfo*> _infos_mapping;
 
     DISALLOW_COPY_AND_ASSIGN(AggregateFuncResolver);
 };
@@ -73,7 +102,23 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_CHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_STRING>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL>();
+    // array types has sub type like array<int>  field type is array, subtype is int
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_TINYINT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_SMALLINT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_INT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_BIGINT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_LARGEINT>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_CHAR>();
 
     // Min Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_TINYINT>();
@@ -88,6 +133,7 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_STRING>();
 
     // Max Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_TINYINT>();
@@ -102,6 +148,7 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_STRING>();
 
     // Sum Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_SUM, OLAP_FIELD_TYPE_TINYINT>();
@@ -127,6 +174,7 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_STRING>();
 
     // ReplaceIfNotNull Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_BOOL>();
@@ -142,6 +190,7 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_DATETIME>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_STRING>();
 
     // Hyperloglog Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL>();
@@ -159,8 +208,8 @@ AggregateFuncResolver::~AggregateFuncResolver() {
 }
 
 const AggregateInfo* get_aggregate_info(const FieldAggregationMethod agg_method,
-                                        const FieldType field_type) {
-    return AggregateFuncResolver::instance()->get_aggregate_info(agg_method, field_type);
+                                        const FieldType field_type, const FieldType sub_type) {
+    return AggregateFuncResolver::instance()->get_aggregate_info(agg_method, field_type, sub_type);
 }
 
 } // namespace doris

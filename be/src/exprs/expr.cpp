@@ -127,7 +127,6 @@ Expr::Expr(const TypeDescriptor& type)
         _node_type = (TExprNodeType::FLOAT_LITERAL);
         break;
 
-    case TYPE_DECIMAL:
     case TYPE_DECIMALV2:
         _node_type = (TExprNodeType::DECIMAL_LITERAL);
         break;
@@ -141,6 +140,7 @@ Expr::Expr(const TypeDescriptor& type)
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
         _node_type = (TExprNodeType::STRING_LITERAL);
         break;
 
@@ -186,7 +186,6 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
             _node_type = (TExprNodeType::FLOAT_LITERAL);
             break;
 
-        case TYPE_DECIMAL:
         case TYPE_DECIMALV2:
             _node_type = (TExprNodeType::DECIMAL_LITERAL);
             break;
@@ -199,6 +198,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             _node_type = (TExprNodeType::STRING_LITERAL);
             break;
 
@@ -312,6 +312,9 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
+        *expr = pool->add(new Literal(texpr_node));
+        return Status::OK();
+    case TExprNodeType::ARRAY_LITERAL:
         *expr = pool->add(new Literal(texpr_node));
         return Status::OK();
     case TExprNodeType::COMPOUND_PRED:
@@ -456,16 +459,9 @@ int Expr::compute_results_layout(const std::vector<Expr*>& exprs, std::vector<in
     for (int i = 0; i < exprs.size(); ++i) {
         data[i].expr_idx = i;
 
-        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR) {
+        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR
+         || exprs[i]->type().type == TYPE_STRING) {
             data[i].byte_size = 16;
-            data[i].variable_length = true;
-        } else if (exprs[i]->type().type == TYPE_DECIMAL) {
-            data[i].byte_size = get_byte_size(exprs[i]->type().type);
-
-            // Although the current decimal has a fix-length, for the
-            // same value, it will work out different hash value due to the
-            // different memory represent if the variable_length here is set
-            // to false, so we have to keep it.
             data[i].variable_length = true;
         } else {
             data[i].byte_size = get_byte_size(exprs[i]->type().type);
@@ -711,7 +707,8 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_STRING: {
         _constant_val.reset(new StringVal(get_string_val(context, NULL)));
         break;
     }
@@ -720,16 +717,17 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         _constant_val.reset(new DateTimeVal(get_datetime_val(context, NULL)));
         break;
     }
-    case TYPE_DECIMAL: {
-        _constant_val.reset(new DecimalVal(get_decimal_val(context, NULL)));
-        break;
-    }
+
     case TYPE_DECIMALV2: {
         _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, NULL)));
         break;
     }
     case TYPE_NULL: {
         _constant_val.reset(new AnyVal(true));
+        break;
+    }
+    case TYPE_ARRAY: {
+        _constant_val.reset(new CollectionVal(get_array_val(context, NULL)));
         break;
     }
     default:
@@ -805,14 +803,13 @@ DateTimeVal Expr::get_datetime_val(ExprContext* context, TupleRow* row) {
     return val;
 }
 
-DecimalVal Expr::get_decimal_val(ExprContext* context, TupleRow* row) {
-    DecimalVal val;
-    // ((DecimalValue*)get_value(row))->to_decimal_val(&val);
+DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
+    DecimalV2Val val;
     return val;
 }
 
-DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
-    DecimalV2Val val;
+CollectionVal Expr::get_array_val(ExprContext* context, TupleRow* row) {
+    CollectionVal val;
     return val;
 }
 

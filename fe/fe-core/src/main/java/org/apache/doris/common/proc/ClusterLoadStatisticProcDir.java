@@ -20,15 +20,17 @@ package org.apache.doris.common.proc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.clone.ClusterLoadStatistic;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Table;
 
 import java.util.List;
 import java.util.Map;
 
-// show proc "/cluster_balance/cluster_load_stat";
+// show proc "/cluster_balance/cluster_load_stat/location_default/HDD";
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
@@ -36,10 +38,12 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
             .add("Class")
             .build();
 
-    private Map<String, ClusterLoadStatistic> statMap;
+    private Table<String, Tag, ClusterLoadStatistic> statMap;
+    private Tag tag;
     private TStorageMedium medium;
 
-    public ClusterLoadStatisticProcDir(TStorageMedium medium) {
+    public ClusterLoadStatisticProcDir(Tag tag, TStorageMedium medium) {
+        this.tag = tag;
         this.medium = medium;
     }
 
@@ -49,8 +53,9 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
 
         statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
+        Map<String, ClusterLoadStatistic> map = statMap.column(tag);
 
-        statMap.values().forEach(t -> {
+        map.values().forEach(t -> {
             List<List<String>> statistics = t.getClusterStatistic(medium);
             statistics.forEach(result::addRow);
         });

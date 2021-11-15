@@ -67,9 +67,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("VisibleVersion").add("VisibleVersionTime").add("VisibleVersionHash")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("LastConsistencyCheckTime")
-            .add("DataSize")
-            .add("IsInMemory")
+            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .build();
 
     private Database db;
@@ -214,7 +212,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             // for range partitions, we return partitions in ascending range order by default.
             // this is to be consistent with the behaviour before 0.12
             if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
-                partitionIds = tblPartitionInfo.getSortedItemMap(isTempPartition).stream()
+                partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
                         .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
                 Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
@@ -266,9 +264,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 }
 
                 partitionInfo.add(distributionInfo.getBucketNum());
-
-                short replicationNum = tblPartitionInfo.getReplicationNum(partitionId);
-                partitionInfo.add(String.valueOf(replicationNum));
+                // replica num
+                partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum());
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
@@ -282,6 +279,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                         + sizePair.second;
                 partitionInfo.add(readableSize);
                 partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
+                // replica allocation
+                partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 partitionInfos.add(partitionInfo);
             }

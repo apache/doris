@@ -80,8 +80,9 @@ public class EsScanNode extends ScanNode {
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-
+        computeColumnFilter();
         assignBackends();
+        computeStats(analyzer);
     }
 
     @Override

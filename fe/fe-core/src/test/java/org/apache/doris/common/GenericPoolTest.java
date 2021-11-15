@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
+import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportStatusResult;
@@ -194,6 +195,18 @@ public class GenericPoolTest {
         }
 
         @Override
+        public long getTrashUsedCapacity() throws TException {
+            // TODO Auto-generated method stub
+            return 0l;
+        }
+
+        @Override
+        public List<TDiskTrashInfo> getDiskTrashUsedCapacity() throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
         public TTabletStatResult getTabletStat() throws TException {
             // TODO Auto-generated method stub
             return null;
@@ -224,6 +237,10 @@ public class GenericPoolTest {
         public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
             // TODO Auto-generated method stub
             return null;
+        }
+        @Override
+        public void cleanTrash() throws TException {
+            // TODO Auto-generated method stub
         }
     }
 

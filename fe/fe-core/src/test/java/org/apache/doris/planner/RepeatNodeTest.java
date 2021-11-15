@@ -64,12 +64,10 @@ public class RepeatNodeTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTable(new TableName("testdb", "t")));
+            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
+        } catch (NoSuchFieldException | IllegalAccessException e) {
             e.printStackTrace();
         }
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");

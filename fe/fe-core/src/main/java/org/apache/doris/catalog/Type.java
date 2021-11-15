@@ -45,11 +45,11 @@ import java.util.List;
 public abstract class Type {
     private static final Logger LOG = LogManager.getLogger(Type.class);
 
-    // Maximum nesting depth of a type. This limit was determined experimentally by
+    // Maximum nesting depth of a type. This limit was determined experimentally byorg.apache.doris.rewrite.FoldConstantsRule.apply
     // generating and scanning deeply nested Parquet and Avro files. In those experiments,
     // we exceeded the stack space in the scanner (which uses recursion for dealing with
     // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
-    public static int MAX_NESTING_DEPTH = 100;
+    public static int MAX_NESTING_DEPTH = 2;
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
@@ -65,20 +65,20 @@ public abstract class Type {
     public static final ScalarType DATE = new ScalarType(PrimitiveType.DATE);
     public static final ScalarType DATETIME = new ScalarType(PrimitiveType.DATETIME);
     public static final ScalarType TIME = new ScalarType(PrimitiveType.TIME);
-    public static final ScalarType DEFAULT_DECIMAL = (ScalarType)
-            ScalarType.createDecimalType(ScalarType.DEFAULT_PRECISION,
-                    ScalarType.DEFAULT_SCALE);
+    public static final ScalarType STRING = new ScalarType(PrimitiveType.STRING);
     public static final ScalarType DEFAULT_DECIMALV2 = (ScalarType)
             ScalarType.createDecimalV2Type(ScalarType.DEFAULT_PRECISION,
                     ScalarType.DEFAULT_SCALE);
-    public static final ScalarType DECIMAL = DEFAULT_DECIMAL;
     public static final ScalarType DECIMALV2 = DEFAULT_DECIMALV2;
-           // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
+    // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType VARCHAR = ScalarType.createVarcharType(-1);
     public static final ScalarType HLL = ScalarType.createHllType();
     public static final ScalarType CHAR = (ScalarType) ScalarType.createCharType(-1);
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
+    // Only used for alias function, to represent any type in function args
+    public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
+    public static final MapType Map = new MapType();
 
     private static ArrayList<ScalarType> integerTypes;
     private static ArrayList<ScalarType> numericTypes;
@@ -100,7 +100,6 @@ public abstract class Type {
         numericTypes.add(LARGEINT);
         numericTypes.add(FLOAT);
         numericTypes.add(DOUBLE);
-        numericTypes.add(DECIMAL);
         numericTypes.add(DECIMALV2);
 
         supportedTypes = Lists.newArrayList();
@@ -119,9 +118,10 @@ public abstract class Type {
         supportedTypes.add(CHAR);
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
-        supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
         supportedTypes.add(TIME);
+        supportedTypes.add(STRING);
+
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -173,22 +173,18 @@ public abstract class Type {
         return isScalarType(PrimitiveType.BOOLEAN);
     }
 
-    public boolean isDecimal() {
-        return isScalarType(PrimitiveType.DECIMAL);
-    }
-
     public boolean isDecimalV2() {
         return isScalarType(PrimitiveType.DECIMALV2);
     }
 
-    public boolean isDecimalOrNull() { return isDecimal() || isNull(); }
-    public boolean isFullySpecifiedDecimal() { return false; }
     public boolean isWildcardDecimal() { return false; }
     public boolean isWildcardVarchar() { return false; }
     public boolean isWildcardChar() { return false; }
 
     public boolean isStringType() {
-        return isScalarType(PrimitiveType.VARCHAR) || isScalarType(PrimitiveType.CHAR);
+        return isScalarType(PrimitiveType.VARCHAR)
+                || isScalarType(PrimitiveType.CHAR)
+                || isScalarType(PrimitiveType.STRING);
     }
 
     // only metric types have the following constraint:
@@ -250,7 +246,7 @@ public abstract class Type {
     }
 
     public boolean isNumericType() {
-        return isFixedPointType() || isFloatingPointType() || isDecimal() || isDecimalV2();
+        return isFixedPointType() || isFloatingPointType() || isDecimalV2();
     }
 
     public boolean isNativeType() {
@@ -274,7 +270,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType();
+        return isMapType() || isArrayType() || isMultiRowType();
     }
 
     public boolean isMapType() {
@@ -283,6 +279,10 @@ public abstract class Type {
 
     public boolean isArrayType() {
         return this instanceof ArrayType;
+    }
+
+    public boolean isMultiRowType() {
+        return this instanceof MultiRowType;
     }
 
     public boolean isStructType() {
@@ -300,6 +300,8 @@ public abstract class Type {
     public boolean isSupported() {
         return true;
     }
+
+    public int getLength() { return -1; }
 
     /**
      * Indicates whether we support partitioning tables on columns of this type.
@@ -364,6 +366,16 @@ public abstract class Type {
         if (t1.isScalarType() && t2.isScalarType()) {
             return ScalarType.isImplicitlyCastable((ScalarType) t1, (ScalarType) t2, strict);
         }
+        if (t1.isComplexType() || t2.isComplexType()) {
+            if (t1.isArrayType() && t2.isArrayType()) {
+                return true;
+            } else if (t1.isMapType() && t2.isMapType()) {
+                return true;
+            } else if (t1.isStructType() && t2.isStructType()) {
+                return true;
+            }
+            return false;
+        }
         return false;
     }
 
@@ -425,7 +437,7 @@ public abstract class Type {
         if (d >= MAX_NESTING_DEPTH) return true;
         if (isStructType()) {
             StructType structType = (StructType) this;
-            for (StructField f: structType.getFields()) {
+            for (StructField f : structType.getFields()) {
                 if (f.getType().exceedsMaxNestingDepth(d + 1)) {
                     return true;
                 }
@@ -433,6 +445,11 @@ public abstract class Type {
         } else if (isArrayType()) {
             ArrayType arrayType = (ArrayType) this;
             if (arrayType.getItemType().exceedsMaxNestingDepth(d + 1)) {
+                return true;
+            }
+        } else if (isMultiRowType()) {
+            MultiRowType multiRowType = (MultiRowType) this;
+            if (multiRowType.getItemType().exceedsMaxNestingDepth(d + 1)) {
                 return true;
             }
         } else if (isMapType()) {
@@ -471,16 +488,22 @@ public abstract class Type {
                 return Type.DATETIME;
             case TIME:
                 return Type.TIME;
-            case DECIMAL:
-                return Type.DECIMAL;
             case DECIMALV2:
                 return Type.DECIMALV2;
             case CHAR:
                 return Type.CHAR;
             case VARCHAR:
                 return Type.VARCHAR;
+            case STRING:
+                return Type.STRING;
             case HLL:
                 return Type.HLL;
+            case ARRAY:
+                return ArrayType.create();
+            case MAP:
+                return new MapType();
+            case STRUCT:
+                return new StructType();
             case BITMAP:
                 return Type.BITMAP;
             default:
@@ -527,11 +550,6 @@ public abstract class Type {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
-                } else if (scalarType.getType() == TPrimitiveType.DECIMAL) {
-                    Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetPrecision());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
-                            scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
@@ -608,6 +626,7 @@ public abstract class Type {
         switch (t.getPrimitiveType()) {
             case CHAR:
             case VARCHAR:
+            case STRING:
             case HLL:
                 return t.getLength();
             default:
@@ -636,7 +655,6 @@ public abstract class Type {
                 return 7;
             case DOUBLE:
                 return 15;
-            case DECIMAL:
             case DECIMALV2:
                 return t.decimalPrecision();
             default:
@@ -664,7 +682,6 @@ public abstract class Type {
                 return 7;
             case DOUBLE:
                 return 15;
-            case DECIMAL:
             case DECIMALV2:
                 return t.decimalScale();
             default:
@@ -694,7 +711,6 @@ public abstract class Type {
             case BIGINT:
             case FLOAT:
             case DOUBLE:
-            case DECIMAL:
             case DECIMALV2:
                 return 10;
             default:
@@ -753,6 +769,8 @@ public abstract class Type {
         compatibilityMatrix[BOOLEAN.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BOOLEAN.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BOOLEAN.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BOOLEAN.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+
 
         // TINYINT
         compatibilityMatrix[TINYINT.ordinal()][SMALLINT.ordinal()] = PrimitiveType.SMALLINT;
@@ -766,11 +784,11 @@ public abstract class Type {
         compatibilityMatrix[TINYINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[TINYINT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TINYINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[TINYINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[TINYINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // SMALLINT
         compatibilityMatrix[SMALLINT.ordinal()][INT.ordinal()] = PrimitiveType.INT;
@@ -783,11 +801,11 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[SMALLINT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[SMALLINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[SMALLINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[SMALLINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // INT
         compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;    
@@ -803,11 +821,11 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[INT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[INT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[INT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[INT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // BIGINT 
         // 64 bit integer does not fit in mantissa of double or float.
@@ -824,11 +842,11 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;        
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BIGINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // LARGEINT
         compatibilityMatrix[LARGEINT.ordinal()][FLOAT.ordinal()] = PrimitiveType.DOUBLE;
@@ -837,11 +855,11 @@ public abstract class Type {
         compatibilityMatrix[LARGEINT.ordinal()][DATETIME.ordinal()] = PrimitiveType.LARGEINT;
         compatibilityMatrix[LARGEINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[LARGEINT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.DECIMAL;
         compatibilityMatrix[LARGEINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[LARGEINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[LARGEINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[LARGEINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[LARGEINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // FLOAT
         compatibilityMatrix[FLOAT.ordinal()][DOUBLE.ordinal()] = PrimitiveType.DOUBLE;
@@ -849,94 +867,104 @@ public abstract class Type {
         compatibilityMatrix[FLOAT.ordinal()][DATETIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[FLOAT.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[FLOAT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[FLOAT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[FLOAT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DOUBLE
         compatibilityMatrix[DOUBLE.ordinal()][DATE.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DOUBLE ;
         compatibilityMatrix[DOUBLE.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DOUBLE.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DOUBLE.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[DOUBLE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DOUBLE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATE
         compatibilityMatrix[DATE.ordinal()][DATETIME.ordinal()] = PrimitiveType.DATETIME;
         compatibilityMatrix[DATE.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATE.ordinal()][DECIMAL.ordinal()] = PrimitiveType.DECIMAL;
         compatibilityMatrix[DATE.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DATE.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATE.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DATE.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // DATETIME
         compatibilityMatrix[DATETIME.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DATETIME.ordinal()][DECIMAL.ordinal()] = PrimitiveType.DECIMAL;
         compatibilityMatrix[DATETIME.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
         compatibilityMatrix[DATETIME.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DATETIME.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
- 
+        compatibilityMatrix[DATETIME.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+
         // We can convert some but not all string values to timestamps.
         // CHAR
         compatibilityMatrix[CHAR.ordinal()][VARCHAR.ordinal()] = PrimitiveType.VARCHAR;
-        compatibilityMatrix[CHAR.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[CHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[CHAR.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
 
         // VARCHAR
-        compatibilityMatrix[VARCHAR.ordinal()][DECIMAL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[VARCHAR.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[VARCHAR.ordinal()][STRING.ordinal()] = PrimitiveType.STRING;
 
-        // DECIMAL
-        compatibilityMatrix[DECIMAL.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.DECIMALV2;
-        compatibilityMatrix[DECIMAL.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DECIMAL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[DECIMAL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        //String
+        compatibilityMatrix[STRING.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[STRING.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[STRING.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+
 
         // DECIMALV2 
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[DECIMALV2.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+
 
         // HLL
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[HLL.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+
 
         // BITMAP
         compatibilityMatrix[BITMAP.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
+        compatibilityMatrix[BITMAP.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
+
+        // TIME
+        compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // Check all of the necessary entries that should be filled.
-        // ignore binary
-        for (int i = 0; i < PrimitiveType.values().length - 1; ++i) {
-            for (int j = i; j < PrimitiveType.values().length - 1; ++j) {
+        // ignore binary and all
+        for (int i = 0; i < PrimitiveType.values().length - 2; ++i) {
+            for (int j = i; j < PrimitiveType.values().length - 2; ++j) {
                 PrimitiveType t1 = PrimitiveType.values()[i];
                 PrimitiveType t2 = PrimitiveType.values()[j];
                 // DECIMAL, NULL, and INVALID_TYPE  are handled separately.
                 if (t1 == PrimitiveType.INVALID_TYPE ||
                         t2 == PrimitiveType.INVALID_TYPE) continue;
                 if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
-                if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
                 if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
+                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) continue;
+                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }
     }
-
 
     public Type getResultType() {
         switch (this.getPrimitiveType()) {
@@ -959,10 +987,10 @@ public abstract class Type {
             case HLL:
             case BITMAP:
                 return VARCHAR;
-            case DECIMAL:
-                return DECIMAL;
             case DECIMALV2:
                 return DECIMALV2;
+            case STRING:
+                return STRING;
             default:
                 return INVALID;
 
@@ -984,17 +1012,23 @@ public abstract class Type {
         }
 
         // Following logical is compatible with MySQL.
-        if ((t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR)) {
+        if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
             return Type.VARCHAR; 
         }
+        if ((t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING)
+                || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR)
+                || (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.STRING)) {
+            return Type.STRING;
+        }
+
+        // int family type and char family type should cast to char family type
+        if ((t1ResultType.isFixedPointType() && t2ResultType.isCharFamily()) ||
+                (t2ResultType.isFixedPointType() && t1ResultType.isCharFamily())) {
+            return t1.isStringType() ?  t1 : t2;
+        }
+
         if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
             return getAssignmentCompatibleType(t1, t2, false);
-        }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                || t1ResultType == PrimitiveType.DECIMAL)
-                && (t2ResultType == PrimitiveType.BIGINT
-                || t2ResultType == PrimitiveType.DECIMAL)) {
-            return Type.DECIMAL;
         }
         if ((t1ResultType == PrimitiveType.BIGINT
                 || t1ResultType == PrimitiveType.DECIMALV2)
@@ -1049,10 +1083,9 @@ public abstract class Type {
             case TIME:
             case CHAR:
             case VARCHAR:
+            case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case DECIMAL:
-                return Type.DECIMAL;
             case DECIMALV2:
                 return Type.DECIMALV2;
             default:

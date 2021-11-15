@@ -22,6 +22,8 @@
 #include "common/logging.h"
 #include "mysql_scanner.h"
 
+#include "common/config.h"
+
 namespace doris {
 
 MysqlScanner::MysqlScanner(const MysqlScannerParam& param)
@@ -36,6 +38,7 @@ MysqlScanner::~MysqlScanner() {
     if (_my_conn) {
         mysql_close(_my_conn);
         _my_conn = NULL;
+		mysql_library_end();
     }
 }
 
@@ -53,6 +56,9 @@ Status MysqlScanner::open() {
 
     VLOG_CRITICAL << "MysqlScanner::Connect";
 
+    unsigned int mysql_ct = config::external_table_connect_timeout_sec;
+    mysql_options(_my_conn, MYSQL_OPT_CONNECT_TIMEOUT, &mysql_ct);
+    mysql_options(_my_conn, MYSQL_OPT_READ_TIMEOUT, &mysql_ct);
     if (NULL == mysql_real_connect(_my_conn, _my_param.host.c_str(), _my_param.user.c_str(),
                                    _my_param.passwd.c_str(), _my_param.db.c_str(),
                                    atoi(_my_param.port.c_str()), NULL, _my_param.client_flag)) {

@@ -118,6 +118,10 @@ private:
 
     // the data size flushed on disk of this memtable
     int64_t _flush_size = 0;
+    // Number of rows inserted to this memtable.
+    // This is not the rows in this memtable, because rows may be merged
+    // in unique or aggragate key model.
+    int64_t _rows = 0;
 
 }; // class MemTable
 

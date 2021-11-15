@@ -20,11 +20,14 @@ package org.apache.doris;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.http.HttpServer;
+import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.qe.QeService;
@@ -87,6 +90,11 @@ public class PaloFe {
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
 
+            LdapConfig ldapConfig = new LdapConfig();
+            if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
+                ldapConfig.init(dorisHomeDir + "/conf/ldap.conf");
+            }
+
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
             if (!JdkUtils.checkJavaVersion()) {
                 throw new IllegalArgumentException("Java version doesn't match");
@@ -104,6 +112,15 @@ public class PaloFe {
 
             FrontendOptions.init();
 
+            // check all port
+            checkAllPorts();
+
+            if (Config.enable_bdbje_debug_mode) {
+                // Start in BDB Debug mode
+                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                return;
+            }
+
             // init catalog and wait it be ready
             Catalog.getCurrentCatalog().initialize(args);
             Catalog.getCurrentCatalog().waitForReady();
@@ -116,7 +133,7 @@ public class PaloFe {
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
-
+            
             if (!Config.enable_http_server_v2) {
                 HttpServer httpServer = new HttpServer(
                         Config.http_port,
@@ -129,6 +146,10 @@ public class PaloFe {
             } else {
                 org.apache.doris.httpv2.HttpServer httpServer2 = new org.apache.doris.httpv2.HttpServer();
                 httpServer2.setPort(Config.http_port);
+                httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+                httpServer2.setAcceptors(Config.jetty_server_acceptors);
+                httpServer2.setSelectors(Config.jetty_server_selectors);
+                httpServer2.setWorkers(Config.jetty_server_workers);
                 httpServer2.start(dorisHomeDir);
             }
 
@@ -141,7 +162,25 @@ public class PaloFe {
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            return;
+        }
+    }
+
+    private static void checkAllPorts() throws IOException {
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
+                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.edit_log_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
+                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.http_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
+                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.query_port + " already in use");
+        }
+        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
+                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+            throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }
 
@@ -152,12 +191,12 @@ public class PaloFe {
      *      Specify the helper node when joining a bdb je replication group
      * -b --bdb
      *      Run bdbje debug tools
-     *      
+     *
      *      -l --listdb
      *          List all database names in bdbje
      *      -d --db
      *          Specify a database in bdbje
-     *          
+     *
      *          -s --stat
      *              Print statistic of a database, including count, first key, last key
      *          -f --from
@@ -166,7 +205,7 @@ public class PaloFe {
      *              Specify the end scan key
      *          -m --metaversion
      *              Specify the meta version to decode log value
-     *              
+     *
      */
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new BasicParser();
@@ -205,7 +244,7 @@ public class PaloFe {
                     System.err.println("BDBJE database name is missing");
                     System.exit(-1);
                 }
-                
+
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
                     return new CommandLineOptions(false, "", bdbOpts);
@@ -235,7 +274,7 @@ public class PaloFe {
                             System.exit(-1);
                         }
                     }
-                    
+
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
                     return new CommandLineOptions(false, "", bdbOpts);
                 }
@@ -301,4 +340,5 @@ public class PaloFe {
         }
     }
 }
+
 

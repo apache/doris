@@ -447,22 +447,7 @@ Status Translator::create_value_updaters() {
             }
             break;
         }
-        case TYPE_DECIMAL: {
-            switch (_rollup_schema.value_ops()[i]) {
-            case TAggregationType::MAX:
-                _value_updaters.push_back(update_max<DecimalValue>);
-                break;
-            case TAggregationType::MIN:
-                _value_updaters.push_back(update_min<DecimalValue>);
-                break;
-            case TAggregationType::SUM:
-                _value_updaters.push_back(update_sum<DecimalValue>);
-                break;
-            default:
-                _value_updaters.push_back(fake_update);
-            }
-            break;
-        }
+
         case TYPE_DECIMALV2: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
@@ -499,13 +484,14 @@ Status Translator::create_value_updaters() {
             break;
         }
         case TYPE_CHAR:
-        case TYPE_VARCHAR: {
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             switch (_rollup_schema.value_ops()[i]) {
             case TAggregationType::MAX:
             case TAggregationType::MIN:
             case TAggregationType::SUM:
                 return Status::InternalError(
-                        "Unsupported max/min/sum operation on char/varchar column.");
+                        "Unsupported max/min/sum operation on char/varchar/string column.");
             default:
                 // Only replace has meaning
                 _value_updaters.push_back(fake_update);

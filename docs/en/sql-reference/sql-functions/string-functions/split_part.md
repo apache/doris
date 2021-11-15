@@ -28,7 +28,7 @@ under the License.
 ## Description
 ### Syntax
 
-'VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)'
+`VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)`
 
 
 Returns the specified partition (counting from the beginning) by splitting the string according to the partitioner.

@@ -178,6 +178,7 @@ Status DppWriter::append_one_row(TupleRow* row) {
         }
         case TYPE_VARCHAR: {
         case TYPE_HLL:
+        case TYPE_STRING:
             const StringValue* str_val = (const StringValue*)(item);
             if (UNLIKELY(str_val->ptr == nullptr && str_val->len != 0)) {
                 return Status::InternalError("String value ptr is null");
@@ -204,14 +205,6 @@ Status DppWriter::append_one_row(TupleRow* row) {
                 return Status::InternalError("String value ptr is null");
             }
             append_to_buf(str_val->ptr, str_val->len);
-            break;
-        }
-        case TYPE_DECIMAL: {
-            const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-            int64_t int_val = decimal_val->int_value();
-            int32_t frac_val = decimal_val->frac_value();
-            append_to_buf(&int_val, sizeof(int_val));
-            append_to_buf(&frac_val, sizeof(frac_val));
             break;
         }
         case TYPE_DECIMALV2: {

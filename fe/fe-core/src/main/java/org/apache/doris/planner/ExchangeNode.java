@@ -73,14 +73,16 @@ public class ExchangeNode extends PlanNode {
         if (!copyConjuncts) {
             this.conjuncts = Lists.newArrayList();
         }
-        if (hasLimit()) {
-            cardinality = Math.min(limit, inputNode.cardinality);
-        } else {
-            cardinality = inputNode.cardinality;
-        }
         // Only apply the limit at the receiver if there are multiple senders.
         if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
         computeTupleIds();
+    }
+
+    public boolean isMergingExchange() {
+        if (mergeInfo != null) {
+            return true;
+        }
+        return false;
     }
 
     @Override
@@ -95,6 +97,20 @@ public class ExchangeNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         Preconditions.checkState(conjuncts.isEmpty());
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
+        computeStats(analyzer);
+    }
+
+    @Override
+    protected void computeStats(Analyzer analyzer) {
+        Preconditions.checkState(children.size() == 1);
+        cardinality = children.get(0).cardinality;
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Exchange:" + id + ", cardinality: " + cardinality);
+        }
     }
 
     /**

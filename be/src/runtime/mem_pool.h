@@ -161,7 +161,7 @@ public:
 
     MemTracker* mem_tracker() { return mem_tracker_; }
 
-    static const int DEFAULT_ALIGNMENT = 8;
+    static constexpr int DEFAULT_ALIGNMENT = 8;
 
 private:
     friend class MemPoolTest;

@@ -68,40 +68,6 @@ class DataDir;
 class TabletMeta;
 using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 
-class AlterTabletTask {
-public:
-    AlterTabletTask() {}
-    void init_from_pb(const AlterTabletPB& alter_task);
-    void to_alter_pb(AlterTabletPB* alter_task);
-
-    inline const AlterTabletState& alter_state() const { return _alter_state; }
-    OLAPStatus set_alter_state(AlterTabletState alter_state);
-
-    inline int64_t related_tablet_id() const { return _related_tablet_id; }
-    inline int32_t related_schema_hash() const { return _related_schema_hash; }
-    inline void set_related_tablet_id(int64_t related_tablet_id) {
-        _related_tablet_id = related_tablet_id;
-    }
-    inline void set_related_schema_hash(int32_t schema_hash) { _related_schema_hash = schema_hash; }
-
-    inline const AlterTabletType& alter_type() const { return _alter_type; }
-    inline void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
-
-    friend bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
-    friend bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
-
-private:
-    AlterTabletState _alter_state = ALTER_PREPARED;
-    int64_t _related_tablet_id = 0;
-    int32_t _related_schema_hash = 0;
-    AlterTabletType _alter_type = SCHEMA_CHANGE;
-};
-
-bool operator==(const AlterTabletTask& a, const AlterTabletTask& b);
-bool operator!=(const AlterTabletTask& a, const AlterTabletTask& b);
-
-typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
-
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
@@ -116,6 +82,9 @@ public:
                uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid, TTabletType::type tabletType);
+    // If need add a filed in TableMeta, filed init copy in copy construct function
+    TabletMeta(const TabletMeta& tablet_meta);
+    TabletMeta(TabletMeta&& tablet_meta) = delete;
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -184,10 +153,6 @@ public:
     void remove_delete_predicate_by_version(const Version& version);
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
-    AlterTabletTaskSharedPtr alter_task();
-    void add_alter_task(const AlterTabletTask& alter_task);
-    void delete_alter_task();
-    OLAPStatus set_alter_state(AlterTabletState alter_state);
 
     std::string full_name() const;
 
@@ -200,12 +165,11 @@ public:
     }
 
     // used for after tablet cloned to clear stale rowset
-    void clear_stale_rowset() {
-        _stale_rs_metas.clear();
-    }
+    void clear_stale_rowset() { _stale_rs_metas.clear(); }
 
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
+    void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.
     friend bool operator==(const TabletMeta& a, const TabletMeta& b);
@@ -223,7 +187,9 @@ private:
     TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
     TabletState _tablet_state = TABLET_NOTREADY;
-    TabletSchema _schema;
+    // the reference of _schema may use in tablet, so here need keep
+    // the lifetime of tablemeta and _schema is same with tablet
+    std::shared_ptr<TabletSchema> _schema;
 
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
@@ -232,9 +198,8 @@ private:
     std::vector<RowsetMetaSharedPtr> _stale_rs_metas;
 
     DelPredicateArray _del_pred_array;
-    AlterTabletTaskSharedPtr _alter_task;
     bool _in_restore_mode = false;
-    RowsetTypePB _preferred_rowset_type = ALPHA_ROWSET;
+    RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
 
     RWMutex _meta_lock;
 };
@@ -322,11 +287,11 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
 }
 
 inline const TabletSchema& TabletMeta::tablet_schema() const {
-    return _schema;
+    return *_schema;
 }
 
 inline TabletSchema* TabletMeta::mutable_tablet_schema() {
-    return &_schema;
+    return _schema.get();
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {

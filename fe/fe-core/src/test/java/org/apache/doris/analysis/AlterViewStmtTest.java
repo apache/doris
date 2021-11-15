@@ -25,7 +25,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.View;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -122,11 +121,19 @@ public class AlterViewStmtTest {
                 return auth;
             }
             @Mock
-            Database getDb(long dbId) {
+            Database getDbOrDdlException(long dbId) {
                 return db;
             }
             @Mock
-            Database getDb(String dbName) {
+            Database getDbOrDdlException(String dbName) {
+                return db;
+            }
+            @Mock
+            Database getDbOrAnalysisException(long dbId) {
+                return db;
+            }
+            @Mock
+            Database getDbOrAnalysisException(String dbName) {
                 return db;
             }
         };
@@ -140,52 +147,36 @@ public class AlterViewStmtTest {
     }
 
     @Test
-    public void testNormal() {
+    public void testNormal() throws Exception {
         String originStmt = "select col1 as c1, sum(col2) as c2 from testDb.testTbl group by col1";
         View view = new View(30000L, "testView", null);
         view.setInlineViewDefWithSqlMode("select col1 as c1, sum(col2) as c2 from testDb.testTbl group by col1", 0L);
-        try {
-            view.init();
-        } catch (UserException e) {
-            Assert.fail();
-        }
+        view.init();
 
-        Database db = analyzer.getCatalog().getDb("testDb");
+        Database db = analyzer.getCatalog().getDbOrAnalysisException("testDb");
         db.createTable(view);
 
         Assert.assertEquals(originStmt, view.getInlineViewDef());
 
         String alterStmt = "with testTbl_cte (w1, w2) as (select col1, col2 from testDb.testTbl) select w1 as c1, sum(w2) as c2 from testTbl_cte where w1 > 10 group by w1 order by w1";
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(alterStmt)));
-        QueryStmt alterQueryStmt = null;
-        try {
-            alterQueryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);
-        } catch (Error e) {
-            Assert.fail(e.getMessage());
-        } catch (Exception e) {
-            Assert.fail(e.getMessage());
-        }
+        QueryStmt alterQueryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);
 
         ColWithComment col1 = new ColWithComment("h1", null);
         ColWithComment col2 = new ColWithComment("h2", null);
 
         AlterViewStmt alterViewStmt = new AlterViewStmt(new TableName("testDb", "testView"), Lists.newArrayList(col1, col2), alterQueryStmt);
-        try {
-            alterViewStmt.analyze(analyzer);
-            Catalog catalog1 = analyzer.getCatalog();
-            if (catalog1 == null) {
-                System.out.println("cmy get null");
-                return;
-            }
-            catalog1.alterView(alterViewStmt);
-        } catch (UserException e) {
-            Assert.fail();
+        alterViewStmt.analyze(analyzer);
+        Catalog catalog1 = analyzer.getCatalog();
+        if (catalog1 == null) {
+            System.out.println("cmy get null");
+            return;
         }
+        catalog1.alterView(alterViewStmt);
 
-        View newView = (View) db.getTable("testView");
-
-        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)"+
-                                     " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
+        View newView = (View) db.getTableOrAnalysisException("testView");
+        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)" +
+                        " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
                 newView.getInlineViewDef());
     }
 }

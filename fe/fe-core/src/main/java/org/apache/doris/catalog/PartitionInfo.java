@@ -56,8 +56,8 @@ public class PartitionInfo implements Writable {
     protected Map<Long, PartitionItem> idToTempItem = Maps.newHashMap();
     // partition id -> data property
     protected Map<Long, DataProperty> idToDataProperty;
-    // partition id -> replication num
-    protected Map<Long, Short> idToReplicationNum;
+    // partition id -> replication allocation
+    protected Map<Long, ReplicaAllocation> idToReplicaAllocation;
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
@@ -70,7 +70,7 @@ public class PartitionInfo implements Writable {
 
     public PartitionInfo() {
         this.idToDataProperty = new HashMap<>();
-        this.idToReplicationNum = new HashMap<>();
+        this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
     }
@@ -78,7 +78,7 @@ public class PartitionInfo implements Writable {
     public PartitionInfo(PartitionType type) {
         this.type = type;
         this.idToDataProperty = new HashMap<>();
-        this.idToReplicationNum = new HashMap<>();
+        this.idToReplicaAllocation = new HashMap<>();
         this.idToInMemory = new HashMap<>();
         this.idToTabletType = new HashMap<>();
     }
@@ -132,7 +132,7 @@ public class PartitionInfo implements Writable {
         setItemInternal(partitionId, isTemp, partitionItem);
 
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
-        idToReplicationNum.put(partitionId, desc.getReplicationNum());
+        idToReplicaAllocation.put(partitionId, desc.getReplicaAlloc());
         idToInMemory.put(partitionId, desc.isInMemory());
 
         return partitionItem;
@@ -143,22 +143,24 @@ public class PartitionInfo implements Writable {
     }
 
     public void unprotectHandleNewSinglePartitionDesc(long partitionId, boolean isTemp, PartitionItem partitionItem,
-                                                      DataProperty dataProperty, short replicationNum,
+                                                      DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                                       boolean isInMemory) {
         setItemInternal(partitionId, isTemp, partitionItem);
         idToDataProperty.put(partitionId, dataProperty);
-        idToReplicationNum.put(partitionId, replicationNum);
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
     }
 
-    public List<Map.Entry<Long, PartitionItem>> getSortedItemMap(boolean isTemp) {
+    public List<Map.Entry<Long, PartitionItem>> getPartitionItemEntryList(boolean isTemp, boolean isSorted) {
         Map<Long, PartitionItem> tmpMap = idToItem;
         if (isTemp) {
             tmpMap = idToTempItem;
         }
-        List<Map.Entry<Long, PartitionItem>> sortedList = Lists.newArrayList(tmpMap.entrySet());
-        Collections.sort(sortedList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
-        return sortedList;
+        List<Map.Entry<Long, PartitionItem>> itemEntryList = Lists.newArrayList(tmpMap.entrySet());
+        if (isSorted) {
+            Collections.sort(itemEntryList, PartitionItem.ITEM_MAP_ENTRY_COMPARATOR);
+        }
+        return itemEntryList;
     }
 
     // get sorted item list, exclude partitions which ids are in 'excludePartitionIds'
@@ -207,15 +209,16 @@ public class PartitionInfo implements Writable {
         idToDataProperty.put(partitionId, newDataProperty);
     }
 
-    public short getReplicationNum(long partitionId) {
-        if (!idToReplicationNum.containsKey(partitionId)) {
-            LOG.debug("failed to get replica num for partition: {}", partitionId);
+    public ReplicaAllocation getReplicaAllocation(long partitionId) {
+        if (!idToReplicaAllocation.containsKey(partitionId)) {
+            LOG.debug("failed to get replica allocation for partition: {}", partitionId);
+            return ReplicaAllocation.DEFAULT_ALLOCATION;
         }
-        return idToReplicationNum.get(partitionId);
+        return idToReplicaAllocation.get(partitionId);
     }
 
-    public void setReplicationNum(long partitionId, short replicationNum) {
-        idToReplicationNum.put(partitionId, replicationNum);
+    public void setReplicaAllocation(long partitionId, ReplicaAllocation replicaAlloc) {
+        this.idToReplicaAllocation.put(partitionId, replicaAlloc);
     }
 
     public boolean getIsInMemory(long partitionId) {
@@ -239,23 +242,23 @@ public class PartitionInfo implements Writable {
 
     public void dropPartition(long partitionId) {
         idToDataProperty.remove(partitionId);
-        idToReplicationNum.remove(partitionId);
+        idToReplicaAllocation.remove(partitionId);
         idToInMemory.remove(partitionId);
         idToItem.remove(partitionId);
         idToTempItem.remove(partitionId);
     }
 
     public void addPartition(long partitionId, boolean isTemp, PartitionItem item, DataProperty dataProperty,
-                                 short replicationNum, boolean isInMemory){
-        addPartition(partitionId, dataProperty, replicationNum, isInMemory);
+                             ReplicaAllocation replicaAlloc, boolean isInMemory) {
+        addPartition(partitionId, dataProperty, replicaAlloc, isInMemory);
         setItemInternal(partitionId, isTemp, item);
     }
 
     public void addPartition(long partitionId, DataProperty dataProperty,
-                             short replicationNum,
+                             ReplicaAllocation replicaAlloc,
                              boolean isInMemory) {
         idToDataProperty.put(partitionId, dataProperty);
-        idToReplicationNum.put(partitionId, replicationNum);
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
         idToInMemory.put(partitionId, isInMemory);
     }
 
@@ -280,12 +283,23 @@ public class PartitionInfo implements Writable {
         }
     }
 
+    public void resetPartitionIdForRestore(long newPartitionId, long oldPartitionId, ReplicaAllocation restoreReplicaAlloc,
+                                           boolean isSinglePartitioned) {
+        idToDataProperty.put(newPartitionId, idToDataProperty.remove(oldPartitionId));
+        idToReplicaAllocation.remove(oldPartitionId);
+        idToReplicaAllocation.put(newPartitionId, restoreReplicaAlloc);
+        if (!isSinglePartitioned) {
+            idToItem.put(newPartitionId, idToItem.remove(oldPartitionId));
+        }
+        idToInMemory.put(newPartitionId, idToInMemory.remove(oldPartitionId));
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, type.name());
 
-        Preconditions.checkState(idToDataProperty.size() == idToReplicationNum.size());
-        Preconditions.checkState(idToInMemory.keySet().equals(idToReplicationNum.keySet()));
+        Preconditions.checkState(idToDataProperty.size() == idToReplicaAllocation.size());
+        Preconditions.checkState(idToInMemory.keySet().equals(idToReplicaAllocation.keySet()));
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
@@ -296,7 +310,7 @@ public class PartitionInfo implements Writable {
                 entry.getValue().write(out);
             }
 
-            out.writeShort(idToReplicationNum.get(entry.getKey()));
+            idToReplicaAllocation.get(entry.getKey()).write(out);
             out.writeBoolean(idToInMemory.get(entry.getKey()));
         }
     }
@@ -314,8 +328,15 @@ public class PartitionInfo implements Writable {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
 
-            short replicationNum = in.readShort();
-            idToReplicationNum.put(partitionId, replicationNum);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+                short replicationNum = in.readShort();
+                ReplicaAllocation replicaAlloc = new ReplicaAllocation(replicationNum);
+                idToReplicaAllocation.put(partitionId, replicaAlloc);
+            } else {
+                ReplicaAllocation replicaAlloc = ReplicaAllocation.read(in);
+                idToReplicaAllocation.put(partitionId, replicaAlloc);
+            }
+
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
                 idToInMemory.put(partitionId, in.readBoolean());
             } else {
@@ -338,11 +359,12 @@ public class PartitionInfo implements Writable {
                 buff.append(false);
             }
             buff.append("; ");
-            buff.append("data_property: ").append(entry.getValue().toString()).append("; ");;
-            buff.append("replica number: ").append(idToReplicationNum.get(entry.getKey())).append("; ");;
+            buff.append("data_property: ").append(entry.getValue().toString()).append("; ");
+            buff.append("replica number: ").append(idToReplicaAllocation.get(entry.getKey())).append("; ");
             buff.append("in memory: ").append(idToInMemory.get(entry.getKey()));
         }
 
         return buff.toString();
     }
+
 }

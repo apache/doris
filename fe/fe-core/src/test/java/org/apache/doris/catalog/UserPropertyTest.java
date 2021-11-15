@@ -20,13 +20,14 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
 
-import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -57,13 +58,16 @@ public class UserPropertyTest {
     }
 
     @Test
-    public void testUpdate() throws DdlException {
+    public void testUpdate() throws UserException {
         List<Pair<String, String>> properties = Lists.newArrayList();
         properties.add(Pair.create("MAX_USER_CONNECTIONS", "100"));
         properties.add(Pair.create("resource.cpu_share", "101"));
         properties.add(Pair.create("quota.normal", "102"));
         properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
         properties.add(Pair.create("default_load_cluster", "dpp-cluster"));
+        properties.add(Pair.create("max_qUERY_instances", "3000"));
+        properties.add(Pair.create("sql_block_rules", "rule1,rule2"));
+        properties.add(Pair.create("cpu_resource_limit", "2"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -72,6 +76,9 @@ public class UserPropertyTest {
         Assert.assertEquals(102, userProperty.getResource().getShareByGroup().get("normal").intValue());
         Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
+        Assert.assertEquals(3000, userProperty.getMaxQueryInstances());
+        Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
+        Assert.assertEquals(2, userProperty.getCpuResourceLimit());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();
@@ -89,6 +96,12 @@ public class UserPropertyTest {
                 Assert.assertEquals("/user/palo2", value);
             } else if (key.equalsIgnoreCase("default_load_cluster")) {
                 Assert.assertEquals("dpp-cluster", value);
+            } else if (key.equalsIgnoreCase("max_query_instances")) {
+                Assert.assertEquals("3000", value);
+            } else if (key.equalsIgnoreCase("sql_block_rules")) {
+                Assert.assertEquals("rule1,rule2", value);
+            } else if (key.equalsIgnoreCase("cpu_resource_limit")) {
+                Assert.assertEquals("2", value);
             }
         }
 
@@ -109,5 +122,15 @@ public class UserPropertyTest {
         userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
         Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
+
+        // sql block rule
+        properties.clear();
+        properties.add(Pair.create("sql_block_rules", ""));
+        userProperty.update(properties);
+        Assert.assertEquals(1, userProperty.getSqlBlockRules().length);
+        properties.clear();
+        properties.add(Pair.create("sql_block_rules", "test1, test2,test3"));
+        userProperty.update(properties);
+        Assert.assertEquals(3, userProperty.getSqlBlockRules().length);
     }
 }

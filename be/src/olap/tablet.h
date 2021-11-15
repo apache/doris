@@ -91,16 +91,17 @@ public:
     inline double bloom_filter_fpp() const;
     inline size_t next_unique_id() const;
     inline size_t row_size() const;
-    inline int32_t field_index(const string& field_name) const;
+    inline int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
-    void modify_rowsets(vector<RowsetSharedPtr>& to_add,
-                        vector<RowsetSharedPtr>& to_delete);
+    void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                        std::vector<RowsetSharedPtr>& to_delete);
 
     // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
-    const RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
+    const RowsetSharedPtr get_rowset_by_version(const Version& version,
+                                                bool find_is_stale = false) const;
     const RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
 
     const RowsetSharedPtr rowset_with_max_version() const;
@@ -113,32 +114,25 @@ public:
     void delete_expired_stale_rowset();
 
     OLAPStatus capture_consistent_versions(const Version& spec_version,
-                                           vector<Version>* version_path) const;
+                                           std::vector<Version>* version_path) const;
     OLAPStatus check_version_integrity(const Version& version);
     bool check_version_exist(const Version& version) const;
-    void list_versions(std::vector<Version>* versions) const;
+    void acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
-                                          vector<RowsetSharedPtr>* rowsets) const;
+                                          std::vector<RowsetSharedPtr>* rowsets) const;
     OLAPStatus capture_rs_readers(const Version& spec_version,
-                                  vector<RowsetReaderSharedPtr>* rs_readers,
+                                  std::vector<RowsetReaderSharedPtr>* rs_readers,
                                   std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
 
-    OLAPStatus capture_rs_readers(const vector<Version>& version_path,
-                                  vector<RowsetReaderSharedPtr>* rs_readers,
+    OLAPStatus capture_rs_readers(const std::vector<Version>& version_path,
+                                  std::vector<RowsetReaderSharedPtr>* rs_readers,
                                   std::shared_ptr<MemTracker> parent_tracker = nullptr) const;
 
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
     bool version_for_delete_predicate(const Version& version);
     bool version_for_load_deletion(const Version& version);
-
-    // message for alter task
-    AlterTabletTaskSharedPtr alter_task();
-    void add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                        const vector<Version>& versions_to_alter, const AlterTabletType alter_type);
-    void delete_alter_task();
-    OLAPStatus set_alter_state(AlterTabletState state);
 
     // meta lock
     inline void obtain_header_rdlock() { _meta_lock.rdlock(); }
@@ -164,16 +158,17 @@ public:
     inline RWMutex* get_migration_lock_ptr() { return &_migration_lock; }
 
     // operation for compaction
-    bool can_do_compaction();
-    uint32_t calc_compaction_score(CompactionType compaction_type,
-               std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+    bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
+    uint32_t calc_compaction_score(
+            CompactionType compaction_type,
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
     static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                                   VersionHash* version_hash);
 
     // operation for clone
-    void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
+    void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
     void calc_missed_versions_unlocked(int64_t spec_version,
-                                       vector<Version>* missed_versions) const;
+                                       std::vector<Version>* missed_versions) const;
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
@@ -181,7 +176,7 @@ public:
 
     // operation for query
     OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                           uint64_t request_block_row_count, vector<OlapTuple>* ranges);
+                           uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
@@ -227,7 +222,7 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
-	// return true if the checkpoint is actually done
+    // return true if the checkpoint is actually done
     bool do_tablet_meta_checkpoint();
 
     // Check whether the rowset is useful or not, unuseful rowset can be swept up then.
@@ -247,7 +242,8 @@ public:
 
     double calculate_scan_frequency();
 
-    int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type, TabletSharedPtr tablet);
+    int64_t prepare_compaction_and_calculate_permits(CompactionType compaction_type,
+                                                     TabletSharedPtr tablet);
     void execute_compaction(CompactionType compaction_type);
     void reset_compaction(CompactionType compaction_type);
 
@@ -265,8 +261,8 @@ private:
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);
-    OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
-                                                    vector<RowsetSharedPtr>* rowsets) const;
+    OLAPStatus _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
+                                                    std::vector<RowsetSharedPtr>* rowsets) const;
 
     const uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
@@ -367,7 +363,8 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     // cumulative point should only be reset to -1, or be increased
     CHECK(new_point == Tablet::K_INVALID_CUMULATIVE_POINT || new_point >= _cumulative_point)
-        << "Unexpected cumulative point: " << new_point << ", origin: " << _cumulative_point.load();
+            << "Unexpected cumulative point: " << new_point
+            << ", origin: " << _cumulative_point.load();
     _cumulative_point = new_point;
 }
 
@@ -429,7 +426,7 @@ inline size_t Tablet::next_unique_id() const {
     return _schema.next_column_unique_id();
 }
 
-inline int32_t Tablet::field_index(const string& field_name) const {
+inline int32_t Tablet::field_index(const std::string& field_name) const {
     return _schema.field_index(field_name);
 }
 

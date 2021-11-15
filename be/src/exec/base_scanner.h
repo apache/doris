@@ -33,6 +33,9 @@ class MemTracker;
 class RuntimeState;
 class ExprContext;
 
+// The counter will be passed to each scanner.
+// Note that this struct is not thread safe.
+// So if we support concurrent scan in the future, we need to modify this struct.
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
 
@@ -91,8 +94,6 @@ protected:
     bool _strict_mode;
 
     int32_t _line_counter;
-    // reference to HASH_JOIN_NODE::RELEASE_CONTEXT_COUNTER
-    const static constexpr int32_t RELEASE_CONTEXT_COUNTER = 1 << 5;
     // Profile
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _rows_read_counter;

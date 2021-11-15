@@ -27,7 +27,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Partition;
@@ -149,17 +148,26 @@ public class PartitionRange {
         public Date date;
 
         public boolean init(Type type, String str) {
-            if (type.getPrimitiveType() == PrimitiveType.DATE) {
-                try {
-                    date = df10.parse(str);
-                } catch (Exception e) {
-                    LOG.warn("parse error str{}.", str);
+            switch (type.getPrimitiveType()) {
+                case DATE:
+                    try {
+                        date = df10.parse(str);
+                    } catch (Exception e) {
+                        LOG.warn("parse error str{}.", str);
+                        return false;
+                    }
+                    keyType = KeyType.DATE;
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                case BIGINT:
+                    value = Long.parseLong(str);
+                    keyType = KeyType.LONG;
+                    break;
+                default:
+                    LOG.info("PartitionCache not support such key type {}", type.toSql());
                     return false;
-                }
-                keyType = KeyType.DATE;
-            } else {
-                value = Long.valueOf(str);
-                keyType = KeyType.LONG;
             }
             return true;
         }
@@ -171,10 +179,10 @@ public class PartitionRange {
                 case DATETIME:
                 case FLOAT:
                 case DOUBLE:
-                case DECIMAL:
                 case DECIMALV2:
                 case CHAR:
                 case VARCHAR:
+                case STRING:
                 case LARGEINT:
                     LOG.info("PartitionCache not support such key type {}", type.toSql());
                     return false;

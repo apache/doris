@@ -40,7 +40,6 @@ set(EXEC_FILES
     hash_join_node.cpp
     hash_join_node_ir.cpp
     hash_table.cpp
-    hdfs_file_reader.cpp
     local_file_reader.cpp
     merge_node.cpp
     merge_join_node.cpp
@@ -55,6 +54,7 @@ set(EXEC_FILES
     olap_common.cpp
     tablet_info.cpp
     tablet_sink.cpp
+    plain_binary_line_reader.cpp
     plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
@@ -105,7 +105,16 @@ set(EXEC_FILES
     assert_num_rows_node.cpp
     s3_reader.cpp
     s3_writer.cpp
+    hdfs_reader_writer.cpp
 )
+
+if (ARCH_AMD64)
+    set(EXEC_FILES
+        ${EXEC_FILES}
+        hdfs_file_reader.cpp
+        hdfs_writer.cpp
+        )
+endif()
 
 if (WITH_MYSQL)
     set(EXEC_FILES

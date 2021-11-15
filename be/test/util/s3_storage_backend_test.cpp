@@ -33,18 +33,20 @@
 #include "util/storage_backend.h"
 
 namespace doris {
-static const std::string AK = "AK";
-static const std::string SK = "SK";
+static const std::string AK = "";
+static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
+static const std::string USE_PATH_STYLE = "false";
 static const std::string REGION = "bj";
-static const std::string BUCKET = "s3://yang-repo/";
+static const std::string BUCKET = "s3://cmy-repo/";
 class S3StorageBackendTest : public testing::Test {
 public:
     S3StorageBackendTest()
             : _aws_properties({{"AWS_ACCESS_KEY", AK},
                                {"AWS_SECRET_KEY", SK},
                                {"AWS_ENDPOINT", ENDPOINT},
-                               {"AWS_REGION", "bj"}}) {
+                               {"USE_PATH_STYLE", USE_PATH_STYLE},
+                               {"AWS_REGION", REGION}}) {
         _s3.reset(new S3StorageBackend(_aws_properties));
         _s3_base_path = BUCKET + "s3/" + gen_uuid();
     }
@@ -189,10 +191,7 @@ TEST_F(S3StorageBackendTest, s3_mkdir) {
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     int ret = 0;
-    Aws::SDKOptions options;
-    Aws::InitAPI(options);
-    // ak sk is secret
+    // set ak sk before running it.
     // ret = RUN_ALL_TESTS();
-    Aws::ShutdownAPI(options);
     return ret;
 }

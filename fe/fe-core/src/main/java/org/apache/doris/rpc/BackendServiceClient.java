@@ -22,18 +22,26 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 
 public class BackendServiceClient {
-    private static final int MAX_RETRY_NUM = 3;
+    public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
+
+    private static final int MAX_RETRY_NUM = 0;
+    private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
 
     public BackendServiceClient(TNetworkAddress address) {
+        this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
@@ -75,5 +83,47 @@ public class BackendServiceClient {
 
     public Future<InternalService.PProxyResult> getInfo(InternalService.PProxyRequest request) {
         return stub.getInfo(request);
+    }
+
+    public Future<InternalService.PSendDataResult> sendData(InternalService.PSendDataRequest request) {
+        return stub.sendData(request);
+    }
+
+    public Future<InternalService.PRollbackResult> rollback(InternalService.PRollbackRequest request) {
+        return stub.rollback(request);
+    }
+
+    public Future<InternalService.PCommitResult> commit(InternalService.PCommitRequest request) {
+        return stub.commit(request);
+    }
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(InternalService.PConstantExprRequest request) {
+        return stub.foldConstantExpr(request);
+    }
+
+    public void shutdown() {
+        if (!channel.isShutdown()) {
+            channel.shutdown();
+            try {
+                if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOG.warn("Timed out gracefully shutting down connection: {}. ", channel);
+                }
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
+
+        if (!channel.isTerminated()) {
+            channel.shutdownNow();
+            try {
+                if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                    LOG.warn("Timed out forcefully shutting down connection: {}. ", channel);
+                }
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
+
+        LOG.warn("shut down backend service client: {}", address);
     }
 }

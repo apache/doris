@@ -94,7 +94,20 @@ TEST_F(ThreadPoolTest, TestNoTaskOpenClose) {
 static void simple_task_method(int n, std::atomic<int32_t>* counter) {
     while (n--) {
         (*counter)++;
-        boost::detail::yield(n);
+        if (n < 32 || n & 1) {
+            sched_yield();
+        } else {
+            // g++ -Wextra warns on {} or {0}
+            struct timespec rqtp = {0, 0};
+
+            // POSIX says that timespec has tv_sec and tv_nsec
+            // But it doesn't guarantee order or placement
+
+            rqtp.tv_sec = 0;
+            rqtp.tv_nsec = 1000;
+
+            nanosleep(&rqtp, 0);
+        }
     }
 }
 
@@ -739,44 +752,147 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
                                      total_num_tokens_submitted.load());
 }
 
-/*
-TEST_F(ThreadPoolTest, TestLIFOThreadWakeUps) {
-    const int kNumThreads = 10;
-
-    // Test with a pool that allows for kNumThreads concurrent threads.
-    ASSERT_OK(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
-                .set_max_threads(kNumThreads)).ok());
-
-    // Submit kNumThreads slow tasks and unblock them, in order to produce
-    // kNumThreads worker threads.
-    CountDownLatch latch(1);
-    SCOPED_CLEANUP({
-            latch.CountDown();
-    });
-    for (int i = 0; i < kNumThreads; i++) {
-        ASSERT_OK(pool_->submit(SlowTask::new_slow_task(&latch)).ok());
-    }
-    ASSERT_EQ(kNumThreads, _pool->num_threads());
-    latch.count_down();
-    pool_->wait();
-
-    // The kNumThreads threads are idle and waiting for the idle timeout.
-
-    // Submit a slow trickle of lightning fast tasks.
-    //
-    // If the threads are woken up in FIFO order, this trickle is enough to
-    // prevent all of them from idling and the AssertEventually will time out.
-    //
-    // If LIFO order is used, the same thread will be reused for each task and
-    // the other threads will eventually time out.
-    AssertEventually([&]() {
-            ASSERT_OK(_pool->submit_func([](){}).ok());
-            SleepFor(MonoDelta::FromMilliseconds(10));
-            ASSERT_EQ(1, _pool->num_threads());
-            }, MonoDelta::FromSeconds(10), AssertBackoff::NONE);
-    NO_PENDING_FATALS();
+static void MyFunc(int idx, int n) {
+    std::cout << idx << ", " << std::this_thread::get_id() << " before sleep " << n << " seconds"
+              << std::endl;
+    sleep(n);
+    std::cout << idx << ", " << std::this_thread::get_id() << " after sleep " << n << " seconds"
+              << std::endl;
 }
-*/
+
+TEST_F(ThreadPoolTest, TestNormal) {
+    std::unique_ptr<ThreadPool> thread_pool;
+    ThreadPoolBuilder("my_pool")
+            .set_min_threads(0)
+            .set_max_threads(5)
+            .set_max_queue_size(10)
+            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+            .build(&thread_pool);
+
+    std::unique_ptr<ThreadPoolToken> token1 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
+    for (int i = 0; i < 10; i++) {
+        token1->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 1" << std::endl;
+    token1->wait();
+    ASSERT_EQ(0, token1->num_tasks());
+
+    std::unique_ptr<ThreadPoolToken> token2 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
+    for (int i = 0; i < 10; i++) {
+        token2->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 2" << std::endl;
+    token2->wait();
+    ASSERT_EQ(0, token2->num_tasks());
+
+    std::unique_ptr<ThreadPoolToken> token3 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 1);
+    for (int i = 0; i < 10; i++) {
+        token3->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 3" << std::endl;
+    token3->wait();
+    ASSERT_EQ(0, token3->num_tasks());
+
+    std::unique_ptr<ThreadPoolToken> token4 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    for (int i = 0; i < 10; i++) {
+        token4->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 4" << std::endl;
+    token4->wait();
+    ASSERT_EQ(0, token4->num_tasks());
+
+    std::unique_ptr<ThreadPoolToken> token5 =
+            thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
+    for (int i = 0; i < 10; i++) {
+        token5->submit_func(std::bind(&MyFunc, i, 1));
+    }
+    std::cout << "after submit 5" << std::endl;
+    token5->shutdown();
+    ASSERT_EQ(0, token5->num_tasks());
+}
+
+TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
+    ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
+                                                  .set_min_threads(3)
+                                                  .set_max_threads(3)
+                                                  .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
+                        .ok());
+
+    ASSERT_EQ(3, _pool->min_threads());
+    ASSERT_EQ(3, _pool->max_threads());
+    ASSERT_EQ(3, _pool->num_threads());
+
+    ASSERT_TRUE(!_pool->set_min_threads(4).ok());
+    ASSERT_TRUE(!_pool->set_max_threads(2).ok());
+
+    ASSERT_TRUE(_pool->set_min_threads(2).ok());
+    ASSERT_EQ(2, _pool->min_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+
+    ASSERT_TRUE(_pool->set_min_threads(3).ok());
+    ASSERT_EQ(3, _pool->min_threads());
+    ASSERT_TRUE(_pool->set_max_threads(3).ok());
+    ASSERT_EQ(3, _pool->max_threads());
+
+    CountDownLatch latch_1(1);
+    CountDownLatch latch_2(1);
+    CountDownLatch latch_3(1);
+    CountDownLatch latch_4(1);
+    CountDownLatch latch_5(1);
+    CountDownLatch latch_6(1);
+    CountDownLatch latch_7(1);
+    CountDownLatch latch_8(1);
+    CountDownLatch latch_9(1);
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_1)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_2)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_3)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_4)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_5)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_6)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_7)).ok());
+    ASSERT_EQ(3, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+    ASSERT_EQ(4, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(5).ok());
+    ASSERT_EQ(5, _pool->max_threads());
+    ASSERT_EQ(5, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(6).ok());
+    ASSERT_EQ(6, _pool->max_threads());
+    ASSERT_EQ(6, _pool->num_threads());
+    ASSERT_TRUE(_pool->set_max_threads(4).ok());
+    ASSERT_EQ(4, _pool->max_threads());
+    latch_1.count_down();
+    latch_2.count_down();
+    latch_3.count_down();
+    SleepFor(MonoDelta::FromMilliseconds(500));
+    ASSERT_EQ(4, _pool->num_threads());
+
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_8)).ok());
+    ASSERT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_9)).ok());
+    ASSERT_EQ(4, _pool->num_threads());
+
+    ASSERT_TRUE(_pool->set_min_threads(2).ok());
+    ASSERT_EQ(2, _pool->min_threads());
+
+    latch_4.count_down();
+    latch_5.count_down();
+    latch_6.count_down();
+    latch_7.count_down();
+    latch_8.count_down();
+    latch_9.count_down();
+    SleepFor(MonoDelta::FromMilliseconds(500));
+    ASSERT_EQ(2, _pool->num_threads());
+
+    _pool->wait();
+    _pool->shutdown();
+    ASSERT_EQ(0, _pool->num_threads());
+}
 
 } // namespace doris
 

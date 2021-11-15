@@ -31,8 +31,8 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/file_utils.h"
 #include "test_util/test_util.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -141,6 +141,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
         iter_opts.rblock = rblock.get();
+        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read
@@ -220,9 +221,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
 }
 
 template <FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB array_encoding>
-void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows,
+void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, int num_rows,
                               std::string test_name) {
-    Collection* src = src_data;
+    CollectionValue* src = src_data;
     ColumnMetaPB meta;
     TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
     int32 item_length = 0;
@@ -303,6 +304,7 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
         iter_opts.rblock = rblock.get();
+        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read
@@ -369,36 +371,36 @@ void test_array_nullable_data(Collection* src_data, uint8_t* src_is_null, int nu
 }
 
 TEST_F(ColumnReaderWriterTest, test_array_type) {
-    size_t num_list = LOOP_LESS_OR_MORE(1024, 24 * 1024);
-    size_t num_item = num_list * 3;
+    size_t num_array = LOOP_LESS_OR_MORE(1024, 24 * 1024);
+    size_t num_item = num_array * 3;
 
-    uint8_t* array_is_null = new uint8_t[BitmapSize(num_list)];
-    Collection* array_val = new Collection[num_list];
+    uint8_t* array_is_null = new uint8_t[BitmapSize(num_array)];
+    CollectionValue* array_val = new CollectionValue[num_array];
     bool* item_is_null = new bool[num_item];
     uint8_t* item_val = new uint8_t[num_item];
     for (int i = 0; i < num_item; ++i) {
         item_val[i] = i;
         item_is_null[i] = (i % 4) == 0;
         if (i % 3 == 0) {
-            size_t list_index = i / 3;
-            bool is_null = (list_index % 4) == 1;
-            BitmapChange(array_is_null, list_index, is_null);
+            size_t array_index = i / 3;
+            bool is_null = (array_index % 4) == 1;
+            BitmapChange(array_is_null, array_index, is_null);
             if (is_null) {
                 continue;
             }
-            array_val[list_index].data = &item_val[i];
-            array_val[list_index].null_signs = &item_is_null[i];
-            array_val[list_index].length = 3;
+            array_val[array_index].set_data(&item_val[i]);
+            array_val[array_index].set_null_signs(&item_is_null[i]);
+            array_val[array_index].set_length(3);
         }
     }
     test_array_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(
-            array_val, array_is_null, num_list, "null_array_bs");
+            array_val, array_is_null, num_array, "null_array_bs");
 
     delete[] array_val;
     delete[] item_val;
     delete[] item_is_null;
 
-    array_val = new Collection[num_list];
+    array_val = new CollectionValue[num_array];
     Slice* varchar_vals = new Slice[3];
     item_is_null = new bool[3];
     for (int i = 0; i < 3; ++i) {
@@ -407,18 +409,18 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
             set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
         }
     }
-    for (int i = 0; i < num_list; ++i) {
+    for (int i = 0; i < num_array; ++i) {
         bool is_null = (i % 4) == 1;
         BitmapChange(array_is_null, i, is_null);
         if (is_null) {
             continue;
         }
-        array_val[i].data = varchar_vals;
-        array_val[i].null_signs = item_is_null;
-        array_val[i].length = 3;
+        array_val[i].set_data(varchar_vals);
+        array_val[i].set_null_signs(item_is_null);
+        array_val[i].set_length(3);
     }
     test_array_nullable_data<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING, BIT_SHUFFLE>(
-            array_val, array_is_null, num_list, "null_array_chars");
+            array_val, array_is_null, num_array, "null_array_chars");
 
     delete[] array_val;
     delete[] varchar_vals;
@@ -438,6 +440,7 @@ void test_read_default_value(string value, void* result) {
                                         tablet_column.default_value(), tablet_column.is_nullable(),
                                         type_info, tablet_column.length());
         ColumnIteratorOptions iter_opts;
+        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         auto st = iter.init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read

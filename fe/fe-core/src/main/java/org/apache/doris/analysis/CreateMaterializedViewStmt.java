@@ -245,7 +245,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
         List<OrderByElement> orderByElements = selectStmt.getOrderByElements();
         if (orderByElements.size() > mvColumnItemList.size()) {
-            throw new AnalysisException("The number of columns in order clause must be less then " + "the number of "
+            throw new AnalysisException("The number of columns in order clause must be less than " + "the number of "
                                                 + "columns in select clause");
         }
         if (beginIndexOfAggregation != -1 && (orderByElements.size() != (beginIndexOfAggregation))) {

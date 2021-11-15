@@ -27,7 +27,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
                          const std::shared_ptr<MemTracker>& mem_tracker)
         : _load_id(load_id), _timeout_s(timeout_s) {
     _mem_tracker = MemTracker::CreateTracker(
-            mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, true, false);
+            mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, true, false, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -94,7 +94,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(),
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
+                                       &finished, request.partition_ids(),
                                        tablet_vec));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
@@ -120,7 +121,7 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
 
     std::shared_ptr<TabletsChannel> channel;
     if (_find_largest_consumption_channel(&channel)) {
-        channel->reduce_mem_usage();
+        channel->reduce_mem_usage(_mem_tracker->limit());
     } else {
         // should not happen, add log to observe
         LOG(WARNING) << "fail to find suitable tablets-channel when memory exceed. "

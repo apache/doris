@@ -82,7 +82,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
                 if (desiredConcurrentTaskNum <= 0) {
                     // the job will be rescheduled later.
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("msg", "the current concurrent num is less then or equal to zero, "
+                                     .add("msg", "the current concurrent num is less than or equal to zero, "
                                              + "job will be rescheduled later")
                                      .build());
                     continue;

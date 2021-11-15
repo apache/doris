@@ -95,10 +95,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             throw new LoadException("txn does not exist: " + job.getTransactionId());
         }
         for (long tableId : job.getIdToTableLoadInfo().keySet()) {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 txnState.addTableIndexes(table);
@@ -132,10 +129,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             long tableId = tableEntry.getKey();
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
 
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 // columns
@@ -175,7 +169,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
     private Map<String, EtlColumn> createEtlColumns(OlapTable table) {
         Map<String, EtlColumn> etlColumns = Maps.newHashMap();
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : table.getBaseSchema(true)) {
             etlColumns.put(column.getName(), new EtlColumn(column));
         }
         return etlColumns;
@@ -231,7 +225,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 }
                 columnRefs.add(dppColumn);
             }
-
             // distribution infos
             DistributionInfo distributionInfo = partition.getDistributionInfo();
             List<String> distributionColumnRefs = Lists.newArrayList();
@@ -272,7 +265,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     LOG.warn("unknown distribution type. type: {}", distributionInfo.getType().name());
                     throw new LoadException("unknown distribution type. type: " + distributionInfo.getType().name());
             }
-
             etlIndex.setPidKeyCount(keySize);
             etlIndex.setColumnRefs(columnRefs);
             etlIndices.put(String.valueOf(indexId), etlIndex);
@@ -552,9 +544,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 case BITMAP:
                     columnType = "BITMAP";
                     break;
-                case DECIMAL:
-                    columnType = "DECIMAL";
-                    break;
                 case DECIMALV2:
                     columnType = "DECIMAL";
                     break;
@@ -584,7 +573,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             }
 
             // decimal precision scale
-            if (type == PrimitiveType.DECIMAL || type == PrimitiveType.DECIMALV2) {
+            if (type == PrimitiveType.DECIMALV2) {
                 dppColumn.put("precision", column.getPrecision());
                 dppColumn.put("scale", column.getScale());
             }

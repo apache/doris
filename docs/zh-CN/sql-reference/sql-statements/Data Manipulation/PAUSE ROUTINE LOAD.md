@@ -31,6 +31,10 @@ under the License.
 
     PAUSE ROUTINE LOAD FOR test1;
 
+2. 暂停所有正在运行的例行导入作业
+
+    PAUSE ALL ROUTINE LOAD;
+
 ## keyword
-    PAUSE,ROUTINE,LOAD
+    PAUSE,ALL,ROUTINE,LOAD
 

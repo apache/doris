@@ -42,6 +42,11 @@ Status k_stream_load_plan_status;
 #endif
 
 Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
+    return execute_plan_fragment(ctx, nullptr);
+}
+
+Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx,
+                                                 std::shared_ptr<StreamLoadPipe> pipe) {
     DorisMetrics::instance()->txn_exec_plan_total->increment(1);
 // submit this params
 #ifndef BE_TEST
@@ -50,7 +55,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
-            ctx->put_result.params, [ctx](PlanFragmentExecutor* executor) {
+            ctx->put_result.params, [ctx, pipe, this](PlanFragmentExecutor* executor) {
                 ctx->commit_infos = std::move(executor->runtime_state()->tablet_commit_infos());
                 Status status = executor->status();
                 if (status.ok()) {
@@ -90,7 +95,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                                  << ", err_msg=" << status.get_error_msg() << ", " << ctx->brief();
                     // cancel body_sink, make sender known it
                     if (ctx->body_sink != nullptr) {
-                        ctx->body_sink->cancel();
+                        ctx->body_sink->cancel(status.get_error_msg());
                     }
 
                     switch (ctx->load_src_type) {
@@ -104,6 +109,15 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 }
                 ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
                 ctx->promise.set_value(status);
+
+                if (ctx->need_commit_self && pipe != nullptr) {
+                    if (pipe->closed() || !status.ok()) {
+                        ctx->status = status;
+                        this->rollback_txn(ctx);
+                    } else {
+                        this->commit_txn(ctx);
+                    }
+                }
 
                 if (ctx->unref()) {
                     delete ctx;
@@ -119,7 +133,6 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 #endif
     return Status::OK();
 }
-
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     DorisMetrics::instance()->txn_begin_request_total->increment(1);
 
@@ -156,6 +169,9 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
         return status;
     }
     ctx->txn_id = result.txnId;
+    if (result.__isset.db_id) {
+        ctx->db_id = result.db_id;
+    }
     ctx->need_rollback = true;
 
     return Status::OK();
@@ -167,6 +183,10 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     TLoadTxnCommitRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
+    if (ctx->db_id > 0) {
+        request.db_id = ctx->db_id;
+        request.__isset.db_id = true;
+    }
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.sync = true;
@@ -198,7 +218,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // rollback this transaction
     Status status(result.status);
     if (!status.ok()) {
-        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
+        LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg() << ", "
                      << ctx->brief();
         if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
             ctx->need_rollback = false;
@@ -217,6 +237,10 @@ void StreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     TLoadTxnRollbackRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
+    if (ctx->db_id > 0) {
+        request.db_id = ctx->db_id;
+        request.__isset.db_id = true;
+    }
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.__set_reason(ctx->status.get_error_msg());

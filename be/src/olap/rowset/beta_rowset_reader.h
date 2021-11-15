@@ -24,6 +24,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/segment_loader.h"
 
 namespace doris {
 
@@ -53,10 +54,12 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
+    RowsetReaderType type() const override { return RowsetReaderType::BETA; }
+
 private:
+    RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
-    RowsetReaderContext* _context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats;
 
@@ -67,6 +70,10 @@ private:
     std::unique_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
+
+    // make sure this handle is initialized and valid before
+    // reading data.
+    SegmentCacheHandle _segment_cache_handle;
 };
 
 } // namespace doris

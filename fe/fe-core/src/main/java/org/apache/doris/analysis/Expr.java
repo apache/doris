@@ -20,12 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
@@ -34,6 +36,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -45,6 +48,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -63,7 +67,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     private static final String NEGATE_FN = "negate";
 
     // to be used where we can't come up with a better estimate
-    protected static final double DEFAULT_SELECTIVITY = 0.1;
+    public static final double DEFAULT_SELECTIVITY = 0.1;
 
     public final static float FUNCTION_CALL_COST = 10;
 
@@ -180,6 +184,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
 
+    public void setSelectivity() {
+        selectivity = -1;
+    }
+
     /* TODO(zc)
     public final static com.google.common.base.Predicate<Expr>
             IS_NONDETERMINISTIC_BUILTIN_FN_PREDICATE =
@@ -264,6 +272,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         selectivity = other.selectivity;
         numDistinctValues = other.numDistinctValues;
         opcode = other.opcode;
+        outputScale = other.outputScale;
         isConstant_ = other.isConstant_;
         fn = other.fn;
         printSqlInParens = other.printSqlInParens;
@@ -274,11 +283,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return isAnalyzed;
     }
 
+    public void checkValueValid() throws AnalysisException {}
+
     public ExprId getId() {
         return id;
     }
 
-    protected void setId(ExprId id) {
+    public void setId(ExprId id) {
         this.id = id;
     }
 
@@ -298,6 +309,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public double getSelectivity() {
         return selectivity;
     }
+
+    public boolean hasSelectivity() { return selectivity >= 0; }
 
     public long getNumDistinctValues() {
         return numDistinctValues;
@@ -374,6 +387,9 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
         // Do all the analysis for the expr subclass before marking the Expr analyzed.
         analyzeImpl(analyzer);
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            setSelectivity();
+        }
         analysisDone();
     }
 
@@ -461,7 +477,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<String> strings = Lists.newArrayList();
         for (Expr expr : exprs) {
-            strings.add(expr.debugString());
+            strings.add(Strings.nullToEmpty(expr.debugString()));
         }
         return "(" + Joiner.on(" ").join(strings) + ")";
     }
@@ -886,6 +902,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return result;
     }
 
+    public void setFn(Function fn) {
+        this.fn = fn;
+    }
+
     // Append a flattened version of this expr, including all children, to 'container'.
     protected void treeToThriftHelper(TExpr container) {
         TExprNode msg = new TExprNode();
@@ -898,6 +918,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
         }
         msg.output_scale = getOutputScale();
+        msg.setIsNullable(isNullable());
         toThrift(msg);
         container.addToNodes(msg);
         for (Expr child : children) {
@@ -1222,6 +1243,43 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
+        if (targetType.getPrimitiveType().equals(type.getPrimitiveType())) {
+            return this;
+        }
+        // bitmap must match exactly
+        if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
+            throw new AnalysisException("bitmap column require the function return type is BITMAP");
+        }
+        // TargetTable's hll column must be hll_hash's result
+        if (targetType.getPrimitiveType() == PrimitiveType.HLL) {
+            checkHllCompatibility();
+            return this;
+        }
+        Expr newExpr = castTo(targetType);
+        newExpr.checkValueValid();
+        return newExpr;
+    }
+
+    private void checkHllCompatibility() throws AnalysisException {
+        final String hllMismatchLog = "Column's type is HLL,"
+                + " SelectList must contains HLL or hll_hash or hll_empty function's result";
+        if (this instanceof SlotRef) {
+            final SlotRef slot = (SlotRef) this;
+            if (!slot.getType().equals(Type.HLL)) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else if (this instanceof FunctionCallExpr) {
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) this;
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
+                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                throw new AnalysisException(hllMismatchLog);
+            }
+        } else {
+            throw new AnalysisException(hllMismatchLog);
+        }
+    }
+
     /**
      * Checks validity of cast, and
      * calls uncheckedCastTo() to
@@ -1420,6 +1478,29 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
+    /**
+     * Returns the descriptor of the scan slot that directly or indirectly produces
+     * the values of 'this' SlotRef. Traverses the source exprs of intermediate slot
+     * descriptors to resolve materialization points (e.g., aggregations).
+     * Returns null if 'e' or any source expr of 'e' is not a SlotRef or cast SlotRef.
+     */
+    public SlotDescriptor findSrcScanSlot() {
+        SlotRef slotRef = unwrapSlotRef(false);
+        if (slotRef == null) {
+            return null;
+        }
+        SlotDescriptor slotDesc = slotRef.getDesc();
+        if (slotDesc.isScanSlot()) {
+            return slotDesc;
+        }
+        if (slotDesc.getSourceExprs().size() == 1) {
+            return slotDesc.getSourceExprs().get(0).findSrcScanSlot();
+        }
+        // No known source expr, or there are several source exprs meaning the slot is
+        // has no single source table.
+        return null;
+    }
+
     public static double getConstFromExpr(Expr e) throws AnalysisException{
         Preconditions.checkState(e.isConstant());
         double value = 0;
@@ -1482,7 +1563,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             Analyzer analyzer, String name, Type[] argTypes, Function.CompareMode mode)
             throws AnalysisException {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
         Function f = Catalog.getCurrentCatalog().getFunction(searchDesc, mode);
         if (f != null && fnName.getFunction().equalsIgnoreCase("rand")) {
             if (this.children.size() == 1
@@ -1490,6 +1572,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 throw new AnalysisException("The param of rand function must be literal");
             }
         }
+        return f;
+    }
+
+    protected Function getTableFunction(String name, Type[] argTypes,
+                                        Function.CompareMode mode) {
+        FunctionName fnName = new FunctionName(name);
+        Function searchDesc = new Function(fnName, Arrays.asList(argTypes), Type.INVALID, false,
+                VectorizedUtil.isVectorized());
+        Function f = Catalog.getCurrentCatalog().getTableFunction(searchDesc, mode);
         return f;
     }
 
@@ -1582,7 +1673,9 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         DATE_LITERAL(9),
         MAX_LITERAL(10),
         BINARY_PREDICATE(11),
-        FUNCTION_CALL(12);
+        FUNCTION_CALL(12),
+        ARRAY_LITERAL(13),
+        CAST_EXPR(14);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1630,7 +1723,11 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.BINARY_PREDICATE.getCode());
         } else if (expr instanceof FunctionCallExpr) {
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
-        } else {
+        } else if (expr instanceof ArrayLiteral) {
+            output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
+        } else if (expr instanceof CastExpr){
+            output.writeInt(ExprSerCode.CAST_EXPR.getCode());
+        }else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
         expr.write(output);
@@ -1671,6 +1768,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return BinaryPredicate.read(in);
             case FUNCTION_CALL:
                 return FunctionCallExpr.read(in);
+            case ARRAY_LITERAL:
+                return ArrayLiteral.read(in);
+            case CAST_EXPR:
+                return CastExpr.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }
@@ -1703,5 +1804,103 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         recursiveResetChildrenResult();
         final Expr newExpr = ExpressionFunctions.INSTANCE.evalExpr(this);
         return newExpr != null ? newExpr : this;
+    }
+
+    public String getStringValue() {
+        if (this instanceof LiteralExpr) {
+            return ((LiteralExpr) this).getStringValue();
+        }
+        return "";
+    }
+
+    public static Expr getFirstBoundChild(Expr expr, List<TupleId> tids) {
+        for (Expr child: expr.getChildren()) {
+            if (child.isBoundByTupleIds(tids)) return child;
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if expr contains specify function, otherwise false.
+     */
+    public boolean isContainsFunction(String functionName) {
+        if (fn == null) return false;
+        if (fn.functionName().equalsIgnoreCase(functionName))  return true;
+        for (Expr child: children) {
+            if (child.isContainsFunction(functionName)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if expr contains specify className, otherwise false.
+     */
+    public boolean isContainsClass(String className) {
+        if (this.getClass().getName().equalsIgnoreCase(className)) return true;
+        for (Expr child: children) {
+            if (child.isContainsClass(className)) return true;
+        }
+        return false;
+    }
+
+    protected boolean hasNullableChild() {
+        for (Expr expr : children) {
+            if (expr.isNullable()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * For excute expr the result is nullable
+     * TODO: Now only SlotRef and LiteralExpr overwrite the method, each child of Expr should
+     * overwrite this method to plan correct
+     */
+    public boolean isNullable() {
+        if (fn == null) {
+            return true;
+        }
+        switch (fn.getNullableMode()) {
+            case DEPEND_ON_ARGUMENT:
+                return hasNullableChild();
+            case ALWAYS_NOT_NULLABLE:
+                return false;
+            case CUSTOM:
+                return customNullableAlgorithm();
+            case ALWAYS_NULLABLE:
+            default:
+                return true;
+        }
+    }
+
+    private boolean customNullableAlgorithm() {
+        Preconditions.checkState(fn.getNullableMode() == Function.NullableMode.CUSTOM);
+        if (fn.functionName().equalsIgnoreCase("if")) {
+            Preconditions.checkState(children.size() == 3);
+            for (int i = 1; i < children.size(); i++) {
+                if (children.get(i).isNullable()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("ifnull")) {
+            Preconditions.checkState(children.size() == 2);
+            if (children.get(0).isNullable()) {
+                return children.get(1).isNullable();
+            }
+            return false;
+        }
+        if (fn.functionName().equalsIgnoreCase("coalesce")) {
+            for (Expr expr : children) {
+                if (!expr.isNullable()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if (fn.functionName().equalsIgnoreCase("concat_ws")) {
+            return children.get(0).isNullable();
+        }
+        return true;
     }
 }

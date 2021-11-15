@@ -17,58 +17,95 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.Maps;
+import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 
-import com.google.common.collect.Maps;
-import com.google.protobuf.ByteString;
-
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class BackendServiceProxy {
     private static final Logger LOG = LogManager.getLogger(BackendServiceProxy.class);
-    private static volatile BackendServiceProxy INSTANCE;
+    // use exclusive lock to make sure only one thread can add or remove client from serviceMap.
+    // use concurrent map to allow access serviceMap in multi thread.
+    private ReentrantLock lock = new ReentrantLock();
     private final Map<TNetworkAddress, BackendServiceClient> serviceMap;
 
     public BackendServiceProxy() {
-        serviceMap = Maps.newHashMap();
+        serviceMap = Maps.newConcurrentMap();
+    }
+
+    private static class SingletonHolder {
+        private static final BackendServiceProxy INSTANCE = new BackendServiceProxy();
     }
 
     public static BackendServiceProxy getInstance() {
-        if (INSTANCE == null) {
-            synchronized (BackendServiceProxy.class) {
-                if (INSTANCE == null) {
-                    INSTANCE = new BackendServiceProxy();
-                }
-            }
-        }
-        return INSTANCE;
+        return SingletonHolder.INSTANCE;
     }
 
-    private synchronized BackendServiceClient getProxy(TNetworkAddress address) {
+    public void removeProxy(TNetworkAddress address) {
+        LOG.warn("begin to remove proxy: {}", address);
+        BackendServiceClient service;
+        lock.lock();
+        try {
+            service = serviceMap.remove(address);
+        } finally {
+            lock.unlock();
+        }
+
+        if (service != null) {
+            service.shutdown();
+        }
+    }
+
+    private BackendServiceClient getProxy(TNetworkAddress address) {
         BackendServiceClient service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
-        service = new BackendServiceClient(address);
-        serviceMap.put(address, service);
-        return service;
+
+        // not exist, create one and return.
+        lock.lock();
+        try {
+            service = serviceMap.get(address);
+            if (service == null) {
+                service = new BackendServiceClient(address);
+                serviceMap.put(address, service);
+            }
+            return service;
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
-        final InternalService.PExecPlanFragmentRequest pRequest = InternalService.PExecPlanFragmentRequest.newBuilder()
-                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+        InternalService.PExecPlanFragmentRequest.Builder builder = InternalService.PExecPlanFragmentRequest.newBuilder();
+        if (Config.use_compact_thrift_rpc) {
+            builder.setRequest(ByteString.copyFrom(new TSerializer(new TCompactProtocol.Factory()).serialize(tRequest)));
+            builder.setCompact(true);
+        } else {
+            builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(tRequest))).build();
+            builder.setCompact(false);
+        }
+
+        final InternalService.PExecPlanFragmentRequest pRequest = builder.build();
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentAsync(pRequest);
@@ -164,6 +201,62 @@ public class BackendServiceProxy {
             return client.getInfo(request);
         } catch (Throwable e) {
             LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PSendDataResult> sendData(
+            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            throws RpcException {
+
+        final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
+        pRequest.setFragmentInstanceId(fragmentInstanceId);
+        pRequest.addAllData(data);
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.sendData(pRequest.build());
+        } catch (Throwable e) {
+            LOG.warn("failed to send data, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PRollbackRequest pRequest = InternalService.PRollbackRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.rollback(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to rollback, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PCommitResult> commit(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
+            throws RpcException {
+        final InternalService.PCommitRequest pRequest = InternalService.PCommitRequest.newBuilder()
+                .setFragmentInstanceId(fragmentInstanceId).build();
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.commit(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to commit, address={}:{}", address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PConstantExprResult> foldConstantExpr(
+            TNetworkAddress address, TFoldConstantParams tParams) throws RpcException, TException {
+        final InternalService.PConstantExprRequest pRequest = InternalService.PConstantExprRequest.newBuilder()
+                .setRequest(ByteString.copyFrom(new TSerializer().serialize(tParams))).build();
+
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.foldConstantExpr(pRequest);
+        } catch (Throwable e) {
+            LOG.warn("failed to fold constant expr, address={}:{}", address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
     }

@@ -45,12 +45,15 @@ public final class ProcService {
         root.register("resources", Catalog.getCurrentCatalog().getResourceMgr().getProcNode());
         root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getCurrentCatalog()));
         root.register("transactions", new TransDbProcDir());
+        root.register("trash", new TrashProcDir());
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
         root.register("routine_loads", new RoutineLoadsProcDir());
+        root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
+        root.register("bdbje", new BDBJEProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node

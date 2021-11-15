@@ -401,4 +401,10 @@ public class SlotRef extends Expr {
         slotRef.readFields(in);
         return slotRef;
     }
+
+    @Override
+    public boolean isNullable() {
+        Preconditions.checkNotNull(desc);
+        return desc.getIsNullable();
+    }
 }

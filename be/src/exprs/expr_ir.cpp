@@ -29,7 +29,7 @@
 void dummy(doris_udf::FunctionContext*, doris_udf::BooleanVal*, doris_udf::TinyIntVal*,
            doris_udf::SmallIntVal*, doris_udf::IntVal*, doris_udf::BigIntVal*, doris_udf::FloatVal*,
            doris_udf::DoubleVal*, doris_udf::StringVal*, doris_udf::DateTimeVal*,
-           doris_udf::DecimalVal*, doris::ExprContext*) {}
+           doris_udf::DecimalV2Val*, doris::ExprContext*) {}
 #endif
 
 // The following are compute functions that are cross-compiled to both native and IR
@@ -71,10 +71,11 @@ StringVal Expr::get_string_val(Expr* expr, ExprContext* context, TupleRow* row) 
 DateTimeVal Expr::get_datetime_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_datetime_val(context, row);
 }
-DecimalVal Expr::get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row) {
-    return expr->get_decimal_val(context, row);
-}
+
 DecimalV2Val Expr::get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_decimalv2_val(context, row);
+}
+CollectionVal Expr::get_array_val(Expr* expr, ExprContext* context, TupleRow* row) {
+    return expr->get_array_val(context, row);
 }
 } // namespace doris

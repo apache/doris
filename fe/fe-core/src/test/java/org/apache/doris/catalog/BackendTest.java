@@ -21,8 +21,13 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -33,10 +38,6 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class BackendTest {
     private Backend backend;
@@ -107,6 +108,8 @@ public class BackendTest {
         backend.updateDisks(diskInfos);
         Assert.assertEquals(disk2.getDiskTotalCapacity(), backend.getTotalCapacityB());
         Assert.assertEquals(disk2.getDiskAvailableCapacity() + 1, backend.getAvailableCapacityB());
+        Assert.assertFalse(backend.hasSpecifiedStorageMedium(TStorageMedium.SSD));
+        Assert.assertTrue(backend.hasSpecifiedStorageMedium(TStorageMedium.HDD));
     }
 
     @Test

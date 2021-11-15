@@ -24,8 +24,8 @@
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/exec_node.h"
-#include "exec/hdfs_file_reader.h"
 #include "exec/local_file_reader.h"
+#include "exec/plain_binary_line_reader.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/s3_reader.h"
 #include "exec/text_converter.h"
@@ -39,6 +39,8 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
+
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -72,6 +74,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
         _line_delimiter.push_back(static_cast<char>(params.line_delimiter));
         _line_delimiter_length = 1;
     }
+    _split_values.reserve(sizeof(Slice) * params.src_slot_ids.size());
 }
 
 BrokerScanner::~BrokerScanner() {
@@ -163,9 +166,9 @@ Status BrokerScanner::open_file_reader() {
         break;
     }
     case TFileType::FILE_HDFS: {
-        BufferedReader* file_reader =
-                new BufferedReader(new HdfsFileReader(range.hdfs_params, range.path, start_offset),
-                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
+        FileReader* hdfs_file_reader;
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset, &hdfs_file_reader));
+        BufferedReader* file_reader = new BufferedReader(_profile, hdfs_file_reader);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;
         break;
@@ -180,8 +183,7 @@ Status BrokerScanner::open_file_reader() {
     }
     case TFileType::FILE_S3: {
         BufferedReader* s3_reader =
-                new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
-                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
+                new BufferedReader(_profile, new S3Reader(_params.properties, range.path, start_offset));
         RETURN_IF_ERROR(s3_reader->open());
         _cur_file_reader = s3_reader;
         break;
@@ -214,6 +216,7 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     switch (type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_PROTO:
         compress_type = CompressType::UNCOMPRESSED;
         break;
     case TFileFormatType::FORMAT_CSV_GZ:
@@ -271,6 +274,7 @@ Status BrokerScanner::open_line_reader() {
     // _decompressor may be NULL if this is not a compressed file
     RETURN_IF_ERROR(create_decompressor(range.format_type));
 
+    _file_format_type = range.format_type;
     // open line reader
     switch (range.format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -281,6 +285,9 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader, _cur_decompressor,
                                                    size, _line_delimiter, _line_delimiter_length);
+        break;
+    case TFileFormatType::FORMAT_PROTO:
+        _cur_line_reader = new PlainBinaryLineReader(_cur_file_reader);
         break;
     default: {
         std::stringstream ss;
@@ -316,41 +323,55 @@ void BrokerScanner::close() {
     }
 }
 
-void BrokerScanner::split_line(const Slice& line, std::vector<Slice>* values) {
-    const char* value = line.data;
-    size_t start = 0;  // point to the start pos of next col value.
-    size_t curpos = 0; // point to the start pos of separator matching sequence.
-    size_t p1 = 0;     // point to the current pos of separator matching sequence.
+void BrokerScanner::split_line(const Slice& line) {
+    _split_values.clear();
+    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+        PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
+        PDataRow* row = *ptr;
+        for (const PDataColumn& col : (row)->col()) {
+            int len = col.value().size();
+            uint8_t* buf = new uint8_t[len];
+            memcpy(buf, col.value().c_str(), len);
+            _split_values.emplace_back(buf, len);
+        }
+        delete row;
+        delete ptr;
+    } else {
+        const char *value = line.data;
+        size_t start = 0;  // point to the start pos of next col value.
+        size_t curpos = 0; // point to the start pos of separator matching sequence.
+        size_t p1 = 0;     // point to the current pos of separator matching sequence.
 
-    // Separator: AAAA
-    //
-    //   curpos
-    //     ▼
-    //     AAAA
-    //   1000AAAA2000AAAA
-    //   ▲   ▲
-    // Start │
-    //       p1
+        // Separator: AAAA
+        //
+        //   curpos
+        //     ▼
+        //     AAAA
+        //   1000AAAA2000AAAA
+        //   ▲   ▲
+        // Start │
+        //       p1
 
-    while (curpos < line.size) {
-        if (*(value + curpos + p1) != _value_separator[p1]) {
-            // Not match, move forward:
-            curpos += (p1 == 0 ? 1 : p1);
-            p1 = 0;
-        } else {
-            p1++;
-            if (p1 == _value_separator_length) {
-                // Match a separator
-                values->emplace_back(value + start, curpos - start);
-                start = curpos + _value_separator_length;
-                curpos = start;
+        while (curpos < line.size) {
+            if (*(value + curpos + p1) != _value_separator[p1]) {
+                // Not match, move forward:
+                curpos += (p1 == 0 ? 1 : p1);
                 p1 = 0;
+            } else {
+                p1++;
+                if (p1 == _value_separator_length) {
+                    // Match a separator
+                    _split_values.emplace_back(value + start, curpos - start);
+                    start = curpos + _value_separator_length;
+                    curpos = start;
+                    p1 = 0;
+                }
             }
         }
-    }
 
-    CHECK(curpos == line.size) << curpos << " vs " << line.size;
-    values->emplace_back(value + start, curpos - start);
+        CHECK(curpos == line.size) << curpos << " vs " << line.size;
+        _split_values.emplace_back(value + start, curpos - start);
+    }
 }
 
 void BrokerScanner::fill_fix_length_string(const Slice& value, MemPool* pool, char** new_value_p,
@@ -445,7 +466,7 @@ bool BrokerScanner::convert_one_row(const Slice& line, Tuple* tuple, MemPool* tu
 
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
-    if (!validate_utf8(line.data, line.size)) {
+    if (_file_format_type != TFileFormatType::FORMAT_PROTO && !validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
         _state->append_error_msg_to_file("Unable to display", error_msg.str());
@@ -453,37 +474,44 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         return false;
     }
 
-    std::vector<Slice> values;
-    { split_line(line, &values); }
+    split_line(line);
 
     // range of current file
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    if (values.size() + columns_from_path.size() < _src_slot_descs.size()) {
+    if (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is less than schema column number. "
-                  << "actual number: " << values.size() << " column separator: ["
+                  << "actual number: " << _split_values.size() << " column separator: ["
                   << _value_separator << "], "
                   << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+            _state->append_error_msg_to_file("", error_msg.str());
+        } else {
+            _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        }
         _counter->num_rows_filtered++;
         return false;
-    } else if (values.size() + columns_from_path.size() > _src_slot_descs.size()) {
+    } else if (_split_values.size() + columns_from_path.size() > _src_slot_descs.size()) {
         std::stringstream error_msg;
         error_msg << "actual column number is more than schema column number. "
-                  << "actual number: " << values.size() << " column separator: ["
+                  << "actual number: " << _split_values.size() << " column separator: ["
                   << _value_separator << "], "
                   << "line delimiter: [" << _line_delimiter << "], "
                   << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+            _state->append_error_msg_to_file("", error_msg.str());
+        } else {
+            _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        }
         _counter->num_rows_filtered++;
         return false;
     }
 
-    for (int i = 0; i < values.size(); ++i) {
+    for (int i = 0; i < _split_values.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
-        const Slice& value = values[i];
+        const Slice& value = _split_values[i];
         if (slot_desc->is_nullable() && is_null(value)) {
             _src_tuple->set_null(slot_desc->null_indicator_offset());
             continue;

@@ -19,9 +19,9 @@
 #define DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
 
 #include <stdint.h>
+#include <variant>
 
 #include <boost/lexical_cast.hpp>
-#include <boost/variant.hpp>
 #include <map>
 #include <sstream>
 #include <string>
@@ -31,9 +31,9 @@
 #include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/tuple.h"
-#include "runtime/type_limit.h"
 #include "runtime/descriptors.h"
 #include "runtime/string_value.hpp"
+#include "runtime/type_limit.h"
 
 namespace doris {
 
@@ -59,7 +59,8 @@ public:
 
     ColumnValueRange(std::string col_name, PrimitiveType type);
 
-    ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max, bool contain_null);
+    ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max,
+                     bool contain_null);
 
     // should add fixed value before add range
     Status add_fixed_value(const T& value);
@@ -126,7 +127,7 @@ public:
             // 2. convert to min max filter condition
             TCondition null_pred;
             if (TYPE_MAX == _high_value && _high_op == FILTER_LESS_OR_EQUAL &&
-                     TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && !contain_null()) {
+                TYPE_MIN == _low_value && _low_op == FILTER_LARGER_OR_EQUAL && !contain_null()) {
                 null_pred.__set_column_name(_column_name);
                 null_pred.__set_condition_op("is");
                 null_pred.condition_values.emplace_back("not null");
@@ -198,7 +199,8 @@ public:
 
     bool is_whole_value_range() const {
         return _fixed_values.empty() && _low_value == TYPE_MIN && _high_value == TYPE_MAX &&
-            _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL && contain_null();
+               _low_op == FILTER_LARGER_OR_EQUAL && _high_op == FILTER_LESS_OR_EQUAL &&
+               contain_null();
     }
 
     // only two case will set range contain null, call by temp_range in olap scan node
@@ -228,7 +230,8 @@ public:
         return ColumnValueRange<T>::create_empty_column_value_range("", type);
     }
 
-    static ColumnValueRange<T> create_empty_column_value_range(const std::string& col_name, PrimitiveType type) {
+    static ColumnValueRange<T> create_empty_column_value_range(const std::string& col_name,
+                                                               PrimitiveType type) {
         return ColumnValueRange<T>(col_name, type, TYPE_MAX, TYPE_MIN, false);
     }
 
@@ -236,8 +239,8 @@ protected:
     bool is_in_range(const T& value);
 
 private:
-    const static T TYPE_MIN;                // Column type's min value
-    const static T TYPE_MAX;                // Column type's max value
+    const static T TYPE_MIN; // Column type's min value
+    const static T TYPE_MAX; // Column type's max value
 
     std::string _column_name;
     PrimitiveType _column_type; // Column type (eg: TINYINT,SMALLINT,INT,BIGINT)
@@ -314,11 +317,10 @@ private:
     bool _is_convertible;
 };
 
-typedef boost::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>,
-                       ColumnValueRange<int32_t>, ColumnValueRange<int64_t>,
-                       ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
-                       ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalValue>,
-                       ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
+typedef std::variant<
+        ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
+        ColumnValueRange<int64_t>, ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
+        ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
         ColumnValueRangeType;
 
 template <class T>
@@ -331,17 +333,18 @@ ColumnValueRange<T>::ColumnValueRange() : _column_type(INVALID_TYPE) {}
 
 template <class T>
 ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type)
-        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX, true){}
+        : ColumnValueRange(std::move(col_name), type, TYPE_MIN, TYPE_MAX, true) {}
 
 template <class T>
-ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min, const T& max, bool contain_null)
+ColumnValueRange<T>::ColumnValueRange(std::string col_name, PrimitiveType type, const T& min,
+                                      const T& max, bool contain_null)
         : _column_name(std::move(col_name)),
           _column_type(type),
           _low_value(min),
           _high_value(max),
           _low_op(FILTER_LARGER_OR_EQUAL),
           _high_op(FILTER_LESS_OR_EQUAL),
-          _contain_null(contain_null){}
+          _contain_null(contain_null) {}
 
 template <class T>
 Status ColumnValueRange<T>::add_fixed_value(const T& value) {
@@ -419,9 +422,6 @@ size_t ColumnValueRange<T>::get_convertible_fixed_value_size() const {
 
 template <>
 void ColumnValueRange<StringValue>::convert_to_fixed_value();
-
-template <>
-void ColumnValueRange<DecimalValue>::convert_to_fixed_value();
 
 template <>
 void ColumnValueRange<DecimalV2Value>::convert_to_fixed_value();
@@ -630,8 +630,8 @@ void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
     // 3. fixed_value intersection, fixed value range do not contain null
     if (is_fixed_value_range() || range.is_fixed_value_range()) {
         if (is_fixed_value_range() && range.is_fixed_value_range()) {
-            set_intersection(_fixed_values.begin(), _fixed_values.end(), range._fixed_values.begin(),
-                             range._fixed_values.end(),
+            set_intersection(_fixed_values.begin(), _fixed_values.end(),
+                             range._fixed_values.begin(), range._fixed_values.end(),
                              std::inserter(result_values, result_values.begin()));
         } else if (is_fixed_value_range() && !range.is_fixed_value_range()) {
             iterator_type iter = _fixed_values.begin();
@@ -661,7 +661,6 @@ void ColumnValueRange<T>::intersection(ColumnValueRange<T>& range) {
             set_empty_value_range();
         }
     } else {
-
         if (contain_null() && range.contain_null()) {
             // if both is_whole_range to keep the same, else set_contain_null
             if (!is_whole_value_range() || !range.is_whole_value_range()) {
@@ -764,7 +763,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     //if a column doesn't have any predicate, we will try converting the range to fixed values
     auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
-        if (range.get_fixed_value_size() * scan_keys_size > max_scan_key_num) {
+        if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
@@ -773,7 +772,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
         }
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.get_convertible_fixed_value_size() * scan_keys_size < max_scan_key_num) {
+            if (range.get_convertible_fixed_value_size() < max_scan_key_num / scan_keys_size) {
                 range.convert_to_fixed_value();
             }
         }

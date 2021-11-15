@@ -65,14 +65,12 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
     case TYPE_DATETIME:
         return compare_large<DateTimeValue>;
 
-    case TYPE_DECIMAL:
-        return compare_large<DecimalValue>;
-
     case TYPE_DECIMALV2:
         return compare_large<DecimalV2Value>;
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return compare_large<StringValue>;
 
     default:
@@ -174,8 +172,7 @@ inline int get_olap_size(PrimitiveType type) {
         return 8;
     }
 
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL: {
+    case TYPE_DECIMALV2: {
         return 12;
     }
 

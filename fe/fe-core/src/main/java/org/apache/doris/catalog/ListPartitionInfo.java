@@ -53,6 +53,7 @@ public class ListPartitionInfo extends PartitionInfo{
         return partitionInfo;
     }
 
+    @Override
     public PartitionItem createAndCheckPartitionItem(SinglePartitionDesc desc, boolean isTemp) throws DdlException {
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
@@ -74,7 +75,7 @@ public class ListPartitionInfo extends PartitionInfo{
                 partitionKeys.add(partitionKey);
             }
         } catch (AnalysisException e) {
-            throw new DdlException("Invalid list value format： " + e.getMessage());
+            throw new DdlException("Invalid list value format: " + e.getMessage());
         }
         return new ListPartitionItem(partitionKeys);
     }

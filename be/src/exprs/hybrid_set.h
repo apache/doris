@@ -18,13 +18,13 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
 #define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
 
+#include <parallel_hashmap/phmap.h>
+
 #include <cstring>
-#include <unordered_set>
 
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
@@ -33,14 +33,18 @@ namespace doris {
 
 class HybridSetBase {
 public:
-    HybridSetBase() {}
-    virtual ~HybridSetBase() {}
-    virtual void insert(void* data) = 0;
+    HybridSetBase() = default;
+    virtual ~HybridSetBase() = default;
+    virtual void insert(const void* data) = 0;
+    // use in vectorize execute engine
+    virtual void insert(void* data, size_t) = 0;
 
     virtual void insert(HybridSetBase* set) = 0;
 
     virtual int size() = 0;
     virtual bool find(void* data) = 0;
+    // use in vectorize execute engine
+    virtual bool find(void* data, size_t) = 0;
 
     static HybridSetBase* create_set(PrimitiveType type);
     class IteratorBase {
@@ -58,102 +62,108 @@ public:
 template <class T>
 class HybridSet : public HybridSetBase {
 public:
-    HybridSet() {}
+    HybridSet() = default;
 
-    virtual ~HybridSet() {}
+    ~HybridSet() override = default;
 
-    virtual void insert(void* data) {
+    void insert(const void* data) override {
+        if (data == nullptr) return;
+
         if (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
             memcpy(&value, data, sizeof(T));
             _set.insert(value);
         } else {
-            _set.insert(*reinterpret_cast<T*>(data));
+            _set.insert(*reinterpret_cast<const T*>(data));
         }
     }
+    void insert(void* data, size_t) override { insert(data); }
 
-    virtual void insert(HybridSetBase* set) {
+    void insert(HybridSetBase* set) override {
         HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
         _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 
-    virtual int size() { return _set.size(); }
-    virtual bool find(void* data) {
-        typename std::unordered_set<T>::const_iterator it = _set.find(*reinterpret_cast<T*>(data));
+    int size() override { return _set.size(); }
 
-        if (it == _set.end()) {
-            return false;
-        } else {
-            return true;
-        }
-
-        return false;
+    bool find(void* data) override {
+        auto it = _set.find(*reinterpret_cast<T*>(data));
+        return !(it == _set.end());
     }
+
+    bool find(void* data, size_t) override { return find(data); }
 
     template <class _iT>
     class Iterator : public IteratorBase {
     public:
-        Iterator(typename std::unordered_set<_iT>::iterator begin,
-                 typename std::unordered_set<_iT>::iterator end)
+        Iterator(typename phmap::flat_hash_set<_iT>::iterator begin,
+                 typename phmap::flat_hash_set<_iT>::iterator end)
                 : _begin(begin), _end(end) {}
-        virtual ~Iterator() {}
+        ~Iterator() override = default;
         virtual bool has_next() const { return !(_begin == _end); }
         virtual const void* get_value() { return _begin.operator->(); }
         virtual void next() { ++_begin; }
 
     private:
-        typename std::unordered_set<_iT>::iterator _begin;
-        typename std::unordered_set<_iT>::iterator _end;
+        typename phmap::flat_hash_set<_iT>::iterator _begin;
+        typename phmap::flat_hash_set<_iT>::iterator _end;
     };
 
-    IteratorBase* begin() {
+    IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator<T>(_set.begin(), _set.end()));
     }
 
 private:
-    std::unordered_set<T> _set;
+    phmap::flat_hash_set<T> _set;
     ObjectPool _pool;
 };
 
 class StringValueSet : public HybridSetBase {
 public:
-    StringValueSet() {}
+    StringValueSet() = default;
 
-    virtual ~StringValueSet() {}
+    ~StringValueSet() override = default;
 
-    virtual void insert(void* data) {
-        StringValue* value = reinterpret_cast<StringValue*>(data);
+    void insert(const void* data) override {
+        if (data == nullptr) return;
+
+        const auto* value = reinterpret_cast<const StringValue*>(data);
         std::string str_value(value->ptr, value->len);
         _set.insert(str_value);
     }
+    void insert(void* data, size_t size) override {
+        std::string str_value(reinterpret_cast<char*>(data), size);
+        _set.insert(str_value);
+    }
 
-    void insert(HybridSetBase* set) {
+    void insert(HybridSetBase* set) override {
         StringValueSet* string_set = reinterpret_cast<StringValueSet*>(set);
         _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
 
-    virtual int size() { return _set.size(); }
-    virtual bool find(void* data) {
-        StringValue* value = reinterpret_cast<StringValue*>(data);
-        std::string str_value(value->ptr, value->len);
-        typename std::unordered_set<std::string>::iterator it = _set.find(str_value);
+    int size() override { return _set.size(); }
 
-        if (it == _set.end()) {
-            return false;
-        } else {
-            return true;
-        }
+    bool find(void* data) override {
+        auto* value = reinterpret_cast<StringValue*>(data);
+        std::string_view str_value(const_cast<const char*>(value->ptr), value->len);
+        auto it = _set.find(str_value);
 
-        return false;
+        return !(it == _set.end());
+    }
+
+    bool find(void* data, size_t size) override {
+        std::string str_value(reinterpret_cast<char*>(data), size);
+        auto it = _set.find(str_value);
+        return !(it == _set.end());
     }
 
     class Iterator : public IteratorBase {
     public:
-        Iterator(std::unordered_set<std::string>::iterator begin,
-                 std::unordered_set<std::string>::iterator end)
+        Iterator(phmap::flat_hash_set<std::string>::iterator begin,
+                 phmap::flat_hash_set<std::string>::iterator end)
                 : _begin(begin), _end(end) {}
-        virtual ~Iterator() {}
+        ~Iterator() override = default;
         virtual bool has_next() const { return !(_begin == _end); }
         virtual const void* get_value() {
             _value.ptr = const_cast<char*>(_begin->data());
@@ -163,17 +173,17 @@ public:
         virtual void next() { ++_begin; }
 
     private:
-        typename std::unordered_set<std::string>::iterator _begin;
-        typename std::unordered_set<std::string>::iterator _end;
+        typename phmap::flat_hash_set<std::string>::iterator _begin;
+        typename phmap::flat_hash_set<std::string>::iterator _end;
         StringValue _value;
     };
 
-    IteratorBase* begin() {
+    IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
 private:
-    std::unordered_set<std::string> _set;
+    phmap::flat_hash_set<std::string> _set;
     ObjectPool _pool;
 };
 

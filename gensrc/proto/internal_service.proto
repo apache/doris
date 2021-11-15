@@ -43,6 +43,8 @@ message PTransmitDataParams {
     // different per packet
     required int64 packet_seq = 7;
     optional PQueryStatistics query_statistics = 8;
+
+    optional PBlock block = 9;
 };
 
 message PTransmitDataResult {
@@ -92,6 +94,8 @@ message PTabletWriterAddBatchRequest {
     // only valid when eos is true
     // valid partition ids that would write in this writer
     repeated int64 partition_ids = 8;
+    // the backend which send this request
+    optional int64 backend_id = 9 [default = -1];
 };
 
 message PTabletWriterAddBatchResult {
@@ -99,6 +103,7 @@ message PTabletWriterAddBatchResult {
     repeated PTabletInfo tablet_vec = 2;
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
+    optional int64 wait_execution_time_us = 5;
 };
 
 // tablet writer cancel
@@ -113,6 +118,7 @@ message PTabletWriterCancelResult {
 
 message PExecPlanFragmentRequest {
     optional bytes request = 1;
+    optional bool compact = 2;
 };
 
 message PExecPlanFragmentResult {
@@ -235,7 +241,10 @@ message PKafkaLoadInfo {
 
 message PKafkaMetaProxyRequest {
     optional PKafkaLoadInfo kafka_info = 1;
+    // optional for getting offsets for times
     repeated PIntegerPair offset_times = 3;
+    // optional for getting latest offsets of partitons
+    repeated int32 partition_id_for_latest_offsets = 4;
 };
 
 message PProxyRequest {
@@ -256,8 +265,157 @@ message PProxyResult {
 	optional PKafkaPartitionOffsets partition_offsets = 3;
 };
 
-// NOTE(zc): If you want to add new method here,
-// you MUST add same method to palo_internal_service.proto
+message PDataColumn {
+    optional string value = 1;
+}
+
+message PDataRow {
+    repeated PDataColumn col = 1;
+}
+
+message PSendDataRequest {
+    required PUniqueId fragment_instance_id = 1;
+    repeated PDataRow data = 2;
+}
+
+message PSendDataResult {
+    required PStatus status = 1;
+}
+
+message PCommitRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PCommitResult {
+    required PStatus status = 1;
+}
+
+message PRollbackRequest {
+    required PUniqueId fragment_instance_id = 1;
+}
+
+message PRollbackResult {
+    required PStatus status = 1;
+}
+
+message PBloomFilter {
+     required bool always_true = 2;
+     required int32 filter_length = 1;
+};
+
+message PColumnValue {
+    optional bool boolVal = 1;
+    optional int32 intVal = 2;
+    optional int64 longVal = 3;
+    optional double doubleVal = 4;
+    optional bytes stringVal = 5;
+}
+
+// TODO: CHECK ALL TYPE
+enum PColumnType {
+    COLUMN_TYPE_BOOL = 0;
+    COLUMN_TYPE_INT = 1;
+    COLUMN_TYPE_TINY_INT = 2;
+    COLUMN_TYPE_SMALL_INT = 3;
+    COLUMN_TYPE_BIGINT = 4;
+    COLUMN_TYPE_LARGEINT = 5;
+    COLUMN_TYPE_VARCHAR = 6;
+    COLUMN_TYPE_CHAR = 7;
+    COLUMN_TYPE_DATE = 8;
+    COLUMN_TYPE_DATETIME = 9;
+    COLUMN_TYPE_DOUBLE = 10;
+    COLUMN_TYPE_FLOAT = 11;
+    COLUMN_TYPE_DECIMAL = 12;
+    COLUMN_TYPE_DECIMALV2 = 13;
+    COLUMN_TYPE_STRING = 14;
+}
+
+message PMinMaxFilter {
+    required PColumnType column_type = 1;
+    required PColumnValue min_val = 2;
+    required PColumnValue max_val = 3;
+};
+
+enum PFilterType {
+    UNKNOW_FILTER = 0;
+    BLOOM_FILTER = 1;
+    MINMAX_FILTER = 2;
+};
+
+message PMergeFilterRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PUniqueId fragment_id = 3;
+    required PFilterType filter_type = 4;
+    optional PMinMaxFilter minmax_filter = 5;
+    optional PBloomFilter bloom_filter = 6;
+};
+
+message PMergeFilterResponse {
+    required PStatus status = 1;
+};
+
+message PPublishFilterRequest {
+    required int32 filter_id = 1;
+    required PUniqueId query_id = 2;
+    required PUniqueId fragment_id = 3;
+    required PFilterType filter_type = 4;
+    optional PMinMaxFilter minmax_filter = 5;
+    optional PBloomFilter bloom_filter = 6;
+};
+
+message PPublishFilterResponse {
+    required PStatus status = 1;
+};
+
+message PExprResult {
+    required PScalarType type = 1;
+    required string content = 2;
+    required bool success = 3;
+};
+
+message PExprResultMap {
+    map<string, PExprResult> map = 1;
+};
+
+message PConstantExprRequest {
+	optional bytes request = 1;
+};
+
+message PConstantExprResult {
+    required PStatus status = 1;
+    map<string, PExprResultMap> expr_result_map = 2;
+};
+
+message PCheckRPCChannelRequest {
+    optional bytes data = 1;
+    optional uint32 size = 2;
+    optional string md5 = 3;
+};
+
+message PCheckRPCChannelResponse {
+    required PStatus status = 1;
+};
+
+message PResetRPCChannelRequest {
+    required bool all = 1;
+    repeated string endpoints = 2;
+};
+
+message PResetRPCChannelResponse {
+    required PStatus status = 1;
+    repeated string channels = 2;
+};
+
+message PHandShakeRequest {
+    optional string hello = 1;
+}
+
+message PHandShakeResponse {
+    optional PStatus status = 1;
+    optional string hello = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
@@ -270,5 +428,15 @@ service PBackendService {
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);
     rpc fetch_cache(PFetchCacheRequest) returns (PFetchCacheResult);
     rpc clear_cache(PClearCacheRequest) returns (PCacheResponse);
+    rpc send_data(PSendDataRequest) returns (PSendDataResult);
+    rpc commit(PCommitRequest) returns (PCommitResult);
+    rpc rollback(PRollbackRequest) returns (PRollbackResult);
+    rpc merge_filter(PMergeFilterRequest) returns (PMergeFilterResponse);
+    rpc apply_filter(PPublishFilterRequest) returns (PPublishFilterResponse);
+    rpc fold_constant_expr(PConstantExprRequest) returns (PConstantExprResult);
+    rpc transmit_block(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc check_rpc_channel(PCheckRPCChannelRequest) returns (PCheckRPCChannelResponse);
+    rpc reset_rpc_channel(PResetRPCChannelRequest) returns (PResetRPCChannelResponse);
+    rpc hand_shake(PHandShakeRequest) returns (PHandShakeResponse);
 };
 

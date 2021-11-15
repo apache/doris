@@ -59,6 +59,11 @@ public class HashDistributionInfo extends DistributionInfo {
         return bucketNum;
     }
 
+    @Override
+    public void setBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
+    }
+
     public void write(DataOutput out) throws IOException {
         super.write(out);
         int columnCount = distributionColumns.size();

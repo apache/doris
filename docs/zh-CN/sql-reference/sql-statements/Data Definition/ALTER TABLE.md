@@ -47,7 +47,7 @@ under the License.
             partition_desc ["key"="value"]
             [DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]]
         注意：
-            1) partition_desc 支持一下两种写法：
+            1) partition_desc 支持以下两种写法：
                 * VALUES LESS THAN [MAXVALUE|("value1", ...)]
                 * VALUES [("value1", ...), ("value1", ...))
             1) 分区为左闭右开区间，如果用户仅指定右边界，系统会自动确定左边界
@@ -192,6 +192,26 @@ under the License.
             2) sequence_type用来指定sequence列的类型，可以为整型和时间类型
             3) 只支持新导入数据的有序性，历史数据无法更改
      
+    9. 修改表的分区默认分桶数
+        语法:
+            MODIFY DISTRIBUTION DISTRIBUTED BY HASH (k1[,k2 ...]) BUCKETS num
+        注意：
+            1）只能用在分区类型为RANGE，采用哈希分桶的非colocate表
+
+    10. 修改表注释
+        语法:
+            MODIFY COMMENT "new table comment"
+
+    11. 修改列注释
+        语法:
+            MODIFY COLUMN col1 COMMENT "new column comment"
+
+	12. 修改引擎类型
+
+		仅支持将 MySQL 类型修改为 ODBC 类型。driver 的值为 odbc.init 配置中的 driver 名称。
+
+		语法：
+			MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
 
     rename 支持对以下名称进行修改：
     1. 修改表名
@@ -205,6 +225,7 @@ under the License.
     3. 修改 partition 名称
         语法：
             RENAME PARTITION old_partition_name new_partition_name;
+
     bitmap index 支持如下几种修改方式
     1. 创建bitmap 索引
         语法：
@@ -212,6 +233,7 @@ under the License.
         注意：
             1. 目前仅支持bitmap 索引
             1. BITMAP 索引仅在单列上创建
+
     2. 删除索引
         语法：
             DROP INDEX index_name；
@@ -364,6 +386,22 @@ under the License.
     
         ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
         
+    18. 将表的默认分桶数改为50
+
+        ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+    19. 修改表注释
+
+        ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+    20. 修改列注释
+
+        ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+	21. 修改引擎类型
+
+		ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
+    
     [rename]
     1. 将名为 table1 的表修改为 table2
         ALTER TABLE table1 RENAME table2;

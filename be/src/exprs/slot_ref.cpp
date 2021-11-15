@@ -224,17 +224,6 @@ DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
     return result;
 }
 
-DecimalVal SlotRef::get_decimal_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL);
-    Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
-        return DecimalVal::null();
-    }
-    DecimalVal dec_val;
-    reinterpret_cast<DecimalValue*>(t->get_slot(_slot_offset))->to_decimal_val(&dec_val);
-    return dec_val;
-}
-
 DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2);
     Tuple* t = row->get_tuple(_tuple_idx);
@@ -245,4 +234,16 @@ DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     return DecimalV2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
+doris_udf::CollectionVal SlotRef::get_array_val(ExprContext* context, TupleRow* row) {
+    DCHECK_EQ(_type.type, TYPE_ARRAY);
+
+    Tuple* t = row->get_tuple(_tuple_idx);
+    if (t == NULL || t->is_null(_null_indicator_offset)) {
+        return CollectionVal::null();
+    }
+
+    CollectionVal val;
+    reinterpret_cast<CollectionValue*>(t->get_slot(_slot_offset))->to_collection_val(&val);
+    return val;
+}
 } // namespace doris

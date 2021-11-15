@@ -148,8 +148,8 @@ public class AggregationNode extends PlanNode {
         // conjuncts_ = orderConjunctsByCost(conjuncts_);
 
         // Compute the mem layout for both tuples here for simplicity.
-        aggInfo.getOutputTupleDesc().computeMemLayout();
-        aggInfo.getIntermediateTupleDesc().computeMemLayout();
+        aggInfo.getOutputTupleDesc().computeStatAndMemLayout();
+        aggInfo.getIntermediateTupleDesc().computeStatAndMemLayout();
 
         // do this at the end so it can take all conjuncts into account
         computeStats(analyzer);
@@ -167,14 +167,16 @@ public class AggregationNode extends PlanNode {
     @Override
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
+        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+            return;
+        }
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         cardinality = 1;
         // cardinality: product of # of distinct values produced by grouping exprs
         for (Expr groupingExpr : groupingExprs) {
             long numDistinct = groupingExpr.getNumDistinctValues();
-            // TODO: remove these before 1.0
             LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
-              numDistinct));
+                    numDistinct));
             if (numDistinct == -1) {
                 cardinality = -1;
                 break;
@@ -190,11 +192,42 @@ public class AggregationNode extends PlanNode {
             // some others, the estimate doesn't overshoot dramatically)
             cardinality *= numDistinct;
         }
+        if (cardinality > 0) {
+            LOG.debug("sel=" + Double.toString(computeSelectivity()));
+            applyConjunctsSelectivity();
+        }
+        // if we ended up with an overflow, the estimate is certain to be wrong
+        if (cardinality < 0) {
+            cardinality = -1;
+        }
+
+        capCardinalityAtLimit();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stats Agg: cardinality={}", cardinality);
+        }
+    }
+
+    @Override
+    protected void computeOldCardinality() {
+        List<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        cardinality = 1;
+        // cardinality: product of # of distinct values produced by grouping exprs
+        for (Expr groupingExpr : groupingExprs) {
+            long numDistinct = groupingExpr.getNumDistinctValues();
+            // TODO: remove these before 1.0
+            LOG.debug("grouping expr: " + groupingExpr.toSql() + " #distinct=" + Long.toString(
+                    numDistinct));
+            if (numDistinct == -1) {
+                cardinality = -1;
+                break;
+            }
+            cardinality *= numDistinct;
+        }
         // take HAVING predicate into account
         LOG.debug("Agg: cardinality=" + Long.toString(cardinality));
         if (cardinality > 0) {
-            cardinality = Math.round((double) cardinality * computeSelectivity());
-            LOG.debug("sel=" + Double.toString(computeSelectivity()));
+            cardinality = Math.round((double) cardinality * computeOldSelectivity());
+            LOG.debug("sel=" + Double.toString(computeOldSelectivity()));
         }
         // if we ended up with an overflow, the estimate is certain to be wrong
         if (cardinality < 0) {
@@ -230,7 +263,6 @@ public class AggregationNode extends PlanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
-
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
         for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
@@ -277,6 +309,8 @@ public class AggregationNode extends PlanNode {
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix + "having: ").append(getExplainString(conjuncts) + "\n");
         }
+        output.append(detailPrefix).append(String.format(
+                "cardinality=%s", cardinality)).append("\n");
         return output.toString();
     }
 

@@ -77,7 +77,7 @@ TEST(GenericIteratorsTest, AutoIncrement) {
 
 TEST(GenericIteratorsTest, Union) {
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::list<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
@@ -116,7 +116,7 @@ TEST(GenericIteratorsTest, Union) {
 
 TEST(GenericIteratorsTest, Merge) {
     auto schema = create_schema();
-    std::vector<RowwiseIterator*> inputs;
+    std::list<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));

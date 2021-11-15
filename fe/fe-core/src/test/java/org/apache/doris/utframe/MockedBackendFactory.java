@@ -32,7 +32,9 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
+import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
@@ -58,20 +60,24 @@ import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
+import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.thrift.TException;
+
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import io.grpc.stub.StreamObserver;
-
-import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
+
+import io.grpc.stub.StreamObserver;
 
 /*
  * This class is used to create mock backends.
@@ -156,7 +162,20 @@ public class MockedBackendFactory {
                                     + ", signature: " + request.getSignature() + ", fe addr: " + backend.getFeAddress());
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
                                     request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
-                            finishTaskRequest.setReportVersion(++reportVersion);
+                            TTaskType taskType = request.getTaskType();
+                            switch (taskType) {
+                                case CREATE:
+                                case PUSH:
+                                case ALTER:
+                                    ++reportVersion;
+                                    break;
+                                case CLONE:
+                                    handleClone(request, finishTaskRequest);
+                                    break;
+                                default:
+                                    break;
+                            }
+                            finishTaskRequest.setReportVersion(reportVersion);
 
                             FrontendService.Client client = ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
                             System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
@@ -165,6 +184,18 @@ public class MockedBackendFactory {
                             e.printStackTrace();
                         }
                     }
+                }
+
+                private void handleClone(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TCloneReq req = request.getCloneReq();
+                    List<TTabletInfo> tabletInfos = Lists.newArrayList();
+                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
+                            req.committed_version_hash, 1, 1);
+                    tabletInfo.setStorageMedium(req.storage_medium);
+                    tabletInfo.setPathHash(req.dest_path_hash);
+                    tabletInfo.setUsed(true);
+                    tabletInfos.add(tabletInfo);
+                    finishTaskRequest.setFinishTabletInfos(tabletInfos);
                 }
             }).start();
         }
@@ -245,6 +276,16 @@ public class MockedBackendFactory {
         }
 
         @Override
+        public long getTrashUsedCapacity() throws TException {
+            return  0l;
+        }
+
+        @Override
+        public List<TDiskTrashInfo> getDiskTrashUsedCapacity() throws TException {
+            return null;
+        }
+
+        @Override
         public TTabletStatResult getTabletStat() throws TException {
             return new TTabletStatResult(Maps.newHashMap());
         }
@@ -272,6 +313,11 @@ public class MockedBackendFactory {
         @Override
         public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
             return new TStreamLoadRecordResult(Maps.newHashMap());
+        }
+
+        @Override
+        public void cleanTrash() throws TException {
+            return;
         }
     }
 

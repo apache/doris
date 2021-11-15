@@ -54,11 +54,6 @@ public:
 
     OLAPStatus to_column_msg(const ColumnPB& column_pb, ColumnMessage* column_msg);
 
-    // only convert schema change msg to alter tablet pb, not the other side because snapshot does not need
-    // schema change status while restart and upgrade need schema change status
-    OLAPStatus to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg,
-                                  AlterTabletPB* alter_tablet_pb);
-
     OLAPStatus save(const string& file_path, const OLAPHeaderMessage& olap_header);
 
 private:

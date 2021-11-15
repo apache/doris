@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
@@ -96,27 +95,15 @@ public class ShowViewStmt extends ShowStmt {
                     getTbl());
         }
 
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        Table showTable = database.getTable(tbl.getTbl());
-        if (showTable == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getTbl());
-        }
-
-        if (!(showTable instanceof OlapTable)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, getTbl());
-        }
-
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;
             List<TableRef> tblRefs = Lists.newArrayList();
             // get table refs instead of get tables because it don't need to check table's validity
-            getTableRefs(view, tblRefs);
+            getTableRefs(analyzer, view, tblRefs);
             for (TableRef tblRef : tblRefs) {
-                tblRef.analyze(analyzer);
+                tblRef.getName().analyze(analyzer);
                 if (tblRef.getName().equals(tbl)) {
                     matchViews.add(view);
                 }
@@ -124,10 +111,10 @@ public class ShowViewStmt extends ShowStmt {
         }
     }
 
-    private void getTableRefs(View view, List<TableRef> tblRefs) {
+    private void getTableRefs(Analyzer analyzer, View view, List<TableRef> tblRefs) {
         Set<String> parentViewNameSet = Sets.newHashSet();
         QueryStmt queryStmt = view.getQueryStmt();
-        queryStmt.getTableRefs(tblRefs, parentViewNameSet);
+        queryStmt.getTableRefs(analyzer, tblRefs, parentViewNameSet);
     }
 
     @Override

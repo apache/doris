@@ -327,10 +327,7 @@ public class DatabaseTransactionMgr {
 
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
-        Database db = catalog.getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("Database[" + dbId + "] does not exist");
-        }
+        Database db = catalog.getDbOrMetaException(dbId);
 
         if (usedQuotaDataBytes == -1) {
             usedQuotaDataBytes = db.getUsedDataQuotaWithLock();
@@ -360,12 +357,8 @@ public class DatabaseTransactionMgr {
             throws UserException {
         // 1. check status
         // the caller method already own db lock, we do not obtain db lock here
-        Database db = catalog.getDb(dbId);
-        if (null == db) {
-            throw new MetaNotFoundException("could not find db [" + dbId + "]");
-        }
-
-        TransactionState transactionState = null;
+        Database db = catalog.getDbOrMetaException(dbId);
+        TransactionState transactionState;
         readLock();
         try {
             transactionState = unprotectedGetTransactionState(transactionId);
@@ -455,10 +448,7 @@ public class DatabaseTransactionMgr {
         Set<Long> errorReplicaIds = Sets.newHashSet();
         Set<Long> totalInvolvedBackends = Sets.newHashSet();
         for (long tableId : tableToPartition.keySet()) {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("Table does not exist: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
             for (Partition partition : table.getAllPartitions()) {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
@@ -495,7 +485,7 @@ public class DatabaseTransactionMgr {
                     transactionState.prolongPublishTimeout();
                 }
 
-                int quorumReplicaNum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;
+                int quorumReplicaNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
                         int successReplicaNum = 0;
@@ -654,6 +644,20 @@ public class DatabaseTransactionMgr {
         }
     }
 
+    public Long getTransactionId(String label) {
+        readLock();
+        try {
+            Set<Long> existingTxnIds = unprotectedGetTxnIdsByLabel(label);
+            if (existingTxnIds == null || existingTxnIds.isEmpty()) {
+                return null;
+            }
+            // find the latest txn (which id is largest)
+            return existingTxnIds.stream().max(Comparator.comparingLong(Long::valueOf)).get();
+        } finally {
+            readUnlock();
+        }
+    }
+
     public List<TransactionState> getCommittedTxnList() {
         readLock();
         try {
@@ -684,7 +688,7 @@ public class DatabaseTransactionMgr {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
 
-        Database db = catalog.getDb(transactionState.getDbId());
+        Database db = catalog.getDbNullable(transactionState.getDbId());
         if (db == null) {
             writeLock();
             try {
@@ -713,7 +717,7 @@ public class DatabaseTransactionMgr {
            }
         }
 
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
+        List<Table> tableList = db.getTablesOnIdOrderWithIgnoringWrongTableId(tableIdList);
         MetaLockUtils.writeLockTables(tableList);
         try {
             boolean hasError = false;
@@ -721,7 +725,7 @@ public class DatabaseTransactionMgr {
             while (tableCommitInfoIterator.hasNext()) {
                 TableCommitInfo tableCommitInfo = tableCommitInfoIterator.next();
                 long tableId = tableCommitInfo.getTableId();
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 // table maybe dropped between commit and publish, ignore this error
                 if (table == null) {
                     tableCommitInfoIterator.remove();
@@ -755,7 +759,7 @@ public class DatabaseTransactionMgr {
                         transactionState.setErrorMsg(errMsg);
                         return;
                     }
-                    int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
+                    int quorumReplicaNum = partitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
                     List<MaterializedIndex> allIndices;
                     if (transactionState.getLoadedTblIndexes().isEmpty()) {
@@ -874,7 +878,7 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
             for (long partitionId : tableToPartition.get(tableId)) {
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 Partition partition = table.getPartition(partitionId);
                 PartitionCommitInfo partitionCommitInfo = new PartitionCommitInfo(partitionId,
                         partition.getNextVersion(), partition.getNextVersionHash(),
@@ -1230,11 +1234,7 @@ public class DatabaseTransactionMgr {
         List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
-            if (db == null) {
-                throw new AnalysisException("Database[" + dbId + "] does not exist");
-            }
-
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
             TransactionState txnState = unprotectedGetTransactionState(txnId);
             if (txnState == null) {
                 throw new AnalysisException("transaction with id " + txnId + " does not exist");
@@ -1244,7 +1244,7 @@ public class DatabaseTransactionMgr {
                 // check auth
                 Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
                 for (Long tblId : tblIds) {
-                    Table tbl = db.getTable(tblId);
+                    Table tbl = db.getTableNullable(tblId);
                     if (tbl != null) {
                         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
                                 tbl.getName(), PrivPredicate.SHOW)) {
@@ -1288,7 +1288,12 @@ public class DatabaseTransactionMgr {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when update catalog after committed. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 Partition partition = table.getPartition(partitionId);
@@ -1323,7 +1328,12 @@ public class DatabaseTransactionMgr {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                LOG.warn("table {} does not exist when update catalog after visible. transaction: {}, db: {}",
+                        tableId, transactionState.getTransactionId(), db.getId());
+                continue;
+            }
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();
@@ -1461,12 +1471,12 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public void replayUpsertTransactionState(TransactionState transactionState) {
+    public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         writeLock();
         try {
             // set transaction status will call txn state change listener
             transactionState.replaySetTransactionStatus();
-            Database db = catalog.getDb(transactionState.getDbId());
+            Database db = catalog.getDbOrMetaException(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 LOG.info("replay a committed transaction {}", transactionState);
                 updateCatalogAfterCommitted(transactionState, db);

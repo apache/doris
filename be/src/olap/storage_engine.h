@@ -100,6 +100,8 @@ public:
     // @brief 获取所有root_path信息
     OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
+    int64_t get_file_or_directory_size(std::filesystem::path file_path);
+
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
     std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
@@ -168,6 +170,10 @@ public:
     // start all background threads. This should be call after env is ready.
     Status start_bg_threads();
 
+    // clear trash and snapshot file
+    // option: update disk usage after sweep
+    OLAPStatus start_trash_sweep(double* usage, bool ignore_guard = false);
+
     void stop();
 
     void create_cumulative_compaction(TabletSharedPtr best_tablet,
@@ -178,6 +184,9 @@ public:
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
     Status get_compaction_status_json(std::string* result);
+
+    std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
+    std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
 
 private:
     // Instance should be inited from `static open()`
@@ -231,22 +240,24 @@ private:
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
 
-    void _start_clean_fd_cache();
+    void _start_clean_cache();
 
-    // 清理trash和snapshot文件，返回清理后的磁盘使用量
-    OLAPStatus _start_trash_sweep(double* usage);
-    // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
-    // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
-    // 当磁盘状态为不可用，但未检测到unused标识时，需要从root_path上
-    // 重新加载数据。
+    // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
+    // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
+    // When the disk status is unusable, but the unused logo is not detected, you need to download it from root_path
+    // Reload the data.
     void _start_disk_stat_monitor();
 
     void _compaction_tasks_producer_callback();
-    vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
-                                                       std::vector<DataDir*>& data_dirs,
-                                                       bool check_score);
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
-    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type);
+
+    std::vector<TabletSharedPtr> _generate_compaction_tasks(CompactionType compaction_type,
+                                                            std::vector<DataDir*>& data_dirs,
+                                                            bool check_score);
+
+    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+                                                CompactionType compaction_type);
+    void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
+                                               CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
 
@@ -254,7 +265,7 @@ private:
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
                 : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
-        uint32_t nice; // 优先度
+        uint32_t nice; // priority
         int64_t tablet_id;
         uint32_t disk_index = -1;
     };
@@ -282,6 +293,7 @@ private:
 
     EngineOptions _options;
     std::mutex _store_lock;
+    std::mutex _trash_sweep_lock;
     std::map<std::string, DataDir*> _store_map;
     uint32_t _available_storage_medium_type_count;
 
@@ -306,6 +318,7 @@ private:
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    std::shared_ptr<MemTracker> _tablet_mem_tracker;
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;

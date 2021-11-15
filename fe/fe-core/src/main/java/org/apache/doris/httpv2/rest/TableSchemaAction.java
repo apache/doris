@@ -62,13 +62,10 @@ public class TableSchemaAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
-            }
-            Table table = null;
+            Table table;
             try {
-                table = db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
@@ -81,7 +78,7 @@ public class TableSchemaAction extends RestBaseController {
                         Map<String, String> baseInfo = new HashMap<>(2);
                         Type colType = column.getOriginType();
                         PrimitiveType primitiveType = colType.getPrimitiveType();
-                        if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                        if (primitiveType == PrimitiveType.DECIMALV2) {
                             ScalarType scalarType = (ScalarType) colType;
                             baseInfo.put("precision", scalarType.getPrecision() + "");
                             baseInfo.put("scale", scalarType.getScalarScale() + "");

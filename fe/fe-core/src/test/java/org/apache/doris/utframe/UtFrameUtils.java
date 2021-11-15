@@ -28,10 +28,12 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -130,6 +132,11 @@ public class UtFrameUtils {
             dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
         Config.plugin_dir = dorisHome + "/plugins";
+        Config.custom_config_dir = dorisHome + "/conf";
+        File file = new File(Config.custom_config_dir);
+        if (!file.exists()) {
+            file.mkdir();
+        }
 
         int fe_http_port = findValidPort();
         int fe_rpc_port = findValidPort();
@@ -150,29 +157,44 @@ public class UtFrameUtils {
         return fe_rpc_port;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws InterruptedException, NotInitException,
+    public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
             IOException, DdlException, EnvVarNotSetException, FeStartException {
-        createMinDorisCluster(runningDir, 1);
+        createDorisCluster(runningDir, 1);
     }
 
-    public static void createMinDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
+    public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         int fe_rpc_port = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
-            createBackend(fe_rpc_port);
+            createBackend("127.0.0.1", fe_rpc_port);
             // sleep to wait first heartbeat
             Thread.sleep(6000);
         }
     }
 
-    public static void createBackend(int fe_rpc_port) throws IOException, InterruptedException {
+    // Create multi backends with different host for unit test.
+    // the host of BE will be "127.0.0.1", "127.0.0.2"
+    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
+            FeStartException, NotInitException, DdlException, InterruptedException {
+        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
+        FeConstants.runningUnitTest = true;
+        int fe_rpc_port = startFEServer(runningDir);
+        for (int i = 0; i < backendNum; i++) {
+            String host = "127.0.0." + (i + 1);
+            createBackend(host, fe_rpc_port);
+        }
+        // sleep to wait first heartbeat
+        Thread.sleep(6000);
+    }
+
+    public static void createBackend(String beHost, int fe_rpc_port) throws IOException, InterruptedException {
         int be_heartbeat_port = findValidPort();
         int be_thrift_port = findValidPort();
         int be_brpc_port = findValidPort();
         int be_http_port = findValidPort();
 
         // start be
-        MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
+        MockedBackend backend = MockedBackendFactory.createBackend(beHost,
                 be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
                 new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
@@ -192,7 +214,7 @@ public class UtFrameUtils {
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
         be.setBePort(be_thrift_port);
         be.setHttpPort(be_http_port);
-        be.setBeRpcPort(be_brpc_port);
+        be.setBrpcPort(be_brpc_port);
         Catalog.getCurrentSystemInfo().addBackend(be);
     }
 
@@ -222,12 +244,16 @@ public class UtFrameUtils {
     }
 
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
+        return getSQLPlanOrErrorMsg(ctx, queryStr, false);
+    }
+
+    public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr, boolean isVerbose) throws Exception {
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(planner.getFragments(), new ExplainOptions(false, false));
+            return planner.getExplainString(planner.getFragments(), new ExplainOptions(isVerbose, false));
         } else {
             return ctx.getState().getErrorMessage();
         }
@@ -239,6 +265,17 @@ public class UtFrameUtils {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             return stmtExecutor.planner();
+        } else {
+            return null;
+        }
+    }
+
+    public static StmtExecutor getSqlStmtExecutor(ConnectContext ctx, String queryStr) throws Exception {
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            return stmtExecutor;
         } else {
             return null;
         }

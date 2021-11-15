@@ -38,9 +38,13 @@ Importing cluster is only applicable to Baidu internal users.
 key:
 
 Super user rights:
-Max_user_connections: Maximum number of connections.
-resource.cpu_share: cpu resource assignment.
+max_user_connections: Maximum number of connections.
+max_query_instances: Maximum number of query instance user can use when query.
+sql_block_rules: set sql block rules。After setting, if the query user execute match the rules, it will be rejected.
+cpu_resource_limit: limit the cpu resource usage of a query. See session variable `cpu_resource_limit`.
+resource.cpu_share: cpu resource assignment.(Derepcated)
 Load_cluster. {cluster_name}. priority: assigns priority to a specified cluster, which can be HIGH or NORMAL
+resource_tags: Specify the user's resource tag permissions.
 
 Ordinary user rights:
 Quota.normal: Resource allocation at the normal level.
@@ -76,6 +80,18 @@ SET PROPERTY FOR 'jack' 'default_load_cluster' = '{cluster_name}';
 
 7. Modify the cluster priority of user Jack to HIGH
 SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}.priority' = 'HIGH';
+
+8. Modify the maximum number of query instance for jack to 3000
+SET PROPERTY FOR 'jack' 'max_query_instances' = '3000';
+
+9. Modify the sql block rule for jack
+SET PROPERTY FOR 'jack' 'sql_block_rules' = 'rule1, rule2';
+
+10. Modify the cpu resource usage limit for jack
+SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
+
+11. Modify user's resource tag permission
+SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
 
 ## keyword
 SET, PROPERTY

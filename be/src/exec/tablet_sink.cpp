@@ -26,12 +26,14 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
+#include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/monotime.h"
-#include "util/uid_util.h"
+#include "util/threadpool.h"
 #include "util/time.h"
+#include "util/uid_util.h"
 
 namespace doris {
 namespace stream_load {
@@ -60,22 +62,24 @@ NodeChannel::~NodeChannel() {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
-    _node_info = _parent->_nodes_info->find_node(_node_id);
-    if (_node_info == nullptr) {
+    auto node =  _parent->_nodes_info->find_node(_node_id);
+    if (node == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
         _cancelled = true;
         return Status::InternalError(ss.str());
     }
 
+    _node_info = *node;
+
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
 
-    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info->host, _node_info->brpc_port);
+    _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info.host, _node_info.brpc_port);
     if (_stub == nullptr) {
-        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
-                     << ", port=" << _node_info->brpc_port;
+        LOG(WARNING) << "Get rpc stub failed, host=" << _node_info.host
+                     << ", port=" << _node_info.brpc_port;
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
@@ -84,6 +88,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _cur_add_batch_request.set_allocated_id(&_parent->_load_id);
     _cur_add_batch_request.set_index_id(_index_id);
     _cur_add_batch_request.set_sender_id(_parent->_sender_id);
+    _cur_add_batch_request.set_backend_id(_node_id);
     _cur_add_batch_request.set_eos(false);
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
@@ -91,7 +96,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
-    _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
+    _name = fmt::format("NodeChannel[{}-{}]", _index_id, _node_id);
     return Status::OK();
 }
 
@@ -127,7 +132,6 @@ void NodeChannel::open() {
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
-    _cancelled = true;
     LOG(WARNING) << msg;
     {
         std::lock_guard<SpinLock> l(_cancel_msg_lock);
@@ -135,15 +139,19 @@ void NodeChannel::_cancel_with_msg(const std::string& msg) {
             _cancel_msg = msg;
         }
     }
+    _cancelled = true;
 }
 
 Status NodeChannel::open_wait() {
     _open_closure->join();
     if (_open_closure->cntl.Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_stub_cache()->available(_stub, _node_info.host,
+                                                                  _node_info.brpc_port)) {
+            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_open_closure->cntl.remote_side());
+        }
         std::stringstream ss;
-        ss << "failed to open tablet writer, error="
-            << berror(_open_closure->cntl.ErrorCode())
-            << ", error_text=" << _open_closure->cntl.ErrorText();
+        ss << "failed to open tablet writer, error=" << berror(_open_closure->cntl.ErrorCode())
+           << ", error_text=" << _open_closure->cntl.ErrorText();
         _cancelled = true;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
@@ -162,43 +170,34 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        std::stringstream ss;
-        ss << name() << " add batch req rpc failed, " << print_load_info()
-           << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
-        _cancel_with_msg(ss.str());
+        _cancel_with_msg(
+                fmt::format("{}, err: {}", channel_info(), _add_batch_closure->cntl.ErrorText()));
     });
 
-    _add_batch_closure->addSuccessHandler(
-            [this](const PTabletWriterAddBatchResult& result, bool is_last_rpc) {
-                Status status(result.status());
-                if (status.ok()) {
-                    if (is_last_rpc) {
-                        for (auto& tablet : result.tablet_vec()) {
-                            TTabletCommitInfo commit_info;
-                            commit_info.tabletId = tablet.tablet_id();
-                            commit_info.backendId = _node_id;
-                            _tablet_commit_infos.emplace_back(std::move(commit_info));
-                        }
-                        _add_batches_finished = true;
-                    }
-                } else {
-                    std::stringstream ss;
-					// FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
-					//             But I don't know why. so here I print node_info()->id instead of node_info()->host
-					//             to avoid BE crash. It needs further observation.
-                    ss << name() << " add batch req success but status isn't ok, "
-                                 << print_load_info() << ", backend id=" << node_info()->id << ":"
-                                 << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
-                    _cancel_with_msg(ss.str());
+    _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
+                                                 bool is_last_rpc) {
+        Status status(result.status());
+        if (status.ok()) {
+            if (is_last_rpc) {
+                for (auto& tablet : result.tablet_vec()) {
+                    TTabletCommitInfo commit_info;
+                    commit_info.tabletId = tablet.tablet_id();
+                    commit_info.backendId = _node_id;
+                    _tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
+                _add_batches_finished = true;
+            }
+        } else {
+            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
+                                         channel_info(), status.get_error_msg()));
+        }
 
-                if (result.has_execution_time_us()) {
-                    _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
-                    _add_batch_counter.add_batch_wait_lock_time_us += result.wait_lock_time_us();
-                    _add_batch_counter.add_batch_num++;
-                }
-            });
-
+        if (result.has_execution_time_us()) {
+            _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
+            _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
+            _add_batch_counter.add_batch_num++;
+        }
+    });
     return status;
 }
 
@@ -242,6 +241,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     }
     DCHECK_NE(row_no, RowBatch::INVALID_ROW_INDEX);
     auto tuple = input_tuple->deep_copy(*_tuple_desc, _cur_batch->tuple_data_pool());
+
     _cur_batch->get_row(row_no)->set_tuple(0, tuple);
     _cur_batch->commit_last_row();
     _cur_add_batch_request.add_tablet_ids(tablet_id);
@@ -279,7 +279,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
             std::lock_guard<SpinLock> l(_cancel_msg_lock);
             return Status::InternalError("wait close failed. " + _cancel_msg);
         } else {
-            return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
+            return st.clone_and_prepend(
+                    "already stopped, skip waiting for close. cancelled/!eos: ");
         }
     }
 
@@ -290,7 +291,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
     timer.stop();
-    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
+    VLOG_CRITICAL << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms"
+                  << ", " << _load_info;
 
     if (_add_batches_finished) {
         {
@@ -315,10 +317,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     return Status::InternalError(ss.str());
 }
 
-void NodeChannel::cancel() {
+void NodeChannel::cancel(const std::string& cancel_msg) {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
-    _cancelled = true;
+    _cancel_with_msg(cancel_msg);
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
@@ -340,68 +342,79 @@ void NodeChannel::cancel() {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status() {
+int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
     }
-
-    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
-        SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
-        AddBatchReq send_batch;
-        {
-            debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-            std::lock_guard<std::mutex> l(_pending_batches_lock);
-            DCHECK(!_pending_batches.empty());
-            send_batch = std::move(_pending_batches.front());
-            _pending_batches.pop();
-            _pending_batches_num--;
+    bool is_finished = true;
+    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
+        _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+        auto s = thread_pool_token->submit_func(std::bind(&NodeChannel::try_send_batch, this));
+        if (!s.ok()) {
+            _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
         }
+    }
+    return _send_finished ? 0 : 1;
+}
 
-        auto row_batch = std::move(send_batch.first);
-        auto request = std::move(send_batch.second); // doesn't need to be saved in heap
-
-        // tablet_ids has already set when add row
-        request.set_packet_seq(_next_packet_seq);
-        if (row_batch->num_rows() > 0) {
-            SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
-            row_batch->serialize(request.mutable_row_batch());
-        }
-
-        _add_batch_closure->reset();
-        int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
-        if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
-            if (remain_ms <= 0 && !request.eos()) {
-                cancel();
-                return 0;
-            } else {
-                remain_ms = _min_rpc_timeout_ms;
-            }
-        }
-        _add_batch_closure->cntl.set_timeout_ms(remain_ms);
-        if (config::tablet_writer_ignore_eovercrowded) {
-            _add_batch_closure->cntl.ignore_eovercrowded();
-        }
-
-        if (request.eos()) {
-            for (auto pid : _parent->_partition_ids) {
-                request.add_partition_ids(pid);
-            }
-
-            // eos request must be the last request
-            _add_batch_closure->end_mark();
-            _send_finished = true;
-            DCHECK(_pending_batches_num == 0);
-        }
-
-        _add_batch_closure->set_in_flight();
-        _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request,
-                                       &_add_batch_closure->result, _add_batch_closure);
-
-        _next_packet_seq++;
+void NodeChannel::try_send_batch() {
+    SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
+    AddBatchReq send_batch;
+    {
+        debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
+        std::lock_guard<std::mutex> l(_pending_batches_lock);
+        DCHECK(!_pending_batches.empty());
+        send_batch = std::move(_pending_batches.front());
+        _pending_batches.pop();
+        _pending_batches_num--;
     }
 
-    return _send_finished ? 0 : 1;
+    auto row_batch = std::move(send_batch.first);
+    auto request = std::move(send_batch.second); // doesn't need to be saved in heap
+
+    // tablet_ids has already set when add row
+    request.set_packet_seq(_next_packet_seq);
+    if (row_batch->num_rows() > 0) {
+        SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
+        row_batch->serialize(request.mutable_row_batch());
+        if (request.row_batch().ByteSizeLong() >= double(config::brpc_max_body_size) * 0.95f) {
+            LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
+                         << request.row_batch().ByteSizeLong() << ", " << channel_info();
+        }
+    }
+
+    _add_batch_closure->reset();
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    if (UNLIKELY(remain_ms < _min_rpc_timeout_ms)) {
+        if (remain_ms <= 0 && !request.eos()) {
+            cancel(fmt::format("{}, err: timeout", channel_info()));
+        } else {
+            remain_ms = _min_rpc_timeout_ms;
+        }
+    }
+    _add_batch_closure->cntl.set_timeout_ms(remain_ms);
+    if (config::tablet_writer_ignore_eovercrowded) {
+        _add_batch_closure->cntl.ignore_eovercrowded();
+    }
+
+    if (request.eos()) {
+        for (auto pid : _parent->_partition_ids) {
+            request.add_partition_ids(pid);
+        }
+
+        // eos request must be the last request
+        _add_batch_closure->end_mark();
+        _send_finished = true;
+        DCHECK(_pending_batches_num == 0);
+    }
+
+    _add_batch_closure->set_in_flight();
+    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
+                                   _add_batch_closure);
+
+    _next_packet_seq++;
+    _last_patch_processed_finished = true;
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
@@ -472,7 +485,10 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     }
 
     if (has_intolerable_failure()) {
-        return Status::InternalError(ss.str());
+        std::stringstream ss2;
+        ss2 << "index channel has intolerable failure. " << BackendOptions::get_localhost()
+            << ", err: " << ss.str();
+        return Status::InternalError(ss2.str());
     }
 
     return Status::OK();
@@ -524,6 +540,9 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     } else {
         _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     }
+    if (table_sink.__isset.send_batch_parallelism && table_sink.send_batch_parallelism > 1) {
+        _send_batch_parallelism = table_sink.send_batch_parallelism;
+    }
 
     return Status::OK();
 }
@@ -536,8 +555,9 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
-    _mem_tracker = MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
-                                             state->instance_mem_tracker(), true, false);
+    _mem_tracker =
+            MemTracker::CreateTracker(-1, "OlapTableSink:" + std::to_string(state->load_job_id()),
+                                      state->instance_mem_tracker(), true, false);
 
     SCOPED_TIMER(_profile->total_time_counter());
 
@@ -572,20 +592,12 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
     _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker.get()));
 
-    _max_decimal_val.resize(_output_tuple_desc->slots().size());
-    _min_decimal_val.resize(_output_tuple_desc->slots().size());
-
     _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
     _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
     // check if need validate batch
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         auto slot = _output_tuple_desc->slots()[i];
         switch (slot->type().type) {
-        case TYPE_DECIMAL:
-            _max_decimal_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
-            _min_decimal_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
-            _need_validate_data = true;
-            break;
         case TYPE_DECIMALV2:
             _max_decimalv2_val[i].to_max_decimal(slot->type().precision, slot->type().scale);
             _min_decimalv2_val[i].to_min_decimal(slot->type().precision, slot->type().scale);
@@ -597,6 +609,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         case TYPE_DATETIME:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             _need_validate_data = true;
             break;
         default:
@@ -615,8 +628,10 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _open_timer = ADD_TIMER(_profile, "OpenTime");
     _close_timer = ADD_TIMER(_profile, "CloseWaitTime");
     _non_blocking_send_timer = ADD_TIMER(_profile, "NonBlockingSendTime");
-    _non_blocking_send_work_timer = ADD_CHILD_TIMER(_profile, "NonBlockingSendWorkTime", "NonBlockingSendTime");
-    _serialize_batch_timer = ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
+    _non_blocking_send_work_timer =
+            ADD_CHILD_TIMER(_profile, "NonBlockingSendWorkTime", "NonBlockingSendTime");
+    _serialize_batch_timer =
+            ADD_CHILD_TIMER(_profile, "SerializeBatchTime", "NonBlockingSendWorkTime");
     _total_add_batch_exec_timer = ADD_TIMER(_profile, "TotalAddBatchExecTime");
     _max_add_batch_exec_timer = ADD_TIMER(_profile, "MaxAddBatchExecTime");
     _add_batch_number = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
@@ -661,12 +676,10 @@ Status OlapTableSink::open(RuntimeState* state) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 std::stringstream err;
-                err << ch->name() << ": tablet open failed, " << ch->print_load_info()
-                    << ", node=" << ch->node_info()->host << ":"
-                    << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
+                err << ch->channel_info() << ", tablet open failed, err: " << st.get_error_msg();
                 LOG(WARNING) << err.str();
-                index_channel->mark_as_failed(ch);
                 ss << err.str() << "; ";
+                index_channel->mark_as_failed(ch);
             }
         });
 
@@ -675,7 +688,10 @@ Status OlapTableSink::open(RuntimeState* state) {
             return Status::InternalError(ss.str());
         }
     }
-
+    int32_t send_batch_parallelism =
+            MIN(_send_batch_parallelism, config::max_send_batch_parallelism_per_job);
+    _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
+            ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
             "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
             &_sender_thread));
@@ -699,7 +715,6 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         _convert_batch(state, input_batch, _output_batch.get());
         batch = _output_batch.get();
     }
-
     int num_invalid_rows = 0;
     if (_need_validate_data) {
         SCOPED_RAW_TIMER(&_validate_data_ns);
@@ -755,8 +770,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
         int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
                 actual_consume_ns = 0, total_add_batch_exec_time_ns = 0,
-                max_add_batch_exec_time_ns = 0,
-                total_add_batch_num = 0, num_node_channels = 0;
+                max_add_batch_exec_time_ns = 0, total_add_batch_num = 0, num_node_channels = 0;
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
@@ -766,24 +780,24 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
             for (auto index_channel : _channels) {
                 int64_t add_batch_exec_time = 0;
-                index_channel->for_each_node_channel([&status, &state, &node_add_batch_counter_map,
-                                                      &serialize_batch_ns, &mem_exceeded_block_ns,
-                                                      &queue_push_lock_ns, &actual_consume_ns,
-                                                      &total_add_batch_exec_time_ns, &add_batch_exec_time,
-                                                      &total_add_batch_num](NodeChannel* ch) {
-                    auto s = ch->close_wait(state);
-                    if (!s.ok()) {
-                        // 'status' will store the last non-ok status of all channels
-                        status = s;
-                        LOG(WARNING)
-                                << ch->name() << ": close channel failed, " << ch->print_load_info()
-                                << ". error_msg=" << s.get_error_msg();
-                    }
-                    ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
-                                    &mem_exceeded_block_ns, &queue_push_lock_ns,
-                                    &actual_consume_ns, &total_add_batch_exec_time_ns,
-                                    &add_batch_exec_time, &total_add_batch_num);
-                });
+                index_channel->for_each_node_channel(
+                        [&status, &state, &node_add_batch_counter_map, &serialize_batch_ns,
+                         &mem_exceeded_block_ns, &queue_push_lock_ns, &actual_consume_ns,
+                         &total_add_batch_exec_time_ns, &add_batch_exec_time,
+                         &total_add_batch_num](NodeChannel* ch) {
+                            auto s = ch->close_wait(state);
+                            if (!s.ok()) {
+                                // 'status' will store the last non-ok status of all channels
+                                status = s;
+                                LOG(WARNING)
+                                        << ch->channel_info()
+                                        << ", close channel failed, err: " << s.get_error_msg();
+                            }
+                            ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
+                                            &mem_exceeded_block_ns, &queue_push_lock_ns,
+                                            &actual_consume_ns, &total_add_batch_exec_time_ns,
+                                            &add_batch_exec_time, &total_add_batch_num);
+                        });
 
                 if (add_batch_exec_time > max_add_batch_exec_time_ns) {
                     max_add_batch_exec_time_ns = add_batch_exec_time;
@@ -817,15 +831,17 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-           << ", txn_id=" << _txn_id << ", node add batch time(ms)/num: ";
+           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait execution time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
-               << ")(" << pair.second.add_batch_num << ")} ";
+               << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
+               << pair.second.add_batch_num << ")} ";
         }
         LOG(INFO) << ss.str();
     } else {
         for (auto channel : _channels) {
-            channel->for_each_node_channel([](NodeChannel* ch) { ch->cancel(); });
+            channel->for_each_node_channel(
+                    [&status](NodeChannel* ch) { ch->cancel(status.get_error_msg()); });
         }
     }
 
@@ -834,6 +850,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _stop_background_threads_latch.count_down();
     if (_sender_thread) {
         _sender_thread->join();
+        _send_batch_thread_pool_token->shutdown();
     }
 
     Expr::close(_output_expr_ctxs, state);
@@ -941,21 +958,15 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 }
                 break;
             }
-            case TYPE_DECIMAL: {
-                DecimalValue* dec_val = (DecimalValue*)slot;
-                if (dec_val->scale() > desc->type().scale) {
-                    int code = dec_val->round(dec_val, desc->type().scale, HALF_UP);
-                    if (code != E_DEC_OK) {
-                        ss << "round one decimal failed.value=" << dec_val->to_string();
-                        row_valid = false;
-                        continue;
-                    }
-                }
-                if (*dec_val > _max_decimal_val[i] || *dec_val < _min_decimal_val[i]) {
-                    ss << "decimal value is not valid for definition, column=" << desc->col_name()
-                       << ", value=" << dec_val->to_string()
-                       << ", precision=" << desc->type().precision
-                       << ", scale=" << desc->type().scale;
+            case TYPE_STRING: {
+                StringValue* str_val = (StringValue*)slot;
+                if (str_val->len > desc->type().MAX_STRING_LENGTH) {
+                    ss << "the length of input is too long than schema. "
+                       << "column_name: " << desc->col_name() << "; "
+                       << "first 128 bytes of input_str: [" << std::string(str_val->ptr, 128)
+                       << "] "
+                       << "schema length: " << desc->type().MAX_STRING_LENGTH << "; "
+                       << "actual length: " << str_val->len << "; ";
                     row_valid = false;
                     continue;
                 }
@@ -1015,8 +1026,9 @@ void OlapTableSink::_send_batch_process() {
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num](NodeChannel* ch) {
-                running_channels_num += ch->try_send_and_fetch_status();
+            index_channel->for_each_node_channel([&running_channels_num, this](NodeChannel* ch) {
+                running_channels_num +=
+                        ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
             });
         }
 

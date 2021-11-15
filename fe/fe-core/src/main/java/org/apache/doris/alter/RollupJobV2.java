@@ -104,7 +104,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private long rollupIndexId;
     @SerializedName(value = "baseIndexName")
     private String baseIndexName;
-    @SerializedName(value =  "rollupIndexName")
+    @SerializedName(value = "rollupIndexName")
     private String rollupIndexName;
 
     @SerializedName(value = "rollupSchema")
@@ -181,11 +181,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
         LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Database " + dbId + " does not exist");
-        }
-
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
         if (!checkTableStable(db)) {
             return;
         }
@@ -200,9 +196,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -311,7 +307,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType, origStmt);
+                rollupSchemaHash, rollupShortKeyColumnCount, TStorageType.COLUMN, rollupKeysType, origStmt);
         tbl.rebuildFullSchema();
     }
 
@@ -335,14 +331,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         LOG.info("previous transactions are all finished, begin to send rollup tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Databasee " + dbId + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Databasee " + s + " does not exist"));
 
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -406,18 +399,15 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     @Override
     protected void runRunningJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.RUNNING, jobState);
-        
+
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Databasee " + dbId + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Databasee " + s + " does not exist"));
 
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -449,7 +439,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                 long visiableVersion = partition.getVisibleVersion();
                 long visiableVersionHash = partition.getVisibleVersionHash();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicationNum(partition.getId());
+                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum();
+
 
                 MaterializedIndex rollupIndex = entry.getValue();
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
@@ -521,9 +512,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         AgentTaskQueue.removeBatchTask(rollupBatchTask, TTaskType.ALTER);
         // remove all rollup indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db != null) {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
                 tbl.writeLock();
                 try {
@@ -553,24 +544,15 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()
      */
-    private void replayCreateJob(RollupJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            // database may be dropped before replaying this log. just return
-            return;
-        }
+    private void replayCreateJob(RollupJobV2 replayedJob) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
 
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            // table may be dropped before replaying this log. just return
-            return;
-        }
-
-        tbl.writeLock();
+        olapTable.writeLock();
         try {
-            addTabletToInvertedIndex(tbl);
+            addTabletToInvertedIndex(olapTable);
         } finally {
-            tbl.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // to make sure that this job will run runPendingJob() again to create the rollup replicas
@@ -602,24 +584,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayPendingJob(RollupJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            // database may be dropped before replaying this log. just return
-            return;
-        }
-
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            // table may be dropped before replaying this log. just return
-            return;
-        }
-
-        tbl.writeLock();
+    private void replayPendingJob(RollupJobV2 replayedJob) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+        olapTable.writeLock();
         try {
-            addRollupIndexToCatalog(tbl);
+            addRollupIndexToCatalog(olapTable);
         } finally {
-            tbl.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
@@ -634,9 +606,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      * Should replay all changes in runRuningJob()
      */
     private void replayRunningJob(RollupJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db != null) {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
                 tbl.writeLock();
                 try {
@@ -667,22 +639,26 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     @Override
     public void replay(AlterJobV2 replayedJob) {
-        RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
-        switch (replayedJob.jobState) {
-            case PENDING:
-                replayCreateJob(replayedRollupJob);
-                break;
-            case WAITING_TXN:
-                replayPendingJob(replayedRollupJob);
-                break;
-            case FINISHED:
-                replayRunningJob(replayedRollupJob);
-                break;
-            case CANCELLED:
-                replayCancelled(replayedRollupJob);
-                break;
-            default:
-                break;
+        try {
+            RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
+            switch (replayedJob.jobState) {
+                case PENDING:
+                    replayCreateJob(replayedRollupJob);
+                    break;
+                case WAITING_TXN:
+                    replayPendingJob(replayedRollupJob);
+                    break;
+                case FINISHED:
+                    replayRunningJob(replayedRollupJob);
+                    break;
+                case CANCELLED:
+                    replayCancelled(replayedRollupJob);
+                    break;
+                default:
+                    break;
+            }
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay rollup job failed {}", replayedJob.getJobId(), e);
         }
     }
 
@@ -714,7 +690,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         if (jobState == JobState.RUNNING) {
             List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(limit);
             for (AgentTask agentTask : tasks) {
-                AlterReplicaTask rollupTask = (AlterReplicaTask)agentTask;
+                AlterReplicaTask rollupTask = (AlterReplicaTask) agentTask;
                 List<String> info = Lists.newArrayList();
                 info.add(String.valueOf(rollupTask.getBackendId()));
                 info.add(String.valueOf(rollupTask.getBaseTabletId()));
@@ -751,8 +727,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     /**
-     * This method is only used to deserialize the text mate which version is less then 86.
-     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather then here.
+     * This method is only used to deserialize the text mate which version is less than 86.
+     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather than here.
      */
     public static RollupJobV2 read(DataInput in) throws IOException {
         Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);
@@ -812,10 +788,14 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
         // parse the define stmt to schema
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                                                        SqlModeHelper.MODE_DEFAULT));
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt), SqlModeHelper.MODE_DEFAULT));
         ConnectContext connectContext = new ConnectContext();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        } catch (MetaNotFoundException e) {
+            throw new IOException("error happens when parsing create materialized view stmt: " + origStmt, e);
+        }
         String clusterName = db.getClusterName();
         // It's almost impossible that db's cluster name is null, just in case
         // because before user want to create database, he must first enter a cluster which means that cluster is set to current ConnectContext

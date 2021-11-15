@@ -31,14 +31,14 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.Lists;
+
 import org.apache.commons.lang.SerializationUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Lists;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -156,42 +156,44 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
-        String convertedVal = VariableVarConverters.convert(attr.name(), value);
+        if (VariableVarConverters.hasConverter(attr.name())) {
+            value = VariableVarConverters.encode(attr.name(), value).toString();
+        }
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
-                    if (convertedVal.equalsIgnoreCase("ON")
-                            || convertedVal.equalsIgnoreCase("TRUE")
-                            || convertedVal.equalsIgnoreCase("1")) {
+                    if (value.equalsIgnoreCase("ON")
+                            || value.equalsIgnoreCase("TRUE")
+                            || value.equalsIgnoreCase("1")) {
                         field.setBoolean(obj, true);
-                    } else if (convertedVal.equalsIgnoreCase("OFF")
-                            || convertedVal.equalsIgnoreCase("FALSE")
-                            || convertedVal.equalsIgnoreCase("0")) {
+                    } else if (value.equalsIgnoreCase("OFF")
+                            || value.equalsIgnoreCase("FALSE")
+                            || value.equalsIgnoreCase("0")) {
                         field.setBoolean(obj, false);
                     } else {
                         throw new IllegalAccessException();
                     }
                     break;
                 case "byte":
-                    field.setByte(obj, Byte.valueOf(convertedVal));
+                    field.setByte(obj, Byte.valueOf(value));
                     break;
                 case "short":
-                    field.setShort(obj, Short.valueOf(convertedVal));
+                    field.setShort(obj, Short.valueOf(value));
                     break;
                 case "int":
-                    field.setInt(obj, Integer.valueOf(convertedVal));
+                    field.setInt(obj, Integer.valueOf(value));
                     break;
                 case "long":
-                    field.setLong(obj, Long.valueOf(convertedVal));
+                    field.setLong(obj, Long.valueOf(value));
                     break;
                 case "float":
-                    field.setFloat(obj, Float.valueOf(convertedVal));
+                    field.setFloat(obj, Float.valueOf(value));
                     break;
                 case "double":
-                    field.setDouble(obj, Double.valueOf(convertedVal));
+                    field.setDouble(obj, Double.valueOf(value));
                     break;
                 case "String":
-                    field.set(obj, convertedVal);
+                    field.set(obj, value);
                     break;
                 default:
                     // Unsupported type variable.
@@ -265,18 +267,7 @@ public class VariableMgr {
         }
 
         if (setVar.getType() == SetType.GLOBAL) {
-            // set global variable should not affect variables of current session.
-            // global variable will only make effect when connecting in.
-            wlock.lock();
-            try {
-                setValue(ctx.getObj(), ctx.getField(), value);
-                // write edit log
-                GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(attr.name()));
-                EditLog editLog = Catalog.getCurrentCatalog().getEditLog();
-                editLog.logGlobalVariableV2(info);
-            } finally {
-                wlock.unlock();
-            }
+            setGlobalVarAndWriteEditLog(ctx, attr.name(), setVar.getValue().getStringValue());
         } else {
             // set session variable
             Field field = ctx.getField();
@@ -292,11 +283,30 @@ public class VariableMgr {
         }
     }
 
+    private static void setGlobalVarAndWriteEditLog(VarContext ctx, String name, String value) throws DdlException {
+        // set global variable should not affect variables of current session.
+        // global variable will only make effect when connecting in.
+        wlock.lock();
+        try {
+            setValue(ctx.getObj(), ctx.getField(), value);
+            // write edit log
+            GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, Lists.newArrayList(name));
+            Catalog.getCurrentCatalog().getEditLog().logGlobalVariableV2(info);
+        } finally {
+            wlock.unlock();
+        }
+    }
+
+    public static void setLowerCaseTableNames(int mode) throws DdlException {
+        VarContext ctx = ctxByVarName.get(GlobalVariable.LOWER_CASE_TABLE_NAMES);
+        setGlobalVarAndWriteEditLog(ctx, GlobalVariable.LOWER_CASE_TABLE_NAMES, "" + mode);
+    }
+
     // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
         defaultSessionVariable.write(out);
         // get all global variables
-        List<String> varNames = GlobalVariable.getAllGlobalVarNames();
+        List<String> varNames = GlobalVariable.getPersistentGlobalVarNames();
         GlobalVarPersistInfo info = new GlobalVarPersistInfo(defaultSessionVariable, varNames);
         info.write(out);
     }
@@ -496,12 +506,12 @@ public class VariableMgr {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
                 }
 
-                if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+                if (row.size() > 1 && VariableVarConverters.hasConverter(row.get(0))) {
                     try {
-                        row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
+                        row.set(1, VariableVarConverters.decode(row.get(0), Long.valueOf(row.get(1))));
                     } catch (DdlException e) {
                         row.set(1, "");
-                        LOG.warn("Decode sql mode failed");
+                        LOG.warn("Decode session variable failed");
                     }
                 }
 

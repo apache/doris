@@ -27,7 +27,6 @@
 #include <thrift/transport/TBufferTransports.h>
 #include <thrift/transport/TSocket.h>
 
-#include <boost/shared_ptr.hpp>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -38,10 +37,6 @@
 #include "util/thrift_server.h"
 
 namespace doris {
-
-template <class InterfaceType>
-class ThriftClient;
-
 // Super class for templatized thrift clients.
 class ThriftClientImpl {
 public:
@@ -75,17 +70,14 @@ protected:
               _port(port),
               _socket(new apache::thrift::transport::TSocket(ipaddress, port)) {}
 
-private:
-    template <class InterfaceType>
-    friend class ThriftClient;
-
+protected:
     std::string _ipaddress;
     int _port;
 
     // All shared pointers, because Thrift requires them to be
-    boost::shared_ptr<apache::thrift::transport::TSocket> _socket;
-    boost::shared_ptr<apache::thrift::transport::TTransport> _transport;
-    boost::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
+    std::shared_ptr<apache::thrift::transport::TSocket> _socket;
+    std::shared_ptr<apache::thrift::transport::TTransport> _transport;
+    std::shared_ptr<apache::thrift::protocol::TBinaryProtocol> _protocol;
 };
 
 // Utility client to a Thrift server. The parameter type is the
@@ -101,7 +93,7 @@ public:
     InterfaceType* iface() { return _iface.get(); }
 
 private:
-    boost::shared_ptr<InterfaceType> _iface;
+    std::shared_ptr<InterfaceType> _iface;
 };
 
 template <class InterfaceType>

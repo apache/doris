@@ -20,6 +20,7 @@
 #include <string>
 
 #include "gen_cpp/Exprs_types.h"
+#include "runtime/collection_value.h"
 #include "runtime/runtime_state.h"
 #include "util/string_parser.hpp"
 
@@ -81,20 +82,21 @@ Literal::Literal(const TExprNode& node) : Expr(node) {
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         DCHECK_EQ(node.node_type, TExprNodeType::STRING_LITERAL);
         DCHECK(node.__isset.string_literal);
         _value.set_string_val(node.string_literal.value);
         break;
-    case TYPE_DECIMAL: {
-        DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
-        DCHECK(node.__isset.decimal_literal);
-        _value.decimal_val = DecimalValue(node.decimal_literal.value);
-        break;
-    }
+
     case TYPE_DECIMALV2: {
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
         _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
+        break;
+    }
+    case TYPE_ARRAY: {
+        DCHECK_EQ(node.node_type, TExprNodeType::ARRAY_LITERAL);
+        // init in prepare
         break;
     }
     default:
@@ -145,13 +147,6 @@ DoubleVal Literal::get_double_val(ExprContext* context, TupleRow* row) {
     return DoubleVal(_value.double_val);
 }
 
-DecimalVal Literal::get_decimal_val(ExprContext* context, TupleRow* row) {
-    DCHECK_EQ(_type.type, TYPE_DECIMAL) << _type;
-    DecimalVal dec_val;
-    _value.decimal_val.to_decimal_val(&dec_val);
-    return dec_val;
-}
-
 DecimalV2Val Literal::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2) << _type;
     DecimalV2Val dec_val;
@@ -172,4 +167,29 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
     return str_val;
 }
 
+CollectionVal Literal::get_array_val(ExprContext* context, TupleRow*) {
+    DCHECK(_type.is_collection_type());
+    CollectionVal val;
+    _value.array_val.to_collection_val(&val);
+    return val;
+}
+
+Status Literal::prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* context) {
+    RETURN_IF_ERROR(Expr::prepare(state, row_desc, context));
+
+    if (type().type == TYPE_ARRAY) {
+        DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
+        // init array value
+        auto td = type().children.at(0).type;
+        RETURN_IF_ERROR(CollectionValue::init_collection(state->obj_pool(), get_num_children(), td,
+                                                         &_value.array_val));
+        // init every item
+        for (int i = 0; i < get_num_children(); ++i) {
+            Expr* children = get_child(i);
+            RETURN_IF_ERROR(_value.array_val.set(i, td, children->get_const_val(context)));
+        }
+    }
+
+    return Status::OK();
+}
 } // namespace doris

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.UserException;
@@ -86,7 +87,7 @@ public class OlapTableSinkTest {
     public void testSinglePartition() throws UserException {
         TupleDescriptor tuple = getTuple();
         SinglePartitionInfo partInfo = new SinglePartitionInfo();
-        partInfo.setReplicationNum(2, (short) 3);
+        partInfo.setReplicaAllocation(2, new ReplicaAllocation((short) 3));
         MaterializedIndex index = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
         HashDistributionInfo distInfo = new HashDistributionInfo(
                 2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
@@ -101,7 +102,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L));
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1);
         sink.complete();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -131,7 +132,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1);
         try {
             sink.complete();
         } catch (UserException e) {
@@ -153,7 +154,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1);
         sink.complete();
         LOG.info("sink is {}", sink.toThrift());
         LOG.info("{}", sink.getExplainString("", TExplainLevel.NORMAL));
@@ -183,7 +184,7 @@ public class OlapTableSinkTest {
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
-        sink.init(new TUniqueId(1, 2), 3, 4, 1000);
+        sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1);
         try {
             sink.complete();
         } catch (UserException e) {

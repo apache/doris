@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -28,18 +29,24 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class QeProcessorImpl implements QeProcessor {
 
     private static final Logger LOG = LogManager.getLogger(QeProcessorImpl.class);
     private Map<TUniqueId, QueryInfo> coordinatorMap;
+
+    private Map<TUniqueId, Integer> queryToInstancesNum;
+    private Map<String, AtomicInteger> userToInstancesCount;
 
     public static final QeProcessor INSTANCE;
 
@@ -50,10 +57,12 @@ public final class QeProcessorImpl implements QeProcessor {
     private ExecutorService writeProfileExecutor;
 
     private QeProcessorImpl() {
-        coordinatorMap = Maps.newConcurrentMap();
+        coordinatorMap = new ConcurrentHashMap<>();
         // write profile to ProfileManager when query is running.
         writeProfileExecutor = ThreadPoolManager.newDaemonProfileThreadPool(1, 100,
                 "profile-write-pool", true);
+        queryToInstancesNum = new ConcurrentHashMap<>();
+        userToInstancesCount = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -79,10 +88,58 @@ public final class QeProcessorImpl implements QeProcessor {
         }
     }
 
+    public void registerInstances(TUniqueId queryId, Integer instancesNum) throws UserException {
+        if (!coordinatorMap.containsKey(queryId)) {
+            throw new UserException("query not exists in coordinatorMap:" + DebugUtil.printId(queryId));
+        }
+        QueryInfo queryInfo = coordinatorMap.get(queryId);
+        if (queryInfo.getConnectContext() != null &&
+                !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+        ) {
+            String user = queryInfo.getConnectContext().getQualifiedUser();
+            long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
+            if (maxQueryInstances <= 0) {
+                maxQueryInstances = Config.default_max_query_instances;
+            }
+            if (maxQueryInstances > 0) {
+                AtomicInteger currentCount = userToInstancesCount.computeIfAbsent(user, __ -> new AtomicInteger(0));
+                // Many query can reach here.
+                if (instancesNum + currentCount.get() > maxQueryInstances) {
+                    throw new UserException("reach max_query_instances " + maxQueryInstances);
+                }
+            }
+            queryToInstancesNum.put(queryId, instancesNum);
+            userToInstancesCount.computeIfAbsent(user, __ -> new AtomicInteger(0)).addAndGet(instancesNum);
+        }
+    }
+
+    public Map<String, Integer> getInstancesNumPerUser() {
+        return Maps.transformEntries(userToInstancesCount, (__, value) -> value != null ? value.get() : 0);
+    }
+
     @Override
     public void unregisterQuery(TUniqueId queryId) {
-        if (coordinatorMap.remove(queryId) != null) {
+        QueryInfo queryInfo = coordinatorMap.remove(queryId);
+        if (queryInfo != null) {
             LOG.info("deregister query id {}", DebugUtil.printId(queryId));
+            if (queryInfo.getConnectContext() != null &&
+                    !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+            ) {
+                Integer num = queryToInstancesNum.remove(queryId);
+                if (num != null) {
+                    String user = queryInfo.getConnectContext().getQualifiedUser();
+                    AtomicInteger instancesNum = userToInstancesCount.get(user);
+                    if (instancesNum == null) {
+                        LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
+                                DebugUtil.printId(queryId)
+                        );
+                    } else {
+                        instancesNum.addAndGet(-num);
+                    }
+                }
+            }
+        } else {
+            LOG.warn("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
         }
     }
 
@@ -105,7 +162,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .db(context.getDatabase())
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getQueryProfile())
-                    .isReportSucc(context.getSessionVariable().isReportSucc()).build();
+                    .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
         return querySet;

@@ -17,14 +17,15 @@
 
 #include "util/mysql_row_buffer.h"
 
+#include <fmt/format.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include "common/logging.h"
 #include "gutil/strings/numbers.h"
+#include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
-
-#include <fmt/format.h>
+#include "date_func.h"
 
 namespace doris {
 
@@ -58,11 +59,34 @@ static char* pack_vlen(char* packet, uint64_t length) {
     return packet + 8;
 }
 MysqlRowBuffer::MysqlRowBuffer()
-        : _pos(_default_buf), _buf(_default_buf), _buf_size(sizeof(_default_buf)) {}
+        : _pos(_default_buf),
+          _buf(_default_buf),
+          _buf_size(sizeof(_default_buf)),
+          _dynamic_mode(0),
+          _len_pos(nullptr) {}
 
 MysqlRowBuffer::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
         delete[] _buf;
+    }
+}
+
+void MysqlRowBuffer::open_dynamic_mode() {
+    if (!_dynamic_mode) {
+        *_pos++ = 254;
+        // write length when dynamic mode close
+        _len_pos = _pos;
+        _pos = _pos + 8;
+    }
+    _dynamic_mode++;
+}
+
+void MysqlRowBuffer::close_dynamic_mode() {
+    _dynamic_mode--;
+
+    if (!_dynamic_mode) {
+        int8store(_len_pos, _pos - _len_pos - 8);
+        _len_pos = nullptr;
     }
 }
 
@@ -99,13 +123,60 @@ int MysqlRowBuffer::reserve(int size) {
     return 0;
 }
 
-template<typename T>
-static char* add_int(T data, char* pos)
-{
+template <typename T>
+static char* add_int(T data, char* pos, bool dynamic_mode) {
     auto fi = fmt::format_int(data);
     int length = fi.size();
-    int1store(pos++, length);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
     memcpy(pos, fi.data(), length);
+    return pos + length;
+}
+
+static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
+    int length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+template <typename T>
+static char* add_float(T data, char* pos, bool dynamic_mode) {
+    int length = 0;
+    if constexpr (std::is_same_v<T, float>) {
+        length = FastFloatToBuffer(data, pos + !dynamic_mode);
+    } else if constexpr (std::is_same_v<T, double>) {
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
+    }
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_time(double data, char* pos, bool dynamic_mode) {
+    int length = time_to_buffer_from_double(data, pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mode) {
+    int length = data.to_buffer(pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos, bool dynamic_mode) {
+    int length = data.to_buffer(pos + !dynamic_mode, round_scale);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
     return pos + length;
 }
 
@@ -118,7 +189,7 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
         return ret;
     }
 
-    _pos = add_int(data, _pos);
+    _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -131,7 +202,7 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
         return ret;
     }
 
-    _pos = add_int(data, _pos);
+    _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -144,7 +215,7 @@ int MysqlRowBuffer::push_int(int32_t data) {
         return ret;
     }
 
-    _pos = add_int(data, _pos);
+    _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -157,7 +228,7 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
         return ret;
     }
 
-    _pos = add_int(data, _pos);
+    _pos = add_int(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -166,19 +237,24 @@ int MysqlRowBuffer::push_unsigned_bigint(uint64_t data) {
     int ret = reserve(4 + MAX_BIGINT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserve failed.";
+        LOG(ERROR) << "mysql row buffer reserver failed.";
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_BIGINT_WIDTH + 3, "%ld", data);
+    _pos = add_int(data, _pos, _dynamic_mode);
+    return 0;
+}
 
-    if (length < 0) {
-        LOG(ERROR) << "snprintf failed. data = " << data;
-        return length;
+int MysqlRowBuffer::push_largeint(int128_t data) {
+    // 1 for string trail, 1 for length, 1 for sign, other for digits
+    int ret = reserve(3 + MAX_LARGEINT_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserver failed.";
+        return ret;
     }
 
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_largeint(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -191,15 +267,7 @@ int MysqlRowBuffer::push_float(float data) {
         return ret;
     }
 
-    int length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, _pos + 1);
-
-    if (length < 0) {
-        LOG(ERROR) << "gcvt float failed. data = " << data;
-        return length;
-    }
-
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_float(data, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -212,15 +280,46 @@ int MysqlRowBuffer::push_double(double data) {
         return ret;
     }
 
-    int length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, _pos + 1);
+    _pos = add_float(data, _pos, _dynamic_mode);
+    return 0;
+}
 
-    if (length < 0) {
-        LOG(ERROR) << "gcvt double failed. data = " << data;
-        return length;
+int MysqlRowBuffer::push_time(double data) {
+    // 1 for string trail, 1 for length, other for time str
+    int ret = reserve(2 + MAX_TIME_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
     }
 
-    int1store(_pos, length);
-    _pos += length + 1;
+    _pos = add_time(data, _pos, _dynamic_mode);
+    return 0;
+}
+
+int MysqlRowBuffer::push_datetime(const DateTimeValue& data) {
+    // 1 for string trail, 1 for length, other for datetime str
+    int ret = reserve(2 + MAX_DATETIME_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_datetime(data, _pos, _dynamic_mode);
+    return 0;
+}
+
+int MysqlRowBuffer::push_decimal(const DecimalV2Value& data, int round_scale) {
+    // 1 for string trail, 1 for length, other for decimal str
+    int ret = reserve(2 + MAX_DECIMAL_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_decimal(data, round_scale, _pos, _dynamic_mode);
     return 0;
 }
 
@@ -238,13 +337,20 @@ int MysqlRowBuffer::push_string(const char* str, int length) {
         return ret;
     }
 
-    _pos = pack_vlen(_pos, length);
+    if (!_dynamic_mode) {
+        _pos = pack_vlen(_pos, length);
+    }
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
 }
 
 int MysqlRowBuffer::push_null() {
+    if (_dynamic_mode) {
+        // dynamic mode not write
+        return 0;
+    }
+
     int ret = reserve(1);
 
     if (0 != ret) {
@@ -272,5 +378,3 @@ char* MysqlRowBuffer::reserved(int size) {
 }
 
 } // namespace doris
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 */

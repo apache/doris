@@ -70,11 +70,10 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type,
-                                                   DataDir* data_dir,
-                                                   const std::unordered_set<TTabletId>& tablet_submitted_compaction,
-                                                   uint32_t* score,
-                                                   std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
+    TabletSharedPtr find_best_tablet_to_compaction(
+            CompactionType compaction_type, DataDir* data_dir,
+            const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
+            std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
@@ -104,7 +103,8 @@ public:
     //   where we should change tablet status from shutdown back to running
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                      TSchemaHash schema_hash, const std::string& header,
-                                     bool update_meta, bool force = false, bool restore = false, bool check_path=true);
+                                     bool update_meta, bool force = false, bool restore = false,
+                                     bool check_path = true);
 
     OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
                                     const std::string& schema_hash_path, bool force = false,
@@ -125,7 +125,7 @@ public:
     bool try_schema_change_lock(TTabletId tablet_id);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
-                                       SchemaHash schema_hash, const string& schema_hash_path);
+                                       SchemaHash schema_hash, const std::string& schema_hash_path);
 
     void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
                                size_t* tablet_counter);
@@ -134,14 +134,14 @@ public:
 
     void do_tablet_meta_checkpoint(DataDir* data_dir);
 
-    void obtain_specific_quantity_tablets(vector<TabletInfo>& tablets_info, int64_t num);
+    void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
 
     void register_clone_tablet(int64_t tablet_id);
     void unregister_clone_tablet(int64_t tablet_id);
 
     void get_tablets_distribution_on_different_disks(
-                    std::map<int64_t, std::map<DataDir*, int64_t>> &tablets_num_on_disk,
-                    std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> &tablets_info_on_disk);
+            std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
+            std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
 
 private:
     // Add a tablet pointer to StorageEngine
@@ -169,8 +169,7 @@ private:
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
                                          bool include_deleted, std::string* err);
 
-    TabletSharedPtr _internal_create_tablet_unlocked(const AlterTabletType alter_type,
-                                                     const TCreateTabletReq& request,
+    TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
                                                      const Tablet* base_tablet,
                                                      const std::vector<DataDir*>& data_dirs);

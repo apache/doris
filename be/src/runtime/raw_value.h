@@ -144,6 +144,7 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->lt(*string_value2);
@@ -152,10 +153,6 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) <
                *reinterpret_cast<const DateTimeValue*>(v2);
-
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) <
-               *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
@@ -199,6 +196,7 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_STRING:
         string_value1 = reinterpret_cast<const StringValue*>(v1);
         string_value2 = reinterpret_cast<const StringValue*>(v2);
         return string_value1->eq(*string_value2);
@@ -207,10 +205,6 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) ==
                *reinterpret_cast<const DateTimeValue*>(v2);
-
-    case TYPE_DECIMAL:
-        return *reinterpret_cast<const DecimalValue*>(v1) ==
-               *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -240,7 +234,8 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     switch (type) {
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL: 
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::hash(string_value->ptr, string_value->len, seed);
     }
@@ -272,9 +267,6 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_DATETIME:
         return HashUtil::hash(v, 16, seed);
 
-    case TYPE_DECIMAL:
-        return HashUtil::hash(v, 40, seed);
-
     case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
 
@@ -298,7 +290,8 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     switch (type) {
     case TYPE_VARCHAR:
     case TYPE_CHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::fnv_hash(string_value->ptr, string_value->len, seed);
     }
@@ -330,9 +323,6 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_DATETIME:
         return HashUtil::fnv_hash(v, 16, seed);
 
-    case TYPE_DECIMAL:
-        return ((DecimalValue*)v)->hash(seed);
-
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
 
@@ -356,7 +346,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
 
     switch (type.type) {
     case TYPE_VARCHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::zlib_crc_hash(string_value->ptr, string_value->len, seed);
     }
@@ -391,16 +382,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_DATETIME: {
         const DateTimeValue* date_val = (const DateTimeValue*)v;
         char buf[64];
-        char* end = date_val->to_string(buf);
-
-        return HashUtil::zlib_crc_hash(buf, end - buf - 1, seed);
-    }
-    case TYPE_DECIMAL: {
-        const DecimalValue* dec_val = (const DecimalValue*)v;
-        int64_t int_val = dec_val->int_value();
-        int32_t frac_val = dec_val->frac_value();
-        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
-        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+        int len = date_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
     }
 
     case TYPE_DECIMALV2: {

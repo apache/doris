@@ -37,14 +37,14 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 
 #### Linux 操作系统版本需求
 
-| Linux 系统 | 版本 | 
+| Linux 系统 | 版本 |
 |---|---|
 | CentOS | 7.1 及以上 |
 | Ubuntu | 16.04 及以上 |
 
 #### 软件需求
 
-| 软件 | 版本 | 
+| 软件 | 版本 |
 |---|---|
 | Java | 1.8 及以上 |
 | GCC  | 4.8.2 及以上 |
@@ -88,7 +88,7 @@ Broker 是用于访问外部数据源（如 hdfs）的进程。通常，在每�
 
 Doris 各个实例直接通过网络进行通讯。以下表格展示了所有需要的端口
 
-| 实例名称 | 端口名称 | 默认端口 | 通讯方向 | 说明 | 
+| 实例名称 | 端口名称 | 默认端口 | 通讯方向 | 说明 |
 |---|---|---|---| ---|
 | BE | be_port | 9060 | FE --> BE | BE 上 thrift server 的端口，用于接收来自 FE 的请求 |
 | BE | webserver_port | 8040 | BE <--> BE | BE 上的 http server 的端口 |
@@ -128,6 +128,12 @@ FE 同理。
 
 BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的服务默认绑定在 0.0.0.0 上。只需在 ADD BROKER 时，执行正确可访问的 BROKER IP 即可。
 
+#### 表名大小写敏感性设置
+
+doris默认为表名大小写敏感，如有表名大小写不敏感的需求需在集群初始化时进行设置。表名大小写敏感性在集群初始化完成后不可再修改。
+
+详细参见 [变量](../administrator-guide/variables.md##支持的变量) 中关于`lower_case_table_names`变量的介绍。
+
 ## 集群部署
 
 ### 手动部署
@@ -136,18 +142,21 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 拷贝 FE 部署文件到指定节点
 
-    将源码编译生成的 output 下的 fe 文件夹拷贝到 FE 的节点指定部署路径下。
+    将源码编译生成的 output 下的 fe 文件夹拷贝到 FE 的节点指定部署路径下并进入该目录。
 
 * 配置 FE
 
-    1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`：元数据存放位置。默认在 fe/doris-meta/ 下。需**手动创建**该目录。
-    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，建议生产环境调整至 8G 以上。
+    1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`是元数据存放位置。默认值为 `${DORIS_HOME}/doris-meta`。需**手动创建**该目录。
+
+       **注意：生产环境强烈建议单独指定目录不要放在Doris安装目录下，最好是单独的磁盘（如果有SSD最好），测试开发环境可以使用默认配置**
+
+    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，**建议生产环境调整至 8G 以上**。
 
 * 启动FE
 
     `sh bin/start_fe.sh --daemon`
 
-    FE进程启动进入后台执行。日志默认存放在 fe/log/ 目录下。如启动失败，可以通过查看 fe/log/fe.log 或者 fe/log/fe.out 查看错误信息。
+    FE进程启动进入后台执行。日志默认存放在 log/ 目录下。如启动失败，可以通过查看 log/fe.log 或者 log/fe.out 查看错误信息。
 
 * 如需部署多 FE，请参见 "FE 扩容和缩容" 章节
 
@@ -159,7 +168,34 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 修改所有 BE 的配置
 
-    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用 `;` 分隔（最后一个目录后不要加 `;`）。
+    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用英文状态的分号 `;` 分隔（**最后一个目录后不要加 `;`**）。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+    
+    示例1如下：
+    
+    **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+
+    `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+
+    **说明**
+
+    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+    - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+    
+    示例2如下：
+    
+    **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+    
+    `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+    
+    **说明**
+    
+    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+    - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
+
+* BE webserver_port端口配置
+
+    如果 be 部署在 hadoop 集群中，注意调整 be.conf 中的 `webserver_port = 8040` ,以免造成端口冲突
 
 * 在 FE 中添加所有 BE 节点
 
@@ -173,7 +209,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
     `ALTER SYSTEM ADD BACKEND "host:port";`
 
-   	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+      	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
 
 * 启动 BE
 

@@ -136,9 +136,6 @@ void Tablet::save_meta() {
     auto res = _tablet_meta->save_meta(_data_dir);
     CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
-    // User could directly update tablet schema by _tablet_meta,
-    // So we need to refetch schema again
-    _schema = _tablet_meta->tablet_schema();
 }
 
 OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
@@ -149,8 +146,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     OLAPStatus res = OLAP_SUCCESS;
     do {
         // load new local tablet_meta to operate on
-        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        generate_tablet_meta_copy_unlocked(new_tablet_meta);
+        TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -517,7 +513,7 @@ void Tablet::delete_expired_stale_rowset() {
                 // delete rowset
                 StorageEngine::instance()->add_unused_rowset(it->second);
                 _stale_rs_version_map.erase(it);
-                LOG(INFO) << "delete stale rowset tablet=" << full_name() << " version["
+                VLOG_NOTICE << "delete stale rowset tablet=" << full_name() << " version["
                           << timestampedVersion->version().first << ","
                           << timestampedVersion->version().second
                           << "] move to unused_rowset success " << std::fixed
@@ -564,13 +560,19 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
         if (missed_versions.empty()) {
-            LOG(WARNING) << "tablet:" << full_name()
-                         << ", version already has been merged. spec_version: " << spec_version;
+            // if version_path is null, it may be a compaction check logic.
+            // so to avoid print too many logs.
+            if (version_path != nullptr) {
+                LOG(WARNING) << "tablet:" << full_name()
+                    << ", version already has been merged. spec_version: " << spec_version;
+            }
             status = OLAP_ERR_VERSION_ALREADY_MERGED;
         } else {
-            LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
-                         << ", missed version for version:" << spec_version;
-            _print_missed_versions(missed_versions);
+            if (version_path != nullptr) {
+                LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
+                    << ", missed version for version:" << spec_version;
+                _print_missed_versions(missed_versions);
+            }
         }
     }
     return status;
@@ -591,13 +593,10 @@ bool Tablet::check_version_exist(const Version& version) const {
     return false;
 }
 
-void Tablet::list_versions(vector<Version>* versions) const {
-    DCHECK(versions != nullptr && versions->empty());
-
-    versions->reserve(_rs_version_map.size());
-    // versions vector is not sorted.
+// The meta read lock should be held before calling
+void Tablet::acquire_version_and_rowsets(std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const {
     for (const auto& it : _rs_version_map) {
-        versions->push_back(it.first);
+        version_rowsets->emplace_back(it.first, it.second);
     }
 }
 
@@ -693,49 +692,31 @@ bool Tablet::version_for_load_deletion(const Version& version) {
     return rowset->delete_flag();
 }
 
-AlterTabletTaskSharedPtr Tablet::alter_task() {
-    return _tablet_meta->alter_task();
-}
-
-void Tablet::add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                            const std::vector<Version>& versions_to_alter,
-                            const AlterTabletType alter_type) {
-    AlterTabletTask alter_task;
-    alter_task.set_alter_state(ALTER_RUNNING);
-    alter_task.set_related_tablet_id(related_tablet_id);
-    alter_task.set_related_schema_hash(related_schema_hash);
-    alter_task.set_alter_type(alter_type);
-    _tablet_meta->add_alter_task(alter_task);
-    LOG(INFO) << "successfully add alter task for tablet_id:" << this->tablet_id()
-              << ", schema_hash:" << this->schema_hash() << ", related_tablet_id "
-              << related_tablet_id << ", related_schema_hash " << related_schema_hash
-              << ", alter_type " << alter_type;
-}
-
-void Tablet::delete_alter_task() {
-    LOG(INFO) << "delete alter task from table. tablet=" << full_name();
-    _tablet_meta->delete_alter_task();
-}
-
-OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
-    return _tablet_meta->set_alter_state(state);
-}
-
-bool Tablet::can_do_compaction() {
-    // 如果table正在做schema change，则通过选路判断数据是否转换完成
-    // 如果选路成功，则转换完成，可以进行compaction
-    // 如果选路失败，则转换未完成，不能进行compaction
-    ReadLock rdlock(&_meta_lock);
-    const RowsetSharedPtr lastest_delta = rowset_with_max_version();
-    if (lastest_delta == nullptr) {
+bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type) {
+    if (compaction_type == CompactionType::BASE_COMPACTION && tablet_state() != TABLET_RUNNING) {
+        // base compaction can only be done for tablet in TABLET_RUNNING state.
+        // but cumulative compaction can be done for TABLET_NOTREADY, such as tablet under alter process.
         return false;
     }
 
-    Version test_version = Version(0, lastest_delta->end_version());
-    if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
+    if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
         return false;
     }
 
+    if (tablet_state() == TABLET_RUNNING) {
+        // if tablet state is running, we need to check if it has consistent versions.
+        // tablet in other state such as TABLET_NOTREADY may not have complete versions.
+        ReadLock rdlock(&_meta_lock);
+        const RowsetSharedPtr lastest_delta = rowset_with_max_version();
+        if (lastest_delta == nullptr) {
+            return false;
+        }
+
+        Version test_version = Version(0, lastest_delta->end_version());
+        if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -761,7 +742,7 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
     }
 #endif
     uint32_t score = 0;
-    _cumulative_compaction_policy->calc_cumulative_compaction_score(
+    _cumulative_compaction_policy->calc_cumulative_compaction_score(tablet_state(),
             _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
     return score;
 }
@@ -870,7 +851,6 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version,
 
 void Tablet::calculate_cumulative_point() {
     WriteLock wrlock(&_meta_lock);
-
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(
             this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
@@ -886,6 +866,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
                                uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
     DCHECK(ranges != nullptr);
 
+    size_t key_num = 0;
     RowCursor start_key;
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
@@ -898,6 +879,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
             LOG(WARNING) << "init end key failed";
             return OLAP_ERR_INVALID_SCHEMA;
         }
+        key_num = start_key_strings.size();
     } else {
         if (start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
@@ -906,6 +888,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
 
         start_key.allocate_memory_for_string_type(_schema);
         start_key.build_min_key();
+        key_num = num_short_key_columns();
     }
 
     RowCursor end_key;
@@ -941,14 +924,12 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-    return rowset->split_range(start_key, end_key, request_block_row_count, ranges);
+    return rowset->split_range(start_key, end_key, request_block_row_count, key_num, ranges);
 }
 
 // NOTE: only used when create_table, so it is sure that there is no concurrent reader and writer.
 void Tablet::delete_all_files() {
     // Release resources like memory and disk space.
-    // we have to call list_versions first, or else error occurs when
-    // removing hash_map item and iterating hash_map concurrently.
     ReadLock rdlock(&_meta_lock);
     for (auto it : _rs_version_map) {
         it.second->remove();
@@ -1050,6 +1031,9 @@ TabletInfo Tablet::get_tablet_info() const {
 
 void Tablet::pick_candidate_rowsets_to_cumulative_compaction(
         int64_t skip_window_sec, std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
+        return;
+    }
     ReadLock rdlock(&_meta_lock);
     _cumulative_compaction_policy->pick_candidate_rowsets(skip_window_sec, _rs_version_map,
                                                           _cumulative_point, candidate_rowsets);
@@ -1097,7 +1081,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
         _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     }
     rapidjson::Value cumulative_policy_type;
-    std::string policy_type_str = _cumulative_compaction_policy->name();
+    std::string policy_type_str = "cumulative compaction policy not initializied";
+    if (_cumulative_compaction_policy.get() != nullptr) {
+        policy_type_str = _cumulative_compaction_policy->name();
+    }
     cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(),
                                      root.GetAllocator());
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
@@ -1363,8 +1350,8 @@ int64_t Tablet::prepare_compaction_and_calculate_permits(CompactionType compacti
         OLAPStatus res = _base_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
             set_last_base_compaction_failure_time(UnixMillis());
-            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
             if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 LOG(WARNING) << "failed to pick rowsets for base compaction. res=" << res
                              << ", tablet=" << full_name();
             }
@@ -1385,7 +1372,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });
@@ -1407,7 +1394,7 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         MonotonicStopWatch watch;
         watch.start();
         SCOPED_CLEANUP({
-            if (watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+            if (!config::disable_compaction_trace_log && watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
                 LOG(WARNING) << "Trace:" << std::endl << trace->DumpToString(Trace::INCLUDE_ALL);
             }
         });

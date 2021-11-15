@@ -44,10 +44,10 @@ FE将查询计划拆分成为Fragment下发到BE进行任务执行。BE在执行
 通过Mysql命令，将FE上的Report的开关打开
 
 ```
-mysql> set is_report_success=true; 
+mysql> set enable_profile=true; 
 ```
 
-之后执行对应的SQL语句之后，在FE的Web页面就可以看到对应SQL语句执行的Report信息：
+之后执行对应的SQL语句之后（旧版本为`is_report_success`），在FE的Web页面就可以看到对应SQL语句执行的Report信息：
 ![image.png](/images/running_profile.png)
 
 这里会列出最新执行完成的**100条语句**，我们可以通过Profile查看详细的统计信息。
@@ -109,6 +109,7 @@ BE端收集的统计信息较多，下面列出了各个参数的对应含义：
 #### `DataStreamSender`
    - BytesSent: 发送的总数据量 = 接受者 * 发送数据量
    - IgnoreRows: 过滤的行数
+   - LocalBytesSent: 数据在Exchange过程中，记录本机节点的自发自收数据量
    - OverallThroughput: 总的吞吐量 = BytesSent / 时间
    - SerializeBatchTime: 发送数据序列化消耗的时间
    - UncompressedRowBatchSize: 发送数据压缩前的RowBatch的大小

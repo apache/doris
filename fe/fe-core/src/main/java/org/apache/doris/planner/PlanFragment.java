@@ -17,16 +17,16 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.common.NotImplementedException;
+import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanFragment;
-import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -36,7 +36,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -127,6 +129,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // default value is 1
     private int parallelExecNum = 1;
 
+    // The runtime filter id that produced
+    private Set<RuntimeFilterId> builderRuntimeFilterIds;
+    // The runtime filter id that is expected to be used
+    private Set<RuntimeFilterId> targetRuntimeFilterIds;
+
+    // has colocate plan node
+    private boolean hasColocatePlanNode = false;
+
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -136,6 +146,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartition = partition;
         this.outputPartition = DataPartition.UNPARTITIONED;
         this.transferQueryStatisticsWithEveryBatch = false;
+        this.builderRuntimeFilterIds = new HashSet<>();
+        this.targetRuntimeFilterIds = new HashSet<>();
         setParallelExecNumIfExists();
         setFragmentInPlanTree(planRoot);
     }
@@ -177,11 +189,38 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.outputExprs = Expr.cloneList(outputExprs, null);
     }
 
+    public void resetOutputExprs(TupleDescriptor tupleDescriptor) {
+        this.outputExprs = Lists.newArrayList();
+        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+            SlotRef slotRef = new SlotRef(slotDescriptor);
+            outputExprs.add(slotRef);
+        }
+    }
+
+    public ArrayList<Expr> getOutputExprs() {
+        return outputExprs;
+    }
+
+    public void setBuilderRuntimeFilterIds(RuntimeFilterId rid) {
+        this.builderRuntimeFilterIds.add(rid);
+    }
+
+    public void setTargetRuntimeFilterIds(RuntimeFilterId rid) {
+        this.targetRuntimeFilterIds.add(rid);
+    }
+
+    public void setHasColocatePlanNode(boolean hasColocatePlanNode) {
+        this.hasColocatePlanNode = hasColocatePlanNode;
+    }
+
+    public boolean hasColocatePlanNode() {
+        return hasColocatePlanNode;
+    }
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */
-    public void finalize(Analyzer analyzer, boolean validateFileFormats)
-            throws UserException, NotImplementedException {
+    public void finalize(QueryStmt queryStmt) {
         if (sink != null) {
             return;
         }
@@ -198,11 +237,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
                 // "select 1 + 2"
                 return;
             }
-            // add ResultSink
             Preconditions.checkState(sink == null);
-            // we're streaming to an result sink
-            ResultSink bufferSink = new ResultSink(planRoot.getId(), TResultSinkType.MYSQL_PROTOCAL);
-            sink = bufferSink;
+            if (queryStmt != null && queryStmt.hasOutFileClause()) {
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+            } else {
+                // add ResultSink
+                // we're streaming to an result sink
+                sink = new ResultSink(planRoot.getId());
+            }
         }
     }
 
@@ -340,8 +382,26 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.sink = sink;
     }
 
+    public void resetSink(DataSink sink) {
+        sink.setFragment(this);
+        this.sink = sink;
+    }
+
     public PlanFragmentId getFragmentId() {
         return fragmentId;
+    }
+
+    public Set<RuntimeFilterId> getBuilderRuntimeFilterIds() {
+        return builderRuntimeFilterIds;
+    }
+
+    public Set<RuntimeFilterId> getTargetRuntimeFilterIds() {
+        return targetRuntimeFilterIds;
+    }
+
+    public void clearRuntimeFilters() {
+        builderRuntimeFilterIds.clear();
+        targetRuntimeFilterIds.clear();
     }
 
     public void setTransferQueryStatisticsWithEveryBatch(boolean value) {

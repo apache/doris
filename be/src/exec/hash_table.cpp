@@ -27,8 +27,6 @@
 
 namespace doris {
 
-const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
-
 HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
                      const std::vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
                      bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
@@ -66,10 +64,12 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     _expr_value_null_bits = new uint8_t[_build_expr_ctxs.size()];
 
     _alloc_list.reserve(10);
+    _end_list.reserve(10);
     _current_nodes = reinterpret_cast<uint8_t*>(malloc(_current_capacity * _node_byte_size));
     // TODO: remove memset later
     memset(_current_nodes, 0, _current_capacity * _node_byte_size);
     _alloc_list.push_back(_current_nodes);
+    _end_list.push_back(_current_nodes + _current_capacity * _node_byte_size);
 
     _mem_tracker->Consume(_current_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
@@ -143,15 +143,6 @@ uint32_t HashTable::hash_variable_len_row() {
                 // Hash the string
                 StringValue* str = reinterpret_cast<StringValue*>(loc);
                 hash = HashUtil::hash(str->ptr, str->len, hash);
-            }
-        } else if (_build_expr_ctxs[i]->root()->type().type == TYPE_DECIMAL) {
-            void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
-            if (_expr_value_null_bits[i]) {
-                // Hash the null random seed values at 'loc'
-                hash = HashUtil::hash(loc, sizeof(StringValue), hash);
-            } else {
-                DecimalValue* decimal = reinterpret_cast<DecimalValue*>(loc);
-                hash = decimal->hash(hash);
             }
         }
     }
@@ -249,6 +240,7 @@ void HashTable::grow_node_array() {
     memset(_current_nodes, 0, alloc_size);
     // add _current_nodes to alloc pool
     _alloc_list.push_back(_current_nodes);
+    _end_list.push_back(_current_nodes + alloc_size);
 
     _mem_tracker->Consume(alloc_size);
     if (_mem_tracker->limit_exceeded()) {

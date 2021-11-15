@@ -18,18 +18,24 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,7 +43,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -54,7 +59,9 @@ public class ColocateTableIndex implements Writable {
     private static final Logger LOG = LogManager.getLogger(ColocateTableIndex.class);
 
     public static class GroupId implements Writable {
+        @SerializedName(value = "dbId")
         public Long dbId;
+        @SerializedName(value = "grpId")
         public Long grpId;
 
         private GroupId() {
@@ -66,18 +73,23 @@ public class ColocateTableIndex implements Writable {
         }
 
         public static GroupId read(DataInput in) throws IOException {
-            GroupId groupId = new GroupId();
-            groupId.readFields(in);
-            return groupId;
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+                GroupId groupId = new GroupId();
+                groupId.readFields(in);
+                return groupId;
+            } else {
+                String json = Text.readString(in);
+                return GsonUtils.GSON.fromJson(json, GroupId.class);
+            }
         }
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            out.writeLong(grpId);
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
 
-        public void readFields(DataInput in) throws IOException {
+        @Deprecated
+        private void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             grpId = in.readLong();
         }
@@ -114,9 +126,11 @@ public class ColocateTableIndex implements Writable {
     // group id -> group schema
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
     // group_id -> bucketSeq -> backend ids
-    private Map<GroupId, List<List<Long>>> group2BackendsPerBucketSeq = Maps.newHashMap();
+    private Table<GroupId, Tag, List<List<Long>>> group2BackendsPerBucketSeq = HashBasedTable.create();
     // the colocate group is unstable
     private Set<GroupId> unstableGroups = Sets.newHashSet();
+    // save some error msg of the group for show. no need to persist
+    private Map<GroupId, String> group2ErrMsgs = Maps.newHashMap();
 
     private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -160,9 +174,10 @@ public class ColocateTableIndex implements Writable {
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
                         distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getDefaultReplicationNum());
+                        tbl.getDefaultReplicaAllocation());
                 groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
+                group2ErrMsgs.put(groupId, "");
             }
             group2Tables.put(groupId, tbl.getId());
             table2Group.put(tbl.getId(), groupId);
@@ -172,22 +187,34 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public void addBackendsPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
+    public void addBackendsPerBucketSeq(GroupId groupId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         writeLock();
         try {
-            group2BackendsPerBucketSeq.put(groupId, backendsPerBucketSeq);
+            for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
+                group2BackendsPerBucketSeq.put(groupId, entry.getKey(), entry.getValue());
+            }
         } finally {
             writeUnlock();
         }
     }
 
-    public void markGroupUnstable(GroupId groupId, boolean needEditLog) {
+    public void addBackendsPerBucketSeqByTag(GroupId groupId, Tag tag, List<List<Long>> backendsPerBucketSeq) {
+        writeLock();
+        try {
+            group2BackendsPerBucketSeq.put(groupId, tag, backendsPerBucketSeq);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void markGroupUnstable(GroupId groupId, String reason, boolean needEditLog) {
         writeLock();
         try {
             if (!group2Tables.containsKey(groupId)) {
                 return;
             }
             if (unstableGroups.add(groupId)) {
+                group2ErrMsgs.put(groupId, Strings.nullToEmpty(reason));
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkUnstable(groupId);
                     Catalog.getCurrentCatalog().getEditLog().logColocateMarkUnstable(info);
@@ -206,6 +233,7 @@ public class ColocateTableIndex implements Writable {
                 return;
             }
             if (unstableGroups.remove(groupId)) {
+                group2ErrMsgs.put(groupId, "");
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
                     Catalog.getCurrentCatalog().getEditLog().logColocateMarkStable(info);
@@ -228,8 +256,9 @@ public class ColocateTableIndex implements Writable {
             group2Tables.remove(groupId, tableId);
             if (!group2Tables.containsKey(groupId)) {
                 // all tables of this group are removed, remove the group
-                group2BackendsPerBucketSeq.remove(groupId);
+                group2BackendsPerBucketSeq.rowMap().remove(groupId);
                 group2Schema.remove(groupId);
+                group2ErrMsgs.remove(groupId);
                 unstableGroups.remove(groupId);
                 String fullGroupName = null;
                 for (Map.Entry<String, GroupId> entry : groupName2Id.entrySet()) {
@@ -316,11 +345,11 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public Set<Long> getBackendsByGroup(GroupId groupId) {
+    public Set<Long> getBackendsByGroup(GroupId groupId, Tag tag) {
         readLock();
         try {
             Set<Long> allBackends = new HashSet<>();
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
+            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId, tag);
             // if create colocate table with empty partition or create colocate table
             // with dynamic_partition will cause backendsPerBucketSeq == null
             if (backendsPerBucketSeq != null) {
@@ -346,10 +375,23 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public List<List<Long>> getBackendsPerBucketSeq(GroupId groupId) {
+    public Map<Tag, List<List<Long>>> getBackendsPerBucketSeq(GroupId groupId) {
         readLock();
         try {
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq = group2BackendsPerBucketSeq.row(groupId);
+            if (backendsPerBucketSeq == null) {
+                return Maps.newHashMap();
+            }
+            return backendsPerBucketSeq;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<List<Long>> getBackendsPerBucketSeqByTag(GroupId groupId, Tag tag) {
+        readLock();
+        try {
+            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId, tag);
             if (backendsPerBucketSeq == null) {
                 return Lists.newArrayList();
             }
@@ -359,18 +401,50 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    // Get all backend ids except for the given tag
+    public Set<Long> getBackendIdsExceptForTag(GroupId groupId, Tag tag) {
+        Set<Long> beIds = Sets.newHashSet();
+        readLock();
+        try {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq = group2BackendsPerBucketSeq.row(groupId);
+            if (backendsPerBucketSeq == null) {
+                return beIds;
+            }
+
+            for (Map.Entry<Tag, List<List<Long>>> entry : backendsPerBucketSeq.entrySet()) {
+                if (entry.getKey().equals(tag)) {
+                    continue;
+                }
+                for (List<Long> list : entry.getValue()) {
+                    beIds.addAll(list);
+                }
+            }
+            return beIds;
+        } finally {
+            readUnlock();
+        }
+    }
+
+
     public List<Set<Long>> getBackendsPerBucketSeqSet(GroupId groupId) {
         readLock();
         try {
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
-            if (backendsPerBucketSeq == null) {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeqMap = group2BackendsPerBucketSeq.row(groupId);
+            if (backendsPerBucketSeqMap == null) {
                 return Lists.newArrayList();
             }
-            List<Set<Long>> sets = Lists.newArrayList();
-            for (List<Long> backends : backendsPerBucketSeq) {
-                sets.add(Sets.newHashSet(backends));
+            List<Set<Long>> list = Lists.newArrayList();
+
+            // Merge backend ids of all tags
+            for (Map.Entry<Tag, List<List<Long>>> backendsPerBucketSeq : backendsPerBucketSeqMap.entrySet()) {
+                for (int i = 0; i < backendsPerBucketSeq.getValue().size(); ++i) {
+                    if (list.size() == i) {
+                        list.add(Sets.newHashSet());
+                    }
+                    list.get(i).addAll(backendsPerBucketSeq.getValue().get(i));
+                }
             }
-            return sets;
+            return list;
         } finally {
             readUnlock();
         }
@@ -379,15 +453,21 @@ public class ColocateTableIndex implements Writable {
     public Set<Long> getTabletBackendsByGroup(GroupId groupId, int tabletOrderIdx) {
         readLock();
         try {
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(groupId);
-            if (backendsPerBucketSeq == null) {
-                return Sets.newHashSet();
-            }
-            if (tabletOrderIdx >= backendsPerBucketSeq.size()) {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeqMap = group2BackendsPerBucketSeq.row(groupId);
+            if (backendsPerBucketSeqMap == null) {
                 return Sets.newHashSet();
             }
 
-            return Sets.newHashSet(backendsPerBucketSeq.get(tabletOrderIdx));
+            // Merge backend ids of all tags
+            Set<Long> beIds = Sets.newHashSet();
+            for (Map.Entry<Tag, List<List<Long>>> backendsPerBucketSeq : backendsPerBucketSeqMap.entrySet()) {
+                if (tabletOrderIdx >= backendsPerBucketSeq.getValue().size()) {
+                    return Sets.newHashSet();
+                }
+                beIds.addAll(backendsPerBucketSeq.getValue().get(tabletOrderIdx));
+            }
+
+            return beIds;
         } finally {
             readUnlock();
         }
@@ -441,18 +521,15 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    public void replayAddTableToGroup(ColocatePersistInfo info) {
-        Database db = Catalog.getCurrentCatalog().getDb(info.getGroupId().dbId);
-        Preconditions.checkNotNull(db);
-        OlapTable tbl = (OlapTable)db.getTable(info.getTableId());
-        Preconditions.checkNotNull(tbl);
-        
+    public void replayAddTableToGroup(ColocatePersistInfo info) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getGroupId().dbId);
+        OlapTable tbl = db.getTableOrMetaException(info.getTableId(), org.apache.doris.catalog.Table.TableType.OLAP);
         writeLock();
         try {
-            if (!group2BackendsPerBucketSeq.containsKey(info.getGroupId())) {
-                group2BackendsPerBucketSeq.put(info.getGroupId(), info.getBackendsPerBucketSeq());
+            Map<Tag, List<List<Long>>> map = info.getBackendsPerBucketSeq();
+            for (Map.Entry<Tag, List<List<Long>>> entry : map.entrySet()) {
+                group2BackendsPerBucketSeq.put(info.getGroupId(), entry.getKey(), entry.getValue());
             }
-
             addTableToGroup(info.getGroupId().dbId, tbl, tbl.getColocateGroup(), info.getGroupId());
         } finally {
             writeUnlock();
@@ -464,7 +541,7 @@ public class ColocateTableIndex implements Writable {
     }
 
     public void replayMarkGroupUnstable(ColocatePersistInfo info) {
-        markGroupUnstable(info.getGroupId(), false);
+        markGroupUnstable(info.getGroupId(), "replay mark group unstable", false);
     }
 
     public void replayMarkGroupStable(ColocatePersistInfo info) {
@@ -501,11 +578,12 @@ public class ColocateTableIndex implements Writable {
                 info.add(Joiner.on(", ").join(group2Tables.get(groupId)));
                 ColocateGroupSchema groupSchema = group2Schema.get(groupId);
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
-                info.add(String.valueOf(groupSchema.getReplicationNum()));
+                info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
                         e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
                 info.add(String.valueOf(!unstableGroups.contains(groupId)));
+                info.add(Strings.nullToEmpty(group2ErrMsgs.get(groupId)));
                 infos.add(info);
             }
         } finally {
@@ -530,12 +608,16 @@ public class ColocateTableIndex implements Writable {
             groupSchema.write(out); // group schema
 
             // backend seq
-            List<List<Long>> backendsPerBucketSeq = group2BackendsPerBucketSeq.get(entry.getValue());
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq = group2BackendsPerBucketSeq.row(entry.getValue());
             out.writeInt(backendsPerBucketSeq.size());
-            for (List<Long> bucket2BEs : backendsPerBucketSeq) {
-                out.writeInt(bucket2BEs.size());
-                for (Long be : bucket2BEs) {
-                    out.writeLong(be);
+            for (Map.Entry<Tag, List<List<Long>>> tag2Bucket2BEs : backendsPerBucketSeq.entrySet()) {
+                tag2Bucket2BEs.getKey().write(out);
+                out.writeInt(tag2Bucket2BEs.getValue().size());
+                for (List<Long> beIds : tag2Bucket2BEs.getValue()) {
+                    out.writeInt(beIds.size());
+                    for (Long be : beIds) {
+                        out.writeLong(be);
+                    }
                 }
             }
         }
@@ -550,60 +632,8 @@ public class ColocateTableIndex implements Writable {
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_55) {
-            Multimap<Long, Long> tmpGroup2Tables = ArrayListMultimap.create();
-            Map<Long, Long> tmpTable2Group = Maps.newHashMap();
-            Map<Long, Long> tmpGroup2Db = Maps.newHashMap();
-            Map<Long, List<List<Long>>> tmpGroup2BackendsPerBucketSeq = Maps.newHashMap();
-            Set<Long> tmpBalancingGroups = Sets.newHashSet();
-
-            for (int i = 0; i < size; i++) {
-                long group = in.readLong();
-                int tableSize = in.readInt();
-                List<Long> tables = new ArrayList<>();
-                for (int j = 0; j < tableSize; j++) {
-                    tables.add(in.readLong());
-                }
-                tmpGroup2Tables.putAll(group, tables);
-            }
-
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                long table = in.readLong();
-                long group = in.readLong();
-                tmpTable2Group.put(table, group);
-            }
-
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                long group = in.readLong();
-                long db = in.readLong();
-                tmpGroup2Db.put(group, db);
-            }
-
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                long group = in.readLong();
-                List<List<Long>> bucketBeLists = new ArrayList<>();
-                int bucketBeListsSize = in.readInt();
-                for (int j = 0; j < bucketBeListsSize; j++) {
-                    int beListSize = in.readInt();
-                    List<Long> beLists = new ArrayList<>();
-                    for (int k = 0; k < beListSize; k++) {
-                        beLists.add(in.readLong());
-                    }
-                    bucketBeLists.add(beLists);
-                }
-                tmpGroup2BackendsPerBucketSeq.put(group, bucketBeLists);
-            }
-
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                long group = in.readLong();
-                tmpBalancingGroups.add(group);
-            }
-
-            convertedToNewMembers(tmpGroup2Tables, tmpTable2Group, tmpGroup2Db, tmpGroup2BackendsPerBucketSeq,
-                    tmpBalancingGroups);
+            throw new IOException("This is a very old metadata with version: "
+                    + Catalog.getCurrentCatalogJournalVersion() + ", can not be read");
         } else {
             for (int i = 0; i < size; i++) {
                 String fullGrpName = Text.readString(in);
@@ -618,18 +648,37 @@ public class ColocateTableIndex implements Writable {
                 ColocateGroupSchema groupSchema = ColocateGroupSchema.read(in);
                 group2Schema.put(grpId, groupSchema);
 
-                List<List<Long>> backendsPerBucketSeq = Lists.newArrayList();
-                int beSize = in.readInt();
-                for (int j = 0; j < beSize; j++) {
-                    int seqSize = in.readInt();
-                    List<Long> seq = Lists.newArrayList();
-                    for (int k = 0; k < seqSize; k++) {
-                        long beId = in.readLong();
-                        seq.add(beId);
+                // backends seqs
+                if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+                    List<List<Long>> bucketsSeq = Lists.newArrayList();
+                    int beSize = in.readInt();
+                    for (int j = 0; j < beSize; j++) {
+                        int seqSize = in.readInt();
+                        List<Long> seq = Lists.newArrayList();
+                        for (int k = 0; k < seqSize; k++) {
+                            long beId = in.readLong();
+                            seq.add(beId);
+                        }
+                        bucketsSeq.add(seq);
                     }
-                    backendsPerBucketSeq.add(seq);
+                    group2BackendsPerBucketSeq.put(grpId, Tag.DEFAULT_BACKEND_TAG, bucketsSeq);
+                } else {
+                    int tagSize = in.readInt();
+                    for (int j = 0; j < tagSize; j++) {
+                        Tag tag = Tag.read(in);
+                        int bucketSize = in.readInt();
+                        List<List<Long>> bucketsSeq = Lists.newArrayList();
+                        for (int k = 0; k < bucketSize; k++) {
+                            List<Long> beIds = Lists.newArrayList();
+                            int beSize = in.readInt();
+                            for (int l = 0; l < beSize; l++) {
+                                beIds.add(in.readLong());
+                            }
+                            bucketsSeq.add(beIds);
+                        }
+                        group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
+                    }
                 }
-                group2BackendsPerBucketSeq.put(grpId, backendsPerBucketSeq);
             }
 
             size = in.readInt();
@@ -639,71 +688,12 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
-    private void convertedToNewMembers(Multimap<Long, Long> tmpGroup2Tables, Map<Long, Long> tmpTable2Group,
-            Map<Long, Long> tmpGroup2Db, Map<Long, List<List<Long>>> tmpGroup2BackendsPerBucketSeq,
-            Set<Long> tmpBalancingGroups) {
-
-        LOG.debug("debug: tmpGroup2Tables {}", tmpGroup2Tables);
-        LOG.debug("debug: tmpTable2Group {}", tmpTable2Group);
-        LOG.debug("debug: tmpGroup2Db {}", tmpGroup2Db);
-        LOG.debug("debug: tmpGroup2BackendsPerBucketSeq {}", tmpGroup2BackendsPerBucketSeq);
-        LOG.debug("debug: tmpBalancingGroups {}", tmpBalancingGroups);
-
-        for (Map.Entry<Long, Long> entry : tmpGroup2Db.entrySet()) {
-            GroupId groupId = new GroupId(entry.getValue(), entry.getKey());
-            Database db = Catalog.getCurrentCatalog().getDb(groupId.dbId);
-            if (db == null) {
-                continue;
-            }
-            Collection<Long> tableIds = tmpGroup2Tables.get(groupId.grpId);
-
-            for (Long tblId : tableIds) {
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
-                if (tbl == null) {
-                    continue;
-                }
-                tbl.readLock();
-                try {
-                    if (tblId.equals(groupId.grpId)) {
-                        // this is a parent table, use its name as group name
-                        groupName2Id.put(groupId.dbId + "_" + tbl.getName(), groupId);
-
-                        ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
-                                ((HashDistributionInfo)tbl.getDefaultDistributionInfo()).getDistributionColumns(),
-                                tbl.getDefaultDistributionInfo().getBucketNum(),
-                                tbl.getPartitionInfo().idToReplicationNum.values().stream().findFirst().get());
-                        group2Schema.put(groupId, groupSchema);
-                        group2BackendsPerBucketSeq.put(groupId, tmpGroup2BackendsPerBucketSeq.get(groupId.grpId));
-                    }
-                } finally {
-                    tbl.readUnlock();
-                }
-
-                group2Tables.put(groupId, tblId);
-                table2Group.put(tblId, groupId);
-            }
-        }
-    }
-
-    public void setBackendsSetByIdxForGroup(GroupId groupId, int tabletOrderIdx, Set<Long> newBackends) {
-        writeLock();
-        try {
-            List<List<Long>> backends = group2BackendsPerBucketSeq.get(groupId);
-            if (backends == null) {
-                return;
-            }
-            Preconditions.checkState(tabletOrderIdx < backends.size(), tabletOrderIdx + " vs. " + backends.size());
-            backends.set(tabletOrderIdx, Lists.newArrayList(newBackends));
-            ColocatePersistInfo info = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backends);
-            Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info);
-        } finally {
-            writeUnlock();
-        }
+    public void setErrMsgForGroup(GroupId groupId, String message) {
+        group2ErrMsgs.put(groupId, message);
     }
 
     // just for ut
     public Map<Long, GroupId> getTable2Group() {
         return table2Group;
     }
-
 }

@@ -23,15 +23,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -161,7 +159,6 @@ public abstract class QueryStmt extends StatementBase {
         super.analyze(analyzer);
         analyzeLimit(analyzer);
         if (hasWithClause()) withClause_.analyze(analyzer);
-        if (hasOutFileClause()) outFileClause.analyze(analyzer);
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
@@ -433,10 +430,67 @@ public abstract class QueryStmt extends StatementBase {
         }
     }
 
-    public void getWithClauseTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+    public void getWithClauseTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
         if (withClause_ != null) {
-            withClause_.getTableRefs(tblRefs, parentViewNameSet);
+            withClause_.getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
+    }
+
+    /**
+     * collect all exprs of a QueryStmt to a map
+     * @param exprMap
+     */
+    public void collectExprs(Map<String, Expr> exprMap) {}
+
+    /**
+     * put all rewritten exprs back to the ori QueryStmt
+     * @param rewrittenExprMap
+     */
+    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {}
+
+
+    @Override
+    public void foldConstant(ExprRewriter rewriter) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        Map<String, Expr> exprMap = new HashMap<>();
+        collectExprs(exprMap);
+        rewriter.rewriteConstant(exprMap, analyzer);
+        if (rewriter.changed()) {
+            putBackExprs(exprMap);
+        }
+
+    }
+
+
+    /**
+     * register expr_id of expr and its children, if not set
+     * @param expr
+     */
+    public void registerExprId(Expr expr) {
+        if (expr.getId() == null) {
+            analyzer.registerExprId(expr);
+        }
+        for (Expr child : expr.getChildren()) {
+            registerExprId(child);
+        }
+    }
+
+    /**
+     * check whether expr and it's children contain alias
+     * @param expr expr to be checked
+     * @return true if contains, otherwise false
+     */
+    public boolean containAlias(Expr expr) {
+        for (Expr child : expr.getChildren()) {
+            if (containAlias(child)) {
+                return true;
+            }
+        }
+
+        if (null != aliasSMap.get(expr)) {
+            return true;
+        }
+        return false;
     }
 
     // get tables used by this query.
@@ -450,7 +504,7 @@ public abstract class QueryStmt extends StatementBase {
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.
-    public abstract void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet);
+    public abstract void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet);
 
     /**
      * UnionStmt and SelectStmt have different implementations.

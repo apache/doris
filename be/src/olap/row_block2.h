@@ -103,6 +103,7 @@ public:
         }
         _delete_state = delete_state;
     }
+    std::string debug_string();
 
 private:
     Schema _schema;

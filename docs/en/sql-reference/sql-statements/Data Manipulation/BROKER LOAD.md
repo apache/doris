@@ -73,6 +73,7 @@ under the License.
             [SET (k1 = func(k2))]
             [WHERE predicate] 
             [DELETE ON label=true]
+            [read_properties]
 
         Explain:
             file_path: 
@@ -132,6 +133,35 @@ under the License.
             delete_on_predicates:
 
             Only used when merge type is MERGE
+
+            read_properties:
+
+            Used to specify some special parameters.
+            Syntax：
+            [PROPERTIES ("key"="value", ...)]
+        
+            You can specify the following parameters:
+                
+              line_delimiter： Used to specify the line delimiter in the load file. The default is `\n`. You can use a combination of multiple characters as the column separator.
+
+              fuzzy_parse： Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
+            
+              jsonpaths: There are two ways to import json: simple mode and matched mode.
+                simple mode: it is simple mode without setting the jsonpaths parameter. In this mode, the json data is required to be the object type. For example:
+                {"k1": 1, "k2": 2, "k3": "hello"}, where k1, k2, k3 are column names.
+
+                matched mode: the json data is relatively complex, and the corresponding value needs to be matched through the jsonpaths parameter.
+            
+              strip_outer_array: Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false. For example：
+                [
+                  {"k1" : 1, "v1" : 2},
+                  {"k1" : 3, "v1" : 4}
+                ]
+              if strip_outer_array is true, and two rows of data are generated when imported into Doris.
+           
+              json_root: json_root is a valid JSONPATH string that specifies the root node of the JSON Document. The default value is "".
+           
+              num_as_string: Boolean type, true means that when parsing the json data, it will be converted into a number type and converted into a string, and then it will be imported without loss of precision.
             
     3. broker_name
 
@@ -188,6 +218,22 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
+        6. if using load with hdfs, you need to specify the following attributes 
+            (
+                "fs.defaultFS" = "",
+                "hdfs_user"="",
+                "kerb_principal" = "",
+                "kerb_ticket_cache_path" = "",
+                "kerb_token" = ""
+            )
+            fs.defaultFS: defaultFS
+            hdfs_user: hdfs user
+            namenode HA：
+            By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
+            dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
+            dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
+            dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
+            dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
 
     4. opt_properties
 
@@ -206,6 +252,8 @@ under the License.
         strict_mode: Whether the data is strictly restricted. The default is false.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
+
+        send_batch_parallelism: Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
 
     5. Load data format sample
 
@@ -453,7 +501,7 @@ under the License.
         ) 
         WITH BROKER "hdfs" ("username"="user", "password"="pass");
 
-    13. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
+    12. Load a batch of data from HDFS, specify timeout and filtering ratio. Use the broker with the plaintext ugi my_hdfs_broker. Simple authentication. delete the data when v2 >100, other append
 
         LOAD LABEL example_db.label1
         (
@@ -474,7 +522,7 @@ under the License.
         "max_filter_ratio" = "0.1"
         );
 
-    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+    13. Filter the original data first, and perform column mapping, conversion and filtering operations
 
         LOAD LABEL example_db.label_filter
         (
@@ -487,7 +535,49 @@ under the License.
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
-     
+
+    14. Import the data in the json file, and specify format as json, it is judged by the file suffix by default, set parameters for reading data
+
+        LOAD LABEL example_db.label9
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "json"
+        (k1, k2, k3)
+        properties("fuzzy_parse"="true", "strip_outer_array"="true")
+        )
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");   
+
+    15. LOAD WITH HDFS, normal HDFS cluster
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+        );
+    16. LOAD WITH HDFS, hdfs ha
+        LOAD LABEL example_db.label_filter
+        (
+            DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+            INTO TABLE `tbl1`
+            COLUMNS TERMINATED BY ","
+            (k1,k2,v1,v2)
+        ) 
+        with HDFS (
+            "fs.defaultFS"="hdfs://testFs",
+            "hdfs_user"="user"
+            "dfs.nameservices"="my_ha",
+            "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+            "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+            "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+            "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        );
+
 ## keyword
 
     BROKER,LOAD

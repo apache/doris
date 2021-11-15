@@ -26,9 +26,10 @@ under the License.
 
 # Spark Doris Connector
 
-Spark Doris Connector can support reading data stored in Doris through Spark.
+Spark Doris Connector can support reading data stored in Doris and writing data to Doris through Spark.
 
-- The current version only supports reading data from `Doris`.
+- Support reading data from `Doris`.
+- Support `Spark DataFrame` batch/stream writing data to `Doris`
 - You can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.
 - Support the completion of data filtering on the `Doris` side to reduce the amount of data transmission.
 
@@ -37,21 +38,29 @@ Spark Doris Connector can support reading data stored in Doris through Spark.
 | Connector | Spark | Doris  | Java | Scala |
 | --------- | ----- | ------ | ---- | ----- |
 | 1.0.0     | 2.x   | 0.12+  | 8    | 2.11  |
+| 1.0.0     | 3.x   | 0.12.+ | 8    | 2.12  |
 
 
 ## Build and Install
 
 Execute following command in dir `extension/spark-doris-connector/`:
 
+**Notice:**
+
+1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
+2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
+
 ```bash
-sh build.sh
+sh build.sh 3 ## spark 3.x version, the default is 3.1.2
+sh build.sh 2 ## soark 2.x version, the default is 2.3.4
 ```
 
 After successful compilation, the file `doris-spark-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 ## Example
+### Read
 
-### SQL
+#### SQL
 
 ```sql
 CREATE TEMPORARY VIEW spark_doris
@@ -66,7 +75,7 @@ OPTIONS(
 SELECT * FROM spark_doris;
 ```
 
-### DataFrame
+#### DataFrame
 
 ```scala
 val dorisSparkDF = spark.read.format("doris")
@@ -79,7 +88,7 @@ val dorisSparkDF = spark.read.format("doris")
 dorisSparkDF.show(5)
 ```
 
-### RDD
+#### RDD
 
 ```scala
 import org.apache.doris.spark._
@@ -93,6 +102,66 @@ val dorisSparkRDD = sc.dorisRDD(
 )
 
 dorisSparkRDD.collect()
+```
+### Write
+
+#### SQL
+
+```sql
+CREATE TEMPORARY VIEW spark_doris
+USING doris
+OPTIONS(
+  "table.identifier"="$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME",
+  "fenodes"="$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT",
+  "user"="$YOUR_DORIS_USERNAME",
+  "password"="$YOUR_DORIS_PASSWORD"
+);
+
+INSERT INTO spark_doris VALUES ("VALUE1","VALUE2",...);
+# or
+INSERT INTO spark_doris SELECT * FROM YOUR_TABLE
+```
+
+#### DataFrame(batch/stream)
+```scala
+## batch sink
+val mockDataDF = List(
+  (3, "440403001005", "21.cn"),
+  (1, "4404030013005", "22.cn"),
+  (33, null, "23.cn")
+).toDF("id", "mi_code", "mi_name")
+mockDataDF.show(5)
+
+mockDataDF.write.format("doris")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  //other options
+  //specify the fields to write
+  .option("doris.write.fields","$YOUR_FIELDS_TO_WRITE")
+  .save()
+
+## stream sink(StructuredStreaming)
+val kafkaSource = spark.readStream
+  .option("kafka.bootstrap.servers", "$YOUR_KAFKA_SERVERS")
+  .option("startingOffsets", "latest")
+  .option("subscribe", "$YOUR_KAFKA_TOPICS")
+  .format("kafka")
+  .load()
+kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
+  .writeStream
+  .format("doris")
+  .option("checkpointLocation", "$YOUR_CHECKPOINT_LOCATION")
+  .option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+	.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+  .option("user", "$YOUR_DORIS_USERNAME")
+  .option("password", "$YOUR_DORIS_PASSWORD")
+  //other options
+  //specify the fields to write
+  .option("doris.write.fields","$YOUR_FIELDS_TO_WRITE")
+  .start()
+  .awaitTermination()
 ```
 
 ## Configuration
@@ -112,6 +181,7 @@ dorisSparkRDD.collect()
 | doris.exec.mem.limit             | 2147483648        | Memory limit for a single query. The default is 2GB, in bytes.                     |
 | doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for spark-doris-connector iteration                 |
 | doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
+| doris.write.fields                | --                 | Specifies the fields (or the order of the fields) to write to the Doris table, fileds separated by commas.<br/>By default, all fields are written in the order of Doris table fields. |
 
 ### SQL & Dataframe Configuration
 

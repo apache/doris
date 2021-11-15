@@ -26,8 +26,8 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
-#include <filesystem>
 #include <cstdio>
+#include <filesystem>
 #include <new>
 #include <queue>
 #include <random>
@@ -51,6 +51,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
 #include "olap/schema_change.h"
+#include "olap/segment_loader.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
@@ -73,7 +74,6 @@ using std::list;
 using std::map;
 using std::nothrow;
 using std::pair;
-using std::priority_queue;
 using std::set;
 using std::set_difference;
 using std::string;
@@ -113,8 +113,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _index_stream_lru_cache(NULL),
           _file_cache(nullptr),
-          _compaction_mem_tracker(
-                  MemTracker::CreateTracker(-1, "AutoCompaction")),
+          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
+                                                            false, MemTrackerLevel::OVERVIEW)),
+          _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
+                                                        MemTrackerLevel::OVERVIEW)),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -253,7 +255,8 @@ Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_
     auto st = _stream_load_recorder->init();
     if (!st.ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                Status::IOError(Substitute("open StreamLoadRecorder rocksdb failed, path=$0", stream_load_record_path)),
+                Status::IOError(Substitute("open StreamLoadRecorder rocksdb failed, path=$0",
+                                           stream_load_record_path)),
                 "init StreamLoadRecorder failed");
     }
     return Status::OK();
@@ -329,7 +332,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos,
+OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                                 bool need_update) {
     OLAPStatus res = OLAP_SUCCESS;
     data_dir_infos->clear();
@@ -373,6 +376,20 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
               << " ms. tablet counter: " << tablet_count;
 
     return res;
+}
+
+int64_t StorageEngine::get_file_or_directory_size(std::filesystem::path file_path) {
+    if (!std::filesystem::exists(file_path)) {
+        return 0;
+    }
+    if (!std::filesystem::is_directory(file_path)) {
+        return std::filesystem::file_size(file_path);
+    }
+    int64_t sum_size = 0;
+    for (const auto& it : std::filesystem::directory_iterator(file_path)) {
+        sum_size += get_file_or_directory_size(it.path());
+    }
+    return sum_size;
 }
 
 void StorageEngine::_start_disk_stat_monitor() {
@@ -461,10 +478,9 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             }
         }
     }
-    //  TODO(lingbin): should it be a global util func?
     std::random_device rd;
-    srand(rd());
-    std::random_shuffle(stores.begin(), stores.end());
+    std::mt19937 g(rd());
+    std::shuffle(stores.begin(), stores.end(), g);
     // Two random choices
     for (int i = 0; i < stores.size(); i++) {
         int j = i + 1;
@@ -472,7 +488,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             if (stores[i]->tablet_size() > stores[j]->tablet_size()) {
                 std::swap(stores[i], stores[j]);
             }
-            std::random_shuffle(stores.begin() + j, stores.end());
+            std::shuffle(stores.begin() + j, stores.end(), g);
         } else {
             break;
         }
@@ -499,19 +515,21 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
-    // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
-    std::lock_guard<std::mutex> l(_store_lock);
-    if (_store_map.empty()) {
-        return false;
-    }
-
-    for (auto& it : _store_map) {
-        ++total_root_path_num;
-        if (it.second->is_used()) {
-            continue;
+    {
+        // TODO(yingchun): _store_map is only updated in main and ~StorageEngine, maybe we can remove it?
+        std::lock_guard<std::mutex> l(_store_lock);
+        if (_store_map.empty()) {
+            return false;
         }
-        it.second->clear_tablets(&tablet_info_vec);
-        ++unused_root_path_num;
+
+        for (auto& it : _store_map) {
+            ++total_root_path_num;
+            if (it.second->is_used()) {
+                continue;
+            }
+            it.second->clear_tablets(&tablet_info_vec);
+            ++unused_root_path_num;
+        }
     }
 
     if (too_many_disks_are_failed(unused_root_path_num, total_root_path_num)) {
@@ -612,19 +630,29 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-void StorageEngine::_start_clean_fd_cache() {
-    VLOG_TRACE << "start clean file descritpor cache";
+void StorageEngine::_start_clean_cache() {
     _file_cache->prune();
-    VLOG_TRACE << "end clean file descritpor cache";
+    SegmentLoader::instance()->prune();
 }
 
-OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
+OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
+
+    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
+    if(!l.try_lock()) {
+        LOG(INFO) << "trash and snapshot sweep is running.";
+        return res;
+    }
+
     LOG(INFO) << "start trash and snapshot sweep.";
 
     const int32_t snapshot_expire = config::snapshot_expire_time_sec;
     const int32_t trash_expire = config::trash_file_expire_time_sec;
-    const double guard_space = config::storage_flood_stage_usage_percent / 100.0;
+    // the guard space should be lower than storage_flood_stage_usage_percent,
+    // so here we multiply 0.9
+    // if ignore_guard is true, set guard_space to 0.
+    const double guard_space =
+            ignore_guard ? 0 : config::storage_flood_stage_usage_percent / 100.0 * 0.9;
     std::vector<DataDirInfo> data_dir_infos;
     RETURN_NOT_OK_LOG(get_all_data_dir_info(&data_dir_infos, false),
                       "failed to get root path stat info when sweep trash.")
@@ -639,6 +667,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
+    double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
         LOG(INFO) << "Start to sweep path " << info.path;
         if (!info.is_used) {
@@ -646,7 +675,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
         }
 
         double curr_usage = (double)(info.disk_capacity - info.available) / info.disk_capacity;
-        *usage = *usage > curr_usage ? *usage : curr_usage;
+        tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
         string snapshot_path = info.path + SNAPSHOT_PREFIX;
@@ -664,6 +693,10 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
+    }
+
+    if (usage != nullptr) {
+        *usage = tmp_usage; // update usage
     }
 
     // clear expire incremental rowset, move deleted tablet to trash
@@ -751,7 +784,8 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
-        std::copy(directory_iterator(path(scan_root)), directory_iterator(), std::back_inserter(sorted_pathes));
+        std::copy(directory_iterator(path(scan_root)), directory_iterator(),
+                  std::back_inserter(sorted_pathes));
         std::sort(sorted_pathes.begin(), sorted_pathes.end());
         for (const auto& sorted_path : sorted_pathes) {
             string dir_name = sorted_path.filename().string();
@@ -813,11 +847,11 @@ void StorageEngine::start_delete_unused_rowset() {
             ++it;
         } else if (it->second->need_delete_file()) {
             VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                    << ", version:" << it->second->version().first << "-"
-                    << it->second->version().second;
+                        << ", version:" << it->second->version().first << "-"
+                        << it->second->version().second;
             OLAPStatus status = it->second->remove();
             VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                    << " finished. status:" << status;
+                        << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
     }
@@ -829,8 +863,8 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     }
 
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
-            << ", version:" << rowset->version().first << "-" << rowset->version().second
-            << ", unique id:" << rowset->unique_id();
+                << ", version:" << rowset->version().first << "-" << rowset->version().second
+                << ", unique id:" << rowset->unique_id();
 
     auto rowset_id = rowset->rowset_id().to_string();
 
@@ -1027,14 +1061,16 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 
 void StorageEngine::create_cumulative_compaction(
         TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    std::string tracker_label = "StorageEngine:CumulativeCompaction:" + std::to_string(syscall(__NR_gettid));
+    std::string tracker_label =
+            "StorageEngine:CumulativeCompaction:" + std::to_string(best_tablet->tablet_id());
     cumulative_compaction.reset(
             new CumulativeCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
-    std::string tracker_label = "StorageEngine:BaseCompaction:" + std::to_string(syscall(__NR_gettid));
+    std::string tracker_label =
+            "StorageEngine:BaseCompaction:" + std::to_string(best_tablet->tablet_id());
     base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
 }
 
@@ -1057,7 +1093,7 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     const std::string& cumu = "CumulativeCompaction";
     rapidjson::Value cumu_key;
     cumu_key.SetString(cumu.c_str(), cumu.length(), root.GetAllocator());
-    
+
     // cumu
     rapidjson::Document path_obj;
     path_obj.SetObject();
@@ -1110,4 +1146,4 @@ Status StorageEngine::get_compaction_status_json(std::string* result) {
     return Status::OK();
 }
 
-}  // namespace doris
+} // namespace doris

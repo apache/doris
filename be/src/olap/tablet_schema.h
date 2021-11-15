@@ -22,6 +22,7 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 
 namespace doris {
@@ -39,6 +40,7 @@ public:
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
+    inline void set_name(std::string col_name) { _col_name = col_name; }
     inline FieldType type() const { return _type; }
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
@@ -51,6 +53,7 @@ public:
     std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
+    inline void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }

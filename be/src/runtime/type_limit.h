@@ -19,7 +19,6 @@
 #define DORIS_BE_RUNTIME_TYPE_LIMIT_H
 
 #include "runtime/datetime_value.h"
-#include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/string_value.h"
 
@@ -28,7 +27,7 @@ namespace doris {
 template <typename T>
 struct type_limit {
     static T min() {
-        return std::numeric_limits<T>::min();
+        return std::numeric_limits<T>::lowest();
     }
     static T max() {
         return std::numeric_limits<T>::max();
@@ -37,42 +36,20 @@ struct type_limit {
 
 template <>
 struct type_limit<StringValue> {
-    static StringValue min() {
-        return StringValue::min_string_val();
-    }
-    static StringValue max() {
-        return StringValue::max_string_val();
-    }
-};
-
-template <>
-struct type_limit<DecimalValue> {
-    static DecimalValue min() {
-        return DecimalValue::get_min_decimal();
-    }
-    static DecimalValue max() {
-        return DecimalValue::get_max_decimal();
-    }
+    static StringValue min() { return StringValue::min_string_val(); }
+    static StringValue max() { return StringValue::max_string_val(); }
 };
 
 template <>
 struct type_limit<DecimalV2Value> {
-    static DecimalV2Value min() {
-        return DecimalV2Value::get_min_decimal();
-    }
-    static DecimalV2Value max() {
-        return DecimalV2Value::get_max_decimal();
-    }
+    static DecimalV2Value min() { return DecimalV2Value::get_min_decimal(); }
+    static DecimalV2Value max() { return DecimalV2Value::get_max_decimal(); }
 };
 
 template <>
 struct type_limit<DateTimeValue> {
-    static DateTimeValue min() {
-        return DateTimeValue::datetime_min_value();
-    }
-    static DateTimeValue max() {
-        return DateTimeValue::datetime_max_value();
-    }
+    static DateTimeValue min() { return DateTimeValue::datetime_min_value(); }
+    static DateTimeValue max() { return DateTimeValue::datetime_max_value(); }
 };
 
 } // namespace doris

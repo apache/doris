@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "olap/olap_define.h"
-#include "olap/reader.h"
+#include "olap/tuple_reader.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet.h"
 #include "util/trace.h"
@@ -34,7 +34,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                                  Merger::Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
-    Reader reader;
+    TupleReader reader;
     ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
@@ -48,6 +48,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
             "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
     row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
+    // TODO(yingchun): monitor
     std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 

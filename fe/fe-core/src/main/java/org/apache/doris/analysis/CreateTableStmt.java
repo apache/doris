@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
@@ -202,6 +203,10 @@ public class CreateTableStmt extends DdlStmt {
         return this.distributionDesc;
     }
 
+    public void setDistributionDesc(DistributionDesc desc) {
+        this.distributionDesc = desc;
+    }
+
     public Map<String, String> getProperties() {
         return this.properties;
     }
@@ -343,12 +348,26 @@ public class CreateTableStmt extends DdlStmt {
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
-        int rowLengthBytes = 0;
         boolean hasHll = false;
         boolean hasBitmap = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
+
+            if (columnDef.getType().isArrayType()) {
+                ArrayType tp = (ArrayType) columnDef.getType();
+                if (!tp.getItemType().getPrimitiveType().isIntegerType() &&
+                        !tp.getItemType().getPrimitiveType().isCharFamily()) {
+                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+                }
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
+                    throw new AnalysisException("Array column can't support aggregation " + columnDef.getAggregateType());
+                }
+                if (columnDef.isKey()) {
+                    throw new AnalysisException("Array can only be used in the non-key column of" +
+                            " the duplicate table at present.");
+                }
+            }
 
             if (columnDef.getType().isHllType()) {
                 hasHll = true;
@@ -361,13 +380,6 @@ public class CreateTableStmt extends DdlStmt {
             if (!columnSet.add(columnDef.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
-
-            rowLengthBytes += columnDef.getType().getStorageLayoutBytes();
-        }
-
-        if (rowLengthBytes > Config.max_layout_length_per_row && engineName.equals("olap")) {
-            throw new AnalysisException("The size of a row (" + rowLengthBytes + ") exceed the maximal row size: "
-                    + Config.max_layout_length_per_row);
         }
 
         if (hasHll && keysDesc.getKeysType() != KeysType.AGG_KEYS) {

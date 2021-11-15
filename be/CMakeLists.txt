@@ -28,6 +28,8 @@ endif()
 
 project(doris CXX C)
 
+# Write compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 # set platforms
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64")
@@ -170,6 +172,9 @@ set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(gtest STATIC IMPORTED)
 set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
 
+add_library(benchmark STATIC IMPORTED)
+set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
+
 add_library(gmock STATIC IMPORTED)
 set_target_properties(gmock PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgmock.a)
 
@@ -231,9 +236,6 @@ set_target_properties(zstd PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/
 add_library(arrow STATIC IMPORTED)
 set_target_properties(arrow PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libarrow.a)
 
-add_library(double-conversion STATIC IMPORTED)
-set_target_properties(double-conversion PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libdouble-conversion.a)
-
 add_library(parquet STATIC IMPORTED)
 set_target_properties(parquet PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libparquet.a)
 
@@ -294,17 +296,20 @@ set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(minzip STATIC IMPORTED)
 set_target_properties(minzip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libminizip.a)
 
-add_library(hdfs3 STATIC IMPORTED)
-set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
-
 add_library(gsasl STATIC IMPORTED)
 set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
 
-add_library(xml2 STATIC IMPORTED)
-set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+if (ARCH_AMD64)
+    # libhdfs3 only support x86 or amd64
+    add_library(hdfs3 STATIC IMPORTED)
+    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
 
-add_library(lzma STATIC IMPORTED)
-set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+    add_library(xml2 STATIC IMPORTED)
+    set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
+
+    add_library(lzma STATIC IMPORTED)
+    set_target_properties(lzma PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/liblzma.a)
+endif()
 
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
@@ -319,16 +324,14 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -Wall: Enable all warnings.
 #  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
 #    integers
-#   -fno-strict-aliasing: disable optimizations that assume strict aliasing. This
-#       is unsafe to do if the code uses casts (which we obviously do).
 #  -Wno-unknown-pragmas: suppress warnings for unknown (compiler specific) pragmas
 #  -Wno-deprecated: gutil contains deprecated headers
 #  -Wno-vla: we use C99-style variable-length arrays
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread -Werror=strict-aliasing")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer -Werror=return-type")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
@@ -340,6 +343,9 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1")
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+    if (USE_AVX2)
+        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
+    endif()
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
@@ -365,7 +371,7 @@ set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 # Debug information is stored as dwarf2 to be as compatible as possible
 #   -Werror: compile warnings should be errors when using the toolchain compiler.
 # Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -436,7 +442,7 @@ set(WL_END_GROUP "-Wl,--end-group")
 
 set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
 
-# Set Palo libraries
+# Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
@@ -455,16 +461,22 @@ set(DORIS_LINK_LIBS
     Util
     DorisGen
     Webserver
-    TestUtil
     Geo
     Plugin
     ${WL_END_GROUP}
 )
+if (${MAKE_TEST} STREQUAL "ON")
+    set(DORIS_LINK_LIBS
+        ${DORIS_LINK_LIBS}
+        TestUtil
+    )
+endif()
 
-# Set thirdparty libraries
-set(DORIS_DEPENDENCIES
-    ${DORIS_DEPENDENCIES}
-    ${WL_START_GROUP}
+
+# COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
+# When adding new dependencies, If you don’t know if it can run on all platforms,
+# add it here first.
+set(COMMON_THIRDPARTY
     rocksdb
     librdkafka_cpp
     librdkafka
@@ -484,6 +496,7 @@ set(DORIS_DEPENDENCIES
     lz4
     libevent
     libevent_pthreads
+    gsasl
     curl
     ${LIBZ}
     ${LIBBZ2}
@@ -496,7 +509,6 @@ set(DORIS_DEPENDENCIES
     bitshuffle
     roaring
     fmt
-    double-conversion
     jemalloc
     brotlicommon
     brotlidec
@@ -508,13 +520,40 @@ set(DORIS_DEPENDENCIES
     odbc
     cctz
     minzip
+    ${AWS_LIBS}
+)
+
+if (${MAKE_TEST} STREQUAL "ON")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        benchmark       
+    )
+endif()
+
+# thirdparties dependescies that can only run on X86 platform
+set(X86_DEPENDENCIES
+    ${COMMON_THIRDPARTY}   
     hdfs3
-    gsasl
     xml2
     lzma
-    ${AWS_LIBS}
-    ${WL_END_GROUP}
 )
+
+if(ARCH_AARCH64)
+    # Set thirdparty libraries
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        ${WL_START_GROUP}
+        ${COMMON_THIRDPARTY}
+        ${WL_END_GROUP}
+    )
+else()
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        ${WL_START_GROUP}
+        ${X86_DEPENDENCIES}
+        ${WL_END_GROUP}
+    )
+endif()
 
 if(WITH_LZO)
     set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
@@ -528,12 +567,15 @@ if (WITH_MYSQL)
         )
 endif()
 
+message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
+
 # Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
+    -lstdc++fs
 )
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
@@ -583,6 +625,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
+    add_subdirectory(${SRC_DIR}/testutil)
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
@@ -597,10 +640,12 @@ add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)
-add_subdirectory(${SRC_DIR}/testutil)
-#add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf)
-add_subdirectory(${SRC_DIR}/tools)
+
+if (${MAKE_TEST} STREQUAL "OFF")
+    add_subdirectory(${SRC_DIR}/tools)
+endif()
+
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/plugin)
 
@@ -649,6 +694,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
     add_subdirectory(${TEST_DIR}/geo)
+    add_subdirectory(${TEST_DIR}/gutil)
     add_subdirectory(${TEST_DIR}/http)
     add_subdirectory(${TEST_DIR}/olap)
     add_subdirectory(${TEST_DIR}/runtime)
@@ -656,6 +702,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/util)
     add_subdirectory(${TEST_DIR}/plugin)
     add_subdirectory(${TEST_DIR}/plugin/example)
+    add_subdirectory(${TEST_DIR}/tools)
 endif ()
 
 # Install be

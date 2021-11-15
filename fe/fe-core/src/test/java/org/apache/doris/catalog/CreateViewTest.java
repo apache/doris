@@ -41,7 +41,7 @@ public class CreateViewTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -82,29 +82,51 @@ public class CreateViewTest {
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view4 as select abs(-1) as s1;"));
 
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3" +
+                        " and curdate() > '2021-06-26';"));
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
 
-        View view1 = (View) db.getTable("view1");
+        View view1 = (View) db.getTableOrDdlException("view1");
         Assert.assertEquals(4, view1.getFullSchema().size());
         Assert.assertNotNull(view1.getColumn("t1"));
         Assert.assertNotNull(view1.getColumn("t2"));
         Assert.assertNotNull(view1.getColumn("t3"));
         Assert.assertNotNull(view1.getColumn("t4"));
 
-        View view2 = (View) db.getTable("view2");
+        View view2 = (View) db.getTableOrDdlException("view2");
         Assert.assertEquals(4, view1.getFullSchema().size());
         Assert.assertNotNull(view2.getColumn("k1"));
         Assert.assertNotNull(view2.getColumn("k2"));
         Assert.assertNotNull(view2.getColumn("v1"));
         Assert.assertNotNull(view2.getColumn("v2"));
 
-        View view3 = (View) db.getTable("view3");
+        View view3 = (View) db.getTableOrDdlException("view3");
         Assert.assertEquals(1, view3.getFullSchema().size());
         Assert.assertNotNull(view3.getColumn("a1"));
 
-        View view4 = (View) db.getTable("view4");
+        View view4 = (View) db.getTableOrDdlException("view4");
         Assert.assertEquals(1, view4.getFullSchema().size());
         Assert.assertNotNull(view4.getColumn("s1"));
+
+        View view5 = (View) db.getTableOrDdlException("view5");
+        System.out.println(view5.getDdlSql());
+        Assert.assertTrue(view5.getDdlSql().contains("hour") && view5.getDdlSql().contains("now")
+                && view5.getDdlSql().contains("curdate"));
+    }
+
+    @Test
+    public void testNestedViews() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv1 as select * from test.tbl1;"));
+
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.nv2 as select * from test.nv1;"));
+
+        String sql = "select * from test.nv2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("OlapScanNode"));
     }
 }

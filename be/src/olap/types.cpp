@@ -29,6 +29,7 @@ ScalarTypeInfo::ScalarTypeInfo(TypeTraitsClass t)
           _deep_copy(TypeTraitsClass::deep_copy),
           _copy_object(TypeTraitsClass::copy_object),
           _direct_copy(TypeTraitsClass::direct_copy),
+          _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
           _convert_from(TypeTraitsClass::convert_from),
           _from_string(TypeTraitsClass::from_string),
           _to_string(TypeTraitsClass::to_string),
@@ -78,6 +79,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
     add_mapping<OLAP_FIELD_TYPE_OBJECT>();
 }
@@ -138,11 +140,17 @@ ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_DATETIME>();
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+    add_mapping<OLAP_FIELD_TYPE_STRING>();
 }
 
 // equal to get_scalar_type_info
 TypeInfo* get_type_info(FieldType field_type) {
     return get_scalar_type_info(field_type);
+}
+
+// get array array type info
+TypeInfo* get_collection_type_info(FieldType sub_type) {
+    return ArrayTypeInfoResolver::instance()->get_type_info(sub_type);
 }
 
 TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
@@ -152,8 +160,10 @@ TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     } else {
         switch (type) {
         case OLAP_FIELD_TYPE_ARRAY: {
-            DCHECK(column_meta_pb->children_columns_size() == 1) << "more than 1 child type.";
-            FieldType child_type = (FieldType)column_meta_pb->children_columns(0).type();
+            DCHECK(column_meta_pb->children_columns_size() >= 1 &&
+                   column_meta_pb->children_columns_size() <= 3)
+                    << "more than 3 children or no children.";
+            auto child_type = (FieldType)column_meta_pb->children_columns(0).type();
             return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
         }
         default:

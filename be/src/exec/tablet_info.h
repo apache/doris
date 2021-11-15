@@ -137,7 +137,7 @@ public:
     }
 
 private:
-    std::vector<SlotDescriptor*> _slot_descs;
+    const std::vector<SlotDescriptor*>& _slot_descs;
 };
 
 // store an olap table's tablet information
@@ -175,7 +175,7 @@ private:
         }
         OlapTablePartKeyComparator comparator(_partition_slot_descs);
         const TOlapTablePartition& t_part = _t_param.partitions[0];
-        // when list partition, return true if equals. 
+        // when list partition, return true if equals.
         if (t_part.__isset.in_keys) {
             bool ret = false;
             for (auto in_key : part->in_keys) {
@@ -185,7 +185,7 @@ private:
                 }
             }
             return ret;
-        } 
+        }
         return !comparator(key, part->start_key);
     }
 
@@ -242,6 +242,8 @@ struct NodeInfo {
     int64_t option;
     std::string host;
     int32_t brpc_port;
+
+    NodeInfo() = default;
 
     NodeInfo(const TNodeInfo& tnode)
             : id(tnode.id),

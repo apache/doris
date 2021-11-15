@@ -30,6 +30,7 @@ const static std::string S3_AK = "AWS_ACCESS_KEY";
 const static std::string S3_SK = "AWS_SECRET_KEY";
 const static std::string S3_ENDPOINT = "AWS_ENDPOINT";
 const static std::string S3_REGION = "AWS_REGION";
+const static std::string USE_PATH_STYLE = "use_path_style";
 
 ClientFactory::ClientFactory() {
     _aws_options = Aws::SDKOptions{};
@@ -67,7 +68,15 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     Aws::Client::ClientConfiguration aws_config;
     aws_config.endpointOverride = properties.find(S3_ENDPOINT)->second;
     aws_config.region = properties.find(S3_REGION)->second;
-    return std::make_shared<Aws::S3::S3Client>(std::move(aws_cred), std::move(aws_config));
+
+    // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
+    bool use_virtual_addressing = true;
+    if (properties.find(USE_PATH_STYLE) != properties.end()) {
+        use_virtual_addressing = properties.find(USE_PATH_STYLE)->second == "true" ? false : true;
+    }
+    return std::make_shared<Aws::S3::S3Client>(std::move(aws_cred), std::move(aws_config),
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            use_virtual_addressing);
 }
 
 } // end namespace doris

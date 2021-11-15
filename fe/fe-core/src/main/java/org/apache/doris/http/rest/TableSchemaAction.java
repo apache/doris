@@ -20,7 +20,6 @@ package org.apache.doris.http.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
@@ -28,6 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DorisHttpException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -43,6 +43,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -77,20 +78,12 @@ public class TableSchemaAction extends RestBaseAction {
             String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
             // check privilege for select, otherwise return 401 HTTP status
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Database [" + dbName + "] " + "does not exists");
-            }
-
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
-            }
-            // just only support OlapTable, ignore others such as ESTable
-            if (!(table instanceof OlapTable)) {
-                // Forbidden
-                throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "
-                        + "is not a OlapTable, only support OlapTable currently");
+            Table table;
+            try {
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+            } catch (MetaNotFoundException e) {
+                throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, e.getMessage());
             }
 
             table.readLock();
@@ -101,7 +94,7 @@ public class TableSchemaAction extends RestBaseAction {
                     Map<String, String> baseInfo = new HashMap<>(2);
                     Type colType = column.getOriginType();
                     PrimitiveType primitiveType = colType.getPrimitiveType();
-                    if (primitiveType == PrimitiveType.DECIMALV2 || primitiveType == PrimitiveType.DECIMAL) {
+                    if (primitiveType == PrimitiveType.DECIMALV2) {
                         ScalarType scalarType = (ScalarType) colType;
                         baseInfo.put("precision", scalarType.getPrecision() + "");
                         baseInfo.put("scale", scalarType.getScalarScale() + "");
@@ -109,6 +102,8 @@ public class TableSchemaAction extends RestBaseAction {
                     baseInfo.put("type", primitiveType.toString());
                     baseInfo.put("comment", column.getComment());
                     baseInfo.put("name", column.getDisplayName());
+                    Optional aggregationType = Optional.ofNullable(column.getAggregationType());
+                    baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
                     propList.add(baseInfo);
                 }
                 resultMap.put("status", 200);

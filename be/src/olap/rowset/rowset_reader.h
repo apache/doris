@@ -32,6 +32,7 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
+    enum RowsetReaderType { ALPHA, BETA };
     virtual ~RowsetReader() {}
 
     // reader init
@@ -53,6 +54,8 @@ public:
     virtual RowsetSharedPtr rowset() = 0;
 
     virtual int64_t filtered_rows() = 0;
+
+    virtual RowsetReaderType type() const = 0;
 };
 
 } // namespace doris

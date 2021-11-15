@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/decimal_value.h"
-
 #include <gtest/gtest.h>
 
 #include <iostream>
 #include <string>
 
+#include "runtime/decimalv2_value.h"
 #include "util/logging.h"
 
 namespace doris {

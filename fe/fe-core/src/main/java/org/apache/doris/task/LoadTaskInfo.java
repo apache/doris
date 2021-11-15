@@ -57,6 +57,7 @@ public interface LoadTaskInfo {
     public Expr getWhereExpr();
     public Separator getColumnSeparator();
     public Separator getLineDelimiter();
+    public int getSendBatchParallelism();
 
     public static class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();

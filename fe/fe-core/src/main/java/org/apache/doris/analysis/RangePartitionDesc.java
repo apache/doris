@@ -93,7 +93,10 @@ public class RangePartitionDesc extends PartitionDesc {
                     partitionColumns.add(column);
                     find = true;
                     break;
-
+                }
+                if (column.getType().isComplexType()) {
+                    throw new DdlException("Complex type column can't be partition column: "
+                            + column.getType().toString());
                 }
             }
             if (!find) {

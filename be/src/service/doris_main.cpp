@@ -52,12 +52,9 @@
 #include "service/http_service.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/file_utils.h"
 #include "util/logging.h"
-#include "util/network_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
-#include "util/thrift_util.h"
 #include "util/uid_util.h"
 
 static void help(const char*);

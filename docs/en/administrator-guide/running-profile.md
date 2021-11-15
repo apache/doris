@@ -44,10 +44,10 @@ FE splits the query plan into fragments and distributes them to BE for task exec
 Turn on the report switch on FE through MySQL command
 
 ```
-mysql> set is_report_success=true; 
+mysql> set enable_profile=true; 
 ```
 
-After executing the corresponding SQL statement, we can see the report information of the corresponding SQL statement on the FE web page like the picture below.
+After executing the corresponding SQL statement(`is_report_success` in old versions), we can see the report information of the corresponding SQL statement on the FE web page like the picture below.
 ![image.png](/images/running_profile.png)
 
 The latest  **100 statements** executed will be listed here. We can view detailed statistics of RunningProfile.
@@ -110,6 +110,7 @@ There are many statistical information collected at BE.  so we list the correspo
 #### `DataStreamSender`
  - BytesSent: Total bytes data sent
  - IgnoreRows: Rows filtered
+ - LocalBytesSent: The amount bytes of local node send to it's self during Exchange
  - OverallThroughput: Total throughput = BytesSent / Time
  - SerializeBatchTime: Sending data serialization time
  - UncompressedRowBatchSize: Size of rowbatch before sending data compression

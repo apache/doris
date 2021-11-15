@@ -70,7 +70,7 @@ protected:
 protected:
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
-    TabletSchema _schema;
+    const TabletSchema& _schema;
 
     DataDir* _data_dir;
     std::string _tablet_path;
@@ -93,7 +93,7 @@ inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
 }
 
-inline string BaseTablet::tablet_path() const {
+inline std::string BaseTablet::tablet_path() const {
     return _tablet_path;
 }
 

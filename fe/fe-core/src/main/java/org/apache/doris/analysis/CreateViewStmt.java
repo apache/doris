@@ -59,18 +59,30 @@ public class CreateViewStmt extends BaseViewStmt {
 
         // check privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.CREATE)) {
+                tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
-        if (cols != null) {
-            cloneStmt = viewDefStmt.clone();
+        // Do not rewrite nondeterministic functions to constant in create view's def stmt
+        if (ConnectContext.get() != null) {
+            ConnectContext.get().setNotEvalNondeterministicFunction(true);
         }
+        try {
+            if (cols != null) {
+                cloneStmt = viewDefStmt.clone();
+            }
 
-        // Analyze view define statement
-        Analyzer viewAnalyzer = new Analyzer(analyzer);
-        viewDefStmt.analyze(viewAnalyzer);
+            // Analyze view define statement
+            Analyzer viewAnalyzer = new Analyzer(analyzer);
+            viewDefStmt.analyze(viewAnalyzer);
 
-        createColumnAndViewDefs(analyzer);
+            createColumnAndViewDefs(analyzer);
+        } finally {
+            // must reset this flag, otherwise, all following query statement in this connection
+            // will not do constant fold for nondeterministic functions.
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().setNotEvalNondeterministicFunction(false);
+            }
+        }
     }
 }

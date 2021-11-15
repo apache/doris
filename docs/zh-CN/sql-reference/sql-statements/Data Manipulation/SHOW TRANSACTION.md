@@ -27,14 +27,16 @@ under the License.
 # SHOW TRANSACTION
 ## description
 
-该语法用于查看指定 transaction id 的事务详情。
+该语法用于查看指定 transaction id 或 label 的事务详情。
 
 语法：
     
 ```
 SHOW TRANSACTION
 [FROM db_name]
-WHERE id = transaction_id;
+WHERE
+[id = transaction_id]
+[label = label_name];
 ```
         
 返回结果示例：
@@ -80,6 +82,9 @@ ErrorReplicasCount: 0
 2. 指定 db 中，查看 id 为 4005 的事务：
 
     SHOW TRANSACTION FROM db WHERE ID=4005;
+
+3. 查看 label 为 label_name的事务： 
+    SHOW TRANSACTION WHERE LABEL = 'label_name';
 
 ## keyword
 

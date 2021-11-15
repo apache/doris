@@ -180,10 +180,10 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
-    public void getTableRefs(List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        getWithClauseTableRefs(tblRefs, parentViewNameSet);
+    public void getTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
+        getWithClauseTableRefs(analyzer, tblRefs, parentViewNameSet);
         for (SetOperand op : operands) {
-            op.getQueryStmt().getTableRefs(tblRefs, parentViewNameSet);
+            op.getQueryStmt().getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
     }
 
@@ -258,6 +258,8 @@ public class SetOperationStmt extends QueryStmt {
         setOpsResultExprs_ = Expr.cloneList(resultExprs);
         if (evaluateOrderBy) createSortTupleInfo(analyzer);
         baseTblResultExprs = resultExprs;
+
+        if (hasOutFileClause()) outFileClause.analyze(analyzer, resultExprs);
     }
 
     /**
@@ -526,6 +528,41 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
+    public void collectExprs(Map<String, Expr> exprMap) {
+        for (SetOperand op : operands) {
+            op.getQueryStmt().collectExprs(exprMap);
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElement : orderByElements) {
+                Expr expr = orderByElement.getExpr();
+                // see SelectStmt.collectExprs comments
+                if (containAlias(expr)) {
+                    continue;
+                }
+                registerExprId(expr);
+                exprMap.put(expr.getId().toString(), expr);
+            }
+        }
+    }
+
+    @Override
+    public void putBackExprs(Map<String, Expr> rewrittenExprMap) {
+        for (SetOperand op : operands) {
+            op.getQueryStmt().putBackExprs(rewrittenExprMap);
+        }
+        if (orderByElements != null) {
+            for (OrderByElement orderByElement : orderByElements) {
+                Expr expr = orderByElement.getExpr();
+                if (expr.getId() == null) {
+                    orderByElement.setExpr(expr);
+                } else {
+                    orderByElement.setExpr(rewrittenExprMap.get(expr.getId().toString()));
+                }
+            }
+        }
+    }
+
+    @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
         for (SetOperand op: operands) op.getQueryStmt().rewriteExprs(rewriter);
         if (orderByElements != null) {
@@ -563,6 +600,10 @@ public class SetOperationStmt extends QueryStmt {
             return toSqlString;
         }
         StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toSql());
+            strBuilder.append(" ");
+        }
         Preconditions.checkState(operands.size() > 0);
         strBuilder.append(operands.get(0).getQueryStmt().toSql());
         for (int i = 1; i < operands.size() - 1; ++i) {

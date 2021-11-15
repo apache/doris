@@ -1,0 +1,134 @@
+diff -uprN a/http.c b/http.c
+--- a/http.c	2020-07-05 20:02:46.000000000 +0800
++++ b/http.c	2021-09-28 13:56:14.045159153 +0800
+@@ -3975,6 +3975,14 @@ evhttp_set_bevcb(struct evhttp *http,
+ 	http->bevcbarg = cbarg;
+ }
+ 
++void
++evhttp_set_newreqcb(struct evhttp *http,
++    int (*cb)(struct evhttp_request *, void *), void *cbarg)
++{
++	http->newreqcb = cb;
++	http->newreqcbarg = cbarg;
++}
++
+ /*
+  * Request related functions
+  */
+@@ -4036,6 +4044,8 @@ evhttp_request_free(struct evhttp_reques
+ 		req->flags |= EVHTTP_REQ_NEEDS_FREE;
+ 		return;
+ 	}
++	if (req->on_free_cb)
++		(*req->on_free_cb)(req, req->on_free_cb_arg);
+ 
+ 	if (req->remote_host != NULL)
+ 		mm_free(req->remote_host);
+@@ -4116,6 +4126,15 @@ evhttp_request_set_on_complete_cb(struct
+ 	req->on_complete_cb_arg = cb_arg;
+ }
+ 
++void
++evhttp_request_set_on_free_cb(struct evhttp_request *req,
++    void (*cb)(struct evhttp_request *, void *), void *cb_arg)
++{
++	req->on_free_cb = cb;
++	req->on_free_cb_arg = cb_arg;
++}
++
++
+ /*
+  * Allows for inspection of the request URI
+  */
+@@ -4307,10 +4326,15 @@ evhttp_associate_new_request_with_connec
+ 	 */
+ 	req->userdone = 1;
+ 
+-	TAILQ_INSERT_TAIL(&evcon->requests, req, next);
+-
+ 	req->kind = EVHTTP_REQUEST;
+ 
++	if (http->newreqcb && http->newreqcb(req, http->newreqcbarg) == -1) {
++		evhttp_request_free(req);
++		return (-1);
++	}
++
++	TAILQ_INSERT_TAIL(&evcon->requests, req, next);
++
+ 
+ 	evhttp_start_read_(evcon);
+ 
+diff -uprN a/http-internal.h b/http-internal.h
+--- a/http-internal.h	2020-07-05 20:02:46.000000000 +0800
++++ b/http-internal.h	2021-09-28 13:56:13.925151028 +0800
+@@ -167,6 +167,8 @@ struct evhttp {
+ 	void *gencbarg;
+ 	struct bufferevent* (*bevcb)(struct event_base *, void *);
+ 	void *bevcbarg;
++	int (*newreqcb)(struct evhttp_request *req, void *);
++	void *newreqcbarg;
+ 
+ 	struct event_base *base;
+ };
+diff -uprN a/include/event2/http.h b/include/event2/http.h
+--- a/include/event2/http.h	2020-07-05 20:02:46.000000000 +0800
++++ b/include/event2/http.h	2021-09-28 13:56:13.928151231 +0800
+@@ -299,6 +299,20 @@ void evhttp_set_bevcb(struct evhttp *htt
+     struct bufferevent *(*cb)(struct event_base *, void *), void *arg);
+ 
+ /**
++   Set a callback which allows the user to note or throttle incoming requests.
++   The requests are not populated with HTTP level information. They
++   are just associated to a connection.
++   If the callback returns -1, the associated connection is terminated
++   and the request is closed.
++   @param http the evhttp server object for which to set the callback
++   @param cb the callback to invoke for incoming connections
++   @param arg an context argument for the callback
++ */
++EVENT2_EXPORT_SYMBOL
++void evhttp_set_newreqcb(struct evhttp *http,
++    int (*cb)(struct evhttp_request*, void *), void *arg);
++
++/**
+    Adds a virtual host to the http server.
+ 
+    A virtual host is a newly initialized evhttp object that has request
+@@ -624,6 +638,20 @@ EVENT2_EXPORT_SYMBOL
+ void evhttp_request_set_on_complete_cb(struct evhttp_request *req,
+     void (*cb)(struct evhttp_request *, void *), void *cb_arg);
+ 
++/**
++ * Set a callback to be called on request free.
++ *
++ * The callback function will be called just before the evhttp_request object
++ * is destroyed.
++ *
++ * @param req a request object
++ * @param cb callback function that will be called before request free
++ * @param cb_arg an additional context argument for the callback
++ */
++EVENT2_EXPORT_SYMBOL
++void evhttp_request_set_on_free_cb(struct evhttp_request *req,
++    void (*cb)(struct evhttp_request *, void *), void *cb_arg);
++
+ /** Frees the request object and removes associated events. */
+ EVENT2_EXPORT_SYMBOL
+ void evhttp_request_free(struct evhttp_request *req);
+diff -uprN a/include/event2/http_struct.h b/include/event2/http_struct.h
+--- a/include/event2/http_struct.h	2020-07-05 20:02:46.000000000 +0800
++++ b/include/event2/http_struct.h	2021-09-28 13:56:13.928151231 +0800
+@@ -142,6 +142,12 @@ struct {
+ 	 */
+ 	void (*on_complete_cb)(struct evhttp_request *, void *);
+ 	void *on_complete_cb_arg;
++
++	/*
++	 * Free callback - called just before the request is freed.
++	 */
++	void (*on_free_cb)(struct evhttp_request *, void *);
++	void *on_free_cb_arg;
+ };
+ 
+ #ifdef __cplusplus

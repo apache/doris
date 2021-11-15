@@ -127,7 +127,7 @@ void StorageEngine::_fd_cache_clean_callback() {
 #endif
     int32_t interval = 600;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
-        interval = config::file_descriptor_cache_clean_interval;
+        interval = config::cache_clean_interval;
         if (interval <= 0) {
             OLAP_LOG_WARNING(
                     "config of file descriptor clean interval is illegal: [%d], "
@@ -136,7 +136,7 @@ void StorageEngine::_fd_cache_clean_callback() {
             interval = 3600;
         }
 
-        _start_clean_fd_cache();
+        _start_clean_cache();
     }
 }
 
@@ -156,25 +156,25 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
                   << "max_interval=" << max_interval << ", min_interval=" << min_interval;
     }
 
-    const double pi = 4 * std::atan(1);
+    const double pi = M_PI;
     double usage = 1.0;
-    // 程序启动后经过min_interval后触发第一轮扫描
+    // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
     while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(curr_interval))) {
-        usage *= 100.0;
-        // 该函数特性：当磁盘使用率<60%的时候，ratio接近于1；
-        // 当使用率介于[60%, 75%]之间时，ratio急速从0.87降到0.27；
-        // 当使用率大于75%时，ratio值开始缓慢下降
-        // 当usage=90%时，ratio约为0.0057
-        double ratio = (1.1 * (pi / 2 - std::atan(usage / 5 - 14)) - 0.28) / pi;
+        // Function properties:
+        // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
+        // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
+        // when usage > 0.75,         ratio is slowly decreasing.
+        // when usage > 0.8,          ratio close to min_interval.
+        // when usage = 0.88,         ratio is approximately 0.0057.
+        double ratio = (1.1 * (pi / 2 - std::atan(usage * 100 / 5 - 14)) - 0.28) / pi;
         ratio = ratio > 0 ? ratio : 0;
         uint32_t curr_interval = max_interval * ratio;
-        // 此时的特性，当usage<60%时，curr_interval的时间接近max_interval，
-        // 当usage > 80%时，curr_interval接近min_interval
-        curr_interval = curr_interval > min_interval ? curr_interval : min_interval;
+        curr_interval = std::max(curr_interval, min_interval);
+        curr_interval = std::min(curr_interval, max_interval);
 
-        // 开始清理，并得到清理后的磁盘使用率
-        OLAPStatus res = _start_trash_sweep(&usage);
+        // start clean trash and update usage.
+        OLAPStatus res = start_trash_sweep(&usage);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING(
                     "one or more errors occur when sweep trash."
@@ -205,8 +205,7 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
 
 void StorageEngine::_check_cumulative_compaction_config() {
     int64_t size_based_promotion_size = config::cumulative_size_based_promotion_size_mbytes;
-    int64_t size_based_promotion_min_size =
-            config::cumulative_size_based_promotion_min_size_mbytes;
+    int64_t size_based_promotion_min_size = config::cumulative_size_based_promotion_min_size_mbytes;
     int64_t size_based_compaction_lower_bound_size =
             config::cumulative_size_based_compaction_lower_size_mbytes;
 
@@ -292,7 +291,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
-            auto st =_tablet_meta_checkpoint_thread_pool->submit_func([=]() {
+            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([=]() {
                 CgroupsMgr::apply_system_cgroup();
                 _tablet_manager->do_tablet_meta_checkpoint(data_dir);
             });
@@ -334,6 +333,30 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
+            VLOG_CRITICAL << "compaction thread pool. num_threads: " << _compaction_thread_pool->num_threads()
+                      << ", num_threads_pending_start: " << _compaction_thread_pool->num_threads_pending_start()
+                      << ", num_active_threads: " << _compaction_thread_pool->num_active_threads()
+                      << ", max_threads: " << _compaction_thread_pool->max_threads()
+                      << ", min_threads: " << _compaction_thread_pool->min_threads()
+                      << ", num_total_queued_tasks: " << _compaction_thread_pool->get_queue_size();
+
+            if(_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
+                int old_max_threads = _compaction_thread_pool->max_threads();
+                Status status = _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool max_threads from "
+                              << old_max_threads << " to " << config::max_compaction_threads;
+                }
+            }
+            if(_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
+                int old_min_threads = _compaction_thread_pool->min_threads();
+                Status status = _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
+                if (status.ok()) {
+                    LOG(INFO) << "update compaction thread pool min_threads from "
+                              << old_min_threads << " to " << config::max_compaction_threads;
+                }
+            }
+
             bool check_score = false;
             int64_t cur_time = UnixMillis();
             if (round < config::cumulative_compaction_rounds_for_each_base_compaction_round) {
@@ -369,23 +392,24 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
-                int64_t permits = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
+                int64_t permits =
+                        tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet);
                 if (permits > 0 && _permit_limiter.request(permits)) {
                     // Push to _tablet_submitted_compaction before submitting task
                     _push_tablet_into_submitted_compaction(tablet, compaction_type);
-                    auto st =_compaction_thread_pool->submit_func([=]() {
-                      CgroupsMgr::apply_system_cgroup();
-                      tablet->execute_compaction(compaction_type);
-                      _permit_limiter.release(permits);
-                      _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-                      // reset compaction
-                      tablet->reset_compaction(compaction_type); 
+                    auto st = _compaction_thread_pool->submit_func([=]() {
+                        CgroupsMgr::apply_system_cgroup();
+                        tablet->execute_compaction(compaction_type);
+                        _permit_limiter.release(permits);
+                        _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+                        // reset compaction
+                        tablet->reset_compaction(compaction_type);
                     });
                     if (!st.ok()) {
                         _permit_limiter.release(permits);
                         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
                         // reset compaction
-                        tablet->reset_compaction(compaction_type); 
+                        tablet->reset_compaction(compaction_type);
                     }
                 } else {
                     // reset compaction
@@ -414,7 +438,8 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
             _check_cumulative_compaction_config();
         }
         _cumulative_compaction_policy =
-                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(current_policy);
+                CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
+                        current_policy);
     }
 
     std::vector<TabletSharedPtr> tablets_compaction;
@@ -423,8 +448,8 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     // Copy _tablet_submitted_xxx_compaction map so that we don't need to hold _tablet_submitted_compaction_mutex
     // when travesing the data dir
-    std::map<DataDir*, std::unordered_set<TTabletId>> copied_cumu_map; 
-    std::map<DataDir*, std::unordered_set<TTabletId>> copied_base_map; 
+    std::map<DataDir*, std::unordered_set<TTabletId>> copied_cumu_map;
+    std::map<DataDir*, std::unordered_set<TTabletId>> copied_base_map;
     {
         std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
         copied_cumu_map = _tablet_submitted_cumu_compaction;
@@ -462,8 +487,9 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
             uint32_t disk_max_score = 0;
             TabletSharedPtr tablet = _tablet_manager->find_best_tablet_to_compaction(
                     compaction_type, data_dir,
-                    compaction_type == CompactionType::CUMULATIVE_COMPACTION ?
-                        copied_cumu_map[data_dir] : copied_base_map[data_dir],
+                    compaction_type == CompactionType::CUMULATIVE_COMPACTION
+                            ? copied_cumu_map[data_dir]
+                            : copied_base_map[data_dir],
                     &disk_max_score, _cumulative_compaction_policy);
             if (tablet != nullptr) {
                 if (need_pick_tablet) {
@@ -476,36 +502,40 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
 
     if (max_compaction_score > 0) {
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(max_compaction_score);
+            DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
+                    max_compaction_score);
         } else {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(max_compaction_score);
+            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
+                    max_compaction_score);
         }
     }
     return tablets_compaction;
 }
 
-void StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type) {
+void StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+                                                           CompactionType compaction_type) {
     std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
     switch (compaction_type) {
-        case CompactionType::CUMULATIVE_COMPACTION:
-            _tablet_submitted_cumu_compaction[tablet->data_dir()].insert(tablet->tablet_id());
-            break;
-        default:
-            _tablet_submitted_base_compaction[tablet->data_dir()].insert(tablet->tablet_id());
-            break;
+    case CompactionType::CUMULATIVE_COMPACTION:
+        _tablet_submitted_cumu_compaction[tablet->data_dir()].insert(tablet->tablet_id());
+        break;
+    default:
+        _tablet_submitted_base_compaction[tablet->data_dir()].insert(tablet->tablet_id());
+        break;
     }
 }
 
-void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet, CompactionType compaction_type) {
+void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
+                                                          CompactionType compaction_type) {
     std::unique_lock<std::mutex> lock(_tablet_submitted_compaction_mutex);
     int removed = 0;
     switch (compaction_type) {
-        case CompactionType::CUMULATIVE_COMPACTION:
-            removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
-            break;
-        default:
-            removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
-            break;
+    case CompactionType::CUMULATIVE_COMPACTION:
+        removed = _tablet_submitted_cumu_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+        break;
+    default:
+        removed = _tablet_submitted_base_compaction[tablet->data_dir()].erase(tablet->tablet_id());
+        break;
     }
 
     if (removed == 1) {

@@ -20,9 +20,12 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "util/threadpool.h"
 
 namespace doris {
-
+namespace vectorized {
+class VDataStreamMgr;
+}
 class BfdParser;
 class BrokerMgr;
 class BrpcStubCache;
@@ -55,6 +58,7 @@ class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class FileBlockManager;
 class PluginMgr;
+class FoldConstantMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -110,8 +114,10 @@ public:
     std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* thread_pool() { return _thread_pool; }
+    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
+    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -128,6 +134,7 @@ public:
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
+    FoldConstantMgr* fold_constant_mgr() { return _fold_constant_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
@@ -139,6 +146,9 @@ public:
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
+
+    // The root tracker should be set before calling ExecEnv::init();
+    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -166,7 +176,21 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
-    PriorityThreadPool* _thread_pool = nullptr;
+
+    // The following two thread pools are used in different scenarios.
+    // _scan_thread_pool is a priority thread pool.
+    // Scanner threads for common queries will use this thread pool,
+    // and the priority of each scan task is set according to the size of the query.
+
+    // _limited_scan_thread_pool is also the thread pool used for scanner. 
+    // The difference is that it is no longer a priority queue, but according to the concurrency
+    // set by the user to control the number of threads that can be used by a query.
+
+    // TODO(cmy): find a better way to unify these 2 pools.
+    PriorityThreadPool* _scan_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
@@ -176,6 +200,7 @@ private:
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
+    FoldConstantMgr* _fold_constant_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;

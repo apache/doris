@@ -20,7 +20,9 @@
 
 #include "common/status.h"
 #include "exprs/expr.h"
+#include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/type_limit.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -69,11 +71,6 @@ public:
         return tv.hash(seed);
     }
 
-    static uint32_t hash(const doris_udf::DecimalVal& v, int seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return tv.hash(seed);
-    }
-
     static uint32_t hash(const doris_udf::DecimalV2Val& v, int seed) {
         return HashUtil::hash(&v.val, 16, seed);
     }
@@ -117,13 +114,6 @@ public:
     static uint64_t hash64(const doris_udf::DateTimeVal& v, int64_t seed) {
         DateTimeValue tv = DateTimeValue::from_datetime_val(v);
         return HashUtil::fnv_hash64(&tv, 12, seed);
-    }
-
-    // TODO(lingbin): fix this method. can not use sizeof directly, because there are a lot of
-    // storage way for one value.
-    static uint64_t hash64(const doris_udf::DecimalVal& v, int64_t seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return HashUtil::fnv_hash64(&tv, sizeof(DecimalValue), seed);
     }
 
     static uint64_t hash64(const doris_udf::DecimalV2Val& v, int64_t seed) {
@@ -171,17 +161,51 @@ public:
         return HashUtil::murmur_hash64A(&tv, 12, seed);
     }
 
-    static uint64_t hash64_murmur(const doris_udf::DecimalVal& v, int64_t seed) {
-        DecimalValue tv = DecimalValue::from_decimal_val(v);
-        return HashUtil::murmur_hash64A(&tv, sizeof(DecimalValue), seed);
-    }
-
     static uint64_t hash64_murmur(const doris_udf::DecimalV2Val& v, int64_t seed) {
         return HashUtil::murmur_hash64A(&v.val, 16, seed);
     }
 
     static uint64_t hash64_murmur(const doris_udf::LargeIntVal& v, int64_t seed) {
         return HashUtil::murmur_hash64A(&v.val, 8, seed);
+    }
+
+    template <typename Val>
+    static Val min_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            return StringVal();
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::min().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::min().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::min());
+        }
+    }
+
+    template <typename Val>
+    static Val max_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            StringValue sv = type_limit<StringValue>::max();
+            StringVal max_val;
+            max_val.ptr = ctx->allocate(sv.len);
+            memcpy(max_val.ptr, sv.ptr, sv.len);
+
+            return max_val;
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::max().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::max().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::max());
+        }
     }
 
     // Returns the byte size of *Val for type t.
@@ -215,17 +239,18 @@ public:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
+        case TYPE_STRING:
             return sizeof(doris_udf::StringVal);
 
         case TYPE_DATE:
         case TYPE_DATETIME:
             return sizeof(doris_udf::DateTimeVal);
 
-        case TYPE_DECIMAL:
-            return sizeof(doris_udf::DecimalVal);
-
         case TYPE_DECIMALV2:
             return sizeof(doris_udf::DecimalV2Val);
+
+        case TYPE_ARRAY:
+            return sizeof(doris_udf::CollectionVal);
 
         default:
             DCHECK(false) << t;
@@ -256,14 +281,15 @@ public:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
+        case TYPE_STRING:
             return alignof(StringVal);
         case TYPE_DATETIME:
         case TYPE_DATE:
             return alignof(DateTimeVal);
-        case TYPE_DECIMAL:
-            return alignof(DecimalVal);
         case TYPE_DECIMALV2:
             return alignof(DecimalV2Val);
+        case TYPE_ARRAY:
+            return alignof(doris_udf::CollectionVal);
         default:
             DCHECK(false) << t;
             return 0;
@@ -352,12 +378,9 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
-            return;
-        case TYPE_DECIMAL:
-            reinterpret_cast<const DecimalValue*>(slot)->to_decimal_val(
-                    reinterpret_cast<doris_udf::DecimalVal*>(dst));
             return;
         case TYPE_DECIMALV2:
             reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
@@ -370,6 +393,10 @@ public:
         case TYPE_DATETIME:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
                     reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+            return;
+        case TYPE_ARRAY:
+            reinterpret_cast<const CollectionValue*>(slot)->to_collection_val(
+                    reinterpret_cast<CollectionVal*>(dst));
             return;
         default:
             DCHECK(false) << "NYI";
@@ -427,13 +454,6 @@ inline bool AnyValUtil::equals_internal(const DateTimeVal& x, const DateTimeVal&
     DateTimeValue x_tv = DateTimeValue::from_datetime_val(x);
     DateTimeValue y_tv = DateTimeValue::from_datetime_val(y);
     return x_tv == y_tv;
-}
-
-template <>
-inline bool AnyValUtil::equals_internal(const DecimalVal& x, const DecimalVal& y) {
-    DCHECK(!x.is_null);
-    DCHECK(!y.is_null);
-    return x == y;
 }
 
 template <>

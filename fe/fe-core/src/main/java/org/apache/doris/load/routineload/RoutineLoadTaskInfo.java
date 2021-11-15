@@ -189,6 +189,7 @@ public abstract class RoutineLoadTaskInfo {
                     DebugUtil.printId(id), jobId, e);
             throw e;
         }
+        routineLoadJob.jobStatistic.runningTxnIds.add(txnId);
         return true;
     }
 
@@ -207,7 +208,9 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     abstract String getTaskDataSourceProperties();
-    
+
+    abstract boolean hasMoreDataToConsume();
+
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof RoutineLoadTaskInfo) {

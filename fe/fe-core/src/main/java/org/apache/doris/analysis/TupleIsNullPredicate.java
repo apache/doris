@@ -57,6 +57,14 @@ public class TupleIsNullPredicate extends Predicate {
     protected boolean isConstantImpl() { return false; }
 
     @Override
+    public boolean isBoundByTupleIds(List<TupleId> tids) {
+        for (TupleId tid: tids) {
+            if (tupleIds.contains(tid)) return true;
+        }
+        return false;
+    }
+
+    @Override
     public Expr clone() {
         return new TupleIsNullPredicate(this);
     }
@@ -146,14 +154,31 @@ public class TupleIsNullPredicate extends Predicate {
      * Throws an InternalException if expr evaluation in the BE failed.
      */
     private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer) {
-        if (expr.isConstant() || expr.getType().isNull()) {
-            return false;
-        }
-        return true;
+        return !expr.getType().isNull();
     }
 
     @Override
     public String toSqlImpl() {
         return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";
+    }
+
+    /**
+     * Recursive function that replaces all 'IF(TupleIsNull(), NULL, e)' exprs in
+     * 'expr' with e and returns the modified expr.
+     */
+    public static Expr unwrapExpr(Expr expr)  {
+        if (expr instanceof FunctionCallExpr) {
+            FunctionCallExpr fnCallExpr = (FunctionCallExpr) expr;
+            List<Expr> params = fnCallExpr.getParams().exprs();
+            if (fnCallExpr.getFnName().getFunction().equals("if") &&
+                    params.get(0) instanceof TupleIsNullPredicate &&
+                    Expr.IS_NULL_LITERAL.apply(params.get(1))) {
+                return unwrapExpr(params.get(2));
+            }
+        }
+        for (int i = 0; i < expr.getChildren().size(); ++i) {
+            expr.setChild(i, unwrapExpr(expr.getChild(i)));
+        }
+        return expr;
     }
 }

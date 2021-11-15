@@ -30,7 +30,7 @@ under the License.
 
 该文档主要介绍 BE 的相关配置项。
 
-BE 的配置文件 `be.conf` 通常存放在 BE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `be_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+BE 的配置文件 `be.conf` 通常存放在 BE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `be_custom.conf`。该配置文件用于记录用户在运行时动态配置并持久化的配置项。
 
 BE 进程启动后，会先读取 `be.conf` 中的配置项，之后再读取 `be_custom.conf` 中的配置项。`be_custom.conf` 中的配置项会覆盖 `be.conf` 中相同的配置项。
 
@@ -50,7 +50,7 @@ BE 的配置项有两种方式进行配置：
 
 2. 动态配置
 
-	BE 启动后，可以通过一下命令动态设置配置项。
+	BE 启动后，可以通过以下命令动态设置配置项。
 
 	```
 	curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
@@ -97,17 +97,45 @@ BE 的配置项有两种方式进行配置：
 
 ### `alter_tablet_worker_count`
 
+默认值：3
+
+进行schema change的线程数
+
 ### `base_compaction_check_interval_seconds`
+
+默认值：60 （s）
+
+BaseCompaction线程轮询的间隔
 
 ### `base_compaction_interval_seconds_since_last_operation`
 
+默认值：86400
+
+BaseCompaction触发条件之一：上一次BaseCompaction距今的间隔
+
 ### `base_compaction_num_cumulative_deltas`
+
+默认值：5
+
+BaseCompaction触发条件之一：Cumulative文件数目要达到的限制，达到这个限制之后会触发BaseCompaction
 
 ### `base_compaction_num_threads_per_disk`
 
+默认值：1
+
+每个磁盘执行BaseCompaction任务的线程数目
+
 ### `base_compaction_write_mbytes_per_sec`
 
+默认值：5（MB）
+
+BaseCompaction任务每秒写磁盘最大速度
+
 ### `base_cumulative_delta_ratio`
+
+默认值：0.3  （30%）
+
+BaseCompaction触发条件之一：Cumulative文件大小达到Base文件的比例
 
 ### `base_compaction_trace_threshold`
 
@@ -173,6 +201,10 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `buffer_pool_clean_pages_limit`
 
+默认值：20G
+
+清理可能被缓冲池保存的Page
+
 ### `buffer_pool_limit`
 
 * 类型：string
@@ -189,11 +221,27 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `check_consistency_worker_count`
 
+默认值：1
+
+计算tablet的校验和(checksum)的工作线程数
+
 ### `chunk_reserved_bytes_limit`
+
+默认值：2147483648
+
+Chunk Allocator的reserved bytes限制，默认为2GB，增加这个变量可以提高性能，但是会获得更多其他模块无法使用的空闲内存
 
 ### `clear_transaction_task_worker_count`
 
+默认值：1
+
+用于清理事务的线程数
+
 ### `clone_worker_count`
+
+默认值：3
+
+用于执行克隆任务的线程数
 
 ### `cluster_id`
 
@@ -207,7 +255,15 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 
 ### `column_dictionary_key_ratio_threshold`
 
+默认值：0
+
+字符串类型的取值比例，小于这个比例采用字典压缩算法
+
 ### `column_dictionary_key_size_threshold`
+
+默认值：0
+
+字典压缩列大小，小于这个值采用字典压缩算法
 
 ### `compaction_tablet_compaction_score_factor`
 
@@ -224,7 +280,7 @@ BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构�
 选择一个tablet执行compaction任务时，可以将tablet的scan频率作为一个选择依据，对当前最近一段时间频繁scan的tablet优先执行compaction。
 tablet score可以通过以下公式计算：
 
-tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_scan_frequency_factor * compaction_score
+tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency + compaction_tablet_compaction_score_factor * compaction_score
 
 ### `compaction_task_num_per_disk`
 
@@ -240,6 +296,10 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 默认值：true
 
 ### `create_tablet_worker_count`
+
+默认值：3
+
+BE创建tablet的工作线程数
 
 ### `cumulative_compaction_rounds_for_each_base_compaction_round`
 
@@ -257,11 +317,27 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `cumulative_compaction_budgeted_bytes`
 
+默认值：104857600
+
+BaseCompaction触发条件之一：Singleton文件大小限制，100MB
+
 ### `cumulative_compaction_check_interval_seconds`
+
+默认值：10 （s）
+
+CumulativeCompaction线程轮询的间隔
 
 ### `cumulative_compaction_num_threads_per_disk`
 
+默认值：1
+
+每个磁盘执行CumulativeCompaction线程数
+
 ### `cumulative_compaction_skip_window_seconds`
+
+默认值：30 （s）
+
+CumulativeCompaction会跳过最近发布的增量，以防止压缩可能被查询的版本（以防查询计划阶段花费一些时间）。改参数是设置跳过的窗口时间大小
 
 ### `cumulative_compaction_trace_threshold`
 
@@ -270,6 +346,14 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 默认值：2
 
 与base_compaction_trace_threshold类似。
+
+### disable_compaction_trace_log
+
+* 类型: bool
+* 描述: 关闭compaction的trace日志
+* 默认值: true
+
+如果设置为true，`cumulative_compaction_trace_threshold` 和 `base_compaction_trace_threshold` 将不起作用。并且trace日志将关闭。
 
 ### `cumulative_compaction_policy`
 
@@ -331,7 +415,15 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `delete_worker_count`
 
+默认值：3
+
+执行数据删除任务的线程数
+
 ### `disable_mem_pools`
+
+默认值：false
+
+是否禁用内存缓存池，默认不禁用
 
 ### `disable_storage_page_cache`
 
@@ -341,7 +433,15 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `disk_stat_monitor_interval`
 
+默认值：5  （s）
+
+磁盘状态检查时间间隔
+
 ### `doris_cgroups`
+
+默认值：空
+
+分配给doris的cgroups
 
 ### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -372,6 +472,10 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `doris_scanner_row_num`
 
+默认值：16384
+
+每个扫描线程单次执行最多返回的数据行数
+
 ### `doris_scanner_thread_pool_queue_size`
 
 * 类型：int32
@@ -386,13 +490,33 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `download_low_speed_limit_kbps`
 
+默认值：50 (KB/s)
+
+下载最低限速
+
 ### `download_low_speed_time`
+
+默认值：300 (s)
+
+下载时间限制，默认300秒
 
 ### `download_worker_count`
 
+默认值：1
+
+下载线程数，默认1个
+
 ### `drop_tablet_worker_count`
 
+默认值：3
+
+删除tablet的线程数
+
 ### `enable_metric_calculator`
+
+默认值：true
+
+如果设置为 true，metric calculator 将运行，收集BE相关指标信息，如果设置成false将不运行
 
 ### `enable_partitioned_aggregation`
 
@@ -412,16 +536,35 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 * 描述：当使用PartitionedHashTable时发生Hash冲突时，是否采用平方探测法来解决Hash冲突。该值为false的话，则选用线性探测发来解决Hash冲突。关于平方探测法可参考：[quadratic_probing](https://en.wikipedia.org/wiki/Quadratic_probing)
 * 默认值：true
 
-
 ### `enable_system_metrics`
+
+默认值：true
+
+用户控制打开和关闭系统指标
 
 ### `enable_token_check`
 
+默认值：true
+
+用于向前兼容，稍后将被删除
+
 ### `es_http_timeout_ms`
+
+默认值：5000 (ms)
+
+通过http连接ES的超时时间，默认是5秒
 
 ### `es_scroll_keepalive`
 
+默认值：5m
+
+es scroll Keeplive保持时间，默认5分钟
+
 ### `etl_thread_pool_queue_size`
+
+默认值：256
+
+ETL线程池的大小
 
 ### `etl_thread_pool_size`
 
@@ -433,15 +576,40 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `file_descriptor_cache_capacity`
 
-### `file_descriptor_cache_clean_interval`
+默认值：32768
+
+文件句柄缓存的容量，默认缓存32768个文件句柄
+
+### `cache_clean_interval`
+
+默认值：1800 (s)
+
+文件句柄缓存清理的间隔，用于清理长期不用的文件句柄。
+同时也是Segment Cache的清理间隔时间。
 
 ### `flush_thread_num_per_store`
+
+默认值：2
+
+每个store用于刷新内存表的线程数
 
 ### `force_recovery`
 
 ### `fragment_pool_queue_size`
 
-### `fragment_pool_thread_num`
+默认值：2048
+
+单节点上能够处理的查询请求上限
+
+### `fragment_pool_thread_num_min`
+
+默认值：64
+
+### `fragment_pool_thread_num_max`
+
+默认值：256
+
+查询线程数，默认最小启动64个线程，后续查询请求动态创建线程，最大创建256个线程
 
 ### `heartbeat_service_port`
 
@@ -497,23 +665,67 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `inc_rowset_expired_sec`
 
+默认值：1800 （s）
+
+导入激活的数据，存储引擎保留的时间，用于增量克隆
+
 ### `index_stream_cache_capacity`
+
+默认值：10737418240
+
+BloomFilter/Min/Max等统计信息缓存的容量
 
 ### `load_data_reserve_hours`
 
+默认值：4 （小时）
+
+用于mini load。mini load数据文件将在此时间后被删除
+
 ### `load_error_log_reserve_hours`
+
+默认值：48（小时）
+
+load错误日志将在此时间后删除
 
 ### `load_process_max_memory_limit_bytes`
 
+默认值：107374182400
+
+单节点上所有的导入线程占据的内存上限，默认值：100G
+
+将这些默认值设置得很大，因为我们不想在用户升级 Doris 时影响负载性能。 如有必要，用户应正确设置这些配置。
+
 ### `load_process_max_memory_limit_percent`
+
+默认值：80
+
+单节点上所有的导入线程占据的内存上限比例，默认80%
+
+将这些默认值设置得很大，因为我们不想在用户升级 Doris 时影响负载性能。 如有必要，用户应正确设置这些配置。
 
 ### `log_buffer_level`
 
+默认值：空
+
+日志刷盘的策略，默认保持在内存中
+
 ### `madvise_huge_pages`
+
+默认值：false
+
+是否使用linux内存大页，默认不启用
 
 ### `make_snapshot_worker_count`
 
+默认值：5
+
+制作快照的线程数
+
 ### `max_client_cache_size_per_host`
+
+默认值：10
+
+每个主机的最大客户端缓存数，BE 中有多种客户端缓存，但目前我们使用相同的缓存大小配置。 如有必要，使用不同的配置来设置不同的客户端缓存。
 
 ### `max_compaction_threads`
 
@@ -523,15 +735,45 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_consumer_num_per_group`
 
+默认值：3
+
+一个数据消费者组中的最大消费者数量，用于routine load
+
+### `min_cumulative_compaction_num_singleton_deltas`
+
+默认值：5
+
+cumulative compaction策略：最小增量文件的数量
+
 ### `max_cumulative_compaction_num_singleton_deltas`
+
+默认值：1000
+
+cumulative compaction策略：最大增量文件的数量
 
 ### `max_download_speed_kbps`
 
+默认值：50000 （kb/s）
+
+最大下载速度限制
+
 ### `max_free_io_buffers`
+
+默认值：128
+
+对于每个 io 缓冲区大小，IoMgr 将保留的最大缓冲区数从 1024B 到 8MB 的缓冲区，最多约为 2GB 的缓冲区。
 
 ### `max_garbage_sweep_interval`
 
+默认值：3600
+
+磁盘进行垃圾清理的最大间隔，默认一个小时	
+
 ### `max_memory_sink_batch_count`
+
+默认值：20
+
+最大外部扫描缓存批次计数，表示缓存max_memory_cache_batch_count * batch_size row，默认为20，batch_size的默认值为1024，表示将缓存20 * 1024行
 
 ### `max_percentage_of_error_disk`
 
@@ -555,7 +797,21 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `max_runnings_transactions_per_txn_map`
 
+默认值：100
+
+txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我保护，以避免在管理器中保存过多的 txns
+
+### `max_send_batch_parallelism_per_job`
+
+* 类型：int
+* 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
+* 默认值：1
+
 ### `max_tablet_num_per_shard`
+
+默认：1024
+
+每个shard的tablet数目，用于划分tablet，防止单个目录下tablet子目录过多
 
 ### `max_tablet_version_num`
 
@@ -571,11 +827,33 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `memory_limitation_per_thread_for_schema_change`
 
+默认值：2 （GB）
+
+单个schema change任务允许占用的最大内存
+
 ### `memory_maintenance_sleep_time_s`
+
+默认值：10 
+
+内存维护迭代之间的休眠时间（以秒为单位）
 
 ### `memory_max_alignment`
 
+默认值：16
+
+最大校对内存
+
+### `read_size`
+
+默认值：8388608
+
+读取大小是发送到 os 的读取大小。 在延迟和整个过程之间进行权衡，试图让磁盘保持忙碌但不引入寻道。 对于 8 MB 读取，随机 io 和顺序 io 的性能相似
+
 ### `min_buffer_size`
+
+默认值：1024
+
+最小读取缓冲区大小（以字节为单位）
 
 ### `min_compaction_failure_interval_sec`
 
@@ -590,13 +868,23 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：Compaction线程池中线程数量的最小值。
 * 默认值：10
 
-### `min_cumulative_compaction_num_singleton_deltas`
-
 ### `min_file_descriptor_number`
+
+默认值：60000
+
+BE进程的文件句柄limit要求的下限
 
 ### `min_garbage_sweep_interval`
 
+默认值：180
+
+磁盘进行垃圾清理的最小间隔，时间秒
+
 ### `mmap_buffers`
+
+默认值：false
+
+是否使用mmap分配内存，默认不使用
 
 ### `num_cores`
 
@@ -606,27 +894,69 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `num_disks`
 
+默认值：0
+
+控制机器上的磁盘数量。 如果为 0，则来自系统设置。
+
 ### `num_threads_per_core`
+
+默认值：3
+
+控制每个内核运行工作的线程数。 通常选择 2 倍或 3 倍的内核数量。 这使核心保持忙碌而不会导致过度抖动
 
 ### `num_threads_per_disk`
 
+默认值：0
+
+每个磁盘的最大线程数也是每个磁盘的最大队列深度
+
 ### `number_tablet_writer_threads`
+
+默认值：16
+
+tablet写线程数
 
 ### `path_gc_check`
 
+默认值：true
+
+是否启用回收扫描数据线程检查，默认启用
+
 ### `path_gc_check_interval_second`
+
+默认值：86400
+
+回收扫描数据线程检查时间间隔，单位秒
 
 ### `path_gc_check_step`
 
+默认值：1000
+
 ### `path_gc_check_step_interval_ms`
+
+默认值：10 (ms)
 
 ### `path_scan_interval_second`
 
+默认值：86400
+
 ### `pending_data_expire_time_sec`
+
+默认值：1800 
+
+存储引擎保留的未生效数据的最大时长，默认单位：秒
 
 ### `periodic_counter_update_period_ms`
 
+默认值：500
+
+更新速率计数器和采样计数器的周期，默认单位：毫秒
+
 ### `plugin_path`
+
+默认值：${DORIS_HOME}/plugin
+
+插件路径
 
 ### `port`
 
@@ -636,17 +966,45 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `pprof_profile_dir`
 
+默认值：${DORIS_HOME}/log
+
+pprof profile保存目录
+
 ### `priority_networks`
+
+默认值：空
+
+为那些有很多 ip 的服务器声明一个选择策略。 请注意，最多应该有一个 ip 与此列表匹配。 这是一个以分号分隔格式的列表，用 CIDR 表示法，例如 10.10.10.0/24 ， 如果没有匹配这条规则的ip，会随机选择一个。
 
 ### `priority_queue_remaining_tasks_increased_frequency`
 
+默认值：512
+
+ the increased frequency of priority for remaining tasks in BlockingPriorityQueue
+
 ### `publish_version_worker_count`
+
+默认值：8
+
+生效版本的线程数
 
 ### `pull_load_task_dir`
 
+默认值：${DORIS_HOME}/var/pull_load
+
+拉取laod任务的目录
+
 ### `push_worker_count_high_priority`
 
+默认值：3
+
+导入线程数，用于处理HIGH优先级任务
+
 ### `push_worker_count_normal_priority`
+
+默认值：3
+
+导入线程数，用于处理NORMAL优先级任务
 
 ### `push_write_mbytes_per_sec`
 
@@ -661,21 +1019,47 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述：BE进行数据落盘时选取的目录来存放临时数据，与存储路径配置类似，多目录之间用;分隔。
 * 默认值：${DORIS_HOME}
 
-### `read_size`
-
 ### `release_snapshot_worker_count`
+
+默认值：5
+
+释放快照的线程数
 
 ### `report_disk_state_interval_seconds`
 
+默认值：60
+
+代理向 FE 报告磁盘状态的间隔时间（秒）
+
 ### `report_tablet_interval_seconds`
+
+默认值：60
+
+代理向 FE 报告 olap 表的间隔时间（秒）
 
 ### `report_task_interval_seconds`
 
+默认值：10
+
+代理向 FE 报告任务签名的间隔时间（秒）
+
 ### `result_buffer_cancelled_interval_time`
+
+默认值：300
+
+结果缓冲区取消时间（单位：秒）
 
 ### `routine_load_thread_pool_size`
 
+默认值：10
+
+routine load任务的线程池大小。 这应该大于 FE 配置 'max_concurrent_task_num_per_be'（默认 5）
+
 ### `row_nums_check`
+
+默认值：true
+
+检查 BE/CE 和schema更改的行号。 true 是打开的，false 是关闭的。
 
 ### `row_step_for_compaction_merge_log`
 
@@ -686,7 +1070,27 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `scan_context_gc_interval_min`
 
+默认值：5
+
+此配置用于上下文gc线程调度周期 ， 注意：单位为分钟，默认为 5 分钟
+
+### `send_batch_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：SendBatch线程池线程数目。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，该参数决定了SendBatch线程池的大小。
+* 默认值：256
+
+### `send_batch_thread_pool_queue_size`
+
+* 类型：int32
+* 描述：SendBatch线程池的队列长度。在NodeChannel的发送数据任务之中，每一个NodeChannel的SendBatch操作会作为一个线程task提交到线程池之中等待被调度，而提交的任务数目超过线程池队列的长度之后，后续提交的任务将阻塞直到队列之中有新的空缺。
+* 默认值：102400
+
 ### `serialize_batch`
+
+默认值：false
+
+BE之间rpc通信是否序列化RowBatch，用于查询层之间的数据传输
 
 ### `sleep_one_second`
 + 类型：int32
@@ -695,17 +1099,45 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 ### `small_file_dir`
 
+默认值：${DORIS_HOME}/lib/small_file/
+
+用于保存 SmallFileMgr 下载的文件的目录
+
 ### `snapshot_expire_time_sec`
+
+默认值：172800
+
+快照文件清理的间隔，默认值：48小时
 
 ### `status_report_interval`
 
+默认值：5
+
+配置文件报告之间的间隔；单位：秒
+
 ### `storage_flood_stage_left_capacity_bytes`
+
+默认值：1073741824
+
+数据目录应该剩下的最小存储空间，默认1G
 
 ### `storage_flood_stage_usage_percent`
 
+默认值：95 （95%）
+
+storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两个配置限制了数据目录的磁盘容量的最大使用。 如果这两个阈值都达到，则无法将更多数据写入该数据目录。 数据目录的最大已用容量百分比
+
 ### `storage_medium_migrate_count`
 
+默认值：1
+
+要克隆的线程数
+
 ### `storage_page_cache_limit`
+
+默认值：20%
+
+缓存存储页大小
 
 ### `index_page_cache_percentage`
 * 类型：int32
@@ -715,12 +1147,30 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 ### `storage_root_path`
 
 * 类型：string
-* 描述：BE数据存储的目录,多目录之间用;分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过,隔开。
-eg：storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris
 
-	* 1./home/disk1/doris.HDD, 存储限制为50GB, HDD;
-	* 2./home/disk2/doris.SSD，存储限制为1GB，SSD；
-	* 3./home/disk2/doris，存储限制为磁盘容量，默认为HDD
+* 描述：BE数据存储的目录,多目录之间用英文状态的分号`;`分隔。可以通过路径区别存储目录的介质，HDD或SSD。可以添加容量限制在每个路径的末尾，通过英文状态逗号`,`隔开。
+
+  示例1如下：
+  
+  **注意：如果是SSD磁盘要在目录后面加上`.SSD`,HDD磁盘在目录后面加`.HDD`**
+
+  `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
+
+  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
+  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
+  
+  示例2如下：
+      
+  **注意：不论HHD磁盘目录还是SSD磁盘目录，文件夹目录名称都无需添加后缀，storage_root_path参数里指定medium即可**
+  
+  `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
+  
+  **说明**
+  
+  - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+  - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
+
 
 * 默认值：${DORIS_HOME}
 
@@ -753,7 +1203,15 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `streaming_load_rpc_max_alive_time_sec`
 
+默认值：1200
+
+TabletsChannel 的存活时间。如果此时通道没有收到任何数据， 通道将被删除。
+
 ### `sync_tablet_meta`
+
+默认值：false
+
+存储引擎是否开sync保留到磁盘上
 
 ### `sys_log_dir`
 
@@ -763,19 +1221,51 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `sys_log_level`
 
+默认值：INFO
+
+日志级别，INFO < WARNING < ERROR < FATAL
+
 ### `sys_log_roll_mode`
+
+默认值：SIZE-MB-1024
+
+日志拆分的大小，每1G拆分一个日志文件
 
 ### `sys_log_roll_num`
 
+默认值：10
+
+日志文件保留的数目
+
 ### `sys_log_verbose_level`
+
+默认值：10
+
+日志显示的级别，用于控制代码中VLOG开头的日志输出
 
 ### `sys_log_verbose_modules`
 
+默认值：空
+
+日志打印的模块，写olap就只打印olap模块下的日志
+
 ### `tablet_map_shard_size`
+
+默认值：1
+
+tablet_map_lock 分片大小，值为 2^n, n=0,1,2,3,4 ，这是为了更好地管理tablet
 
 ### `tablet_meta_checkpoint_min_interval_secs`
 
+默认值：600 （秒）
+
+TabletMeta Checkpoint线程轮询的时间间隔
+
 ### `tablet_meta_checkpoint_min_new_rowsets_num`
+
+默认值：10
+
+TabletMeta Checkpoint的最小Rowset数目
 
 ### `tablet_scan_frequency_time_node_interval_second`
 
@@ -785,15 +1275,23 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tablet_stat_cache_update_interval_second`
 
+默认值：300
+
+tablet状态缓存的更新间隔，单位：秒
+
 ### `tablet_rowset_stale_sweep_time_sec`
 
 * 类型：int64
 * 描述：用来表示清理合并版本的过期时间，当当前时间 now() 减去一个合并的版本路径中rowset最近创建创建时间大于tablet_rowset_stale_sweep_time_sec时，对当前路径进行清理，删除这些合并过的rowset, 单位为s。
 * 默认值：1800
 
-当写入过于频繁，磁盘时间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
+当写入过于频繁，磁盘空间不足时，可以配置较少这个时间。不过这个时间过短小于5分钟时，可能会引发fe查询不到已经合并过的版本，引发查询-230错误。
 
 ### `tablet_writer_open_rpc_timeout_sec`
+
+默认值：60
+
+在远程BE 中打开tablet writer的 rpc 超时。 操作时间短，可设置短超时时间
 
 ### `tablet_writer_ignore_eovercrowded`
 
@@ -805,6 +1303,10 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tc_free_memory_rate`
 
+默认值：20   (%)
+
+可用内存，取值范围：[0-100]
+
 ### `tc_max_total_thread_cache_bytes`
 
 * 类型：int64
@@ -815,6 +1317,10 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `tc_use_memory_min`
 
+默认值：10737418240
+
+TCmalloc 的最小内存，当使用的内存小于这个时，不返回给操作系统
+
 ### `thrift_client_retry_interval_ms`
 
 * 类型：int64
@@ -823,7 +1329,15 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `thrift_connect_timeout_seconds`
 
+默认值：3
+
+默认thrift客户端连接超时时间（单位：秒）
+
 ### `thrift_rpc_timeout_ms`
+
+默认值：5000
+
+thrift默认超时时间，默认：5秒
 
 ### `thrift_server_type_of_fe`
 
@@ -842,21 +1356,57 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 
 ### `trash_file_expire_time_sec`
 
+默认值：259200
+
+回收站清理的间隔，72个小时，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
+
 ### `txn_commit_rpc_timeout_ms`
+
+默认值：10000
+
+txn 提交 rpc 超时，默认10秒
 
 ### `txn_map_shard_size`
 
+默认值：128
+
+txn_map_lock 分片大小，取值为2^n，n=0,1,2,3,4。这是一项增强功能，可提高管理 txn 的性能
+
 ### `txn_shard_size`
+
+默认值：1024
+
+txn_lock 分片大小，取值为2^n，n=0,1,2,3,4，  这是一项增强功能，可提高提交和发布 txn 的性能
 
 ### `unused_rowset_monitor_interval`
 
+默认值：30
+
+清理过期Rowset的时间间隔，单位：秒
+
 ### `upload_worker_count`
+
+默认值：1
+
+上传文件最大线程数
 
 ### `use_mmap_allocate_chunk`
 
+默认值：false
+
+是否使用 mmap 分配块。 如果启用此功能，最好增加 vm.max_map_count 的值，其默认值为 65530。您可以通过“sysctl -w vm.max_map_count=262144”或“echo 262144 > /proc/sys/vm/”以 root 身份进行操作 max_map_count" ，当这个设置为true时，你必须将chunk_reserved_bytes_limit设置为一个相对较大的数字，否则性能非常非常糟糕。
+
 ### `user_function_dir`
 
+默认值：${DORIS_HOME}/lib/udf
+
+udf函数目录
+
 ### `webserver_num_workers`
+
+默认值：48
+
+webserver默认工作线程数
 
 ### `webserver_port`
 * 类型：int32
@@ -864,6 +1414,10 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
 * 默认值：8040
 
 ### `write_buffer_size`
+
+默认值：104857600
+
+刷写前缓冲区的大小
 
 ### `zone_map_row_num_threshold`
 
@@ -886,7 +1440,6 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
   ```
 * 默认值: 3
 
-
 ### `mem_tracker_level`
 
 * 类型: int16
@@ -896,3 +1449,37 @@ Stream Load 一般适用于导入几个GB以内的数据，不适合导入过大
     DEBUG = 1
   ```
 * 默认值: 0
+
+### `max_segment_num_per_rowset`
+
+* 类型: int32
+* 描述: 用于限制导入时，新产生的rowset中的segment数量。如果超过阈值，导入会失败并报错 -238。过多的 segment 会导致compaction占用大量内存引发 OOM 错误。
+* 默认值: 200
+
+### `remote_storage_read_buffer_mb`
+
+* 类型: int32
+* 描述: 读取hdfs或者对象存储上的文件时，使用的缓存大小。
+* 默认值: 16MB
+
+增大这个值，可以减少远端数据读取的调用次数，但会增加内存开销。
+
+### `external_table_connect_timeout_sec`
+
+* 类型: int32
+* 描述: 和外部表建立连接的超时时间。
+* 默认值: 5秒
+
+### `segment_cache_capacity`
+
+* 类型: int32
+* 描述: Segment Cache 缓存的 Segment 最大数量
+* 默认值: 1000000
+
+默认值目前只是一个经验值，可能需要根据实际场景修改。增大该值可以缓存更多的segment从而避免一些IO。减少该值则会降低内存使用。
+
+### `auto_refresh_brpc_channel`
+
+* 类型: bool
+* 描述: 获取brpc连接时，通过hand_shake rpc 判断连接的可用性，如果不可用则重新建立连接 
+* 默认值: false

@@ -160,8 +160,7 @@ Status JsonScanner::open_file_reader() {
     }
     case TFileType::FILE_S3: {
         BufferedReader* s3_reader =
-                new BufferedReader(new S3Reader(_params.properties, range.path, start_offset),
-                                   config::remote_storage_read_buffer_mb * 1024 * 1024);
+                new BufferedReader(_profile, new S3Reader(_params.properties, range.path, start_offset));
         RETURN_IF_ERROR(s3_reader->open());
         _cur_file_reader = s3_reader;
         break;
@@ -332,7 +331,7 @@ Status JsonReader::init(const std::string& jsonpath, const std::string& json_roo
 Status JsonReader::_generate_json_paths(const std::string& jsonpath,
                                         std::vector<std::vector<JsonPath>>* vect) {
     rapidjson::Document jsonpaths_doc;
-    if (!jsonpaths_doc.Parse(jsonpath.c_str()).HasParseError()) {
+    if (!jsonpaths_doc.Parse(jsonpath.c_str(), jsonpath.length()).HasParseError()) {
         if (!jsonpaths_doc.IsArray()) {
             return Status::InvalidArgument("Invalid json path: " + jsonpath);
         } else {

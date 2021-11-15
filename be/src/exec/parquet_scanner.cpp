@@ -36,12 +36,13 @@
 #include "exprs/expr.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
-#include "exec/hdfs_file_reader.h"
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/parquet_reader.h"
+
+#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -128,8 +129,9 @@ Status ParquetScanner::open_next_reader() {
             break;
         }
         case TFileType::FILE_HDFS: {
-            file_reader.reset(new HdfsFileReader(
-                    range.hdfs_params, range.path, range.start_offset));
+            FileReader* reader;
+            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, range.start_offset, &reader));
+            file_reader.reset(reader);
             break;
         }
         case TFileType::FILE_BROKER: {
@@ -138,13 +140,13 @@ Status ParquetScanner::open_next_reader() {
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
             break;
         }
         case TFileType::FILE_S3: {
-            file_reader.reset(new BufferedReader(
+            file_reader.reset(new BufferedReader(_profile,
                     new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }

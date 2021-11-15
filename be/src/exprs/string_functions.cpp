@@ -16,6 +16,8 @@
 // under the License.
 
 #include "exprs/string_functions.h"
+#include "util/vectorized-tool/lower.h"
+#include "util/vectorized-tool/upper.h"
 
 #include <re2/re2.h>
 
@@ -23,6 +25,7 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
+#include "fmt/format.h"
 #include "math_functions.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
@@ -117,6 +120,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
 //    string left(string input, int len)
 // This behaves identically to the mysql implementation.
 StringVal StringFunctions::left(FunctionContext* context, const StringVal& str, const IntVal& len) {
+    if (len.val >= str.len)  return str;
     return substring(context, str, 1, len);
 }
 
@@ -214,7 +218,7 @@ StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -265,7 +269,7 @@ StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -345,15 +349,11 @@ StringVal StringFunctions::lower(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, str.len);
     StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    for (int i = 0; i < str.len; ++i) {
-        result.ptr[i] = ::tolower(str.ptr[i]);
-    }
+    Lower::to_lower(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -361,15 +361,11 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, str.len);
     StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    for (int i = 0; i < str.len; ++i) {
-        result.ptr[i] = ::toupper(str.ptr[i]);
-    }
+    Upper::to_upper(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -555,8 +551,9 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
+    // ATTN(cmy): no set it, or the lazy mode of regex won't work. See Doris #6587
     // Return the leftmost longest match (rather than the first match).
-    options.set_longest_match(true);
+    // options.set_longest_match(true);
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
@@ -884,21 +881,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     if (v.is_null) {
         return StringVal::null();
     }
-
-    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false) * 100;
-    return do_money_format(context, std::to_string(v_cent));
-}
-
-StringVal StringFunctions::money_format(FunctionContext* context, const DecimalVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-
-    DecimalValue rounded;
-    DecimalValue::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalValue tmp(std::string("100"));
-    DecimalValue result = rounded * tmp;
-    return do_money_format(context, result.to_string());
+    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
+    return do_money_format(context, fmt::format("{:.2f}", v_cent));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -906,30 +890,23 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
         return StringVal::null();
     }
 
-    DecimalV2Value rounded;
+    DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalV2Value tmp(std::string("100"));
-    DecimalV2Value result = rounded * tmp;
-    return do_money_format(context, result.to_string());
+    return do_money_format<int64_t, 26>(context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    std::string cent_money = std::to_string(v.val) + std::string("00");
-    return do_money_format(context, cent_money);
+    return do_money_format<int64_t, 26>(context, v.val);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    std::stringstream ss;
-    ss << v.val << "00";
-    return do_money_format(context, ss.str());
+    return do_money_format<__int128_t, 52>(context, v.val);
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,
@@ -996,17 +973,32 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
+    // Empty string is a substring of all strings. 
+    // If old str is an empty string, the std::string.find(oldStr) is always return 0.
+    // With an empty old str, there is no need to do replace. 
+    if (oldStr.len == 0) {
+        return origStr;
+    }
     std::string orig_str = std::string(reinterpret_cast<const char*>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char*>(oldStr.ptr), oldStr.len);
     std::string new_str = std::string(reinterpret_cast<const char*>(newStr.ptr), newStr.len);
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while ((pos = orig_str.find(old_str, pos))) {
-        if (pos == std::string::npos) break;
+    while ((pos = orig_str.find(old_str, pos)) != std::string::npos) {
         orig_str.replace(pos, oldLen, new_str);
         pos += newLen;
     }
     return AnyValUtil::from_string_temp(context, orig_str);
+}
+// Implementation of BIT_LENGTH
+//   int bit_length(string input)
+// Returns the length in bits of input. If input == NULL, returns
+// NULL per MySQL
+IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return IntVal::null();
+    }
+    return IntVal(str.len * 8);
 }
 } // namespace doris

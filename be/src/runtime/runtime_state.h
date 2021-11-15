@@ -33,6 +33,7 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/mem_pool.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/thread_resource_mgr.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
@@ -56,6 +57,7 @@ class LoadErrorHub;
 class ReservationTracker;
 class InitialReservations;
 class RowDescriptor;
+class RuntimeFilterMgr;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -341,6 +343,12 @@ public:
 
     bool enable_spill() const { return _query_options.enable_spilling; }
 
+    int32_t runtime_filter_wait_time_ms() { return _query_options.runtime_filter_wait_time_ms; }
+
+    int32_t runtime_filter_max_in_num() { return _query_options.runtime_filter_max_in_num; }
+
+    bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
+
     bool enable_exchange_node_parallel_merge() const {
         return _query_options.enable_enable_exchange_node_parallel_merge;
     }
@@ -362,6 +370,16 @@ public:
     // get mem limit for load channel
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
+
+    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    
+    void set_query_fragments_ctx(QueryFragmentsCtx* ctx) {
+        _query_ctx = ctx;
+    }
+
+    QueryFragmentsCtx* get_query_fragments_ctx() {
+        return _query_ctx;
+    }
 
 private:
     // Use a custom block manager for the query for testing purposes.
@@ -392,6 +410,9 @@ private:
 
     DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
+
+    // runtime filter
+    std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -504,6 +525,7 @@ private:
     /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
     AtomicInt32 _initial_reservation_refcnt;
 
+    QueryFragmentsCtx* _query_ctx;
     // prohibit copies
     RuntimeState(const RuntimeState&);
 };

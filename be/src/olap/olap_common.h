@@ -54,16 +54,16 @@ enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 struct DataDirInfo {
     std::string path;
     size_t path_hash = 0;
-    int64_t disk_capacity = 1;  // actual disk capacity
-    int64_t available = 0;      // 可用空间，单位字节
+    int64_t disk_capacity = 1; // actual disk capacity
+    int64_t available = 0;     // 可用空间，单位字节
     int64_t data_used_capacity = 0;
-    bool is_used = false;       // 是否可用标识
+    bool is_used = false;                                      // 是否可用标识
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
 };
 
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
-    bool operator() (const DataDirInfo& left, const DataDirInfo& right) const {
+    bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
         return left.available < right.available;
     }
 };
@@ -94,11 +94,8 @@ struct TabletInfo {
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size) :
-            tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash),
-            tablet_size(in_tablet_size) {}
-
+    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
@@ -141,17 +138,18 @@ enum FieldType {
     OLAP_FIELD_TYPE_STRUCT = 18,  // Struct
     OLAP_FIELD_TYPE_ARRAY = 19,   // ARRAY
     OLAP_FIELD_TYPE_MAP = 20,     // Map
-    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW Type
+    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW OLAP_FIELD_TYPE_STRING
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_OBJECT = 25
+    OLAP_FIELD_TYPE_OBJECT = 25,
+    OLAP_FIELD_TYPE_STRING = 26
 };
 
-// 定义Field支持的所有聚集方法
-// 注意，实际中并非所有的类型都能使用以下所有的聚集方法
-// 例如对于string类型使用SUM就是毫无意义的(但不会导致程序崩溃)
-// Field类的实现并没有进行这类检查，应该在创建表的时候进行约束
+// Define all aggregation methods supported by Field
+// Note that in practice, not all types can use all the following aggregation methods
+// For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
+// The implementation of the Field class does not perform such checks, and should be constrained when creating the table
 enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -165,11 +163,14 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
 };
 
-// 压缩算法类型
+// Compression algorithm type
 enum OLAPCompressionType {
-    OLAP_COMP_TRANSPORT = 1, // 用于网络传输的压缩算法，压缩率低，cpu开销低
-    OLAP_COMP_STORAGE = 2,   // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
-    OLAP_COMP_LZ4 = 3,       // 用于储存的压缩算法，压缩率低，cpu开销低
+    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
+    OLAP_COMP_TRANSPORT = 1,
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
+    OLAP_COMP_STORAGE = 2,  
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
+    OLAP_COMP_LZ4 = 3,       
 };
 
 enum PushType {

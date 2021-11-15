@@ -225,4 +225,10 @@ public class ConstantExpressTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("NULL"));
     }
+
+    @Test
+    public void testTimestamp() throws Exception {
+        testConstantExpressResult("select timestamp('2021-07-24 00:00:00')",
+            "'2021-07-24 00:00:00'");
+    }
 }

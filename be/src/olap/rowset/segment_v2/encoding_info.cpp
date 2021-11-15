@@ -82,7 +82,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 };
 
 template <>
-struct TypeEncodingTraits<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE, Collection> {
+struct TypeEncodingTraits<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE, CollectionValue> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
         *builder = new BitshufflePageBuilder<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>(opts);
         return Status::OK();
@@ -189,12 +189,6 @@ private:
     // Not thread-safe
     template <FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek = false>
     void _add_map() {
-        auto key = std::make_pair(type, encoding_type);
-        auto it = _encoding_map.find(key);
-        if (it != _encoding_map.end()) {
-            return;
-        }
-
         EncodingTraits<type, encoding_type> traits;
         std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
         if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
@@ -203,6 +197,11 @@ private:
         if (optimize_value_seek &&
             _value_seek_encoding_map.find(type) == _value_seek_encoding_map.end()) {
             _value_seek_encoding_map[type] = encoding_type;
+        }
+        auto key = std::make_pair(type, encoding_type);
+        auto it = _encoding_map.find(key);
+        if (it != _encoding_map.end()) {
+            return;
         }
         _encoding_map.emplace(key, encoding.release());
     }
@@ -234,6 +233,7 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
 
     _add_map<OLAP_FIELD_TYPE_UNSIGNED_BIGINT, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_UNSIGNED_INT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_ARRAY, BIT_SHUFFLE>();
 
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
@@ -253,6 +253,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
+
+    _add_map<OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
