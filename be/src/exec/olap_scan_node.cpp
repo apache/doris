@@ -138,7 +138,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
-    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
+    // _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
 
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_segment_profile, "CachedPagesNum", TUnit::UNIT);
