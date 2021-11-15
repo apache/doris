@@ -17,8 +17,13 @@
 
 #include "runtime/minidump.h"
 
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "common/config.h"
+#include "env/env.h"
 #include "util/file_utils.h"
+#include "util/string_util.h"
 
 #include "client/linux/handler/exception_handler.h"
 
@@ -26,6 +31,15 @@ namespace doris {
 
 int Minidump::_signo = SIGUSR1;
 std::unique_ptr<google_breakpad::ExceptionHandler> Minidump::_error_handler = nullptr;
+
+// Save the absolute path and create_time of a minidump file
+struct FileStat {
+    std::string abs_path;
+    time_t create_time;
+
+    FileStat(const std::string& path_, time_t ctime)
+        : abs_path(path_), create_time(ctime) {}
+};
 
 Status Minidump::init() {
     if (config::disable_minidump) {
@@ -45,6 +59,10 @@ Status Minidump::init() {
 
     // 3. setup sig handler
     _setup_sig_handler(); 
+
+    RETURN_IF_ERROR(Thread::create(
+            "Minidump", "minidump_clean_thread",
+            [this]() { this->_clean_old_minidump(); }, &_clean_thread));
 
     LOG(INFO) << "Minidump is enabled. dump file will be saved at " << config::minidump_dir;
     return Status::OK();
@@ -83,6 +101,69 @@ bool Minidump::_minidump_cb(const google_breakpad::MinidumpDescriptor& descripto
     // So that we can get the error stack trace directly in be.out without
     // anlayzing minidump file, which is more friendly for debugging.
     return false;
+}
+
+void Minidump::stop() {
+    if (_stop) {
+        return;
+    }
+    _stop = true;
+    _clean_thread->join();
+}
+
+void Minidump::_clean_old_minidump() {
+    while(!_stop) {
+        sleep(30);
+        if (config::max_minidump_file_number <= 0) {
+            continue;
+        }
+
+        // list all files
+        std::vector<std::string> files;
+        Status st = FileUtils::list_files(Env::Default(), config::minidump_dir, &files);
+        for (auto it = files.begin(); it != files.end();) {
+            if (!ends_with(*it, ".dmp")) {
+                it = files.erase(it);
+            } else {
+                it++;
+            }
+        }
+        if (files.size() <= config::max_minidump_file_number) {
+            continue;
+        }
+
+        // check file create time and sort and save in stats
+        int ret = 0;
+        std::vector<FileStat> stats;
+        for (auto it = files.begin(); it != files.end(); ++it) {
+            std::string path = config::minidump_dir + "/" + *it;
+            
+            struct stat buf;
+            if ((ret = stat(path.c_str(), &buf)) != 0) {
+                LOG(WARNING) << "Failed to stat minidump file: " << path << ", remote it. errno: " << ret;
+                FileUtils::remove(path);   
+                continue;
+            }
+
+            stats.emplace_back(path, buf.st_ctime); 
+        }
+
+        // sort file by ctime ascending
+        std::sort(stats.begin(), stats.end(), [](const FileStat& f1, const FileStat& f2) {
+            if (f1.create_time > f2.create_time) {
+                return false;
+            } else {
+                return true;
+            }
+        });
+ 
+        int to_delete = stats.size() - config::max_minidump_file_number;
+        int deleted = 0;
+        for (auto it = stats.begin(); it != stats.end() && deleted < to_delete; it++, deleted++) {
+            FileUtils::remove(it->abs_path);
+        }
+        LOG(INFO) << "delete " << deleted << " minidump files";
+    }
 }
 
 } // namespace doris

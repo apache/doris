@@ -265,8 +265,8 @@ int main(int argc, char** argv) {
     }
 
     // 5. init minidump
-    doris::Minidump mini_dump;
-    status = mini_dump.init();
+    doris::Minidump minidump;
+    status = minidump.init();
     if (!status.ok()) {
         LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
         doris::shutdown_logging();
@@ -288,6 +288,7 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
+    minidump.stop();
 
     delete be_server;
     be_server = nullptr;

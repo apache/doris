@@ -21,6 +21,7 @@
 
 #include "client/linux/handler/exception_handler.h"
 #include "common/status.h"
+#include "util/thread.h"
 
 namespace doris {
 
@@ -35,12 +36,19 @@ public:
 
     Status init();
 
+    // stop and join the minidump clean thread;
+    void stop();
+
 private:
     // The callback after writing the minidump file
     static bool _minidump_cb(const google_breakpad::MinidumpDescriptor& descriptor,
                       void* context, bool succeeded);
     // The handle function when receiving SIGUSR1 signal.
     static void _usr1_sigaction(int signum, siginfo_t* info, void* context);
+    
+    // try clean old minidump files periodically.
+    // To keep at most config::max_minidump_number files.
+    void _clean_old_minidump();
 
     // Setup hanlder for SIGUSR1
     Status _setup_sig_handler();
@@ -48,6 +56,9 @@ private:
 private:
     static int _signo;
     static std::unique_ptr<google_breakpad::ExceptionHandler> _error_handler;
+
+    std::atomic<bool> _stop = false;
+    scoped_refptr<Thread> _clean_thread;
 };
 
 } // namespace doris
