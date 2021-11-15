@@ -113,7 +113,7 @@ void Minidump::stop() {
 
 void Minidump::_clean_old_minidump() {
     while(!_stop) {
-        sleep(30);
+        sleep(10);
         if (config::max_minidump_file_number <= 0) {
             continue;
         }
