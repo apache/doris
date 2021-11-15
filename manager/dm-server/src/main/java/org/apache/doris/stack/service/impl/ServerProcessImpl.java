@@ -36,6 +36,7 @@ import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
 import org.apache.doris.stack.entity.TaskInstanceEntity;
+import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
 import org.apache.doris.stack.model.request.TestConnectionReq;
@@ -87,6 +88,7 @@ public class ServerProcessImpl implements ServerProcess {
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
         Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
+        checkAgentInstall(installReq);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT, installReq.getPackageUrl(), installReq.getInstallDir());
         int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
@@ -105,10 +107,19 @@ public class ServerProcessImpl implements ServerProcess {
         return processId;
     }
 
+    private void checkAgentInstall(AgentInstallReq installReq) {
+        for (String host : installReq.getHosts()) {
+            if (agentCache.containsAgent(host)) {
+                log.error("host {} already install agent", host);
+                throw new ServerException("host " + host + " already install agent");
+            }
+        }
+    }
+
     @Override
     public List<TestConnectionResp> testConnection(HttpServletRequest request, HttpServletResponse response, TestConnectionReq testConReq) {
         Preconditions.checkArgument(ObjectUtils.isNotEmpty(testConReq.getHosts()), "host is empty!");
-        final String checkJavaHome = "java -version && echo $JAVA_HOME";
+        final String checkJavaHome = "source /etc/profile && source ~/.bash_profile && java -version && echo $JAVA_HOME";
         File sshKeyFile = SSH.buildSshKeyFile();
         SSH.writeSshKeyFile(testConReq.getSshKey(), sshKeyFile);
         List<TestConnectionResp> result = Lists.newArrayList();

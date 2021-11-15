@@ -365,6 +365,7 @@ public class AgentProcessImpl implements AgentProcess {
                 return;
             }
             BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
+            joinBeTask.setTaskJson(JSON.toJSONString(beJoin));
             taskExecuteRunner.execTask(joinBeTask, beJoin);
         }
     }

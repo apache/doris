@@ -27,6 +27,7 @@ import org.apache.doris.stack.exceptions.ServerException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.Date;
 import java.util.Optional;
 
 @Component
@@ -85,9 +86,11 @@ public class ProcessInstanceComponent {
     }
 
     /**
-     * update process status
+     * finish process
      */
-    public void updateProcess(ProcessInstanceEntity processInstance) {
+    public void finishProcess(ProcessInstanceEntity processInstance) {
+        processInstance.setFinish(Flag.YES);
+        processInstance.setUpdateTime(new Date());
         processInstanceRepository.save(processInstance);
     }
 }

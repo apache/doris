@@ -77,7 +77,7 @@ public class InstallAgentTask extends AbstractTask {
         String cmd = String.format(command, agentHome, AGENT_START_SCRIPT, getServerAddr(), agentInstall.getHost());
         SSH ssh = new SSH(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), cmd);
-        if (ssh.run()) {
+        if (!ssh.run()) {
             throw new ServerException("agent start failed");
         } else {
             log.info("agent start success");
@@ -93,12 +93,12 @@ public class InstallAgentTask extends AbstractTask {
         //check remote dir exist
         SSH ssh = new SSH(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), checkFileExistCmd);
-        if (ssh.run()) {
+        if (!ssh.run()) {
             throw new ServerException("scp create remote dir failed");
         }
         SCP scp = new SCP(agentInstall.getUser(), agentInstall.getSshPort(),
                 sshKeyFile.getAbsolutePath(), agentInstall.getHost(), localPath, remotePath);
-        if (scp.run()) {
+        if (!scp.run()) {
             log.error("scp agent package failed:{} to {}", localPath, remotePath);
             throw new ServerException("scp agent package failed");
         }

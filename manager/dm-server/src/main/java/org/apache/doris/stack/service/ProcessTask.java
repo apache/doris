@@ -38,6 +38,8 @@ public interface ProcessTask {
 
     void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
 
+    void cancelProcess(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception;
+
     void skipTask(int taskId);
 
     void retryTask(int taskId);

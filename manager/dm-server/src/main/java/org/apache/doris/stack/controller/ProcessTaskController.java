@@ -88,6 +88,17 @@ public class ProcessTaskController {
     }
 
     /**
+     * cancel process
+     */
+    @ApiOperation(value = "cancel process")
+    @RequestMapping(value = "/cancel/{processId}", method = RequestMethod.POST)
+    public RResult cancelProcess(HttpServletRequest request, HttpServletResponse response,
+                                 @PathVariable(value = "processId") int processId) throws Exception {
+        processTask.cancelProcess(request, response, processId);
+        return RResult.success();
+    }
+
+    /**
      * Skip task when task fails
      */
     @ApiOperation(value = "Skip task when task fails")

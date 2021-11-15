@@ -20,6 +20,7 @@ package org.apache.doris.stack.entity;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 
@@ -73,6 +74,10 @@ public class ProcessInstanceEntity {
     @Column(name = "install_dir", length = 1024)
     private String installDir;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private ExecutionStatus status;
+
     public ProcessInstanceEntity(int clusterId, int userId, ProcessTypeEnum processType, String packageUrl, String installDir) {
         this.clusterId = clusterId;
         this.userId = userId;
@@ -82,5 +87,6 @@ public class ProcessInstanceEntity {
         this.createTime = new Date();
         this.updateTime = new Date();
         this.finish = Flag.NO;
+        this.status = ExecutionStatus.RUNNING;
     }
 }

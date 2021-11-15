@@ -26,8 +26,10 @@ import org.apache.doris.manager.common.domain.CommandRequest;
 import org.apache.doris.manager.common.domain.RResult;
 import org.apache.doris.stack.agent.AgentCache;
 import org.apache.doris.stack.agent.AgentRest;
+import org.apache.doris.stack.component.AgentComponent;
 import org.apache.doris.stack.component.ProcessInstanceComponent;
 import org.apache.doris.stack.component.TaskInstanceComponent;
+import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.TaskTypeEnum;
 import org.apache.doris.stack.dao.TaskInstanceRepository;
@@ -45,7 +47,6 @@ import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -76,6 +77,9 @@ public class ProcessTaskImpl implements ProcessTask {
 
     @Autowired
     private TaskExecuteRunner taskExecuteRunner;
+
+    @Autowired
+    private AgentComponent agentComponent;
 
     @Override
     public ProcessInstanceEntity historyProgress(HttpServletRequest request, HttpServletResponse response) throws Exception {
@@ -119,21 +123,36 @@ public class ProcessTaskImpl implements ProcessTask {
 
     @Override
     public void installComplete(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception {
+        authenticationService.checkAllUserAuthWithCookie(request, response);
         ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
-        if (processInstance != null) {
-            processInstance.setFinish(Flag.YES);
-            processInstance.setUpdateTime(new Date());
-            processInstanceComponent.updateProcess(processInstance);
-        }
+        Preconditions.checkNotNull(processInstance, "install process is not exist");
+        processInstance.setStatus(ExecutionStatus.SUCCESS);
+        processInstanceComponent.finishProcess(processInstance);
+    }
+
+    @Override
+    public void cancelProcess(HttpServletRequest request, HttpServletResponse response, int processId) throws Exception {
+        authenticationService.checkAllUserAuthWithCookie(request, response);
+        ProcessInstanceEntity processInstance = processInstanceComponent.queryProcessById(processId);
+        Preconditions.checkNotNull(processInstance, "install process is not exist");
+        processInstance.setStatus(ExecutionStatus.FAILURE);
+        processInstanceComponent.finishProcess(processInstance);
     }
 
     @Override
     public void skipTask(int taskId) {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
         Preconditions.checkNotNull(taskEntity, "taskId " + taskId + " not exist");
+        Preconditions.checkArgument(!taskEntity.getFinish().typeIsYes(), "task is finish,can not skip");
+        Preconditions.checkArgument(!taskEntity.getStatus().typeIsRunning(), "task is running,can not skip");
         if (taskEntity.getStatus().typeIsFailure()) {
             taskEntity.setFinish(Flag.YES);
             taskInstanceRepository.save(taskEntity);
+        }
+        if (TaskTypeEnum.INSTALL_AGENT.equals(taskEntity.getTaskType())) {
+            //remove agent from db
+            agentComponent.removeAgent(taskEntity.getHost());
+            agentCache.removeAgent(taskEntity.getHost());
         }
     }
 

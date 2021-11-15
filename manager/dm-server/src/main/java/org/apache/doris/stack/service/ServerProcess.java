@@ -39,7 +39,7 @@ public interface ServerProcess {
     int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
 
     /**
-     * test connection
+     * test connection and check jdk
      */
     List<TestConnectionResp> testConnection(HttpServletRequest request, HttpServletResponse response, TestConnectionReq testConReq);
 

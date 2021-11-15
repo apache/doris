@@ -64,10 +64,24 @@ public class AgentCache {
     }
 
     /**
+     * get agent from cache by host
+     */
+    public Boolean containsAgent(String host) {
+        return hostAgentCache.containsKey(host);
+    }
+
+    /**
      * put agent to cache
      */
     public void putAgent(AgentEntity agent) {
         hostAgentCache.put(agent.getHost(), agent);
+    }
+
+    /**
+     * remove agent from cache
+     */
+    public void removeAgent(String host) {
+        hostAgentCache.remove(host);
     }
 
     /**
