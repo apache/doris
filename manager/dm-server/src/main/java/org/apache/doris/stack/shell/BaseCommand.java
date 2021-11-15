@@ -48,13 +48,13 @@ public abstract class BaseCommand {
         BufferedReader bufferedReader = null;
         try {
             process = pb.start();
-            bufferedReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            bufferedReader = new BufferedReader(new InputStreamReader(process.getErrorStream()));
             errorResponse = bufferedReader.lines().parallel().collect(Collectors.joining(System.lineSeparator()));
             final int exitCode = process.waitFor();
             if (exitCode == 0) {
                 return true;
             } else {
-                log.error("shell command error response:{}", errorResponse);
+                log.error("shell command error, exit with {}, response:{}", exitCode, errorResponse);
                 return false;
             }
         } catch (IOException | InterruptedException e) {
