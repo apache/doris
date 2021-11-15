@@ -191,7 +191,7 @@ public final class SparkDpp implements java.io.Serializable {
                                                              long tableId,
                                                              EtlJobConfig.EtlIndex indexMeta,
                                                              SparkRDDAggregator[] sparkRDDAggregators) throws SparkDppException {
-        // TODO(wb) should deal largint as BigInteger instead of string when using biginteger as key,
+        // TODO(wb) should deal largeint as BigInteger instead of string when using biginteger as key,
         // data type may affect sorting logic
         StructType dstSchema = DppUtils.createDstTableSchema(indexMeta.columns, false, true);
         ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
