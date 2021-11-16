@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -69,7 +70,15 @@ import java.util.Map;
 import java.util.Random;
 import java.util.stream.Collectors;
 
-// Broker scan node
+/**
+ * Broker scan node
+ *
+ * Since https://github.com/apache/incubator-doris/pull/5686, Doris can read data from HDFS without broker by
+ * broker scan node.
+ * Broker scan node is more likely a file scan node for now.
+ * With this feature, we can extend BrokerScanNode to query external table which data is stored in HDFS, such as
+ * Hive and Iceberg, etc.
+ */
 public class BrokerScanNode extends LoadScanNode {
     private static final Logger LOG = LogManager.getLogger(BrokerScanNode.class);
     private static final TBrokerFileStatusComparator T_BROKER_FILE_STATUS_COMPARATOR
@@ -99,15 +108,15 @@ public class BrokerScanNode extends LoadScanNode {
     // Parameters need to process
     private long loadJobId = -1; // -1 means this scan node is not for a load job
     private long txnId = -1;
-    private Table targetTable;
-    private BrokerDesc brokerDesc;
-    private List<BrokerFileGroup> fileGroups;
+    protected Table targetTable;
+    protected BrokerDesc brokerDesc;
+    protected List<BrokerFileGroup> fileGroups;
     private boolean strictMode = false;
     private int loadParallelism = 1;
 
-    private List<List<TBrokerFileStatus>> fileStatusesList;
+    protected List<List<TBrokerFileStatus>> fileStatusesList;
     // file num
-    private int filesAdded;
+    protected int filesAdded;
 
     // Only used for external table in select statement
     private List<Backend> backends;
@@ -139,14 +148,7 @@ public class BrokerScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         if (desc.getTable() != null) {
-            BrokerTable brokerTable = (BrokerTable) desc.getTable();
-            try {
-                fileGroups = Lists.newArrayList(new BrokerFileGroup(brokerTable));
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
-            brokerDesc = new BrokerDesc(brokerTable.getBrokerName(), brokerTable.getBrokerProperties());
-            targetTable = brokerTable;
+            this.initFileGroup();
         }
 
         // Get all broker file status
@@ -163,7 +165,18 @@ public class BrokerScanNode extends LoadScanNode {
         }
     }
 
-    private boolean isLoad() {
+    protected void initFileGroup() throws UserException {
+        BrokerTable brokerTable = (BrokerTable) desc.getTable();
+        try {
+            fileGroups = Lists.newArrayList(new BrokerFileGroup(brokerTable));
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+        brokerDesc = new BrokerDesc(brokerTable.getBrokerName(), brokerTable.getBrokerProperties());
+        targetTable = brokerTable;
+    }
+
+    protected boolean isLoad() {
         return desc.getTable() == null;
     }
 
@@ -312,30 +325,7 @@ public class BrokerScanNode extends LoadScanNode {
             // This will be fixed later.
             fileStatusesList = Lists.newArrayList();
             filesAdded = 0;
-            for (BrokerFileGroup fileGroup : fileGroups) {
-                boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
-                List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-                for (int i = 0; i < fileGroup.getFilePaths().size(); i++) {
-                    if (brokerDesc.isMultiLoadBroker()) {
-                        TBrokerFileStatus fileStatus = new TBrokerFileStatus(fileGroup.getFilePaths().get(i),
-                                false, fileGroup.getFileSize().get(i), false);
-                        fileStatuses.add(fileStatus);
-                    } else {
-                        BrokerUtil.parseFile(fileGroup.getFilePaths().get(i), brokerDesc, fileStatuses);
-                    }
-                }
-
-                // only get non-empty file or non-binary file
-                fileStatuses = fileStatuses.stream().filter(f -> {
-                    return f.getSize() > 0 || !isBinaryFileFormat;
-                }).collect(Collectors.toList());
-
-                fileStatusesList.add(fileStatuses);
-                filesAdded += fileStatuses.size();
-                for (TBrokerFileStatus fstatus : fileStatuses) {
-                    LOG.info("Add file status is {}", fstatus);
-                }
-            }
+            this.getFileStatus();
         }
         Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
 
@@ -368,6 +358,33 @@ public class BrokerScanNode extends LoadScanNode {
                     "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
         }
         LOG.info("number instance of broker scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
+    }
+
+    protected void getFileStatus() throws UserException {
+        for (BrokerFileGroup fileGroup : fileGroups) {
+            boolean isBinaryFileFormat = fileGroup.isBinaryFileFormat();
+            List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+            for (int i = 0; i < fileGroup.getFilePaths().size(); i++) {
+                if (brokerDesc.isMultiLoadBroker()) {
+                    TBrokerFileStatus fileStatus = new TBrokerFileStatus(fileGroup.getFilePaths().get(i),
+                            false, fileGroup.getFileSize().get(i), false);
+                    fileStatuses.add(fileStatus);
+                } else {
+                    BrokerUtil.parseFile(fileGroup.getFilePaths().get(i), brokerDesc, fileStatuses);
+                }
+            }
+
+            // only get non-empty file or non-binary file
+            fileStatuses = fileStatuses.stream().filter(f -> {
+                return f.getSize() > 0 || !isBinaryFileFormat;
+            }).collect(Collectors.toList());
+
+            fileStatusesList.add(fileStatuses);
+            filesAdded += fileStatuses.size();
+            for (TBrokerFileStatus fstatus : fileStatuses) {
+                LOG.info("Add file status is {}", fstatus);
+            }
+        }
     }
 
     private void assignBackends() throws UserException {
@@ -422,6 +439,11 @@ public class BrokerScanNode extends LoadScanNode {
         if (fileStatuses  == null || fileStatuses.isEmpty()) {
             return;
         }
+        THdfsParams tHdfsParams = new THdfsParams();
+        if (this instanceof HiveScanNode) {
+            String fsName = ((HiveScanNode) this).getHdfsUri();
+            tHdfsParams.setFsName(fsName);
+        }
         TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);
         long curInstanceBytes = 0;
         long curFileOffset = 0;
@@ -454,6 +476,10 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
+                    if (this instanceof HiveScanNode) {
+                        rangeDesc.setHdfsParams(tHdfsParams);
+                        rangeDesc.setReadByColumnDef(true);
+                    }
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
@@ -474,6 +500,10 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setFuzzyParse(context.fileGroup.isFuzzyParse());
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
+                }
+                if (this instanceof HiveScanNode) {
+                    rangeDesc.setHdfsParams(tHdfsParams);
+                    rangeDesc.setReadByColumnDef(true);
                 }
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
