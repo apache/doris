@@ -41,7 +41,7 @@ import org.json.JSONObject;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
-    static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
