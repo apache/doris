@@ -56,8 +56,6 @@
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
 
-#include "client/linux/handler/exception_handler.h"
-
 static void help(const char*);
 
 #include <dlfcn.h>
