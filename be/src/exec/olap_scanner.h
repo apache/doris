@@ -50,8 +50,7 @@ class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
                 bool need_agg_finalize, const TPaloScanRange& scan_range);
-
-    ~OlapScanner();
+    
 
     Status prepare(const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
                    const std::vector<TCondition>& filters,

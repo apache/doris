@@ -58,7 +58,7 @@ public:
     using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
 
     FragmentMgr(ExecEnv* exec_env);
-    virtual ~FragmentMgr();
+    virtual ~FragmentMgr();//why virtual dtor?
 
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
