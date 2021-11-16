@@ -119,6 +119,24 @@ public class BrokerFileGroup implements Writable {
         this.fileFormat = table.getFileFormat();
     }
 
+    // Used for hive table, no need to parse
+    public BrokerFileGroup(HiveTable table,
+                           String columnSeparator,
+                           String lineDelimiter,
+                           String filePath,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = table.getId();
+        this.valueSeparator = Separator.convertSeparator(columnSeparator);
+        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        this.isNegative = false;
+        this.filePaths = Lists.newArrayList(filePath);
+        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.columnExprList = columnExprList;
+    }
+
     public BrokerFileGroup(DataDescription dataDescription) {
         this.fileFieldNames = dataDescription.getFileFieldNames();
         this.columnsFromPath = dataDescription.getColumnsFromPath();

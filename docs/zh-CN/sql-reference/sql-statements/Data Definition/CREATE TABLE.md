@@ -165,7 +165,6 @@ under the License.
     
     ```
     其中 database 是 hive 表对应的库名字，table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
-    注意：目前hive外部表仅用于Spark Load使用，不支持查询。
 
 4. key_desc
     语法：
