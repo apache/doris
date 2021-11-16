@@ -354,7 +354,7 @@ public class Coordinator {
     }
 
     // Initialize
-    protected void prepare() {
+    private void prepare() {
         for (PlanFragment fragment : fragments) {
             fragmentExecParamsMap.put(fragment.getFragmentId(), new FragmentExecParams(fragment));
         }
