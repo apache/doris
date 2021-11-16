@@ -136,6 +136,14 @@ public:
     // Returns the number of buckets
     int64_t num_buckets() { return _buckets.size(); }
 
+    // Returns the number of filled buckets
+    int64_t num_filled_buckets() { return _num_filled_buckets; }
+
+    // Check the hash table should be shrink
+    bool should_be_shrink(int64_t valid_row) {
+        return valid_row < MAX_BUCKET_OCCUPANCY_FRACTION * (_buckets.size() / 2.0);
+    }
+
     // true if any of the MemTrackers was exceeded
     bool exceeded_limit() const { return _exceeded_limit; }
 
@@ -172,6 +180,10 @@ public:
     std::string debug_string(bool skip_empty, const RowDescriptor* build_desc);
 
     inline std::pair<int64_t, int64_t> minmax_node();
+
+    // Load factor that will trigger growing the hash table on insert.  This is
+    // defined as the number of non-empty buckets / total_buckets
+    static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
 
     // stl-like iterator interface.
     class Iterator {
@@ -346,10 +358,6 @@ private:
     // allocation_size is the attempted size of the allocation that would have
     // brought us over the mem limit.
     void mem_limit_exceeded(int64_t allocation_size);
-
-    // Load factor that will trigger growing the hash table on insert.  This is
-    // defined as the number of non-empty buckets / total_buckets
-    static const float MAX_BUCKET_OCCUPANCY_FRACTION;
 
     const std::vector<ExprContext*>& _build_expr_ctxs;
     const std::vector<ExprContext*>& _probe_expr_ctxs;

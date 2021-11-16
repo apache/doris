@@ -49,6 +49,8 @@ void HyperLogLog::_convert_explicit_to_register() {
         _update_registers(_explicit_data[i]);
     }
 
+    delete [] _explicit_data;
+    _explicit_data = nullptr;
     _explicit_data_num = 0;
 }
 
@@ -57,6 +59,7 @@ void HyperLogLog::_convert_explicit_to_register() {
 void HyperLogLog::update(uint64_t hash_value) {
     switch (_type) {
     case HLL_DATA_EMPTY:
+        _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
         _explicit_data[0] = hash_value;
         _explicit_data_num = 1;
         _type = HLL_DATA_EXPLICIT;
@@ -88,6 +91,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
         switch (other._type) {
         case HLL_DATA_EXPLICIT:
             _explicit_data_num = other._explicit_data_num;
+            _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
             memcpy(_explicit_data, other._explicit_data,
                    sizeof(*_explicit_data) * _explicit_data_num);
             break;
@@ -351,6 +355,7 @@ bool HyperLogLog::deserialize(const Slice& slice) {
         // 2: number of explicit values
         // make sure that num_explicit is positive
         uint8_t num_explicits = *ptr++;
+        _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
         // 3+: 8 bytes hash value
         for (int i = 0; i < num_explicits; ++i) {
             _explicit_data_insert(decode_fixed64_le(ptr));

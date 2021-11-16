@@ -1146,7 +1146,6 @@ Status PartitionedAggregationNode::CreateHashPartitions(int level, int single_pa
             RETURN_IF_ERROR(partition->InitHashTable(&got_memory));
             // Spill the partition if we cannot create a hash table for a merge aggregation.
             if (UNLIKELY(!got_memory)) {
-                DCHECK(!is_streaming_preagg_) << "Preagg reserves enough memory for hash tables";
                 // If we're repartitioning, we will be writing aggregated rows first.
                 RETURN_IF_ERROR(partition->Spill(level > 0));
             }

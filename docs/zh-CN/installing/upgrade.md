@@ -31,6 +31,25 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 > 注：  
 > 1. 以下方式均建立在高可用部署的情况下。即数据 3 副本，FE 高可用情况下。  
 
+## 前置工作
+
+1. 关闭集群副本修复和均衡功能
+
+	升级过程中会有节点重启，所以可能会触发不必要的集群均衡和副本修复逻辑。可以先通过以下命令关闭：
+
+	```
+	# 关闭副本均衡逻辑。关闭后，不会再触发普通表副本的均衡操作。
+	$ mysql-client > admin set frontend config("disable_balance" = "true");
+
+	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再出发 colocation 表的副本重分布操作。
+	$ mysql-client > admin set frontend config("disable_colocate_balance");
+
+	# 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
+	$ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
+	```
+
+	当集群升级完毕后，在通过以上命令将对应配置设为原值即可。
+
 ## 测试 BE 升级正确性
 
 1. 任意选择一个 BE 节点，部署最新的 palo_be 二进制文件。

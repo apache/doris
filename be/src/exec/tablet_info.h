@@ -243,6 +243,8 @@ struct NodeInfo {
     std::string host;
     int32_t brpc_port;
 
+    NodeInfo() = default;
+
     NodeInfo(const TNodeInfo& tnode)
             : id(tnode.id),
               option(tnode.option),

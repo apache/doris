@@ -479,35 +479,51 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
     // range of current file
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
+    bool read_by_column_def = false;
+    if (range.__isset.read_by_column_def) {
+        read_by_column_def = range.read_by_column_def;
+    }
     const std::vector<std::string>& columns_from_path = range.columns_from_path;
-    if (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
-        std::stringstream error_msg;
-        error_msg << "actual column number is less than schema column number. "
-                  << "actual number: " << _split_values.size() << " column separator: ["
-                  << _value_separator << "], "
-                  << "line delimiter: [" << _line_delimiter << "], "
-                  << "schema number: " << _src_slot_descs.size() << "; ";
-        if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-            _state->append_error_msg_to_file("", error_msg.str());
-        } else {
-            _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+    // read data by column defination, resize _split_values to _src_solt_size
+    if (read_by_column_def) {
+        // fill solts by NULL 
+        while (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
+            _split_values.emplace_back(_split_values.back().get_data(), 0);
         }
-        _counter->num_rows_filtered++;
-        return false;
-    } else if (_split_values.size() + columns_from_path.size() > _src_slot_descs.size()) {
-        std::stringstream error_msg;
-        error_msg << "actual column number is more than schema column number. "
-                  << "actual number: " << _split_values.size() << " column separator: ["
-                  << _value_separator << "], "
-                  << "line delimiter: [" << _line_delimiter << "], "
-                  << "schema number: " << _src_slot_descs.size() << "; ";
-        if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-            _state->append_error_msg_to_file("", error_msg.str());
-        } else {
-            _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+        // remove redundant slots
+        while (_split_values.size() + columns_from_path.size() > _src_slot_descs.size()) {
+            _split_values.pop_back();
         }
-        _counter->num_rows_filtered++;
-        return false;
+    } else {
+        if (_split_values.size() + columns_from_path.size() < _src_slot_descs.size()) {
+            std::stringstream error_msg;
+            error_msg << "actual column number is less than schema column number. "
+                    << "actual number: " << _split_values.size() << " column separator: ["
+                    << _value_separator << "], "
+                    << "line delimiter: [" << _line_delimiter << "], "
+                    << "schema number: " << _src_slot_descs.size() << "; ";
+            if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+                _state->append_error_msg_to_file("", error_msg.str());
+            } else {
+                _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+            }
+            _counter->num_rows_filtered++;
+            return false;
+        } else if (_split_values.size() + columns_from_path.size() > _src_slot_descs.size()) {
+            std::stringstream error_msg;
+            error_msg << "actual column number is more than schema column number. "
+                    << "actual number: " << _split_values.size() << " column separator: ["
+                    << _value_separator << "], "
+                    << "line delimiter: [" << _line_delimiter << "], "
+                    << "schema number: " << _src_slot_descs.size() << "; ";
+            if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+                _state->append_error_msg_to_file("", error_msg.str());
+            } else {
+                _state->append_error_msg_to_file(std::string(line.data, line.size), error_msg.str());
+            }
+            _counter->num_rows_filtered++;
+            return false;
+        }
     }
 
     for (int i = 0; i < _split_values.size(); ++i) {

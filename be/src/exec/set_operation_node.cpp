@@ -27,7 +27,7 @@
 namespace doris {
 SetOperationNode::SetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs, int tuple_id)
-        : ExecNode(pool, tnode, descs), _tuple_id(tuple_id), _tuple_desc(nullptr) {}
+        : ExecNode(pool, tnode, descs), _tuple_id(tuple_id), _tuple_desc(nullptr), _valid_element_in_hash_tbl(0) {}
 
 Status SetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -163,6 +163,8 @@ Status SetOperationNode::open(RuntimeState* state) {
         VLOG_ROW << "hash table content: " << _hash_tbl->debug_string(true, &child(0)->row_desc());
         build_batch.reset();
     }
+
     return Status::OK();
 }
+
 } // namespace doris

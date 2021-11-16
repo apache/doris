@@ -439,3 +439,7 @@ Translated with www.DeepL.com/Translator (free version)
      This parameter will be overridden by the `cpu_resource_limit` configuration in the user property.
 
      The default is -1, which means no limit.
+
+* `disable_join_reorder`
+
+    Used to turn off all automatic join reorder algorithms in the system. There are two values: true and false.It is closed by default, that is, the automatic join reorder algorithm of the system is adopted. After set to true, the system will close all automatic sorting algorithms, adopt the original SQL table order, and execute join
