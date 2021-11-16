@@ -156,7 +156,7 @@ Syntax:
         )
         ```
         "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
-        Notice: At present, hive external tables are only used for Spark Load and query is not supported.
+        
 4. key_desc
     Syntax:
         key_type(k1[,k2 ...])

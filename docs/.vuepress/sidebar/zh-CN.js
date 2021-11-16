@@ -233,6 +233,7 @@ module.exports = [
       "doris-on-es",
       "logstash",
       "odbc-of-doris",
+      "hive-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
       "flink-doris-connector",

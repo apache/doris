@@ -29,6 +29,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
+#if defined(__x86_64__)
+    #include "exec/hdfs_file_reader.h"
+#endif
+
 // orc include file didn't expose orc::TimezoneError
 // we have to declare it by hand, following is the source code in orc link
 // https://github.com/apache/orc/blob/84353fbfc447b06e0924024a8e03c1aaebd3e7a5/c%2B%2B/src/Timezone.hh#L104-L109
@@ -405,6 +409,15 @@ Status ORCScanner::open_next_reader() {
             file_reader.reset(new BufferedReader(_profile,
                     new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
+        }
+        case TFileType::FILE_HDFS: {
+#if defined(__x86_64__)
+            file_reader.reset(new HdfsFileReader(
+                    range.hdfs_params, range.path, range.start_offset));
+            break;
+#else
+            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
         }
         default: {
             std::stringstream ss;

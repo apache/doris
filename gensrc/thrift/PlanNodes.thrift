@@ -152,6 +152,8 @@ struct TBrokerRangeDesc {
     15: optional bool fuzzy_parse;
     16: optional THdfsParams hdfs_params
     17: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    18: optional bool read_by_column_def;
 }
 
 struct TBrokerScanRangeParams {
