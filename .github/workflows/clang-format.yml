@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,21 +14,22 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+#
 
-##############################################################
-# This script run the clang-format to check and fix
-# cplusplus source files.
-##############################################################
-
-set -eo pipefail
-
-ROOT=`dirname "$0"`
-ROOT=`cd "$ROOT"; pwd`
-
-export DORIS_HOME=`cd "${ROOT}/.."; pwd`
-
-CLANG_FORMAT=${CLANG_FORMAT_BINARY:=$(which clang-format)}
-
-python3 ${DORIS_HOME}/build-support/run_clang_format.py "--clang-format-executable" "${CLANG_FORMAT}" "-r" "--style" "file" "--inplace" "true" "--extensions" "c,h,C,H,cpp,hpp,cc,hh,c++,h++,cxx,hxx" "--exclude" "none" "be/src be/test"
-
-
+---
+name: BE Code Fomatter
+on: push
+jobs:
+  clang-format:
+    name: "Clang Fomatter"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v2
+      - name: "Format it!"
+        uses: DoozyX/clang-format-lint-action@v0.13
+        id: be_clang_format
+        with:
+          source: 'be/src be/test'
+          clangFormatVersion: 10
+          inplace: False
