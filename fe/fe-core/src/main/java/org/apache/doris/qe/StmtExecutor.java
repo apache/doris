@@ -195,6 +195,13 @@ public class StmtExecutor implements ProfileWriter {
     private void initProfile(QueryPlannerProfile plannerProfile, boolean waiteBeReport) {
         long currentTimestamp = System.currentTimeMillis();
         long totalTimeMs = currentTimestamp - context.getStartTime();
+        RuntimeProfile queryProfile;
+        // when a query hits the sql cache, `coord` is null.
+        if (coord == null) {
+            queryProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(context.queryId()));
+        } else {
+            queryProfile = coord.getQueryProfile();
+        }
         if (profile == null) {
             profile = new RuntimeProfile("Query");
             summaryProfile = new RuntimeProfile("Summary");
@@ -216,7 +223,7 @@ public class StmtExecutor implements ProfileWriter {
 
             plannerRuntimeProfile = new RuntimeProfile("Execution Summary");
             summaryProfile.addChild(plannerRuntimeProfile);
-            profile.addChild(coord.getQueryProfile());
+            profile.addChild(queryProfile);
         } else {
             summaryProfile.addInfoString(ProfileManager.END_TIME,
                     waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
@@ -227,8 +234,10 @@ public class StmtExecutor implements ProfileWriter {
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
-        coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
-        coord.endProfile(waiteBeReport);
+        queryProfile.getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(plannerProfile.getQueryBeginTime()));
+        if (coord != null) {
+            coord.endProfile(waiteBeReport);
+        }
     }
 
     public Planner planner() {
