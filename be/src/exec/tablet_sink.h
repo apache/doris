@@ -18,11 +18,12 @@
 #pragma once
 
 #include <fmt/format.h>
+
 #include <memory>
 #include <queue>
-#include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -203,8 +204,9 @@ public:
         // FIXME(cmy): There is a problem that when calling node_info, the node_info seems not initialized.
         //             But I don't know why. so here I print node_info->id instead of node_info->host
         //             to avoid BE crash. It needs further observation.
-        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id, _node_info.brpc_port);
-    } 
+        return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.id,
+                           _node_info.brpc_port);
+    }
 
 private:
     void _cancel_with_msg(const std::string& msg);
@@ -281,7 +283,15 @@ public:
         }
     }
 
-    void mark_as_failed(const NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
+    void mark_as_failed(const NodeChannel* ch) {
+        const auto& it = _tablets_by_channel.find(ch->node_id());
+        if (it == _tablets_by_channel.end()) {
+            return;
+        }
+        for (const auto tablet_id : it->second) {
+            _failed_channels[tablet_id].insert(ch->node_id());
+        }
+    }
     bool has_intolerable_failure();
 
     size_t num_node_channels() const { return _node_channels.size(); }
@@ -295,8 +305,10 @@ private:
     std::unordered_map<int64_t, NodeChannel*> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
-    // BeId
-    std::set<int64_t> _failed_channels;
+    // from backend channel to tablet_id
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablets_by_channel;
+    // key is tablet_id, value is a set of failed node id
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _failed_channels;
 };
 
 // Write data to Olap Table.
