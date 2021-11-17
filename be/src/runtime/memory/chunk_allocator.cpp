@@ -135,6 +135,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
     chunk->core_id = core_id;
 
     if (_arenas[core_id]->pop_free_chunk(size, &chunk->data)) {
+        DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
         return true;
@@ -144,6 +145,7 @@ bool ChunkAllocator::allocate(size_t size, Chunk* chunk) {
         ++core_id;
         for (int i = 1; i < _arenas.size(); ++i, ++core_id) {
             if (_arenas[core_id % _arenas.size()]->pop_free_chunk(size, &chunk->data)) {
+                DCHECK_GE(_reserved_bytes, 0);
                 _reserved_bytes.fetch_sub(size);
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
@@ -186,6 +188,11 @@ void ChunkAllocator::free(const Chunk& chunk) {
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
+}
+
+
+bool ChunkAllocator::allocate_align(size_t size, Chunk* chunk) {
+    return allocate(BitUtil::RoundUpToPowerOfTwo(size), chunk);
 }
 
 } // namespace doris
