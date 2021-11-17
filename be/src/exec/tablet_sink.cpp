@@ -62,7 +62,7 @@ NodeChannel::~NodeChannel() {
 // returned directly via "TabletSink::prepare()" method.
 Status NodeChannel::init(RuntimeState* state) {
     _tuple_desc = _parent->_output_tuple_desc;
-    auto node =  _parent->_nodes_info->find_node(_node_id);
+    auto node = _parent->_nodes_info->find_node(_node_id);
     if (node == nullptr) {
         std::stringstream ss;
         ss << "unknown node id, id=" << _node_id;
@@ -462,6 +462,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             }
             channel->add_tablet(tablet);
             channels.push_back(channel);
+            _tablets_by_channel[node_id].insert(tablet.tablet_id);
         }
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
@@ -495,7 +496,12 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 }
 
 bool IndexChannel::has_intolerable_failure() {
-    return _failed_channels.size() >= ((_parent->_num_replicas + 1) / 2);
+    for (const auto& it : _failed_channels) {
+        if (it.second.size() >= ((_parent->_num_replicas + 1) / 2)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
