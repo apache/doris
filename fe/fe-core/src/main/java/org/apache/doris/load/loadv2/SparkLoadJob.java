@@ -331,7 +331,8 @@ public class SparkLoadJob extends BulkLoadJob {
             TUniqueId dummyId = new TUniqueId(0, 0);
             long dummyBackendId = -1L;
             loadStatistic.initLoad(dummyId, Sets.newHashSet(dummyId), Lists.newArrayList(dummyBackendId));
-            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows, true);
+            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows,
+                    dppResult.scannedBytes, true);
 
             Map<String, String> counters = loadingStatus.getCounters();
             counters.put(DPP_NORMAL_ALL, String.valueOf(dppResult.normalRows));

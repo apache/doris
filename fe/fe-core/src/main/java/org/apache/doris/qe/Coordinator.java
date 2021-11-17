@@ -1536,8 +1536,8 @@ public class Coordinator {
 
         if (params.isSetLoadedRows()) {
             Catalog.getCurrentCatalog().getLoadManager().updateJobProgress(
-                    jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
-                    params.done);
+                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
         }
     }
 
