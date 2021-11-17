@@ -83,7 +83,7 @@ void IR_ALWAYS_INLINE PartitionedAggregationNode::EvalAndHashPrefetchGroup(
         if (is_null) {
             expr_vals_cache->SetRowNull();
         } else if (config::enable_prefetch) {
-            if (LIKELY(hash_tbl != NULL)) hash_tbl->PrefetchBucket<false>(hash);
+            if (LIKELY(hash_tbl != nullptr)) hash_tbl->PrefetchBucket<false>(hash);
         }
         expr_vals_cache->NextRow();
     }
@@ -105,8 +105,8 @@ Status PartitionedAggregationNode::ProcessRow(TupleRow* row, PartitionedHashTabl
     PartitionedHashTable* hash_tbl = GetHashTable(partition_idx);
     Partition* dst_partition = hash_partitions_[partition_idx];
     DCHECK(dst_partition != nullptr);
-    DCHECK_EQ(dst_partition->is_spilled(), hash_tbl == NULL);
-    if (hash_tbl == NULL) {
+    DCHECK_EQ(dst_partition->is_spilled(), hash_tbl == nullptr);
+    if (hash_tbl == nullptr) {
         // This partition is already spilled, just append the row.
         return AppendSpilledRow<AGGREGATED_ROWS>(dst_partition, row);
     }
@@ -143,7 +143,7 @@ Status PartitionedAggregationNode::AddIntermediateTuple(Partition* partition, Tu
                 partition->agg_fn_evals, partition->aggregated_row_stream.get(),
                 &process_batch_status_);
 
-        if (LIKELY(intermediate_tuple != NULL)) {
+        if (LIKELY(intermediate_tuple != nullptr)) {
             UpdateTuple(partition->agg_fn_evals.data(), intermediate_tuple, row, AGGREGATED_ROWS);
             // After copying and initializing the tuple, insert it into the hash table.
             insert_it.SetTuple(intermediate_tuple, hash);
@@ -188,7 +188,7 @@ Status PartitionedAggregationNode::ProcessBatchStreaming(bool needs_serialize, R
                 // Tuple is not going into hash table, add it to the output batch.
                 Tuple* intermediate_tuple = ConstructIntermediateTuple(
                         agg_fn_evals_, out_batch->tuple_data_pool(), &process_batch_status_);
-                if (UNLIKELY(intermediate_tuple == NULL)) {
+                if (UNLIKELY(intermediate_tuple == nullptr)) {
                     DCHECK(!process_batch_status_.ok());
                     return std::move(process_batch_status_);
                 }
@@ -217,7 +217,7 @@ bool PartitionedAggregationNode::TryAddToHashTable(PartitionedHashTableCtx* ht_c
                                                    PartitionedHashTable* hash_tbl, TupleRow* in_row,
                                                    uint32_t hash, int* remaining_capacity,
                                                    Status* status) {
-    DCHECK(remaining_capacity != NULL);
+    DCHECK(remaining_capacity != nullptr);
     DCHECK_EQ(hash_tbl, partition->hash_tbl.get());
     DCHECK_GE(*remaining_capacity, 0);
     bool found;
@@ -231,7 +231,7 @@ bool PartitionedAggregationNode::TryAddToHashTable(PartitionedHashTableCtx* ht_c
     } else {
         intermediate_tuple = ConstructIntermediateTuple(
                 partition->agg_fn_evals, partition->aggregated_row_stream.get(), status);
-        if (LIKELY(intermediate_tuple != NULL)) {
+        if (LIKELY(intermediate_tuple != nullptr)) {
             it.SetTuple(intermediate_tuple, hash);
             --(*remaining_capacity);
         } else {

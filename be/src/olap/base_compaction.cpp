@@ -137,7 +137,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     // 3. the interval since last base compaction reaches the threshold
     int64_t base_creation_time = _input_rowsets[0]->creation_time();
     int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
-    int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
+    int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
         LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
                   << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction

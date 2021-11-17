@@ -31,9 +31,9 @@
 
 namespace doris {
 
-ResultFileSink::ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
-                       const TResultFileSink& sink)
-         : DataStreamSender(nullptr, 0, row_desc), _t_output_expr(t_output_expr){
+ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
+                               const std::vector<TExpr>& t_output_expr, const TResultFileSink& sink)
+        : DataStreamSender(nullptr, 0, row_desc), _t_output_expr(t_output_expr) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
@@ -43,22 +43,22 @@ ResultFileSink::ResultFileSink(const RowDescriptor& row_desc, const std::vector<
     _name = "ResultFileSink";
 }
 
-ResultFileSink::ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
-                       const TResultFileSink& sink,
-                       const std::vector<TPlanFragmentDestination>& destinations,
-                       ObjectPool* pool, int sender_id, DescriptorTbl& descs)
-        : DataStreamSender(pool, sender_id, row_desc), _t_output_expr(t_output_expr),
-         _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
+ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
+                               const std::vector<TExpr>& t_output_expr, const TResultFileSink& sink,
+                               const std::vector<TPlanFragmentDestination>& destinations,
+                               ObjectPool* pool, int sender_id, DescriptorTbl& descs)
+        : DataStreamSender(pool, sender_id, row_desc),
+          _t_output_expr(t_output_expr),
+          _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
     _is_top_sink = false;
     DCHECK_EQ(destinations.size(), 1);
-    _channel_shared_ptrs.emplace_back(
-            new Channel(this, _output_row_descriptor, destinations[0].brpc_server,
-                        destinations[0].fragment_instance_id,
-                        sink.dest_node_id, _buf_size, true, true));
+    _channel_shared_ptrs.emplace_back(new Channel(
+            this, _output_row_descriptor, destinations[0].brpc_server,
+            destinations[0].fragment_instance_id, sink.dest_node_id, _buf_size, true, true));
     _channels.push_back(_channel_shared_ptrs.back().get());
 
     _name = "ResultFileSink";
@@ -91,12 +91,12 @@ Status ResultFileSink::prepare(RuntimeState* state) {
     CHECK(_file_opts.get() != nullptr);
     if (_is_top_sink) {
         // create sender
-        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->fragment_instance_id(),
-                                                                       _buf_size, &_sender));
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->fragment_instance_id(), _buf_size, &_sender));
         // create writer
-        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _storage_type,
-                                                         state->fragment_instance_id(), _output_expr_ctxs,
-                                                         _profile, _sender.get(), nullptr));
+        _writer.reset(new (std::nothrow) FileResultWriter(
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
+                _profile, _sender.get(), nullptr));
     } else {
         // init channel
         _profile = _pool->add(new RuntimeProfile(title.str()));
@@ -104,16 +104,16 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
         _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
         _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
-        _uncompressed_bytes_counter = ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
+        _uncompressed_bytes_counter =
+                ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
         _mem_tracker = MemTracker::CreateTracker(
                 _profile, -1, "ResultFileSink:" + print_id(state->fragment_instance_id()),
                 state->instance_mem_tracker());
         // create writer
         _output_batch = new RowBatch(_output_row_descriptor, 1024, _mem_tracker.get());
-        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _storage_type,
-                                                         state->fragment_instance_id(), _output_expr_ctxs,
-                                                         _profile, nullptr, _output_batch));
-
+        _writer.reset(new (std::nothrow) FileResultWriter(
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
+                _profile, nullptr, _output_batch));
     }
     RETURN_IF_ERROR(_writer->init(state));
     for (int i = 0; i < _channels.size(); ++i) {
@@ -152,7 +152,7 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
             _sender->close(final_status);
         }
         state->exec_env()->result_mgr()->cancel_at_time(
-                time(NULL) + config::result_buffer_cancelled_interval_time,
+                time(nullptr) + config::result_buffer_cancelled_interval_time,
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {

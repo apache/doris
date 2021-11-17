@@ -266,14 +266,14 @@ Status RuntimeState::init_buffer_poolstate() {
     VLOG_QUERY << "Buffer pool limit for " << print_id(_query_id) << ": " << max_reservation;
 
     _buffer_reservation = _obj_pool->add(new ReservationTracker);
-    _buffer_reservation->InitChildTracker(NULL, exec_env->buffer_reservation(),
+    _buffer_reservation->InitChildTracker(nullptr, exec_env->buffer_reservation(),
                                           _query_mem_tracker.get(), max_reservation);
 
     return Status::OK();
 }
 
 Status RuntimeState::create_block_mgr() {
-    DCHECK(_block_mgr2.get() == NULL);
+    DCHECK(_block_mgr2.get() == nullptr);
 
     int64_t block_mgr_limit = _query_mem_tracker->limit();
     if (block_mgr_limit < 0) {
@@ -339,11 +339,11 @@ Status RuntimeState::set_mem_limit_exceeded(MemTracker* tracker, int64_t failed_
         }
     }
 
-    DCHECK(_query_mem_tracker.get() != NULL);
+    DCHECK(_query_mem_tracker.get() != nullptr);
     std::stringstream ss;
     ss << "Memory Limit Exceeded\n";
     if (failed_allocation_size != 0) {
-        DCHECK(tracker != NULL);
+        DCHECK(tracker != nullptr);
         ss << "  " << tracker->label() << " could not allocate "
            << PrettyPrinter::print(failed_allocation_size, TUnit::BYTES)
            << " without exceeding limit." << std::endl;

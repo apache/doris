@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 
-#include <boost/cstdint.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <memory>
 #include <vector>
 
@@ -117,7 +115,7 @@ public:
                          int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool,
                          const std::shared_ptr<MemTracker>& tracker, const RowDescriptor& row_desc,
                          const RowDescriptor& row_desc_probe,
-                         boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx);
+                         std::unique_ptr<PartitionedHashTableCtx>* ht_ctx);
 
     /// Initialize the build and probe expression evaluators.
     Status Open(RuntimeState* state);
@@ -141,14 +139,14 @@ public:
     TupleRow* ALWAYS_INLINE scratch_row() const { return scratch_row_; }
 
     /// Returns the results of the expression at 'expr_idx' evaluated at the current row.
-    /// This value is invalid if the expr evaluated to NULL.
+    /// This value is invalid if the expr evaluated to nullptr.
     /// TODO: this is an awkward abstraction but aggregation node can take advantage of
     /// it and save some expr evaluation calls.
     void* ALWAYS_INLINE ExprValue(int expr_idx) const {
         return expr_values_cache_.ExprValuePtr(expr_values_cache_.cur_expr_values(), expr_idx);
     }
 
-    /// Returns if the expression at 'expr_idx' is evaluated to NULL for the current row.
+    /// Returns if the expression at 'expr_idx' is evaluated to nullptr for the current row.
     bool ALWAYS_INLINE ExprValueNull(int expr_idx) const {
         return static_cast<bool>(*(expr_values_cache_.cur_expr_values_null() + expr_idx));
     }
@@ -158,7 +156,7 @@ public:
     /// 'cur_expr_values_', the nullness of expressions values in 'cur_expr_values_null_',
     /// and the hashed expression values in 'cur_expr_values_hash_'. Returns false if this
     /// row should be rejected  (doesn't need to be processed further) because it contains
-    /// NULL. These need to be inlined in the IR module so we can find and replace the
+    /// nullptr. These need to be inlined in the IR module so we can find and replace the
     /// calls to EvalBuildRow()/EvalProbeRow().
     bool IR_ALWAYS_INLINE EvalAndHashBuild(TupleRow* row);
     bool IR_ALWAYS_INLINE EvalAndHashProbe(TupleRow* row);
@@ -188,7 +186,7 @@ public:
     /// expression in each row. 'cur_expr_values_null_' is a pointer into this array.
     /// - 'expr_values_hash_array_' is an array of cached hash values of the rows.
     /// 'cur_expr_values_hash_' is a pointer into this array.
-    /// - 'null_bitmap_' is a bitmap which indicates rows evaluated to NULL.
+    /// - 'null_bitmap_' is a bitmap which indicates rows evaluated to nullptr.
     ///
     /// ExprValuesCache provides an iterator like interface for performing a write pass
     /// followed by a read pass. We refrain from providing an interface for random accesses
@@ -273,7 +271,7 @@ public:
         uint8_t* ALWAYS_INLINE cur_expr_values() const { return cur_expr_values_; }
 
         /// Returns null indicator bytes for the current row, one per expression. Non-zero
-        /// bytes mean NULL, zero bytes mean non-NULL. Indexed by the expression index.
+        /// bytes mean nullptr, zero bytes mean non-nullptr. Indexed by the expression index.
         /// These are uint8_t instead of bool to simplify codegen with IRBuilder.
         /// TODO: is there actually a valid reason why this is necessary for codegen?
         uint8_t* ALWAYS_INLINE cur_expr_values_null() const { return cur_expr_values_null_; }
@@ -325,20 +323,20 @@ public:
 
         /// Array for caching up to 'capacity_' number of rows worth of evaluated expression
         /// values. Each row consumes 'expr_values_bytes_per_row_' number of bytes.
-        boost::scoped_array<uint8_t> expr_values_array_;
+        std::unique_ptr<uint8_t[]> expr_values_array_;
 
         /// Array for caching up to 'capacity_' number of rows worth of null booleans.
         /// Each row contains 'num_exprs_' booleans to indicate nullness of expression values.
-        /// Used when the hash table supports NULL. Use 'uint8_t' to guarantee each entry is 1
+        /// Used when the hash table supports nullptr. Use 'uint8_t' to guarantee each entry is 1
         /// byte as sizeof(bool) is implementation dependent. The IR depends on this
         /// assumption.
-        boost::scoped_array<uint8_t> expr_values_null_array_;
+        std::unique_ptr<uint8_t[]> expr_values_null_array_;
 
         /// Array for caching up to 'capacity_' number of rows worth of hashed values.
-        boost::scoped_array<uint32_t> expr_values_hash_array_;
+        std::unique_ptr<uint32_t[]> expr_values_hash_array_;
 
         /// One bit for each row. A bit is set if that row is not hashed as it's evaluated
-        /// to NULL but the hash table doesn't support NULL. Such rows may still be included
+        /// to nullptr but the hash table doesn't support nullptr. Such rows may still be included
         /// in outputs for certain join types (e.g. left anti joins).
         Bitmap null_bitmap_;
 
@@ -421,7 +419,7 @@ private:
     uint32_t HashVariableLenRow(const uint8_t* expr_values, const uint8_t* expr_values_null) const;
 
     /// Evaluate the exprs over row, storing the values into 'expr_values' and nullness into
-    /// 'expr_values_null'. Returns whether any expr evaluated to NULL. This will be
+    /// 'expr_values_null'. Returns whether any expr evaluated to nullptr. This will be
     /// replaced by codegen.
     bool EvalRow(TupleRow* row, const std::vector<ExprContext*>& ctxs, uint8_t* expr_values,
                  uint8_t* expr_values_null) noexcept;
@@ -515,7 +513,7 @@ private:
         /// TODO: Fold this flag in the next pointer below.
         bool matched;
 
-        /// Chain to next duplicate node, NULL when end of list.
+        /// Chain to next duplicate node, nullptr when end of list.
         DuplicateNode* next;
         HtData htdata;
     };
@@ -555,7 +553,7 @@ public:
     ///    hash table.
     ///  - num_build_tuples: number of Tuples in the build tuple row.
     ///  - tuple_stream: the tuple stream which contains the tuple rows index by the
-    ///    hash table. Can be NULL if the rows contain only a single tuple, in which
+    ///    hash table. Can be nullptr if the rows contain only a single tuple, in which
     ///    case the 'tuple_stream' is unused.
     ///  - max_num_buckets: the maximum number of buckets that can be stored. If we
     ///    try to grow the number of buckets to a larger number, the inserts will fail.
@@ -717,7 +715,10 @@ public:
 
     public:
         IR_ALWAYS_INLINE Iterator()
-                : table_(NULL), scratch_row_(NULL), bucket_idx_(BUCKET_NOT_FOUND), node_(NULL) {}
+                : table_(nullptr),
+                  scratch_row_(nullptr),
+                  bucket_idx_(BUCKET_NOT_FOUND),
+                  node_(nullptr) {}
 
         /// Iterates to the next element. It should be called only if !AtEnd().
         void IR_ALWAYS_INLINE Next();
@@ -797,10 +798,10 @@ private:
     /// Performs the probing operation according to the probing algorithm (linear or
     /// quadratic. Returns one of the following:
     /// (a) the index of the bucket that contains the entry that matches with the last row
-    ///     evaluated in 'ht_ctx'. If 'ht_ctx' is NULL then it does not check for row
+    ///     evaluated in 'ht_ctx'. If 'ht_ctx' is nullptr then it does not check for row
     ///     equality and returns the index of the first empty bucket.
     /// (b) the index of the first empty bucket according to the probing algorithm (linear
-    ///     or quadratic), if the entry is not in the hash table or 'ht_ctx' is NULL.
+    ///     or quadratic), if the entry is not in the hash table or 'ht_ctx' is nullptr.
     /// (c) Iterator::BUCKET_NOT_FOUND if the probe was not successful, i.e. the maximum
     ///     distance was traveled without finding either an empty or a matching bucket.
     /// Using the returned index value, the caller can create an iterator that can be
@@ -822,7 +823,7 @@ private:
                                    PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found);
 
     /// Performs the insert logic. Returns the HtData* of the bucket or duplicate node
-    /// where the data should be inserted. Returns NULL if the insert was not successful
+    /// where the data should be inserted. Returns nullptr if the insert was not successful
     /// and either sets 'status' to OK if it failed because not enough reservation was
     /// available or the error if an error was encountered.
     HtData* IR_ALWAYS_INLINE InsertInternal(PartitionedHashTableCtx* ht_ctx, Status* status);
@@ -848,8 +849,8 @@ private:
     /// the bucket is converted to a DuplicateNode. That is, the contents of 'data' of the
     /// bucket are copied to a DuplicateNode and 'data' is updated to pointing to a
     /// DuplicateNode.
-    /// Returns NULL and sets 'status' to OK if the node array could not grow, i.e. there
-    /// was not enough memory to allocate a new DuplicateNode. Returns NULL and sets
+    /// Returns nullptr and sets 'status' to OK if the node array could not grow, i.e. there
+    /// was not enough memory to allocate a new DuplicateNode. Returns nullptr and sets
     /// 'status' to an error if another error was encountered.
     DuplicateNode* IR_ALWAYS_INLINE InsertDuplicateNode(int64_t bucket_idx, Status* status);
 
@@ -888,7 +889,7 @@ private:
     /// Suballocator to allocate data pages and hash table buckets with.
     Suballocator* allocator_;
 
-    /// Stream contains the rows referenced by the hash table. Can be NULL if the
+    /// Stream contains the rows referenced by the hash table. Can be nullptr if the
     /// row only contains a single tuple, in which case the TupleRow indirection
     /// is removed by the hash table.
     BufferedTupleStream3* tuple_stream_;

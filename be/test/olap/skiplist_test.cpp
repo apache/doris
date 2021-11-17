@@ -25,12 +25,12 @@
 #include "olap/schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "test_util/test_util.h"
 #include "util/condition_variable.h"
 #include "util/hash_util.hpp"
 #include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -358,7 +358,7 @@ public:
 
     enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s) : _seed(s), _quit_flag(NULL), _state(STARTING), _cv_state(&_mu) {}
+    explicit TestState(int s) : _seed(s), _quit_flag(false), _state(STARTING), _cv_state(&_mu) {}
 
     void wait(ReaderState s) {
         _mu.lock();
@@ -409,7 +409,7 @@ static void run_concurrent(int run) {
         for (int i = 0; i < kSize; i++) {
             state._t.write_step(&rnd);
         }
-        state._quit_flag.store(true, std::memory_order_release); // Any non-NULL arg will do
+        state._quit_flag.store(true, std::memory_order_release); // Any non-nullptr arg will do
         state.wait(TestState::DONE);
     }
 }

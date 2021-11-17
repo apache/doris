@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_ROW_BATCH_H
 #define DORIS_BE_RUNTIME_ROW_BATCH_H
 
-#include <boost/scoped_ptr.hpp>
 #include <cstring>
 #include <vector>
 
@@ -154,7 +153,7 @@ public:
     // that will eventually be attached to this row batch. We need to make sure
     // the tuple pool does not accumulate excessive memory.
     bool at_capacity(MemPool* tuple_pool) {
-        DCHECK(tuple_pool != NULL);
+        DCHECK(tuple_pool != nullptr);
         return at_capacity() || tuple_pool->total_allocated_bytes() > AT_CAPACITY_MEM_USAGE;
     }
 
@@ -173,7 +172,7 @@ public:
     size_t total_byte_size();
 
     TupleRow* get_row(int row_idx) const {
-        DCHECK(_tuple_ptrs != NULL);
+        DCHECK(_tuple_ptrs != nullptr);
         DCHECK_GE(row_idx, 0);
         //DCHECK_LT(row_idx, _num_rows + (_has_in_flight_row ? 1 : 0));
         return reinterpret_cast<TupleRow*>(_tuple_ptrs + row_idx * _num_tuples_per_row);
@@ -377,7 +376,7 @@ public:
     /// Allocates a buffer large enough for the fixed-length portion of 'capacity_' rows in
     /// this batch from 'tuple_data_pool_'. 'capacity_' is reduced if the allocation would
     /// exceed FIXED_LEN_BUFFER_LIMIT. Always returns enough space for at least one row.
-    /// Returns Status::MemoryLimitExceeded("Memory limit exceeded") and sets 'buffer' to NULL if a memory limit would
+    /// Returns Status::MemoryLimitExceeded("Memory limit exceeded") and sets 'buffer' to nullptr if a memory limit would
     /// have been exceeded. 'state' is used to log the error.
     /// On success, sets 'buffer_size' to the size in bytes and 'buffer' to the buffer.
     Status resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* buffer_size,
@@ -445,7 +444,7 @@ private:
     bool _need_to_return;
 
     // holding (some of the) data referenced by rows
-    boost::scoped_ptr<MemPool> _tuple_data_pool;
+    std::unique_ptr<MemPool> _tuple_data_pool;
 
     // holding some complex agg object data (bitmap, hll)
     std::unique_ptr<ObjectPool> _agg_object_pool;

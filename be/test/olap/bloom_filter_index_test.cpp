@@ -44,7 +44,7 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
     BloomFilter* bf_0 = new (std::nothrow) BloomFilter();
     bf_0->init(1024);
     bytes = "hello";
-    bf_0->add_bytes(NULL, 0);
+    bf_0->add_bytes(nullptr, 0);
     bf_0->add_bytes(bytes.c_str(), bytes.size());
     writer.add_bloom_filter(bf_0);
 
@@ -67,7 +67,7 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
 
     bytes = "hello";
     const BloomFilter& bf__0 = reader.entry(0);
-    ASSERT_TRUE(bf__0.test_bytes(NULL, 0));
+    ASSERT_TRUE(bf__0.test_bytes(nullptr, 0));
     ASSERT_TRUE(bf__0.test_bytes(bytes.c_str(), bytes.size()));
 
     bytes = "doris";
@@ -79,8 +79,8 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
 TEST_F(TestBloomFilterIndex, abnormal_write) {
     char buffer[24];
     BloomFilterIndexWriter writer;
-    ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(NULL));
-    ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(NULL, 0));
+    ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(nullptr));
+    ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(nullptr, 0));
     ASSERT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(buffer, 0));
     ASSERT_EQ(sizeof(BloomFilterIndexHeader), writer.estimate_buffered_memory());
 }

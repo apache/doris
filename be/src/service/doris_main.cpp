@@ -19,11 +19,9 @@
 #include <sys/file.h>
 #include <unistd.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/recursive_mutex.hpp>
-#include <boost/thread/thread.hpp>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 
 #if defined(LEAK_SANITIZER)

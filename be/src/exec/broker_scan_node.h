@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>
@@ -84,8 +85,7 @@ private:
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
                         const std::vector<ExprContext*>& pre_filter_ctxs,
-                        const std::vector<ExprContext*>& conjunct_ctxs,
-                        ScannerCounter* counter);
+                        const std::vector<ExprContext*>& conjunct_ctxs, ScannerCounter* counter);
 
     std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
                                                 const std::vector<ExprContext*>& pre_filter_ctxs,

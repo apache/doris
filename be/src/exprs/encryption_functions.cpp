@@ -17,8 +17,6 @@
 
 #include "exprs/encryption_functions.h"
 
-#include <boost/smart_ptr.hpp>
-
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "runtime/string_value.h"
@@ -39,12 +37,12 @@ StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx, const StringVal
 
     // cipher_len = (clearLen/16 + 1) * 16;
     int cipher_len = src.len + 16;
-    boost::scoped_array<char> p;
+    std::unique_ptr<char[]> p;
     p.reset(new char[cipher_len]);
 
     int ret_code =
             AesUtil::encrypt(AES_128_ECB, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr,
-                             key.len, NULL, true, (unsigned char*)p.get());
+                             key.len, nullptr, true, (unsigned char*)p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
@@ -58,12 +56,12 @@ StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx, const StringVal
     }
 
     int cipher_len = src.len;
-    boost::scoped_array<char> p;
+    std::unique_ptr<char[]> p;
     p.reset(new char[cipher_len]);
 
     int ret_code =
             AesUtil::decrypt(AES_128_ECB, (unsigned char*)src.ptr, src.len, (unsigned char*)key.ptr,
-                             key.len, NULL, true, (unsigned char*)p.get());
+                             key.len, nullptr, true, (unsigned char*)p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
@@ -76,7 +74,7 @@ StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal
     }
 
     int cipher_len = src.len;
-    boost::scoped_array<char> p;
+    std::unique_ptr<char[]> p;
     p.reset(new char[cipher_len]);
 
     int ret_code = base64_decode((const char*)src.ptr, src.len, p.get());
@@ -92,7 +90,7 @@ StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal& 
     }
 
     int cipher_len = (size_t)(4.0 * ceil((double)src.len / 3.0));
-    boost::scoped_array<char> p;
+    std::unique_ptr<char[]> p;
     p.reset(new char[cipher_len]);
 
     int ret_code = base64_encode((unsigned char*)src.ptr, src.len, (unsigned char*)p.get());

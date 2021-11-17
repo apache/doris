@@ -303,7 +303,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
     params.__set_done(done);
 
     RuntimeState* runtime_state = _executor.runtime_state();
-    DCHECK(runtime_state != NULL);
+    DCHECK(runtime_state != nullptr);
     if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
@@ -726,7 +726,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
     }
 
     // set up desc tbl
-    DescriptorTbl* desc_tbl = NULL;
+    DescriptorTbl* desc_tbl = nullptr;
     ObjectPool obj_pool;
     st = DescriptorTbl::create(&obj_pool, t_query_plan_info.desc_tbl, &desc_tbl);
     if (!st.ok()) {

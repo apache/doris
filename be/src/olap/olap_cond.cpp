@@ -386,20 +386,22 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 ret = DEL_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
-            } else if (!stat.first->is_null() && !stat.second->is_null()){
+            } else if (!stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
+                CHECK(false)
+                        << "It will not happen when the stat's min is not null and max is null";
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
-            } else if (!stat.first->is_null() && !stat.second->is_null()){
+            } else if (!stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
+                CHECK(false)
+                        << "It will not happen when the stat's min is not null and max is null";
             }
         }
         return ret;
@@ -440,7 +442,7 @@ bool Cond::eval(const BloomFilter& bf) const {
         return false;
     }
     case OP_IS: {
-        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        // IS [NOT] nullptr can only used in to filter IS nullptr predicate.
         if (operand_field->is_null()) {
             return bf.test_bytes(nullptr, 0);
         }
@@ -481,7 +483,7 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
         return false;
     }
     case OP_IS: {
-        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        // IS [NOT] nullptr can only used in to filter IS nullptr predicate.
         return operand_field->is_null() == bf->test_bytes(nullptr, 0);
     }
     default:
@@ -520,7 +522,7 @@ bool CondColumn::eval(const RowCursor& row) const {
     return true;
 }
 
-bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*> &statistic) const {
+bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
         if (!each_cond->eval(statistic)) {
@@ -623,7 +625,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
 
     VLOG_NOTICE << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size() << ", row=" << row.to_string();
+                << "condition_count=" << _columns.size() << ", row=" << row.to_string();
     return true;
 }
 

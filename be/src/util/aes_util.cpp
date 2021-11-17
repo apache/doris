@@ -45,7 +45,7 @@ const EVP_CIPHER* get_evp_type(const AesMode mode) {
     case AES_256_CBC:
         return EVP_aes_256_cbc();
     default:
-        return NULL;
+        return nullptr;
     }
 }
 

@@ -155,7 +155,7 @@ public:
     /// and the page's buffer will be returned.
     /// Neither the client's lock nor handle->page_->buffer_lock should be held by the
     /// caller.
-    void DestroyPageInternal(PageHandle* handle, BufferHandle* out_buffer = NULL);
+    void DestroyPageInternal(PageHandle* handle, BufferHandle* out_buffer = nullptr);
 
     /// Updates client state to reflect that 'page' is now a dirty unpinned page. May
     /// initiate writes for this or other dirty unpinned pages.
@@ -213,7 +213,7 @@ public:
 
     ReservationTracker* reservation() { return &reservation_; }
     const BufferPoolClientCounters& counters() const { return counters_; }
-    //bool spilling_enabled() const { return file_group_ != NULL; }
+    //bool spilling_enabled() const { return file_group_ != nullptr; }
     void set_debug_write_delay_ms(int val) { debug_write_delay_ms_ = val; }
     bool has_unpinned_pages() const {
         // Safe to read without lock since other threads should not be calling BufferPool
@@ -265,7 +265,7 @@ private:
     /// The buffer pool that owns the client.
     BufferPool* const pool_;
 
-    /// The file group that should be used for allocating scratch space. If NULL, spilling
+    /// The file group that should be used for allocating scratch space. If nullptr, spilling
     /// is disabled.
     //TmpFileMgr::FileGroup* const file_group_;
 
@@ -277,7 +277,7 @@ private:
     ReservationTracker reservation_;
 
     /// The RuntimeProfile counters for this client, owned by the client's RuntimeProfile.
-    /// All non-NULL.
+    /// All non-nullptr.
     BufferPoolClientCounters counters_;
 
     /// Debug option to delay write completion.

@@ -21,8 +21,8 @@
 
 #include <vector>
 
-#include "util/logging.h"
 #include "test_util/test_util.h"
+#include "util/logging.h"
 
 using namespace doris;
 using namespace std;
@@ -83,9 +83,9 @@ public:
     int Lookup(int key) {
         std::string result;
         Cache::Handle* handle = _cache->lookup(EncodeKey(&result, key));
-        const int r = (handle == NULL) ? -1 : DecodeValue(_cache->value(handle));
+        const int r = (handle == nullptr) ? -1 : DecodeValue(_cache->value(handle));
 
-        if (handle != NULL) {
+        if (handle != nullptr) {
             _cache->release(handle);
         }
 
