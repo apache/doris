@@ -19,6 +19,7 @@
 #define DORIS_CONTRIB_UDF_SRC_UDAF_BITMAP_STRING_VALUE_H
 
 #include <string.h>
+
 #include "udf.h"
 
 namespace doris_udf {
@@ -37,14 +38,12 @@ struct StringValue {
     char* ptr;
     size_t len;
 
-    StringValue(char* ptr, int len): ptr(ptr), len(len) {}
-    StringValue(): ptr(NULL), len(0) {}
+    StringValue(char* ptr, int len) : ptr(ptr), len(len) {}
+    StringValue() : ptr(nullptr), len(0) {}
 
     /// Construct a StringValue from 's'.  's' must be valid for as long as
     /// this object is valid.
-    explicit StringValue(const std::string& s) : 
-            ptr(const_cast<char*>(s.c_str())), len(s.size()) {
-    }
+    explicit StringValue(const std::string& s) : ptr(const_cast<char*>(s.c_str())), len(s.size()) {}
 
     void replace(char* ptr, int len) {
         this->ptr = ptr;
@@ -84,57 +83,31 @@ struct StringValue {
         return string_compare(this->ptr, this->len, other.ptr, other.len, this->len) == 0;
     }
 
-    bool operator==(const StringValue& other) const {
-        return eq(other);
-    }
+    bool operator==(const StringValue& other) const { return eq(other); }
     // !=
-    bool ne(const StringValue& other) const {
-        return !eq(other);
-    }
+    bool ne(const StringValue& other) const { return !eq(other); }
     // <=
-    bool le(const StringValue& other) const {
-        return compare(other) <= 0;
-    }
+    bool le(const StringValue& other) const { return compare(other) <= 0; }
     // >=
-    bool ge(const StringValue& other) const {
-        return compare(other) >= 0;
-    }
+    bool ge(const StringValue& other) const { return compare(other) >= 0; }
     // <
-    bool lt(const StringValue& other) const {
-        return compare(other) < 0;
-    }
+    bool lt(const StringValue& other) const { return compare(other) < 0; }
     // >
-    bool gt(const StringValue& other) const {
-        return compare(other) > 0;
-    }
+    bool gt(const StringValue& other) const { return compare(other) > 0; }
 
-    bool operator!=(const StringValue& other) const {
-        return ne(other);
-    }
+    bool operator!=(const StringValue& other) const { return ne(other); }
 
-    bool operator<=(const StringValue& other) const {
-        return le(other);
-    }
+    bool operator<=(const StringValue& other) const { return le(other); }
 
-    bool operator>=(const StringValue& other) const {
-        return ge(other);
-    }
+    bool operator>=(const StringValue& other) const { return ge(other); }
 
-    bool operator<(const StringValue& other) const {
-        return lt(other);
-    }
+    bool operator<(const StringValue& other) const { return lt(other); }
 
-    bool operator>(const StringValue& other) const {
-        return gt(other);
-    }
+    bool operator>(const StringValue& other) const { return gt(other); }
 
-    std::string debug_string() const {
-        return std::string(ptr, len);
-    }
+    std::string debug_string() const { return std::string(ptr, len); }
 
-    std::string to_string() const {
-        return std::string(ptr, len);
-    }
+    std::string to_string() const { return std::string(ptr, len); }
 
     // Returns the substring starting at start_pos until the end of string.
     StringValue substring(int start_pos) const {
@@ -170,6 +143,6 @@ struct StringValue {
     }
 };
 
-}
+} // namespace doris_udf
 
 #endif

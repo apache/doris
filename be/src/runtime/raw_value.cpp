@@ -31,12 +31,12 @@ const int RawValue::ASCII_PRECISION = 16; // print 16 digits for double/float
 
 void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& type,
                                     std::stringstream* stream) {
-    if (value == NULL) {
+    if (value == nullptr) {
         return;
     }
 
     const char* chars = reinterpret_cast<const char*>(value);
-    const StringValue* string_val = NULL;
+    const StringValue* string_val = nullptr;
 
     switch (type.type) {
     case TYPE_NULL:
@@ -97,7 +97,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
 
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
                            std::stringstream* stream) {
-    if (value == NULL) {
+    if (value == nullptr) {
         *stream << "NULL";
         return;
     }
@@ -113,7 +113,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     }
 
     std::string tmp;
-    const StringValue* string_val = NULL;
+    const StringValue* string_val = nullptr;
 
     switch (type.type) {
     case TYPE_BOOLEAN: {
@@ -194,14 +194,14 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
                            std::string* str) {
-    if (value == NULL) {
+    if (value == nullptr) {
         *str = "NULL";
         return;
     }
 
     std::stringstream out;
     out.precision(ASCII_PRECISION);
-    const StringValue* string_val = NULL;
+    const StringValue* string_val = nullptr;
     std::string tmp;
     bool val = false;
 
@@ -239,7 +239,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 }
 
 void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, MemPool* pool) {
-    DCHECK(value != NULL);
+    DCHECK(value != nullptr);
 
     switch (type.type) {
     case TYPE_NULL:
@@ -297,13 +297,13 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_VARCHAR:
-    case TYPE_CHAR: 
+    case TYPE_CHAR:
     case TYPE_STRING: {
         const StringValue* src = reinterpret_cast<const StringValue*>(value);
         StringValue* dest = reinterpret_cast<StringValue*>(dst);
         dest->len = src->len;
 
-        if (pool != NULL) {
+        if (pool != nullptr) {
             dest->ptr = reinterpret_cast<char*>(pool->allocate(dest->len));
             memcpy(dest->ptr, src->ptr, dest->len);
         } else {
@@ -318,7 +318,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
         CollectionValue* val = reinterpret_cast<CollectionValue*>(dst);
 
-        if (pool != NULL) {
+        if (pool != nullptr) {
             auto children_type = type.children.at(0).type;
             CollectionValue::init_collection(pool, src->size(), children_type, val);
             ArrayIterator src_iter = src->iterator(children_type);
@@ -346,7 +346,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 
 // TODO: can we remove some of this code duplication? Templated allocator?
 void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, uint8_t** buf) {
-    DCHECK(value != NULL);
+    DCHECK(value != nullptr);
     switch (type.type) {
     case TYPE_BOOLEAN:
         *reinterpret_cast<bool*>(dst) = *reinterpret_cast<const bool*>(value);
@@ -379,7 +379,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        DCHECK(buf != NULL);
+        DCHECK(buf != nullptr);
         const StringValue* src = reinterpret_cast<const StringValue*>(value);
         StringValue* dest = reinterpret_cast<StringValue*>(dst);
         dest->len = src->len;
@@ -400,7 +400,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
 
 void RawValue::write(const void* value, Tuple* tuple, const SlotDescriptor* slot_desc,
                      MemPool* pool) {
-    if (value == NULL) {
+    if (value == nullptr) {
         tuple->set_null(slot_desc->null_indicator_offset());
     } else {
         void* slot = tuple->get_slot(slot_desc->tuple_offset());

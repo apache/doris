@@ -108,7 +108,7 @@ protected:
     IfExpr(const TExprNode& node);
 };
 
-// Returns the first non-NULL value in the list, or NULL if there are no non-NULL values.
+// Returns the first non-nullptr value in the list, or nullptr if there are no non-nullptr values.
 class CoalesceExpr : public Expr {
 public:
     virtual ~CoalesceExpr();

@@ -43,8 +43,7 @@ using std::bind;
 using std::mem_fn;
 using std::lock_guard;
 using std::mutex;
-using boost::scoped_array;
-using boost::shared_ptr;
+using std::shared_ptr;
 using std::unique_lock;
 
 namespace doris {
@@ -98,7 +97,7 @@ public:
     int _num_pinned_buffers;
 
     void pin_buffer(BufferDescriptor* buffer) {
-        DCHECK(buffer != NULL);
+        DCHECK(buffer != nullptr);
         if (buffer->len == _mgr->max_block_size()) {
             ++_num_pinned_buffers;
             _tracker->ConsumeLocal(buffer->len, _query_tracker.get());
@@ -107,7 +106,7 @@ public:
     }
 
     void unpin_buffer(BufferDescriptor* buffer) {
-        DCHECK(buffer != NULL);
+        DCHECK(buffer != nullptr);
         if (buffer->len == _mgr->max_block_size()) {
             DCHECK_GT(_num_pinned_buffers, 0);
             --_num_pinned_buffers;
@@ -128,11 +127,11 @@ public:
 
 // BufferedBlockMgr2::Block methods.
 BufferedBlockMgr2::Block::Block(BufferedBlockMgr2* block_mgr)
-        : _buffer_desc(NULL),
+        : _buffer_desc(nullptr),
           _block_mgr(block_mgr),
-          _client(NULL),
-          _write_range(NULL),
-          _tmp_file(NULL),
+          _client(nullptr),
+          _write_range(nullptr),
+          _tmp_file(nullptr),
           _valid_data_len(0),
           _num_rows(0) {}
 
@@ -154,27 +153,27 @@ void BufferedBlockMgr2::Block::init() {
     _in_write = false;
     _is_deleted = false;
     _valid_data_len = 0;
-    _client = NULL;
+    _client = nullptr;
     _num_rows = 0;
 }
 
 bool BufferedBlockMgr2::Block::validate() const {
-    if (_is_deleted && (_is_pinned || (!_in_write && _buffer_desc != NULL))) {
+    if (_is_deleted && (_is_pinned || (!_in_write && _buffer_desc != nullptr))) {
         LOG(ERROR) << "Deleted block in use - " << debug_string();
         return false;
     }
 
-    if (_buffer_desc == NULL && (_is_pinned || _in_write)) {
+    if (_buffer_desc == nullptr && (_is_pinned || _in_write)) {
         LOG(ERROR) << "Block without buffer in use - " << debug_string();
         return false;
     }
 
-    if (_buffer_desc == NULL && _block_mgr->_unpinned_blocks.contains(this)) {
+    if (_buffer_desc == nullptr && _block_mgr->_unpinned_blocks.contains(this)) {
         LOG(ERROR) << "Unpersisted block without buffer - " << debug_string();
         return false;
     }
 
-    if (_buffer_desc != NULL && (_buffer_desc->block != this)) {
+    if (_buffer_desc != nullptr && (_buffer_desc->block != this)) {
         LOG(ERROR) << "Block buffer inconsistency - " << debug_string();
         return false;
     }
@@ -183,7 +182,7 @@ bool BufferedBlockMgr2::Block::validate() const {
 }
 
 string BufferedBlockMgr2::Block::tmp_file_path() const {
-    if (_tmp_file == NULL) {
+    if (_tmp_file == nullptr) {
         return "";
     }
     return _tmp_file->path();
@@ -225,7 +224,7 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
 Status BufferedBlockMgr2::create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
                                  RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
                                  int64_t mem_limit, int64_t block_size,
-                                 boost::shared_ptr<BufferedBlockMgr2>* block_mgr) {
+                                 std::shared_ptr<BufferedBlockMgr2>* block_mgr) {
     DCHECK(parent != nullptr);
     block_mgr->reset();
     {
@@ -239,8 +238,8 @@ Status BufferedBlockMgr2::create(RuntimeState* state, const std::shared_ptr<MemT
         // if (it != _s_query_to_block_mgrs.end()){
         //     *block_mgr = it->second.lock();
         // }
-        if (*block_mgr == NULL) {
-            // weak_ptr::lock returns NULL if the weak_ptr is expired. This means
+        if (*block_mgr == nullptr) {
+            // weak_ptr::lock returns nullptr if the weak_ptr is expired. This means
             // all shared_ptr references have gone to 0 and it is in the process of
             // being deleted. This can happen if the last shared reference is released
             // but before the weak ptr is removed from the map.
@@ -358,15 +357,15 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
     // memory.
     int buffers_acquired = 0;
     do {
-        BufferDescriptor* buffer_desc = NULL;
+        BufferDescriptor* buffer_desc = nullptr;
         Status s = find_buffer(lock, &buffer_desc); // This waits on the lock.
-        if (buffer_desc == NULL) {
+        if (buffer_desc == nullptr) {
             break;
         }
         DCHECK(s.ok());
         _all_io_buffers.erase(buffer_desc->all_buffers_it);
-        if (buffer_desc->block != NULL) {
-            buffer_desc->block->_buffer_desc = NULL;
+        if (buffer_desc->block != nullptr) {
+            buffer_desc->block->_buffer_desc = nullptr;
         }
         delete[] buffer_desc->buffer;
         ++buffers_acquired;
@@ -452,8 +451,8 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
                                         int64_t len) {
     DCHECK_LE(len, _max_block_size) << "Cannot request block bigger than max_len";
     DCHECK_NE(len, 0) << "Cannot request block of zero size";
-    *block = NULL;
-    Block* new_block = NULL;
+    *block = nullptr;
+    Block* new_block = nullptr;
 
     {
         lock_guard<mutex> lock(_lock);
@@ -465,7 +464,7 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
         DCHECK_EQ(new_block->_client, client);
 
         if (len > 0 && len < _max_block_size) {
-            DCHECK(unpin_block == NULL);
+            DCHECK(unpin_block == nullptr);
             if (client->_tracker->TryConsume(len)) {
                 // TODO: Have a cache of unused blocks of size 'len' (0, _max_block_size)
                 uint8_t* buffer = new uint8_t[len];
@@ -487,38 +486,39 @@ Status BufferedBlockMgr2::get_new_block(Client* client, Block* unpin_block, Bloc
     bool in_mem = true;
     RETURN_IF_ERROR(find_buffer_for_block(new_block, &in_mem));
     DCHECK(!in_mem) << "A new block cannot start in mem.";
-    DCHECK(!new_block->is_pinned() || new_block->_buffer_desc != NULL) << new_block->debug_string();
+    DCHECK(!new_block->is_pinned() || new_block->_buffer_desc != nullptr)
+            << new_block->debug_string();
 
     if (!new_block->is_pinned()) {
-        if (unpin_block == NULL) {
+        if (unpin_block == nullptr) {
             // We couldn't get a new block and no unpin block was provided. Can't return
             // a block.
             new_block->_is_deleted = true;
             return_unused_block(new_block);
-            new_block = NULL;
+            new_block = nullptr;
         } else {
             // We need to transfer the buffer from unpin_block to new_block.
             RETURN_IF_ERROR(transfer_buffer(new_block, unpin_block, true));
         }
-    } else if (unpin_block != NULL) {
+    } else if (unpin_block != nullptr) {
         // Got a new block without needing to transfer. Just unpin this block.
         RETURN_IF_ERROR(unpin_block->unpin());
     }
 
-    DCHECK(new_block == NULL || new_block->is_pinned());
+    DCHECK(new_block == nullptr || new_block->is_pinned());
     *block = new_block;
     return Status::OK();
 }
 
 Status BufferedBlockMgr2::transfer_buffer(Block* dst, Block* src, bool unpin) {
     Status status = Status::OK();
-    DCHECK(dst != NULL);
-    DCHECK(src != NULL);
+    DCHECK(dst != nullptr);
+    DCHECK(src != nullptr);
 
     // First write out the src block.
     DCHECK(src->_is_pinned);
     DCHECK(!dst->_is_pinned);
-    DCHECK(dst->_buffer_desc == NULL);
+    DCHECK(dst->_buffer_desc == nullptr);
     DCHECK_EQ(src->_buffer_desc->len, _max_block_size);
     src->_is_pinned = false;
 
@@ -545,7 +545,7 @@ Status BufferedBlockMgr2::transfer_buffer(Block* dst, Block* src, bool unpin) {
     // Assign the buffer to the new block.
     dst->_buffer_desc = src->_buffer_desc;
     dst->_buffer_desc->block = dst;
-    src->_buffer_desc = NULL;
+    src->_buffer_desc = nullptr;
     dst->_is_pinned = true;
     if (!unpin) {
         src->_is_deleted = true;
@@ -567,8 +567,8 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         // distinguish between the two expired pointers), and when the other
         // ~BufferedBlockMgr2() call occurs, it won't find an entry for this _query_id.
         if (it != _s_query_to_block_mgrs.end()) {
-            shared_ptr<BufferedBlockMgr2> mgr = it->second.lock();
-            if (mgr.get() == NULL) {
+            std::shared_ptr<BufferedBlockMgr2> mgr = it->second.lock();
+            if (mgr.get() == nullptr) {
                 // The BufferBlockMgr object referenced by this entry is being deconstructed.
                 _s_query_to_block_mgrs.erase(it);
             } else {
@@ -578,7 +578,7 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
         }
     }
 
-    if (_io_request_context != NULL) {
+    if (_io_request_context != nullptr) {
         _io_mgr->unregister_context(_io_request_context);
     }
 
@@ -587,8 +587,8 @@ BufferedBlockMgr2::~BufferedBlockMgr2() {
     // See IMPALA-1890.
     DCHECK_EQ(_non_local_outstanding_writes, 0) << endl << debug_internal();
     // Delete tmp files.
-    for (TmpFileMgr::File& file : _tmp_files) {
-        file.remove();
+    for (auto& file : _tmp_files) {
+        file->remove();
     }
     _tmp_files.clear();
 
@@ -620,7 +620,7 @@ std::shared_ptr<MemTracker> BufferedBlockMgr2::get_tracker(Client* client) const
 // TODO: It would be good if we had a sync primitive that supports is_mine() calls, see
 //       IMPALA-1884.
 Status BufferedBlockMgr2::delete_or_unpin_block(Block* block, bool unpin) {
-    if (block == NULL) {
+    if (block == nullptr) {
         return is_cancelled() ? Status::Cancelled("Cancelled") : Status::OK();
     }
     if (unpin) {
@@ -632,7 +632,7 @@ Status BufferedBlockMgr2::delete_or_unpin_block(Block* block, bool unpin) {
 }
 
 Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_block, bool unpin) {
-    DCHECK(block != NULL);
+    DCHECK(block != nullptr);
     DCHECK(!block->_is_deleted);
     *pinned = false;
     if (block->_is_pinned) {
@@ -650,11 +650,11 @@ Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_b
     }
 
     if (!block->_is_pinned) {
-        if (release_block == NULL) {
+        if (release_block == nullptr) {
             return Status::OK();
         }
 
-        if (block->_buffer_desc != NULL) {
+        if (block->_buffer_desc != nullptr) {
             {
                 lock_guard<mutex> lock(_lock);
                 if (_free_io_buffers.contains(block->_buffer_desc)) {
@@ -679,17 +679,17 @@ Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_b
 
         RETURN_IF_ERROR(transfer_buffer(block, release_block, unpin));
         DCHECK(!release_block->_is_pinned);
-        release_block = NULL; // Handled by transfer.
+        release_block = nullptr; // Handled by transfer.
         DCHECK(block->_is_pinned);
         *pinned = true;
     }
 
     // Read the block from disk if it was not in memory.
-    DCHECK(block->_write_range != NULL) << block->debug_string() << endl << release_block;
+    DCHECK(block->_write_range != nullptr) << block->debug_string() << endl << release_block;
     SCOPED_TIMER(_disk_read_timer);
     // Create a ScanRange to perform the read.
     DiskIoMgr::ScanRange* scan_range = _obj_pool.add(new DiskIoMgr::ScanRange());
-    scan_range->reset(NULL, block->_write_range->file(), block->_write_range->len(),
+    scan_range->reset(nullptr, block->_write_range->file(), block->_write_range->len(),
                       block->_write_range->offset(), block->_write_range->disk_id(), false, block,
                       DiskIoMgr::ScanRange::NEVER_CACHE);
     vector<DiskIoMgr::ScanRange*> ranges(1, scan_range);
@@ -766,7 +766,7 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
     DCHECK(!block->_in_write) << block->debug_string();
     DCHECK_EQ(block->_buffer_desc->len, _max_block_size);
 
-    if (block->_write_range == NULL) {
+    if (block->_write_range == nullptr) {
         if (_tmp_files.empty()) {
             RETURN_IF_ERROR(init_tmp_files());
         }
@@ -789,7 +789,7 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
         block->_tmp_file = tmp_file;
     }
 
-    uint8_t* outbuf = NULL;
+    uint8_t* outbuf = nullptr;
     outbuf = block->buffer();
 
     block->_write_range->set_data(outbuf, block->_valid_data_len);
@@ -812,7 +812,7 @@ Status BufferedBlockMgr2::allocate_scratch_space(int64_t block_size, TmpFileMgr:
     vector<std::string> errs;
     // Find the next physical file in round-robin order and create a write range for it.
     for (int attempt = 0; attempt < _tmp_files.size(); ++attempt) {
-        *tmp_file = &_tmp_files[_next_block_index];
+        *tmp_file = _tmp_files[_next_block_index].get();
         _next_block_index = (_next_block_index + 1) % _tmp_files.size();
         if ((*tmp_file)->is_blacklisted()) {
             continue;
@@ -874,8 +874,8 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
         _free_io_buffers.enqueue(block->_buffer_desc);
         // Finish the delete_block() work.
         if (block->_is_deleted) {
-            block->_buffer_desc->block = NULL;
-            block->_buffer_desc = NULL;
+            block->_buffer_desc->block = nullptr;
+            block->_buffer_desc = nullptr;
             return_unused_block(block);
         }
         // Multiple threads may be waiting for the same block in find_buffer().  Wake them
@@ -896,7 +896,7 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
         if (!write_status.is_cancelled() && !state->is_cancelled()) {
             if (!write_status.ok()) {
                 // Report but do not attempt to recover from write error.
-                DCHECK(block->_tmp_file != NULL);
+                DCHECK(block->_tmp_file != nullptr);
                 block->_tmp_file->report_io_error(write_status.get_error_msg());
                 VLOG_QUERY << "Query: " << _query_id << " write complete callback with error.";
                 state->log_error(write_status.get_error_msg());
@@ -937,27 +937,27 @@ void BufferedBlockMgr2::delete_block(Block* block) {
     }
 
     if (block->_in_write) {
-        DCHECK(block->_buffer_desc != NULL && block->_buffer_desc->len == _max_block_size)
+        DCHECK(block->_buffer_desc != nullptr && block->_buffer_desc->len == _max_block_size)
                 << "Should never be writing a small buffer";
         // If a write is still pending, return. Cleanup will be done in write_complete().
         DCHECK(block->validate()) << endl << block->debug_string();
         return;
     }
 
-    if (block->_buffer_desc != NULL) {
+    if (block->_buffer_desc != nullptr) {
         if (block->_buffer_desc->len != _max_block_size) {
             // Just delete the block for now.
             delete[] block->_buffer_desc->buffer;
             block->_client->_tracker->Release(block->_buffer_desc->len);
             delete block->_buffer_desc;
-            block->_buffer_desc = NULL;
+            block->_buffer_desc = nullptr;
         } else {
             if (!_free_io_buffers.contains(block->_buffer_desc)) {
                 _free_io_buffers.enqueue(block->_buffer_desc);
                 _buffer_available_cv.notify_one();
             }
-            block->_buffer_desc->block = NULL;
-            block->_buffer_desc = NULL;
+            block->_buffer_desc->block = nullptr;
+            block->_buffer_desc = nullptr;
         }
     }
     return_unused_block(block);
@@ -969,15 +969,15 @@ void BufferedBlockMgr2::return_unused_block(Block* block) {
     DCHECK(block->_is_deleted) << block->debug_string();
     DCHECK(!block->_is_pinned) << block->debug_string();
     ;
-    DCHECK(block->_buffer_desc == NULL);
+    DCHECK(block->_buffer_desc == nullptr);
     block->init();
     _unused_blocks.enqueue(block);
 }
 
 Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
-    DCHECK(block != NULL);
+    DCHECK(block != nullptr);
     Client* client = block->_client;
-    DCHECK(client != NULL);
+    DCHECK(client != nullptr);
     DCHECK(!block->_is_pinned && !block->_is_deleted) << "Pinned or deleted block " << endl
                                                       << block->debug_string();
     *in_mem = false;
@@ -1011,7 +1011,7 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
         return Status::OK();
     }
 
-    if (block->_buffer_desc != NULL) {
+    if (block->_buffer_desc != nullptr) {
         // The block is in memory. It may be in 3 states:
         //  1. In the unpinned list. The buffer will not be in the free list.
         //  2. _in_write == true. The buffer will not be in the free list.
@@ -1030,10 +1030,10 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
         _buffered_pin_counter->update(1);
         *in_mem = true;
     } else {
-        BufferDescriptor* buffer_desc = NULL;
+        BufferDescriptor* buffer_desc = nullptr;
         RETURN_IF_ERROR(find_buffer(l, &buffer_desc));
 
-        if (buffer_desc == NULL) {
+        if (buffer_desc == nullptr) {
             // There are no free buffers or blocks we can evict. We need to fail this request.
             // If this is an optional request, return OK. If it is required, return OOM.
             if (!is_reserved_request) {
@@ -1053,18 +1053,18 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
                     "buffers in the block manager.");
         }
 
-        DCHECK(buffer_desc != NULL);
+        DCHECK(buffer_desc != nullptr);
         DCHECK_EQ(buffer_desc->len, max_block_size()) << "Non-I/O buffer";
-        if (buffer_desc->block != NULL) {
+        if (buffer_desc->block != nullptr) {
             // This buffer was assigned to a block but now we are reusing it. Reset the
             // previous block->buffer link.
             DCHECK(buffer_desc->block->validate()) << endl << buffer_desc->block->debug_string();
-            buffer_desc->block->_buffer_desc = NULL;
+            buffer_desc->block->_buffer_desc = nullptr;
         }
         buffer_desc->block = block;
         block->_buffer_desc = buffer_desc;
     }
-    DCHECK(block->_buffer_desc != NULL);
+    DCHECK(block->_buffer_desc != nullptr);
     DCHECK(block->_buffer_desc->len < max_block_size() || !block->_is_pinned)
             << "Trying to pin already pinned block. " << block->_buffer_desc->len << " "
             << block->_is_pinned;
@@ -1086,7 +1086,7 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
 //  2. Pick a buffer from the free list.
 //  3. Wait and evict an unpinned buffer.
 Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor** buffer_desc) {
-    *buffer_desc = NULL;
+    *buffer_desc = nullptr;
 
     // First, try to allocate a new buffer.
     if (_free_io_buffers.size() < _block_write_threshold &&
@@ -1131,8 +1131,8 @@ Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor
 }
 
 BufferedBlockMgr2::Block* BufferedBlockMgr2::get_unused_block(Client* client) {
-    DCHECK(client != NULL);
-    Block* new_block = NULL;
+    DCHECK(client != nullptr);
+    Block* new_block = nullptr;
     if (_unused_blocks.empty()) {
         new_block = _obj_pool.add(new Block(this));
         new_block->init();
@@ -1141,7 +1141,7 @@ BufferedBlockMgr2::Block* BufferedBlockMgr2::get_unused_block(Client* client) {
         new_block = _unused_blocks.dequeue();
         _recycled_blocks_counter->update(1);
     }
-    DCHECK(new_block != NULL);
+    DCHECK(new_block != nullptr);
     new_block->_client = client;
     return new_block;
 }
@@ -1163,7 +1163,7 @@ bool BufferedBlockMgr2::validate() const {
             return false;
         }
 
-        if (buffer->block == NULL && !is_free) {
+        if (buffer->block == nullptr && !is_free) {
             LOG(ERROR) << "Buffer with no block not in free list." << endl << debug_internal();
             return false;
         }
@@ -1173,7 +1173,7 @@ bool BufferedBlockMgr2::validate() const {
             return false;
         }
 
-        if (buffer->block != NULL) {
+        if (buffer->block != nullptr) {
             if (buffer->block->_buffer_desc != buffer) {
                 LOG(ERROR) << "buffer<->block pointers inconsistent. Buffer: " << buffer << endl
                            << buffer->block->debug_string();
@@ -1208,7 +1208,7 @@ bool BufferedBlockMgr2::validate() const {
     }
 
     Block* block = _unpinned_blocks.head();
-    while (block != NULL) {
+    while (block != nullptr) {
         if (!block->validate()) {
             LOG(ERROR) << "Block inconsistent in unpinned list." << endl << block->debug_string();
             return false;
@@ -1240,7 +1240,7 @@ string BufferedBlockMgr2::debug_string(Client* client) {
     stringstream ss;
     unique_lock<mutex> l(_lock);
     ss << debug_internal();
-    if (client != NULL) {
+    if (client != nullptr) {
         ss << endl << client->debug_string();
     }
     return ss.str();
@@ -1272,7 +1272,7 @@ void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile,
     io_mgr->register_context(&_io_request_context);
 
     _profile.reset(new RuntimeProfile("BlockMgr"));
-    parent_profile->add_child(_profile.get(), true, NULL);
+    parent_profile->add_child(_profile.get(), true, nullptr);
 
     _block_size_counter = ADD_COUNTER(_profile.get(), "MaxBlockSize", TUnit::BYTES);
     _block_size_counter->set(_max_block_size);
@@ -1295,7 +1295,7 @@ void BufferedBlockMgr2::init(DiskIoMgr* io_mgr, RuntimeProfile* parent_profile,
 
 Status BufferedBlockMgr2::init_tmp_files() {
     DCHECK(_tmp_files.empty());
-    DCHECK(_tmp_file_mgr != NULL);
+    DCHECK(_tmp_file_mgr != nullptr);
 
     vector<TmpFileMgr::DeviceId> tmp_devices = _tmp_file_mgr->active_tmp_devices();
     // Initialize the tmp files and the initial file to use.
@@ -1307,7 +1307,7 @@ Status BufferedBlockMgr2::init_tmp_files() {
         // by active_tmp_devices() - handle this gracefully.
         Status status = _tmp_file_mgr->get_file(tmp_device_id, _query_id, &tmp_file);
         if (status.ok()) {
-            _tmp_files.push_back(tmp_file);
+            _tmp_files.emplace_back(tmp_file);
         }
     }
     if (_tmp_files.empty()) {

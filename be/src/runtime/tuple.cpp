@@ -286,7 +286,7 @@ void Tuple::materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
             DCHECK(slot_type == TYPE_NULL || slot_type == expr_type);
         }
         void* src = materialize_expr_ctxs[mat_expr_index]->get_value(row);
-        if (src != NULL) {
+        if (src != nullptr) {
             void* dst = get_slot(slot_desc->tuple_offset());
             RawValue::write(src, dst, slot_desc->type(), pool);
             if (collect_string_vals) {

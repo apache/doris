@@ -22,8 +22,6 @@
 #include <stdio.h>
 
 #include <algorithm>
-#include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
 #include <filesystem>
 #include <iterator>
 #include <map>
@@ -65,14 +63,11 @@ SnapshotManager* SnapshotManager::instance() {
     return _s_instance;
 }
 
-OLAPStatus SnapshotManager::make_snapshot(
-        const TSnapshotRequest& request,
-        string* snapshot_path,
-        bool* allow_incremental_clone) {
-
+OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
+                                          bool* allow_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be NULL";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -253,7 +248,7 @@ OLAPStatus SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet
                                                    string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
     if (out_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be NULL";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -312,7 +307,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
               << ", snapshot_version is " << snapshot_version;
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
-        LOG(WARNING) << "output parameter cannot be NULL";
+        LOG(WARNING) << "output parameter cannot be null";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -371,10 +366,10 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                     if (rowset != nullptr) {
                         consistent_rowsets.push_back(rowset);
                     } else {
-                        LOG(WARNING) << "failed to find missed version when snapshot. "
-                                     << " tablet=" << request.tablet_id
-                                     << " schema_hash=" << request.schema_hash
-                                     << " version=" << version;
+                        LOG(WARNING)
+                                << "failed to find missed version when snapshot. "
+                                << " tablet=" << request.tablet_id
+                                << " schema_hash=" << request.schema_hash << " version=" << version;
                         res = OLAP_ERR_VERSION_NOT_EXIST;
                         break;
                     }
@@ -383,7 +378,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
 
             if (res != OLAP_SUCCESS || !request.__isset.missing_version) {
                 /// not all missing versions are found, fall back to full snapshot.
-                res = OLAP_SUCCESS; // reset res
+                res = OLAP_SUCCESS;         // reset res
                 consistent_rowsets.clear(); // reset vector
 
                 ReadLock rdlock(ref_tablet->get_header_lock_ptr());
@@ -410,7 +405,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                 // get shortest version path
                 // it very important!!!!
                 // it means 0-version has to be a readable version graph
-                res = ref_tablet->capture_consistent_rowsets(Version(0, version), &consistent_rowsets);
+                res = ref_tablet->capture_consistent_rowsets(Version(0, version),
+                                                             &consistent_rowsets);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to select versions to span. res=" << res;
                     break;
@@ -433,8 +429,9 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
             }
             rs_metas.push_back(rs->rowset_meta());
             VLOG_NOTICE << "add rowset meta to clone list. "
-                    << " start version " << rs->rowset_meta()->start_version() << " end version "
-                    << rs->rowset_meta()->end_version() << " empty " << rs->rowset_meta()->empty();
+                        << " start version " << rs->rowset_meta()->start_version()
+                        << " end version " << rs->rowset_meta()->end_version() << " empty "
+                        << rs->rowset_meta()->empty();
         }
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
@@ -448,8 +445,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
             // convert beta rowset to alpha rowset
-            res = _convert_beta_rowsets_to_alpha(
-                    new_tablet_meta, new_tablet_meta->all_rs_metas(), schema_full_path);
+            res = _convert_beta_rowsets_to_alpha(new_tablet_meta, new_tablet_meta->all_rs_metas(),
+                                                 schema_full_path);
             if (res != OLAP_SUCCESS) {
                 break;
             }

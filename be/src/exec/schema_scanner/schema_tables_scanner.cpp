@@ -62,21 +62,21 @@ Status SchemaTablesScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -107,7 +107,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.name;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -119,7 +119,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.type;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -131,7 +131,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.engine;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -213,7 +213,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
         const std::string* src = &tbl_status.collation;
         str_slot->len = src->length();
         str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (NULL == str_slot->ptr) {
+        if (nullptr == str_slot->ptr) {
             return Status::InternalError("Allocate memcpy failed.");
         }
         memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -234,7 +234,7 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             str_slot->ptr = nullptr;
         } else {
             str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            if (NULL == str_slot->ptr) {
+            if (nullptr == str_slot->ptr) {
                 return Status::InternalError("Allocate memcpy failed.");
             }
             memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -247,21 +247,21 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
 Status SchemaTablesScanner::get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
-    if (NULL != _param->wild) {
+    if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             table_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_table_status(*(_param->ip), _param->port, table_params,
                                                         &_table_result));
     } else {
@@ -275,8 +275,8 @@ Status SchemaTablesScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos)
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
     while (_table_index >= _table_result.tables.size()) {
         if (_db_index < _db_result.dbs.size()) {

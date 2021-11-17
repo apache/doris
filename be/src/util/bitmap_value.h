@@ -108,7 +108,7 @@ public:
     /**
      * Construct a roaring object from the C struct.
      *
-     * Passing a NULL point is unsafe.
+     * Passing a nullptr point is unsafe.
      */
     explicit Roaring64Map(roaring_bitmap_t* s) {
         roaring::Roaring r(s);
@@ -539,7 +539,7 @@ public:
 
     /**
      * Iterate over the bitmap elements. The function iterator is called once
-     * for all the values with ptr (can be NULL) as the second parameter of each
+     * for all the values with ptr (can be nullptr) as the second parameter of each
      * call.
      *
      * roaring_iterator is simply a pointer to a function that returns bool

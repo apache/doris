@@ -145,9 +145,9 @@ private:
     bool KeyIsAfterNode(const Key& key, Node* n) const;
 
     // Return the earliest node that comes at or after key.
-    // Return NULL if there is no such node.
+    // Return nullptr if there is no such node.
     //
-    // If prev is non-NULL, fills prev[level] with pointer to previous
+    // If prev is non-nullptr, fills prev[level] with pointer to previous
     // node at "level" for every level in [0..max_height_-1].
     Node* FindGreaterOrEqual(const Key& key, Node** prev) const;
 
@@ -212,12 +212,12 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(con
 template <typename Key, class Comparator>
 inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list) {
     list_ = list;
-    node_ = NULL;
+    node_ = nullptr;
 }
 
 template <typename Key, class Comparator>
 inline bool SkipList<Key, Comparator>::Iterator::Valid() const {
-    return node_ != NULL;
+    return node_ != nullptr;
 }
 
 template <typename Key, class Comparator>
@@ -239,13 +239,13 @@ inline void SkipList<Key, Comparator>::Iterator::Prev() {
     DCHECK(Valid());
     node_ = list_->FindLessThan(node_->key);
     if (node_ == list_->head_) {
-        node_ = NULL;
+        node_ = nullptr;
     }
 }
 
 template <typename Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
-    node_ = list_->FindGreaterOrEqual(target, NULL);
+    node_ = list_->FindGreaterOrEqual(target, nullptr);
 }
 
 template <typename Key, class Comparator>
@@ -257,7 +257,7 @@ template <typename Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
     node_ = list_->FindLast();
     if (node_ == list_->head_) {
-        node_ = NULL;
+        node_ = nullptr;
     }
 }
 
@@ -276,8 +276,8 @@ int SkipList<Key, Comparator>::RandomHeight() {
 
 template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
-    // NULL n is considered infinite
-    return (n != NULL) && (compare_(n->key, key) < 0);
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, key) < 0);
 }
 
 template <typename Key, class Comparator>
@@ -291,7 +291,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindGreater
             // Keep searching in this list
             x = next;
         } else {
-            if (prev != NULL) prev[level] = x;
+            if (prev != nullptr) prev[level] = x;
             if (level == 0) {
                 return next;
             } else {
@@ -310,7 +310,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLessTha
     while (true) {
         DCHECK(x == head_ || compare_(x->key, key) < 0);
         Node* next = x->Next(level);
-        if (next == NULL || compare_(next->key, key) >= 0) {
+        if (next == nullptr || compare_(next->key, key) >= 0) {
             if (level == 0) {
                 return x;
             } else {
@@ -329,7 +329,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast() 
     int level = GetMaxHeight() - 1;
     while (true) {
         Node* next = x->Next(level);
-        if (next == NULL) {
+        if (next == nullptr) {
             if (level == 0) {
                 return x;
             } else {
@@ -351,7 +351,7 @@ SkipList<Key, Comparator>::SkipList(Comparator cmp, MemPool* mem_pool, bool can_
           max_height_(1),
           rnd_(0xdeadbeef) {
     for (int i = 0; i < kMaxHeight; i++) {
-        head_->SetNext(i, NULL);
+        head_->SetNext(i, nullptr);
     }
 }
 
@@ -382,9 +382,9 @@ void SkipList<Key, Comparator>::Insert(const Key& key, bool* overwritten) {
         // It is ok to mutate max_height_ without any synchronization
         // with concurrent readers.  A concurrent reader that observes
         // the new value of max_height_ will see either the old value of
-        // new level pointers from head_ (NULL), or a new value set in
+        // new level pointers from head_ (nullptr), or a new value set in
         // the loop below.  In the former case the reader will
-        // immediately drop to the next level since NULL sorts after all
+        // immediately drop to the next level since nullptr sorts after all
         // keys.  In the latter case the reader will use the new node.
         max_height_.store(height, std::memory_order_relaxed);
     }
@@ -423,9 +423,9 @@ void SkipList<Key, Comparator>::InsertWithHint(const Key& key, bool is_exist, Hi
         // It is ok to mutate max_height_ without any synchronization
         // with concurrent readers.  A concurrent reader that observes
         // the new value of max_height_ will see either the old value of
-        // new level pointers from head_ (NULL), or a new value set in
+        // new level pointers from head_ (nullptr), or a new value set in
         // the loop below.  In the former case the reader will
-        // immediately drop to the next level since NULL sorts after all
+        // immediately drop to the next level since nullptr sorts after all
         // keys.  In the latter case the reader will use the new node.
         max_height_.store(height, std::memory_order_relaxed);
     }
@@ -441,8 +441,8 @@ void SkipList<Key, Comparator>::InsertWithHint(const Key& key, bool is_exist, Hi
 
 template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::Contains(const Key& key) const {
-    Node* x = FindGreaterOrEqual(key, NULL);
-    if (x != NULL && Equal(key, x->key)) {
+    Node* x = FindGreaterOrEqual(key, nullptr);
+    if (x != nullptr && Equal(key, x->key)) {
         return true;
     } else {
         return false;
@@ -453,7 +453,7 @@ template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::Find(const Key& key, Hint* hint) const {
     Node* x = FindGreaterOrEqual(key, hint->prev);
     hint->curr = x;
-    if (x != NULL && Equal(key, x->key)) {
+    if (x != nullptr && Equal(key, x->key)) {
         return true;
     } else {
         return false;

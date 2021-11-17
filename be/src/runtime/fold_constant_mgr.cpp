@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/fold_constant_mgr.h"
+
 #include <map>
 #include <string>
 
-#include "runtime/fold_constant_mgr.h"
-#include "runtime/tuple_row.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
-#include "runtime/mem_tracker.h"
-#include "exprs/expr_context.h"
-#include "exprs/expr.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-
-#include "gen_cpp/internal_service.pb.h"
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple_row.h"
 
 using std::string;
 using std::map;
@@ -38,14 +38,11 @@ namespace doris {
 
 TUniqueId FoldConstantMgr::_dummy_id;
 
-FoldConstantMgr::FoldConstantMgr(ExecEnv* exec_env)
-    : _exec_env(exec_env), _pool(){
-    
-}
+FoldConstantMgr::FoldConstantMgr(ExecEnv* exec_env) : _exec_env(exec_env), _pool() {}
 
-Status FoldConstantMgr::fold_constant_expr(
-        const TFoldConstantParams& params, PConstantExprResult* response) {
-    auto expr_map = params.expr_map; 
+Status FoldConstantMgr::fold_constant_expr(const TFoldConstantParams& params,
+                                           PConstantExprResult* response) {
+    auto expr_map = params.expr_map;
     auto expr_result_map = response->mutable_expr_result_map();
 
     TQueryGlobals query_globals = params.query_globals;
@@ -90,7 +87,7 @@ Status FoldConstantMgr::fold_constant_expr(
 
             expr_result.set_content(std::move(result));
             expr_result.mutable_type()->set_type(t_type);
-            
+
             pexpr_result_map.mutable_map()->insert({n.first, expr_result});
 
             // close context expr
@@ -101,7 +98,6 @@ Status FoldConstantMgr::fold_constant_expr(
     }
 
     return Status::OK();
-         
 }
 
 Status FoldConstantMgr::init(TQueryGlobals query_globals) {
@@ -115,7 +111,7 @@ Status FoldConstantMgr::init(TQueryGlobals query_globals) {
     TQueryOptions query_options;
     _runtime_state.reset(new RuntimeState(fragment_params.params, query_options, query_globals,
                                           ExecEnv::GetInstance()));
-    DescriptorTbl* desc_tbl = NULL;
+    DescriptorTbl* desc_tbl = nullptr;
     TDescriptorTable* t_desc_tbl = new TDescriptorTable();
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), *t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
@@ -131,7 +127,8 @@ Status FoldConstantMgr::init(TQueryGlobals query_globals) {
 
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
-    _mem_tracker = MemTracker::CreateTracker(-1, "FoldConstantExpr", _runtime_state->instance_mem_tracker());
+    _mem_tracker = MemTracker::CreateTracker(-1, "FoldConstantExpr",
+                                             _runtime_state->instance_mem_tracker());
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();
@@ -139,14 +136,14 @@ Status FoldConstantMgr::init(TQueryGlobals query_globals) {
 
 Status FoldConstantMgr::prepare_and_open(ExprContext* ctx) {
     RowDescriptor* desc = new RowDescriptor();
-    ctx -> prepare(_runtime_state.get(), *desc, _mem_tracker);
-    return ctx -> open(_runtime_state.get());
+    ctx->prepare(_runtime_state.get(), *desc, _mem_tracker);
+    return ctx->open(_runtime_state.get());
 }
 
-string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type){
+string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type) {
     switch (slot_type) {
     case TYPE_NULL: {
-        return NULL;
+        return nullptr;
     }
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
@@ -199,10 +196,8 @@ string FoldConstantMgr::get_result(void* src, PrimitiveType slot_type){
     }
     default:
         DCHECK(false) << "Type not implemented: " << slot_type;
-        return NULL;
+        return nullptr;
     }
 }
 
-
-}
-
+} // namespace doris

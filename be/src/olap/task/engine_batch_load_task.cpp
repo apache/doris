@@ -197,7 +197,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         bool is_timeout = false;
         auto download_cb = [this, estimate_time_out, file_size, &is_timeout](HttpClient* client) {
             // Check timeout and set timeout
-            time_t now = time(NULL);
+            time_t now = time(nullptr);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
                 VLOG_NOTICE << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
@@ -258,9 +258,9 @@ AgentStatus EngineBatchLoadTask::_process() {
 
     if (status == DORIS_SUCCESS) {
         // Load delta file
-        time_t push_begin = time(NULL);
+        time_t push_begin = time(nullptr);
         OLAPStatus push_status = _push(_push_req, _tablet_infos);
-        time_t push_finish = time(NULL);
+        time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             status = DORIS_PUSH_HAD_LOADED;
