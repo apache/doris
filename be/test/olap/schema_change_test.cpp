@@ -37,7 +37,7 @@ namespace doris {
 
 class TestColumn : public testing::Test {
 public:
-    TestColumn() : _column_writer(NULL), _column_reader(NULL), _stream_factory(NULL) {
+    TestColumn() : _column_writer(nullptr), _column_reader(nullptr), _stream_factory(nullptr) {
         _offsets.clear();
         _map_in_streams.clear();
         _present_buffers.clear();
@@ -59,7 +59,7 @@ public:
         _offsets.push_back(0);
         _stream_factory = new (std::nothrow)
                 OutStreamFactory(COMPRESS_LZ4, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
-        ASSERT_TRUE(_stream_factory != NULL);
+        ASSERT_TRUE(_stream_factory != nullptr);
         config::column_dictionary_key_ratio_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
     }
@@ -85,7 +85,7 @@ public:
     void create_columnWriter(const TabletSchema& tablet_schema) {
         _column_writer = ColumnWriter::create(0, tablet_schema, _stream_factory, 1024,
                                               BLOOM_FILTER_DEFAULT_FPP);
-        ASSERT_TRUE(_column_writer != NULL);
+        ASSERT_TRUE(_column_writer != nullptr);
         ASSERT_EQ(_column_writer->init(), OLAP_SUCCESS);
     }
 
@@ -107,7 +107,7 @@ public:
         _column_reader =
                 ColumnReader::create(0, tablet_schema, included, segment_included, encodings);
 
-        ASSERT_TRUE(_column_reader != NULL);
+        ASSERT_TRUE(_column_reader != nullptr);
 
         system("mkdir -p ./ut_dir");
         system("rm ./ut_dir/tmp_file");
@@ -145,7 +145,7 @@ public:
                 ASSERT_TRUE(false);
             }
 
-            ASSERT_TRUE(buffers != NULL);
+            ASSERT_TRUE(buffers != nullptr);
             off.push_back(helper.tell());
             out_stream->write_to_file(&helper, 0);
             length.push_back(out_stream->get_stream_length());
@@ -160,7 +160,7 @@ public:
         SAFE_DELETE(_shared_buffer);
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != NULL);
+        ASSERT_TRUE(_shared_buffer != nullptr);
 
         for (auto in_stream : _map_in_streams) {
             delete in_stream.second;

@@ -24,6 +24,7 @@
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/exec_node.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
 #include "exec/plain_binary_line_reader.h"
 #include "exec/plain_text_line_reader.h"
@@ -39,8 +40,6 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
-
-#include "exec/hdfs_reader_writer.h"
 
 namespace doris {
 
@@ -167,7 +166,8 @@ Status BrokerScanner::open_file_reader() {
     }
     case TFileType::FILE_HDFS: {
         FileReader* hdfs_file_reader;
-        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset, &hdfs_file_reader));
+        RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path, start_offset,
+                                                        &hdfs_file_reader));
         BufferedReader* file_reader = new BufferedReader(_profile, hdfs_file_reader);
         RETURN_IF_ERROR(file_reader->open());
         _cur_file_reader = file_reader;
@@ -182,8 +182,8 @@ Status BrokerScanner::open_file_reader() {
         break;
     }
     case TFileType::FILE_S3: {
-        BufferedReader* s3_reader =
-                new BufferedReader(_profile, new S3Reader(_params.properties, range.path, start_offset));
+        BufferedReader* s3_reader = new BufferedReader(
+                _profile, new S3Reader(_params.properties, range.path, start_offset));
         RETURN_IF_ERROR(s3_reader->open());
         _cur_file_reader = s3_reader;
         break;
@@ -271,7 +271,7 @@ Status BrokerScanner::open_line_reader() {
     }
 
     // create decompressor.
-    // _decompressor may be NULL if this is not a compressed file
+    // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(create_decompressor(range.format_type));
 
     _file_format_type = range.format_type;
@@ -337,7 +337,7 @@ void BrokerScanner::split_line(const Slice& line) {
         delete row;
         delete ptr;
     } else {
-        const char *value = line.data;
+        const char* value = line.data;
         size_t start = 0;  // point to the start pos of next col value.
         size_t curpos = 0; // point to the start pos of separator matching sequence.
         size_t p1 = 0;     // point to the current pos of separator matching sequence.
@@ -466,7 +466,8 @@ bool BrokerScanner::convert_one_row(const Slice& line, Tuple* tuple, MemPool* tu
 
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
-    if (_file_format_type != TFileFormatType::FORMAT_PROTO && !validate_utf8(line.data, line.size)) {
+    if (_file_format_type != TFileFormatType::FORMAT_PROTO &&
+        !validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
         _state->append_error_msg_to_file("Unable to display", error_msg.str());

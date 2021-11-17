@@ -68,21 +68,21 @@ Status SchemaColumnsScanner::start(RuntimeState* state) {
     }
     // get all database
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*_param->current_user_ident);
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -393,18 +393,18 @@ Status SchemaColumnsScanner::get_new_desc() {
     TDescribeTableParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
     desc_params.__set_table_name(_table_result.tables[_table_index++]);
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         desc_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             desc_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             desc_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::describe_table(*(_param->ip), _param->port, desc_params,
                                                      &_desc_result));
     } else {
@@ -418,21 +418,21 @@ Status SchemaColumnsScanner::get_new_desc() {
 Status SchemaColumnsScanner::get_new_table() {
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index++]);
-    if (NULL != _param->table) {
+    if (nullptr != _param->table) {
         table_params.__set_pattern(*(_param->table));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             table_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::get_table_names(*(_param->ip), _param->port, table_params,
                                                       &_table_result));
     } else {
@@ -446,8 +446,8 @@ Status SchemaColumnsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos
     if (!_is_init) {
         return Status::InternalError("use this class before inited.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input parameter is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input parameter is nullptr.");
     }
     while (_column_index >= _desc_result.columns.size()) {
         if (_table_index >= _table_result.tables.size()) {

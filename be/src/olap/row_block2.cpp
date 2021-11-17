@@ -114,7 +114,7 @@ std::string RowBlockV2::debug_string() {
         ss << row(i).debug_string();
         if (i != num_rows() - 1) {
             ss << "\n";
-       }
+        }
     }
     return ss.str();
 }

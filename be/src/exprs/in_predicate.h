@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
 
-#include <boost/shared_ptr.hpp>
 #include <string>
 #include <unordered_set>
 
@@ -68,7 +67,7 @@ private:
     const bool _is_not_in;
     bool _is_prepare;
     bool _null_in_set;
-    boost::shared_ptr<HybridSetBase> _hybrid_set;
+    std::shared_ptr<HybridSetBase> _hybrid_set;
 };
 
 } // namespace doris

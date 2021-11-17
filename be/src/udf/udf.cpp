@@ -81,8 +81,8 @@ FunctionContextImpl::FunctionContextImpl(doris_udf::FunctionContext* parent)
           _num_updates(0),
           _num_removes(0),
           _context(parent),
-          _pool(NULL),
-          _state(NULL),
+          _pool(nullptr),
+          _state(nullptr),
           _debug(false),
           _version(doris_udf::FunctionContext::V2_0),
           _num_warnings(0),
@@ -108,7 +108,7 @@ void FunctionContextImpl::close() {
     }
 
     free(_varargs_buffer);
-    _varargs_buffer = NULL;
+    _varargs_buffer = nullptr;
 
     _closed = true;
 }
@@ -199,8 +199,8 @@ static const int MAX_WARNINGS = 1000;
 FunctionContext* FunctionContext::create_test_context() {
     FunctionContext* context = new FunctionContext();
     context->impl()->_debug = true;
-    context->impl()->_state = NULL;
-    context->impl()->_pool = new doris::FreePool(NULL);
+    context->impl()->_state = nullptr;
+    context->impl()->_pool = new doris::FreePool(nullptr);
     return context;
 }
 
@@ -220,8 +220,8 @@ FunctionContext::DorisVersion FunctionContext::version() const {
 }
 
 const char* FunctionContext::user() const {
-    if (_impl->_state == NULL) {
-        return NULL;
+    if (_impl->_state == nullptr) {
+        return nullptr;
     }
 
     return _impl->_state->user().c_str();
@@ -269,7 +269,7 @@ uint8_t* FunctionContext::reallocate(uint8_t* ptr, int byte_size) {
 }
 
 void FunctionContext::free(uint8_t* buffer) {
-    if (buffer == NULL) {
+    if (buffer == nullptr) {
         return;
     }
 
@@ -338,7 +338,7 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     std::stringstream ss;
     ss << "UDF WARNING: " << warning_msg;
 
-    if (_impl->_state != NULL) {
+    if (_impl->_state != nullptr) {
         return _impl->_state->log_error(ss.str());
     } else {
         std::cerr << ss.str() << std::endl;
@@ -388,7 +388,7 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len)
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -405,7 +405,7 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -418,7 +418,7 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
 
 const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
-        return NULL;
+        return nullptr;
     }
     return &_impl->_arg_types[arg_idx];
 }

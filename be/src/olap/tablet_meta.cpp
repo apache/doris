@@ -60,7 +60,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_tablet_id(tablet_id);
     tablet_meta_pb.set_schema_hash(schema_hash);
     tablet_meta_pb.set_shard_id(shard_id);
-    tablet_meta_pb.set_creation_time(time(NULL));
+    tablet_meta_pb.set_creation_time(time(nullptr));
     tablet_meta_pb.set_cumulative_layer_point(-1);
     tablet_meta_pb.set_tablet_state(PB_RUNNING);
     *(tablet_meta_pb.mutable_tablet_uid()) = tablet_uid.to_proto();
@@ -155,8 +155,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _stale_rs_metas(b._stale_rs_metas),
           _del_pred_array(b._del_pred_array),
           _in_restore_mode(b._in_restore_mode),
-          _preferred_rowset_type(b._preferred_rowset_type) {
-}
+          _preferred_rowset_type(b._preferred_rowset_type) {}
 
 void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                            ColumnPB* column) {

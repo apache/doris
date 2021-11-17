@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_UTIL_ERROR_UTIL_H
 #define DORIS_BE_SRC_UTIL_ERROR_UTIL_H
 
-#include <boost/cstdint.hpp>
 #include <string>
 #include <vector>
 

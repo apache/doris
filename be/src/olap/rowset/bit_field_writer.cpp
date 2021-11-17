@@ -24,7 +24,7 @@
 namespace doris {
 
 BitFieldWriter::BitFieldWriter(OutStream* output)
-        : _output(output), _byte_writer(NULL), _current(0), _bits_left(8) {}
+        : _output(output), _byte_writer(nullptr), _current(0), _bits_left(8) {}
 
 BitFieldWriter::~BitFieldWriter() {
     SAFE_DELETE(_byte_writer);
@@ -33,7 +33,7 @@ BitFieldWriter::~BitFieldWriter() {
 OLAPStatus BitFieldWriter::init() {
     _byte_writer = new (std::nothrow) RunLengthByteWriter(_output);
 
-    if (NULL == _byte_writer) {
+    if (nullptr == _byte_writer) {
         OLAP_LOG_WARNING("fail to create RunLengthByteWriter");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -83,7 +83,7 @@ OLAPStatus BitFieldWriter::flush() {
 }
 
 void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
-    if (NULL != _byte_writer) {
+    if (nullptr != _byte_writer) {
         _byte_writer->get_position(index_entry);
     } else {
         // for stream

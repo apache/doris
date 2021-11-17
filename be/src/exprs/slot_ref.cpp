@@ -78,7 +78,7 @@ Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, Expr
     }
 
     const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
-    if (slot_desc == NULL) {
+    if (slot_desc == nullptr) {
         // TODO: create macro MAKE_ERROR() that returns a stream
         std::stringstream error;
         error << "couldn't resolve slot descriptor " << _slot_id;
@@ -130,7 +130,7 @@ std::string SlotRef::debug_string() const {
 BooleanVal SlotRef::get_boolean_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BOOLEAN);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return BooleanVal::null();
     }
     return BooleanVal(*reinterpret_cast<bool*>(t->get_slot(_slot_offset)));
@@ -139,7 +139,7 @@ BooleanVal SlotRef::get_boolean_val(ExprContext* context, TupleRow* row) {
 TinyIntVal SlotRef::get_tiny_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_TINYINT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return TinyIntVal::null();
     }
 
@@ -149,7 +149,7 @@ TinyIntVal SlotRef::get_tiny_int_val(ExprContext* context, TupleRow* row) {
 SmallIntVal SlotRef::get_small_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_SMALLINT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return SmallIntVal::null();
     }
     return SmallIntVal(*reinterpret_cast<int16_t*>(t->get_slot(_slot_offset)));
@@ -158,7 +158,7 @@ SmallIntVal SlotRef::get_small_int_val(ExprContext* context, TupleRow* row) {
 IntVal SlotRef::get_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_INT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return IntVal::null();
     }
     return IntVal(*reinterpret_cast<int32_t*>(t->get_slot(_slot_offset)));
@@ -167,7 +167,7 @@ IntVal SlotRef::get_int_val(ExprContext* context, TupleRow* row) {
 BigIntVal SlotRef::get_big_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BIGINT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return BigIntVal::null();
     }
     return BigIntVal(*reinterpret_cast<int64_t*>(t->get_slot(_slot_offset)));
@@ -176,7 +176,7 @@ BigIntVal SlotRef::get_big_int_val(ExprContext* context, TupleRow* row) {
 LargeIntVal SlotRef::get_large_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_LARGEINT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return LargeIntVal::null();
     }
     return LargeIntVal(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
@@ -185,7 +185,7 @@ LargeIntVal SlotRef::get_large_int_val(ExprContext* context, TupleRow* row) {
 FloatVal SlotRef::get_float_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_FLOAT);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return FloatVal::null();
     }
     return FloatVal(*reinterpret_cast<float*>(t->get_slot(_slot_offset)));
@@ -194,7 +194,7 @@ FloatVal SlotRef::get_float_val(ExprContext* context, TupleRow* row) {
 DoubleVal SlotRef::get_double_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DOUBLE);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return DoubleVal::null();
     }
     return DoubleVal(*reinterpret_cast<double*>(t->get_slot(_slot_offset)));
@@ -203,7 +203,7 @@ DoubleVal SlotRef::get_double_val(ExprContext* context, TupleRow* row) {
 StringVal SlotRef::get_string_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.is_string_type());
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return StringVal::null();
     }
     StringVal result;
@@ -215,7 +215,7 @@ StringVal SlotRef::get_string_val(ExprContext* context, TupleRow* row) {
 DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.is_date_type());
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return DateTimeVal::null();
     }
     DateTimeValue* tv = reinterpret_cast<DateTimeValue*>(t->get_slot(_slot_offset));
@@ -227,7 +227,7 @@ DateTimeVal SlotRef::get_datetime_val(ExprContext* context, TupleRow* row) {
 DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2);
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return DecimalV2Val::null();
     }
 
@@ -238,7 +238,7 @@ doris_udf::CollectionVal SlotRef::get_array_val(ExprContext* context, TupleRow* 
     DCHECK_EQ(_type.type, TYPE_ARRAY);
 
     Tuple* t = row->get_tuple(_tuple_idx);
-    if (t == NULL || t->is_null(_null_indicator_offset)) {
+    if (t == nullptr || t->is_null(_null_indicator_offset)) {
         return CollectionVal::null();
     }
 

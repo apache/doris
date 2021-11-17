@@ -21,8 +21,8 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 
 #include "util/logging.h"
 

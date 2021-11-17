@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
 #define DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "runtime/bufferpool/buffer_pool_internal.h"
 #include "runtime/bufferpool/free_list.h"
 #include "util/aligned_new.h"
@@ -168,7 +166,7 @@ private:
     /// 'min_buffer_len' so that there is at least one valid buffer size.
     static int64_t CalcMaxBufferLen(int64_t min_buffer_len, int64_t system_bytes_limit);
 
-    /// Same as Allocate() but leaves 'buffer->client_' NULL and does not update counters.
+    /// Same as Allocate() but leaves 'buffer->client_' nullptr and does not update counters.
     Status AllocateInternal(int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
 
     /// Tries to reclaim enough memory from various sources so that the caller can allocate
@@ -193,7 +191,7 @@ private:
     BufferPool* const pool_;
 
     /// System allocator that is ultimately used to allocate and free buffers.
-    const boost::scoped_ptr<SystemAllocator> system_allocator_;
+    const std::unique_ptr<SystemAllocator> system_allocator_;
 
     /// The minimum power-of-two buffer length that can be allocated.
     const int64_t min_buffer_len_;
