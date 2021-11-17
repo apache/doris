@@ -657,7 +657,7 @@ struct TOlapRewriteNode {
 }
 
 struct TTableFunctionNode {
-    1: required Exprs.TExpr fnCallExpr
+    1: required list<Exprs.TExpr> fnCallExprList
 }
 
 // This contains all of the information computed by the plan as part of the resource

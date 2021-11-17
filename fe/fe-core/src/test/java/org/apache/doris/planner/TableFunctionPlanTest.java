@@ -150,12 +150,9 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select k1, e1, e2 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
                 + " lateral view explode_split(k2, \",\") tmp2 as e2;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        Assert.assertTrue(explainString.contains("2:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("tuple ids: 0 1 2"));
         Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
-        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
-        Assert.assertTrue(explainString.contains("tuple ids: 0 1"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',') explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1 2"));
         // lateral view 2 tuple
         Assert.assertTrue(explainString.contains("TupleDescriptor{id=1, tbl=tmp2, byteSize=32, materialized=true}"));
         Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=e2, type=VARCHAR(*)}"));
