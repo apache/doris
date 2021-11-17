@@ -193,4 +193,89 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(
                 explainString.contains("No matching function with signature: explode_split(varchar(-1), varchar(-1))."));
     }
+
+    // test projection
+    /* Case1 the source column is not be projected
+      select k1, e1 from table lateral view explode_split(k2, ",") t1 as e1
+      project column: k1, e1
+      prune column: k2
+     */
+    @Test
+    public void nonProjectSourceColumn() throws Exception {
+        String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case2 the lateral view column is projected when it is in the agg function.
+    select k1, sum(cast(e1 as int)) from table lateral view explode_split(k2, ",") t1 as e1 group by k1;
+    project column: k1, e1
+    prune column: k2
+     */
+    @Test
+    public void projectLateralViewColumn() throws Exception {
+        String sql = "desc verbose select k1, sum(cast(e1 as int)) from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " group by k1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case3 the source column is not be projected when it is in the where clause
+    select k1, e1 from table lateral view explode_split(k2, ",") t1 as e1 where k2=1;
+    project column: k1, e1
+    prune column: k2
+     */
+    @Test
+    public void nonProjectSourceColumnWhenInWhereClause() throws Exception {
+        String sql = "desc verbose select k1, e1 from db1.tbl1 lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " where k2=1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 1 2"));
+    }
+
+    /*
+    Case4 the source column is projected when predicate could not be pushed down
+    select a.k1, t1.e1 from table a lateral view explode_split(k2, ",") t1 as e1
+        right join table b on a.k1=b.k1 where k2=1;
+    project column: k1, k2, e1
+     */
+    @Test
+    public void projectSourceColumnWhenPredicateCannotPushedDown() throws Exception {
+        String sql = "desc verbose select a.k1, tmp1.e1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " right join db1.tbl1 b on a.k1=b.k1 where a.k2=1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 0 1 2"));
+    }
+
+    /*
+    Case5 There is only one source column in select items
+    select a.k1 from table a lateral view explode_split(k2, ",") t1 as e1
+        left join table b on a.k1=b.k1 where k2=1
+    project column: k1
+    prune column: k2, e1
+     */
+    @Test
+    public void nonProjectLateralColumnAndSourceColumn() throws Exception {
+        String sql = "desc verbose select a.k1 from db1.tbl1 a lateral view explode_split(k2, \",\") tmp1 as e1"
+                + " left join db1.tbl1 b on a.k1=b.k1 where a.k2=1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(explainString.contains("1:TABLE FUNCTION NODE"));
+        Assert.assertTrue(explainString.contains("table function: explode_split(`k2`, ',')"));
+        Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
+        Assert.assertTrue(explainString.contains("output slot id: 2"));
+    }
 }

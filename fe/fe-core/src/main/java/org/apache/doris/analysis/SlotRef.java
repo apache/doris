@@ -316,6 +316,23 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
+        if (desc == null) {
+            return;
+        }
+        if (tupleIds.contains(desc.getParent().getId())) {
+            boundSlotRefs.add(this);
+            return;
+        }
+        if (desc.getSourceExprs() == null) {
+            return;
+        }
+        for (Expr sourceExpr : desc.getSourceExprs()) {
+            sourceExpr.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
+    }
+
+    @Override
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         Preconditions.checkState(!type.equals(Type.INVALID));
         Preconditions.checkState(desc != null);
