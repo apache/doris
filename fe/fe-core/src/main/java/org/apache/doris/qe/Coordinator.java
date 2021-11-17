@@ -344,6 +344,7 @@ public class Coordinator {
             }
             this.exportFiles.clear();
             this.needCheckBackendExecStates.clear();
+            this.alreadySentBackendIds.clear();
         } finally {
             lock.unlock();
         }
