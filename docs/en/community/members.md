@@ -60,13 +60,20 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 | [zshao](https://people.apache.org/committer-index.html#zshao)    | zshao               | Zheng Shao    |
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 
-## Committers (22)
+## Committers (29)
 
 (the listing excludes PPMC members above)
 
 | Apache ID                                                    | Github Username  | Public Name    |
 | :----------------------------------------------------------- | :--------------- | :------------- |
-| [wangbo](https://people.apache.org/committer-index.html#wangbo)  | wangbo           | Bo Wang        |
+| [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo           | Bo Wang        |
+| [lihaopeng](https://people.apache.org/committer-index.html#lihaopeng) | HappenLee        | Haopeng Li     |
 | [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
 | [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
-| [wyf](https://people.apache.org/committer-index.html#wyf)        | wuyunfeng        | Yunfeng Wu     |
+| [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123       | Lijia Liu      |
+| [jiafengzheng](https://people.apache.org/committer-index.html#jiafengzheng) | hf200012         | Jiafeng Zhang  |
+| [wangxixu](https://people.apache.org/committer-index.html#wangxixu) | xinghuayu007     | Xixu Wang      |
+| [xuyang](https://people.apache.org/committer-index.html#xuyang) | xy720            | Yang Xu        |
+| [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
+| [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
+| [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93         | Zuo Wei        |
