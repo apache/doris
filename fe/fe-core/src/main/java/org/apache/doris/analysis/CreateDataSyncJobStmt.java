@@ -80,7 +80,8 @@ public class CreateDataSyncJobStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
 
         if (!Config.enable_create_sync_job) {
-            throw new AnalysisException("Mysql sync job is coming soon.");
+            throw new AnalysisException("Mysql sync job is disabled." +
+                    " Set config 'enable_create_sync_job' = 'true' to enable this feature. ");
         }
 
         if (binlogDesc != null) {
