@@ -66,7 +66,7 @@ public:
     // Init conjuncts.
     ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual ~ExecNode();
+    virtual ~ExecNode() {}
 
     /// Initializes this object from the thrift tnode desc. The subclass should
     /// do any initialization that can fail in Init() rather than the ctor.
@@ -134,6 +134,12 @@ public:
     // close() on the children. To ensure that close() is called on the entire plan tree,
     // each implementation should start out by calling the default implementation.
     virtual Status close(RuntimeState* state);
+
+    virtual void set_num_senders(int num_senders) {}
+
+    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) { 
+        return Status::NotSupported("dummy implement"); 
+    }
 
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.

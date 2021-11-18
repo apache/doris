@@ -129,8 +129,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
           _memory_used_counter(nullptr),
           _is_closed(false) {}
 
-ExecNode::~ExecNode() {}
-
 void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
     if (_type != TPlanNodeType::AGGREGATION_NODE) {
         for (int i = 0; i < _children.size(); ++i) {

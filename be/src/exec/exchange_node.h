@@ -53,7 +53,7 @@ public:
 
     // the number of senders needs to be set after the c'tor, because it's not
     // recorded in TPlanNode, and before calling prepare()
-    void set_num_senders(int num_senders) { _num_senders = num_senders; }
+    void set_num_senders(int num_senders) override { _num_senders = num_senders; }
 
 protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;

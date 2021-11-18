@@ -157,7 +157,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
         DCHECK_GT(num_senders, 0);
         if (_runtime_state->enable_vectorized_exec()) {
         } else {
-            static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
+            exch_node->set_num_senders(num_senders);
         }
     }
 
@@ -172,7 +172,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _plan->try_do_aggregate_serde_improve();
 
     for (int i = 0; i < scan_nodes.size(); ++i) {
-        ScanNode* scan_node = static_cast<ScanNode*>(scan_nodes[i]);
+        auto scan_node = scan_nodes[i];
         const std::vector<TScanRangeParams>& scan_ranges =
                 find_with_default(params.per_node_scan_ranges, scan_node->id(), no_scan_ranges);
         scan_node->set_scan_ranges(scan_ranges);
