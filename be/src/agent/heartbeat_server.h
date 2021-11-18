@@ -38,14 +38,10 @@ class ThriftServer;
 struct FrontendStartInfo {
     int64_t start_time;
     bool is_alive;
-    DateTimeValue* last_heartbeat; // Invalid time of Info
+    int64_t last_heartbeat; // Invalid time of Info
 
-    FrontendStartInfo(int64_t start_time, bool is_alive, DateTimeValue* last_heartbeat)
+    FrontendStartInfo(int64_t start_time, bool is_alive, int64_t last_heartbeat)
             : start_time(start_time), is_alive(is_alive), last_heartbeat(last_heartbeat) {}
-
-    ~FrontendStartInfo() {
-        delete last_heartbeat;
-    }
 };
 
 class HeartbeatServer : public HeartbeatServiceIf {

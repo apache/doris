@@ -161,8 +161,8 @@ public:
     PluginMgr* plugin_mgr() { return _plugin_mgr; }
 
     FrontendStartInfoMap& frontends_start_time() { return _frontends_start_time; }
-    DateTimeValue* last_heartbeat() { return _last_heartbeat; }
-    void set_last_heartbeat(DateTimeValue* last_heartbeat) { _last_heartbeat = last_heartbeat; }
+    int64_t last_heartbeat() { return _last_heartbeat; }
+    void set_last_heartbeat(int64_t last_heartbeat) { _last_heartbeat = last_heartbeat; }
 
     // The root tracker should be set before calling ExecEnv::init();
     void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
@@ -238,7 +238,7 @@ private:
     PluginMgr* _plugin_mgr = nullptr;
 
     FrontendStartInfoMap _frontends_start_time;
-    DateTimeValue* _last_heartbeat = nullptr;
+    int64_t _last_heartbeat = 0;
 };
 
 template <>

@@ -92,13 +92,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 [info](std::shared_ptr<FrontendStartInfo> fsi_ptr) {
                     fsi_ptr->is_alive = info.is_alive;
                     fsi_ptr->start_time = info.fe_start_time;
-                    fsi_ptr->last_heartbeat->from_unixtime(time(NULL), TimezoneUtils::default_time_zone);},
+                    fsi_ptr->last_heartbeat = time(nullptr);},
                 std::make_shared<FrontendStartInfo>(
-                    info.fe_start_time, info.is_alive,
-                    new DateTimeValue(DateTimeValue::local_time().to_int64())));
+                    info.fe_start_time, info.is_alive, time(nullptr)));
         }
         LOG_EVERY_N(INFO, 12) << ss.str();
-        _exec_env->last_heartbeat()->from_unixtime(time(NULL), TimezoneUtils::default_time_zone);
+        _exec_env->set_last_heartbeat(time(nullptr));
     }
 
     if (master_info.__isset.backend_ip) {
@@ -200,22 +199,22 @@ const bool HeartbeatServer::is_fe_restart(ExecEnv* exec_env,
     if (coord_addr.hostname.empty()) {
         return false;
     }
+    int64_t start_timestamp;
+    fe_msg_time.unix_timestamp(&start_timestamp, TimezoneUtils::default_time_zone);
     // Heartbeat lags behind the frontend message time
     // For example: after the frontend restarts, when the heartbeat is not sent to the backend in time, 
     // the backend may cancel the request sent by the frontend
-    if (exec_env->last_heartbeat()->second_diff(fe_msg_time) < 0) {
+    if (exec_env->last_heartbeat() < start_timestamp) {
         return false;
     }
-    int64_t start_timestamp;
     std::string coord_addr_str = coord_addr.hostname + ":" + std::to_string(coord_addr.port);
-    fe_msg_time.unix_timestamp(&start_timestamp, TimezoneUtils::default_time_zone);
     auto fsi_ptr = exec_env->frontends_start_time().find(coord_addr_str);
     if (LIKELY(fsi_ptr == exec_env->frontends_start_time().end())) {
         LOG(WARNING) << "FE coord_addr: " << coord_addr_str << " not exist";
         return true;
     }
     // The info of this frontend is not received in the recent heartbeat. At this time, the info is invalid
-    if (fsi_ptr->second->last_heartbeat->second_diff(fe_msg_time) < 0) {
+    if (fsi_ptr->second->last_heartbeat < start_timestamp) {
         return false;
     }
     if (fsi_ptr->second->is_alive == false || fsi_ptr->second->start_time == -1) {

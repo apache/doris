@@ -39,7 +39,6 @@ static StorageEngine* k_engine = nullptr;
 
 TEST(HeartbeatTest, TestHeartbeat) {
     ExecEnv* env = ExecEnv::GetInstance();
-    env->set_last_heartbeat(new DateTimeValue());
     EngineOptions options;
     // won't open engine, options.path is needless
     options.backend_uid = UniqueId::gen_uid();
@@ -93,7 +92,7 @@ TEST(HeartbeatTest, TestHeartbeat) {
     EXPECT_EQ(master_info.network_address.port,
               heartbeat_server._master_info->network_address.port);
 
-    int64_t current_time = time(NULL);
+    int64_t current_time = time(nullptr);
     TFrontendInfo frontend_info;
     frontend_info.network_address.hostname = "0.8.1.4";
     frontend_info.network_address.port = 1994;
@@ -113,9 +112,8 @@ TEST(HeartbeatTest, TestHeartbeat) {
 
     DateTimeValue current_date;
     current_date.from_unixtime(current_time, TimezoneUtils::default_time_zone);
-    env->last_heartbeat()->from_unixtime(current_time, TimezoneUtils::default_time_zone);
-    env->frontends_start_time()[coord_addr_str]
-        ->last_heartbeat->from_unixtime(current_time, TimezoneUtils::default_time_zone);
+    env->set_last_heartbeat(current_time);
+    env->frontends_start_time()[coord_addr_str]->last_heartbeat = current_time;
     
     // frontend not exist
     TNetworkAddress coord_addr;
@@ -125,7 +123,7 @@ TEST(HeartbeatTest, TestHeartbeat) {
     // last_heartbeat < fe_msg_time
     coord_addr.__set_hostname("0.8.1.4");
     EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() + 100)));
-    env->last_heartbeat()->from_unixtime(current_time + 200, TimezoneUtils::default_time_zone);
+    env->set_last_heartbeat(current_time + 200);
     // fe_last_heartbeat < fe_msg_time
     EXPECT_FALSE(HeartbeatServer::is_fe_restart(env, coord_addr, DateTimeValue(current_date.to_int64() + 100)));
     // fe_start_time > fe_msg_time
