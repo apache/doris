@@ -692,4 +692,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
         return false;
     }
+
+    @Override
+    protected String getLag() {
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        Gson gson = new Gson();
+        return gson.toJson(partitionIdToOffsetLag);
+    }
 }
