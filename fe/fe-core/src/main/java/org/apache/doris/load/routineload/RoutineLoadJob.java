@@ -397,7 +397,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public void setOtherMsg(String otherMsg) {
-        this.otherMsg = Strings.nullToEmpty(otherMsg);
+        this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -1253,9 +1253,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected abstract String getStatistic();
 
+    protected abstract String getLag();
+
     public List<String> getShowInfo() {
         Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
+
 
         readLock();
         try {
@@ -1275,6 +1278,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(customPropertiesJsonToString());
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
+            row.add(getLag());
             switch (state) {
                 case PAUSED:
                     row.add(pauseReason == null ? "" : pauseReason.toString());
