@@ -69,6 +69,11 @@ struct JsonPath {
     }
 };
 
+struct JsonState {
+    std::vector<JsonPath> json_paths;
+    rapidjson::Document document;
+};
+
 class JsonFunctions {
 public:
     static void init();
@@ -113,10 +118,10 @@ public:
             const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
 
-    static void json_path_prepare(doris_udf::FunctionContext*,
+    static void json_function_prepare(doris_udf::FunctionContext*,
                                   doris_udf::FunctionContext::FunctionStateScope);
 
-    static void json_path_close(doris_udf::FunctionContext*,
+    static void json_function_close(doris_udf::FunctionContext*,
                                 doris_udf::FunctionContext::FunctionStateScope);
 
     static void parse_json_paths(const std::string& path_strings,
