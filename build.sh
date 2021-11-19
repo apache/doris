@@ -327,6 +327,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
                ${DORIS_OUTPUT}/udf/include
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
+    cp -r -p ${DORIS_HOME}/bin/doris_be.sh ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/

@@ -156,6 +156,12 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     `sh bin/start_fe.sh --daemon`
 
+    或者
+
+    `sh bin/doris_fe.sh start`
+
+    > `doris_fe.sh`这个脚本支持：start、stop、restart三种操作
+
     FE进程启动进入后台执行。日志默认存放在 log/ 目录下。如启动失败，可以通过查看 log/fe.log 或者 log/fe.out 查看错误信息。
 
 * 如需部署多 FE，请参见 "FE 扩容和缩容" 章节
@@ -214,6 +220,12 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 * 启动 BE
 
     `sh bin/start_be.sh --daemon`
+
+    或者
+
+    `sh bin/doris_be.sh start`
+
+    > `doris_be.sh`这个脚本支持：start、stop、restart三种操作
 
     BE 进程将启动并进入后台执行。日志默认存放在 be/log/ 目录下。如启动失败，可以通过查看 be/log/be.log 或者 be/log/be.out 查看错误信息。
 
