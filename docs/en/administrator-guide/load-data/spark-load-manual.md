@@ -410,7 +410,7 @@ PROPERTIES
 Example 3: when the upstream data source is hive binary type table
 
 ```sql
-step 1:新建hive外部表
+step 1: create hive external table
 CREATE EXTERNAL TABLE hive_t1
 (
     k1 INT,
@@ -426,7 +426,7 @@ properties
 "hive.metastore.uris" = "thrift://0.0.0.0:8080"
 );
 
-step 2: 提交load命令
+step 2: submit load command
 LOAD LABEL db1.label1
 (
     DATA FROM TABLE hive_t1
