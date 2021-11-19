@@ -86,6 +86,10 @@ public class TaskInstanceEntity {
     @Column(name = "finish", nullable = false)
     private Flag finish;
 
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "skip", nullable = false)
+    private Flag skip;
+
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType, TaskTypeEnum taskType, ExecutionStatus status) {
         this.processId = processId;
         this.host = host;
@@ -94,6 +98,7 @@ public class TaskInstanceEntity {
         this.status = status;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
     }
 
     public TaskInstanceEntity(int processId, String host, ProcessTypeEnum processType) {

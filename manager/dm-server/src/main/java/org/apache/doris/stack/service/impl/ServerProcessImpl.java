@@ -19,7 +19,6 @@ package org.apache.doris.stack.service.impl;
 
 import com.alibaba.fastjson.JSON;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -39,20 +38,17 @@ import org.apache.doris.stack.entity.TaskInstanceEntity;
 import org.apache.doris.stack.exceptions.ServerException;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
-import org.apache.doris.stack.model.request.TestConnectionReq;
-import org.apache.doris.stack.model.response.TestConnectionResp;
 import org.apache.doris.stack.model.task.AgentInstall;
 import org.apache.doris.stack.runner.TaskExecuteRunner;
 import org.apache.doris.stack.service.ServerProcess;
 import org.apache.doris.stack.service.user.AuthenticationService;
-import org.apache.doris.stack.shell.SSH;
-import org.apache.doris.stack.util.TelnetUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.io.File;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Date;
 import java.util.List;
 
@@ -86,7 +82,10 @@ public class ServerProcessImpl implements ServerProcess {
 
     @Override
     public int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq installReq) throws Exception {
+        Preconditions.checkArgument(ObjectUtils.isNotEmpty(installReq.getHosts()), "host is empty!");
         Preconditions.checkArgument(StringUtils.isNotBlank(installReq.getInstallDir()), "agent install dir not empty!");
+        Preconditions.checkArgument(checkUrlConnection(installReq.getPackageUrl()), "Unable to get installation package");
+
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         checkAgentInstall(installReq);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT, installReq.getPackageUrl(), installReq.getInstallDir());
@@ -116,32 +115,20 @@ public class ServerProcessImpl implements ServerProcess {
         }
     }
 
-    @Override
-    public List<TestConnectionResp> testConnection(HttpServletRequest request, HttpServletResponse response, TestConnectionReq testConReq) {
-        Preconditions.checkArgument(ObjectUtils.isNotEmpty(testConReq.getHosts()), "host is empty!");
-        final String checkJavaHome = "source /etc/profile && source ~/.bash_profile && java -version && echo $JAVA_HOME";
-        File sshKeyFile = SSH.buildSshKeyFile();
-        SSH.writeSshKeyFile(testConReq.getSshKey(), sshKeyFile);
-        List<TestConnectionResp> result = Lists.newArrayList();
-        for (String host : testConReq.getHosts()) {
-            TestConnectionResp testResp = new TestConnectionResp();
-            testResp.setHost(host);
-            testResp.setStatus(true);
-            if (!TelnetUtil.telnet(host, testConReq.getSshPort())) {
-                testResp.setStatus(false);
-                testResp.setErrorResponse("Connect failed " + host + ":" + testConReq.getSshPort());
-            } else {
-                SSH ssh = new SSH(testConReq.getUser(), testConReq.getSshPort(),
-                        sshKeyFile.getAbsolutePath(), host, checkJavaHome);
-                if (!ssh.run()) {
-                    String errorResponse = ssh.getErrorResponse();
-                    testResp.setStatus(false);
-                    testResp.setErrorResponse(errorResponse);
-                }
+    private boolean checkUrlConnection(String url) {
+        try {
+            URL urlObj = new URL(url);
+            HttpURLConnection oc = (HttpURLConnection) urlObj.openConnection();
+            oc.setUseCaches(false);
+            oc.setConnectTimeout(3000);
+            int status = oc.getResponseCode();
+            if (HttpURLConnection.HTTP_OK == status) {
+                return true;
             }
-            result.add(testResp);
+        } catch (Exception e) {
+            log.error("can not access url : {}", url, e);
         }
-        return result;
+        return false;
     }
 
     @Override

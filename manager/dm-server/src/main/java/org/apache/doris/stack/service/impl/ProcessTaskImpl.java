@@ -147,12 +147,8 @@ public class ProcessTaskImpl implements ProcessTask {
         Preconditions.checkArgument(!taskEntity.getStatus().typeIsRunning(), "task is running,can not skip");
         if (taskEntity.getStatus().typeIsFailure()) {
             taskEntity.setFinish(Flag.YES);
+            taskEntity.setSkip(Flag.YES);
             taskInstanceRepository.save(taskEntity);
-        }
-        if (TaskTypeEnum.INSTALL_AGENT.equals(taskEntity.getTaskType())) {
-            //remove agent from db
-            agentComponent.removeAgent(taskEntity.getHost());
-            agentCache.removeAgent(taskEntity.getHost());
         }
     }
 

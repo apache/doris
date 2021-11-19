@@ -45,6 +45,7 @@ import org.apache.doris.stack.constants.ExecutionStatus;
 import org.apache.doris.stack.constants.Flag;
 import org.apache.doris.stack.constants.ProcessTypeEnum;
 import org.apache.doris.stack.constants.TaskTypeEnum;
+import org.apache.doris.stack.dao.TaskInstanceRepository;
 import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.entity.ProcessInstanceEntity;
@@ -103,6 +104,9 @@ public class AgentProcessImpl implements AgentProcess {
     private TaskInstanceComponent taskInstanceComponent;
 
     @Autowired
+    private TaskInstanceRepository taskInstanceRepository;
+
+    @Autowired
     private AuthenticationService authenticationService;
 
     @Autowired
@@ -133,6 +137,14 @@ public class AgentProcessImpl implements AgentProcess {
                 log.warn("agent {} already install doris {}", install.getHost(), install.getRole());
                 continue;
             }
+
+            //check parent task has skipped
+            boolean parentTaskSkip = checkParentTaskSkip(installReq.getProcessId(), install.getHost(), TaskTypeEnum.INSTALL_AGENT);
+            if (parentTaskSkip) {
+                log.info("host {} parent install agent task has skipped,so the current install {} task is also skipped", install.getHost(), install.getRole());
+                continue;
+            }
+
             String installDir = process.getInstallDir();
             if (!installDir.endsWith(File.separator)) {
                 installDir = installDir + File.separator;
@@ -143,6 +155,20 @@ public class AgentProcessImpl implements AgentProcess {
             agentRoleComponent.saveAgentRole(new AgentRoleEntity(install.getHost(), install.getRole(), install.getFeNodeType(), installDir, Flag.NO));
             log.info("agent {} installing doris {}", install.getHost(), install.getRole());
         }
+    }
+
+    /**
+     * In the current installation progress,
+     * check whether there are skipped tasks in the predecessor tasks on the same host
+     */
+    private boolean checkParentTaskSkip(int processId, String host, TaskTypeEnum parentTask) {
+        List<TaskInstanceEntity> taskEntities = taskInstanceRepository.queryTasksByProcessId(processId);
+        for (TaskInstanceEntity task : taskEntities) {
+            if (!task.getSkip().typeIsYes() && host.equals(task.getHost()) && task.getTaskType().equals(parentTask)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void installDoris(int processId, DorisInstall install, String packageUrl, String installDir) {
@@ -190,40 +216,45 @@ public class AgentProcessImpl implements AgentProcess {
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(deployConfigReq.getProcessId(), ProcessTypeEnum.DEPLOY_CONFIG);
         List<DeployConfig> deployConfigs = deployConfigReq.getDeployConfigs();
-        for (DeployConfig config : deployConfigs) {
-            deployConf(process.getId(), config);
-            log.info("agent {} deploy {} conf", config.getHost(), config.getRole());
-        }
-    }
+        for (DeployConfig deployConf : deployConfigs) {
+            if (StringUtils.isBlank(deployConf.getConf())) {
+                return;
+            }
+            Base64.Encoder encoder = Base64.getEncoder();
+            try {
+                deployConf.setConf(new String(encoder.encode(deployConf.getConf().getBytes()), "UTF-8"));
+            } catch (UnsupportedEncodingException e) {
+                log.error("conf {} can not encoding:", deployConf.getConf(), e);
+            }
+            CommandRequest creq = new CommandRequest();
+            TaskInstanceEntity deployTask = new TaskInstanceEntity(process.getId(), deployConf.getHost(), ProcessTypeEnum.DEPLOY_CONFIG);
+            if (ServiceRole.FE.name().equals(deployConf.getRole())) {
+                WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
+                feConf.setContent(deployConf.getConf());
+                feConf.setCreateMetaDir(true);
+                creq.setBody(JSON.toJSONString(feConf));
+                creq.setCommandType(CommandType.WRITE_FE_CONF.name());
+                deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
+            } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
+                WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
+                beConf.setContent(deployConf.getConf());
+                beConf.setCreateStorageDir(true);
+                creq.setBody(JSON.toJSONString(beConf));
+                creq.setCommandType(CommandType.WRITE_BE_CONF.name());
+                deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
+            } else {
+                throw new ServerException("The service deploy config is not currently supported");
+            }
 
-    private void deployConf(int processId, DeployConfig deployConf) {
-        if (StringUtils.isBlank(deployConf.getConf())) {
-            return;
+            //check parent task skipped
+            boolean parentTaskSkip = checkParentTaskSkip(deployConfigReq.getProcessId(), deployConf.getHost(), TaskTypeEnum.DEPLOY_FE_CONFIG);
+            if (parentTaskSkip) {
+                log.info("host {} parent install {} task has skipped,so the current deploy {} config task is also skipped", deployConf.getHost(), deployConf.getRole(), deployConf.getRole());
+                continue;
+            }
+            handleAgentTask(deployTask, creq);
+            log.info("agent {} deploy {} conf", deployConf.getHost(), deployConf.getRole());
         }
-        Base64.Encoder encoder = Base64.getEncoder();
-        try {
-            deployConf.setConf(new String(encoder.encode(deployConf.getConf().getBytes()), "UTF-8"));
-        } catch (UnsupportedEncodingException e) {
-            log.error("conf {} can not encoding:", deployConf.getConf(), e);
-        }
-        CommandRequest creq = new CommandRequest();
-        TaskInstanceEntity deployTask = new TaskInstanceEntity(processId, deployConf.getHost(), ProcessTypeEnum.DEPLOY_CONFIG);
-        if (ServiceRole.FE.name().equals(deployConf.getRole())) {
-            WriteFeConfCommandRequestBody feConf = new WriteFeConfCommandRequestBody();
-            feConf.setContent(deployConf.getConf());
-            feConf.setCreateMetaDir(true);
-            creq.setBody(JSON.toJSONString(feConf));
-            creq.setCommandType(CommandType.WRITE_FE_CONF.name());
-            deployTask.setTaskType(TaskTypeEnum.DEPLOY_FE_CONFIG);
-        } else if (ServiceRole.BE.name().equals(deployConf.getRole())) {
-            WriteBeConfCommandRequestBody beConf = new WriteBeConfCommandRequestBody();
-            beConf.setContent(deployConf.getConf());
-            beConf.setCreateStorageDir(true);
-            creq.setBody(JSON.toJSONString(beConf));
-            creq.setCommandType(CommandType.WRITE_BE_CONF.name());
-            deployTask.setTaskType(TaskTypeEnum.DEPLOY_BE_CONFIG);
-        }
-        handleAgentTask(deployTask, creq);
     }
 
     @Override
@@ -235,7 +266,6 @@ public class AgentProcessImpl implements AgentProcess {
         Preconditions.checkArgument(success, "The configuration was not successfully delivered and the service could not be started");
 
         ProcessInstanceEntity process = processInstanceComponent.refreshProcess(dorisStart.getProcessId(), ProcessTypeEnum.START_SERVICE);
-
         String leaderFe = getLeaderFeHostPort(process.getClusterId(), request);
         List<DorisStart> dorisStarts = dorisStart.getDorisStarts();
         for (DorisStart start : dorisStarts) {
@@ -246,6 +276,7 @@ public class AgentProcessImpl implements AgentProcess {
             }
             CommandRequest creq = new CommandRequest();
             TaskInstanceEntity execTask = new TaskInstanceEntity(process.getId(), start.getHost(), ProcessTypeEnum.START_SERVICE);
+            TaskTypeEnum parentTask = null;
             switch (commandType) {
                 case START_FE:
                     FeStartCommandRequestBody feBody = new FeStartCommandRequestBody();
@@ -254,9 +285,11 @@ public class AgentProcessImpl implements AgentProcess {
                     }
                     creq.setBody(JSON.toJSONString(feBody));
                     execTask.setTaskType(TaskTypeEnum.START_FE);
+                    parentTask = TaskTypeEnum.DEPLOY_FE_CONFIG;
                     break;
                 case START_BE:
                     execTask.setTaskType(TaskTypeEnum.START_BE);
+                    parentTask = TaskTypeEnum.DEPLOY_BE_CONFIG;
                     break;
                 default:
                     log.error("not support command: {}", commandType.name());
@@ -264,6 +297,12 @@ public class AgentProcessImpl implements AgentProcess {
             }
             creq.setCommandType(commandType.name());
 
+            //check parent task has skipped
+            boolean parentTaskSkip = checkParentTaskSkip(process.getId(), start.getHost(), parentTask);
+            if (parentTaskSkip) {
+                log.info("host {} parent deploy config {} task has skipped,so the current start {} task is also skipped", start.getHost(), start.getRole(), start.getRole());
+                continue;
+            }
             handleAgentTask(execTask, creq);
             log.info("agent {} starting {} ", start.getHost(), start.getRole());
         }
@@ -363,6 +402,11 @@ public class AgentProcessImpl implements AgentProcess {
             TaskInstanceEntity joinBeTask = taskInstanceComponent.saveTask(process.getId(), be, ProcessTypeEnum.BUILD_CLUSTER, TaskTypeEnum.JOIN_BE, ExecutionStatus.SUBMITTED);
             if (joinBeTask == null) {
                 return;
+            }
+            boolean parentTaskSkip = checkParentTaskSkip(beJoinReq.getProcessId(), be, TaskTypeEnum.START_BE);
+            if (parentTaskSkip) {
+                log.info("host {} parent start be task has skipped,so the current add be to cluster task is also skipped", be);
+                continue;
             }
             BeJoin beJoin = new BeJoin(aliveAgent.getHost(), queryPort, be, agentPort);
             joinBeTask.setTaskJson(JSON.toJSONString(beJoin));

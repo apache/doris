@@ -21,8 +21,6 @@ import org.apache.doris.stack.entity.AgentEntity;
 import org.apache.doris.stack.entity.AgentRoleEntity;
 import org.apache.doris.stack.model.request.AgentInstallReq;
 import org.apache.doris.stack.model.request.AgentRegister;
-import org.apache.doris.stack.model.request.TestConnectionReq;
-import org.apache.doris.stack.model.response.TestConnectionResp;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -37,11 +35,6 @@ public interface ServerProcess {
      * install agent
      */
     int installAgent(HttpServletRequest request, HttpServletResponse response, AgentInstallReq agentInstallReq) throws Exception;
-
-    /**
-     * test connection and check jdk
-     */
-    List<TestConnectionResp> testConnection(HttpServletRequest request, HttpServletResponse response, TestConnectionReq testConReq);
 
     /**
      * agent list

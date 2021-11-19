@@ -17,6 +17,7 @@
 
 package org.apache.doris.stack.shell;
 
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.doris.stack.exceptions.ServerException;
@@ -34,6 +35,7 @@ import java.util.Set;
  * ssh
  **/
 @Slf4j
+@Data
 public class SSH extends BaseCommand {
 
     private String user;
@@ -70,7 +72,7 @@ public class SSH extends BaseCommand {
         }
     }
 
-    public static void chmodSshKey(File sshKeyFile) {
+    private static void chmodSshKey(File sshKeyFile) {
         // chmod ssh key file permission to 600
         try {
             Set<PosixFilePermission> permission = new HashSet<>();
@@ -86,8 +88,8 @@ public class SSH extends BaseCommand {
     /**
      * build sshkeyfile
      */
-    public static File buildSshKeyFile() {
-        File sshKeyFile = new File("conf", "sshkey");
+    public static File buildSshKeyFile(String fileName) {
+        File sshKeyFile = new File("conf", fileName);
         return sshKeyFile;
     }
 
