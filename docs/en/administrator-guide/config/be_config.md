@@ -192,6 +192,12 @@ This configuration is mainly used to modify the parameter `socket_max_unwritten_
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
 
+### `brpc_request_transfer_attachment`
+
+* Type: bool
+* Description: This configuration is used to control whether brpc transfers RowBatch in Proto Request to Controller Attachment.
+* Default value: false
+
 ### `brpc_num_threads`
 
 This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.

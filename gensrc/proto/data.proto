@@ -40,6 +40,7 @@ message PRowBatch {
     repeated int32 tuple_offsets = 3;
     required bytes tuple_data = 4;
     required bool is_compressed = 5;
+    optional int64 tuple_data_size = 6;
 }
 
 message PColumn {
