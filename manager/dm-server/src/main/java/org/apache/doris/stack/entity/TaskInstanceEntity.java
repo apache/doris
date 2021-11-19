@@ -107,11 +107,13 @@ public class TaskInstanceEntity {
         this.processType = processType;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
     }
 
     public TaskInstanceEntity(String host) {
         this.host = host;
         this.startTime = new Date();
         this.finish = Flag.NO;
+        this.skip = Flag.NO;
     }
 }

@@ -155,7 +155,7 @@ public class ProcessTaskImpl implements ProcessTask {
     @Override
     public void retryTask(int taskId) {
         TaskInstanceEntity taskEntity = taskInstanceComponent.queryTaskById(taskId);
-        Preconditions.checkNotNull(taskId, "task not exist");
+        Preconditions.checkNotNull(taskEntity, "task not exist");
         Preconditions.checkArgument(!taskEntity.getFinish().typeIsYes(), "task is finish,can not retry");
         Preconditions.checkArgument(!taskEntity.getStatus().typeIsRunning(), "task is running,can not retry");
         TaskTypeEnum taskType = taskEntity.getTaskType();

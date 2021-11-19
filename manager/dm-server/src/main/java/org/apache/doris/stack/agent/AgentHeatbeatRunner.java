@@ -68,10 +68,10 @@ public class AgentHeatbeatRunner implements ApplicationRunner {
         List<AgentEntity> agents = agentRepository.findAll();
         for (AgentEntity agent : agents) {
             Date lastReportedTime = agent.getLastReportedTime();
-            long diff = HEALTH_TIME + 1;
-            if (lastReportedTime != null) {
-                diff = currTime - lastReportedTime.getTime();
+            if (lastReportedTime == null) {
+                continue;
             }
+            long diff = currTime - lastReportedTime.getTime();
             if (diff > HEALTH_TIME) {
                 agent.setStatus(AgentStatus.STOP);
                 agentRepository.save(agent);

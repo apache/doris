@@ -89,6 +89,9 @@ public class ServerProcessImpl implements ServerProcess {
         int userId = authenticationService.checkAllUserAuthWithCookie(request, response);
         checkAgentInstall(installReq);
         ProcessInstanceEntity processInstance = new ProcessInstanceEntity(installReq.getClusterId(), userId, ProcessTypeEnum.INSTALL_AGENT, installReq.getPackageUrl(), installReq.getInstallDir());
+        if (installReq.getProcessId() > 0) {
+            processInstance.setId(installReq.getProcessId());
+        }
         int processId = processInstanceComponent.saveProcess(processInstance);
         //install agent for per host
         for (String host : installReq.getHosts()) {

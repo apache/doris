@@ -41,7 +41,7 @@ public class ProcessInstanceComponent {
      * save process and return id
      */
     public int saveProcess(ProcessInstanceEntity processInstance) {
-        checkHasUnfinishProcess(processInstance.getUserId(), -1);
+        checkHasUnfinishProcess(processInstance.getUserId(), processInstance.getId());
         return processInstanceRepository.save(processInstance).getId();
     }
 
@@ -49,7 +49,9 @@ public class ProcessInstanceComponent {
      * check process is finished
      */
     public void checkProcessFinish(int processId) {
-        ProcessInstanceEntity processEntity = processInstanceRepository.getById(processId);
+        Optional<ProcessInstanceEntity> optional = processInstanceRepository.findById(processId);
+        Preconditions.checkArgument(optional.isPresent(), "install process is not exist");
+        ProcessInstanceEntity processEntity = optional.get();
         if (Flag.YES.equals(processEntity.getFinish())) {
             throw new ServerException("install process " + processId + "is already finish");
         }
